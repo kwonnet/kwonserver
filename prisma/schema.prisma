@@ -1,0 +1,596 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator json {
+  provider = "prisma-json-types-generator"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                    String            @id @default(cuid())
+  name                  String
+  username              String            @unique
+  email                 String            @unique
+  avatar                String?
+  password              String?
+  telId                 String
+  country               String?
+  role                  UserRoleEnum      @default(USER)
+  status                UserStatus?       @default(ACTIVE)
+  userType              UserTypeEnum?      @default(INDIVIDUAL)
+  isVerified            Boolean           @default(false) // Indicates if email is verified
+  identityVerified      Boolean           @default(false) // Indicates if identity is verified
+  accountVerified       Boolean           @default(false) // Indicates if account is verified for reaching a milestone like 1M followers and given badge
+  accountVerifiedAt     DateTime?
+  identityVerifiedAt    DateTime?
+  verifiedAt            DateTime?
+  /// [UserMeta]
+  meta                  Json?              @default("{\"type\": \"LEGACY\", \"status\": \"INACTIVE\", \"color\": \"blue\"}")
+  metadata              Json[]            @default([])
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  wallet                Wallet?
+  creatorGames          Game[]
+  creatorGameRooms      GameRoom[]
+  creatorCategories     GameCategory[]
+  creatorCoinPackages   CoinPackage[]
+  creatorTasks          Task[]
+  performedTasks        UserTask[]
+  creatorGameMilestones GameMilestone[]
+  gameYearStats         GameYearStat[]
+  gameMonthStats        GameMonthStat[]
+  gameAchievements      GameAchievement[]
+  gameEnergies          GameEnergy[]
+  revenues              Revenue[]
+  transactions          Transaction[]
+  transactionsSent      Transaction[]     @relation("Sender")
+  transactionsReceived  Transaction[]     @relation("Recipient")
+  walletAddress         WalletAddress[]
+  cryptoAddreses        CryptoAddress[]
+  referralsSent         Referral[]        @relation("ReferralsSent") // Referrals this user initiated
+  referralsReceived     Referral[]        @relation("ReferralsReceived") // Referrals this user received
+  subscriptions         Subscription[]
+  transactionLogs       TransactionLogs[]
+}
+
+model SubscriptionPlan {
+  id            String         @id @default(cuid()) // Unique subscription plan ID
+  name          String         
+  price         Float // Monthly base price
+  discount      Float // Discount for yearly plans (e.g., 0.1 for 10% off)
+  accountType   UserTypeEnum
+  /// [PlanTier]
+  tier          Json[]         @default([])
+  subscriptions Subscription[]
+  features      PlanFeature[]  
+  transactions Transaction[]
+  createdAt     DateTime       @default(now()) // Timestamp when plan was created
+  updatedAt     DateTime       @updatedAt // Timestamp of last plan update
+}
+
+model PlanFeature {
+  id           String         @id @default(cuid()) // Unique feature ID
+  name         String 
+  /// [PlanFeature]        
+  items        Json[]
+  planId       String
+  plan         SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id            String            @id @default(cuid()) // Unique subscription ID
+  userId        String // Foreign key for the user who subscribes
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId        String // Foreign key for the subscription plan
+  plan          SubscriptionPlan  @relation(fields: [planId], references: [id], onDelete: Cascade)
+  isPrimary     Boolean           @default(false)
+  isRecurring   Boolean           @default(false)
+  startDate     DateTime          // Date the subscription started
+  endDate       DateTime          // Date the subscription ends (calculated)
+  billingCycle  BillingCycleEnum  @default(MONTHLY) // monthly or yearly billing cycle
+  status        SubStatusEnum     @default(ACTIVE)
+  transactions  Transaction[]
+  meta          Json?
+  metadata      Json[]            @default([])
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model Revenue {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id") // Relates to the User
+  amount    Float // Revenue earned by the user
+  source    String // Source of revenue (e.g., 'ads', 'content creation')
+  isPaid    Boolean  @default(false) // Indicates if the payout has been made
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CoinPackage {
+  id           String        @id @default(cuid())
+  name         String
+  amount       Float
+  price        Float
+  bonus        Float
+  isActive     Boolean       @default(true)
+  endDate      DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  transactions Transaction[]
+  transactionLogs TransactionLogs[]
+  userId       String?
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Wallet {
+  id           String        @id @default(cuid())
+  credit       Float         @default(0) // Credit that can be withrawn by the user 
+  amount       Float         @default(0) // Coins purchased by the user
+  bonus        Float         @default(0) // Interaction-based rewards
+  userId       String        @unique @map("user_id")
+  isLocked     Boolean?      @default(false)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  transactions Transaction[]
+}
+
+model Transaction {
+  id             String           @id @default(cuid())
+  txnRef         String
+  exTxnRef       String?
+  userId         String?          @map("user_id") // Relates to the User
+  user           User?            @relation(fields: [userId], references: [id])
+  senderId       String? // Nullable for system-initiated transactions
+  sender         User?            @relation("Sender", fields: [senderId], references: [id])
+  recipientId    String? // Nullable for transactions without a recipient (e.g., fee deductions)
+  recipient      User?            @relation("Recipient", fields: [recipientId], references: [id])
+  type           TxnTypeEnum
+  amount         Float // The amount involved in the transaction (coins, credits, etc.)
+  source         TxnSourceEnum // Type of balance used (e.g., 'bonus', 'amount', 'credit', etc.)
+  description    String
+  category       TxnCategoryEnum // The category of the transaction (e.g., 'game-deduction', 'purchase', 'gift', 'subscription')
+  metadata       Json? // Any other data for specific transactions (e.g., game round ID, item ID, content ID, etc.)
+  gateway        TxnGatewayEnum
+  currency       TxnCurrencyEnum
+  status         TxnStatusEnum
+  walletId       String?
+  wallet         Wallet?          @relation(fields: [walletId], references: [id])
+  coinPackageId  String?
+  package        CoinPackage?     @relation(fields: [coinPackageId], references: [id])
+  achievementId  String?          @unique
+  achievement    GameAchievement?
+  subscriptionId String?
+  subscription   Subscription?    @relation(fields: [subscriptionId], references: [id])
+  subPlanId      String?
+  subPlan        SubscriptionPlan?    @relation(fields: [subPlanId], references: [id])
+  taskId         String?
+  task           Task?            @relation(fields: [taskId], references: [id])
+  
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model TransactionLogs {
+  id             String         @id @default(cuid())
+  userId         String?        @map("user_id")
+  coinPackageId  String?
+  package        CoinPackage?   @relation(fields: [coinPackageId], references: [id])
+  meta           Json?
+  user           User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Game {
+  id          String         @id @default(cuid())
+  name        String
+  description String
+  thumbnail   String?
+  userId      String?        @map("user_id")
+  user        User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categories  GameCategory[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model GameCategory {
+  id                   String                @id @default(cuid())
+  name                 String
+  description          String
+  thumbnail            String?
+  gameId               String
+  game                 Game                  @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  userId               String?               @map("user_id")
+  user                 User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rooms                GameRoom[]
+  gameYearStats        GameYearStat[]
+  gameMonthStats       GameMonthStat[]
+  gameEnergy           GameEnergy[]
+  gameAchievements     GameAchievement[]
+  gameMonthRewardStats GameMonthRewardStat[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+}
+
+model GameRoom {
+  id          String       @id @default(cuid())
+  name        String
+  description String
+  thumbnail   String?
+  capacity    Int          @default(20)
+  userId      String?      @map("user_id")
+  user        User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  catId       String       @map("cat_id")
+  category    GameCategory @relation(fields: [catId], references: [id], onDelete: Cascade)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model GameMonthStat {
+  id        String       @id @default(cuid())
+  catId     String
+  category  GameCategory @relation(fields: [catId], references: [id], onDelete: Cascade)
+  year      Int
+  month     Int
+  playerId  String
+  player    User         @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  rank      Int          @default(0)
+  score     Int          @default(0)
+  numPlayed Int          @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  gameAchievements GameAchievement[]
+
+  @@unique([playerId, catId, year, month]) // Unique entry for each player in a category for a given month
+  @@index([catId, year, month]) // Index for queries by category and time period
+}
+
+model GameYearStat {
+  id               String            @id @default(cuid())
+  catId            String
+  category         GameCategory      @relation(fields: [catId], references: [id], onDelete: Cascade)
+  year             Int
+  playerId         String
+  player           User              @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  rank             Int               @default(0)
+  score            Int               @default(0)
+  numPlayed        Int               @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  gameAchievements GameAchievement[]
+
+  @@unique([playerId, catId, year]) // Unique entry for each player in a category for a given year
+  @@index([catId, year]) // Index for queries by category and year
+}
+
+model GameMonthRewardStat {
+  id                       String       @id @default(cuid())
+  totalParticipants        Float // Total participants under the game category
+  rewardParticipants       Float // No of participants rewarded under the game category
+  coinsRewardParticipants  Float // No of participants rewarded coins under the game category 
+  creditRewardParticipants Float // No of participants rewarded credit under the game category
+  bonusRewardParticipants  Float // No of participants rewarded bonus under the game category
+  creditParticipantsScore  Float // Total score by the credit participants
+  coinsParticipantsScore   Float // Total score by the coins participants
+  bonusParticipantsScore   Float // Total score by the bonus participants
+  numPlayed                Float // Number of times played
+  coinsSpent               Float // Amount of coins spent in the game
+  bonusSpent               Float // Amount of bonus spent in the game
+  creditShareAmount        Float // Amount of credit shared to the credit reward participant
+  coinsShareAmount         Float // Amount of coins shared to the coins reward participant
+  bonusShareAmount         Float // Amount of credit shared to the bonus reward participant
+  rewardParticipantsScore  Float // Total score of rewarded participants
+  totalScore               Float // Total score of the participants under the game category
+  year                     Int // Year of the game category
+  month                    Int // Month of the game category
+  catId                    String
+  category                 GameCategory @relation(fields: [catId], references: [id], onDelete: Cascade)
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+}
+
+model GameMilestone {
+  id           String            @id @default(cuid())
+  name         MilestoneNameEnum
+  reason       RewardReasonEnum
+  thumbnail    String?
+  milestone    Int
+  reward       Int
+  rewardType   RewardTypeEnum
+  userId       String?           @map("user_id")
+  user         User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievements GameAchievement[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model GameAchievement {
+  id          String           @id @default(cuid())
+  reason      RewardReasonEnum
+  description String
+  thumbnail   String?
+  metadata    Json?
+  amount      Float
+  rewardType  RewardTypeEnum
+  txnId       String?          @unique
+  transaction Transaction?     @relation(fields: [txnId], references: [id], onDelete: Cascade)
+  catId       String?
+  category    GameCategory?    @relation(fields: [catId], references: [id], onDelete: Cascade)
+  playerId    String
+  player      User             @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  monthStatId String?          @map("month_stat_id") // Link to monthly stat
+  monthStat   GameMonthStat?   @relation(fields: [monthStatId], references: [id])
+  yearStatId  String?          @map("year_stat_id") // Link to yearly stat
+  yearStat    GameYearStat?    @relation(fields: [yearStatId], references: [id])
+  milestoneId String?
+  milestone   GameMilestone?   @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  // @@unique([playerId, milestoneId, catId]) // Ensure uniqueness per category for each player and milestone
+}
+
+model GameEnergy {
+  id        String        @id @default(cuid())
+  amount    Int
+  gauge     Int
+  turbo     Int
+  playerId  String
+  player    User          @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  catId     String        @map("cat_id")
+  category  GameCategory? @relation(fields: [catId], references: [id])
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  reward      Float
+  rewardType  RewardTypeEnum
+  title       String
+  description String
+  url         String
+  code        String?
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  performedBy UserTask[]
+  transactions Transaction[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model UserTask {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId      String
+  task        Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  status      TaskStatus @default(COMPLETED) // Track task performance status
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+// this will define app crypto addresses to receive transactions
+model CryptoAddress {
+  id        String     @id @default(cuid())
+  name      CryptoName
+  rate      Float
+  address   String
+  userId    String?
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  metadata  Json?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+// this will save users crypto addresses
+model WalletAddress {
+  id        String     @id @default(cuid())
+  name      CryptoName
+  address   String
+  isPrimary Boolean    @default(false)
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  metadata  Json[]     @default([])
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+// this model handles referral
+model Referral {
+  id           String   @id @default(cuid())
+  referrerId   String // The referring user
+  refereeId    String // The referred user
+  isRewarded   Boolean  @default(false) // issued for this referral
+  referrer     User     @relation("ReferralsSent", fields: [referrerId], references: [id], onDelete: Cascade)
+  referee      User     @relation("ReferralsReceived", fields: [refereeId], references: [id], onDelete: Cascade)
+  rewardAmount Float?   @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([referrerId, refereeId]) // Enforce unique referrals
+}
+
+enum UserStatus {
+  ACTIVE
+  BANNED
+  SUSPENDED
+}
+
+enum UserTypeEnum {
+  INDIVIDUAL
+  ORGANIZATION
+  GOVERNMENT
+}
+
+enum BillingCycleEnum {
+  MONTHLY
+  YEARLY
+}
+
+enum SubStatusEnum {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  TRIAL
+  PAYMENT_ERROR
+  PAUSED
+  REVIEW
+}
+
+enum CryptoName {
+  TON
+}
+
+enum CoinStatus {
+  FAILED
+  PAID
+  REFUNDED
+  ERROR
+}
+
+enum TaskStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum GameType {
+  MULTIPLAYER
+  SINGLE
+}
+
+enum RewardReasonEnum {
+  // room winning streaks
+  FIVE_WINNING_STREAK
+  TEN_WINNING_STREAK
+  TWENTY_WINNING_STREAK
+  FIFTY_WINNING_STREAK
+  HUNDRED_WINNING_STREAK
+  // top week
+  TOP_OF_THE_WEEK
+  FIRST_RUNNER_UP_OF_THE_WEEK
+  SECOND_RUNNER_UP_OF_THE_WEEK
+  // top month
+  TOP_OF_THE_MONTH
+  FIRST_RUNNER_UP_OF_THE_MONTH
+  SECOND_RUNNER_UP_OF_THE_MONTH
+  // month winning streak
+  THREE_MONTHS_WINNING_STREAK
+  SIX_MONTHS_WINNING_STREAK
+  NINE_MONTHS_WINNING_STREAK
+  TWELVE_MONTHS_WINNING_STREAK
+  // top year
+  TOP_OF_THE_YEAR
+  FIRST_RUNNER_UP_OF_THE_YEAR
+  SECOND_RUNNER_UP_OF_THE_YEAR
+  // overall champ of the year
+  CHAMP_OF_THE_YEAR
+  GRAND_CHAMP_OF_THE_YEAR
+}
+
+enum RewardTypeEnum {
+  COINS
+  BONUS
+  CREDIT
+}
+
+enum MilestoneNameEnum {
+  ROOM_STREAK
+  WEEK
+  YEAR
+  MONTH
+  CHAMP
+  GRAND_CHAMP
+  MONTH_STREAK
+}
+
+enum RevenueSourceEnum {
+  ADS_REVENUE
+  GAME_REVENUE
+  CONTEST_REVENUE
+}
+
+enum TxnCurrencyEnum {
+  TZX
+  TON
+  XTR
+  USDT
+  USD
+  NGN
+  FIAT
+  COINS
+}
+
+enum TxnTypeEnum {
+  DEBIT
+  CREDIT
+}
+
+enum TxnSourceEnum {
+  COINS
+  BONUS
+  COINS_BONUS
+  STARS
+  CREDIT
+  FIAT
+  CRYPTO
+  VIRTUAL
+}
+
+enum TxnCategoryEnum {
+  GAME_DEDUCTION
+  GAME_BONUS
+  GAME_REVENUE
+  COIN_PURCHASE
+  COIN_TRANSFER
+  COIN_RECEIVED
+  COIN_WITHDRAWAL
+  GIFT_PURCHASE
+  GIFT_SENT
+  GIFT_RECEIVED
+  APP_SUBSCRIPTION
+  GAME_SUBSCRIPTION
+  GAME_WEEKLY_REWARD
+  GAME_MONTHLY_REWARD
+  GAME_YEARLY_REWARD
+  DAILY_BONUS
+  APP_TASK
+}
+
+enum TxnGatewayEnum {
+  WALLET
+  FLUTTERWAVE
+  PAYSTACK
+  CRYPTO
+  VIRTUAL
+  SMART_GLOCAL
+  UNLIMINT
+  STARS
+}
+
+enum TxnStatusEnum {
+  COMPLETED
+  PROCESSING
+  FAILED
+  REFUNDED
+}
+
+enum UserRoleEnum {
+  SUPER
+  ADMIN
+  USER
+}

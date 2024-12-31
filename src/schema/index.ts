@@ -1,0 +1,216 @@
+import { boolean, object, string } from "zod";
+import { BillingCycleEnum, CryptoName, RewardTypeEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum } from "@prisma/client";
+import { z } from "zod";
+import { PlanTypeEnum, TmaPaymentGateway } from "@/types";
+
+export const authZodSchema = z
+  .object({
+    authDate: z.string().trim(),
+    chatInstance: z.string().trim().optional(),
+    chatType: z.string().trim().optional(),
+    hash: z.string().trim(),
+    user: z.object({
+      allowsWriteToPm: z.boolean(),
+      firstName: z.string().trim(),
+      id: z.number(),
+      languageCode: z.string().trim(),
+      lastName: z.string().trim().optional(),
+      photoUrl: z.string().trim(),
+      username: z.string().trim(),
+    }),
+  })
+  .passthrough();
+
+export const purchaseCoinsZodSchema = z
+  .object({
+    packageId: z.string().trim(),
+    currency: z.nativeEnum(TxnCurrencyEnum, { required_error: "Txn currency is invalid"}),
+    meta: z.object({
+      isFlw: z.boolean().optional(),// check if it is flutterwave payment
+      from: z.string().trim().optional(),
+      to: z.string().trim().optional(),
+      amount: z.number(),
+      gateway: z.nativeEnum(TxnGatewayEnum, { required_error: "Txn gateway is invalid" }),
+      source: z.nativeEnum(TxnSourceEnum, { required_error: "Txn source is invalid" }),
+      currency: z.nativeEnum(TxnCurrencyEnum, { required_error: "Txn currency is invalid"}),
+      hash: z.string().trim().optional(),
+      extHash: z.string().trim().optional(),
+      status: z.string().trim().optional(),
+      botTxnRef: z.string().trim().optional(),
+    }).passthrough().optional(),
+  })
+  .passthrough();
+
+  export const TmaInvoiceZodSchema = z.object({
+    id: z.string({ required_error: "ID of the coin package must be provided" }).trim(),
+    botTxnRef: z.string({ required_error: "Bot txn ID is required" }).trim(),
+    gateway: z.nativeEnum(TxnGatewayEnum, { required_error: "Gateway is invalid" }),
+  });
+
+  export const TmaSubscriptionInvoiceZodSchema = z.object({
+    planId: z.string({ required_error: "Plan Id must be provided" }).trim(),
+    tierId: z.string({ required_error: "Tier Id must be a string" }).trim().optional(),
+    botTxnRef: z.string({ required_error: "Bot txn ID is required" }).trim(),
+    amount: z.number({ required_error: "Amount must be a number" }),
+    gateway: z.nativeEnum(TxnGatewayEnum, { required_error: "Gateway is invalid" }),
+    planType: z.nativeEnum(PlanTypeEnum, { required_error: "Plan type is invalid" }),
+    currency: z.nativeEnum(TxnCurrencyEnum, { required_error: "Txn currency is invalid"}),
+    isRecurring: z.boolean(),
+    planName: z.string().trim(),
+  });
+
+  export const purchasePremiumZodSchema = z
+  .object({
+    planId: z.string().trim(),
+    planName: z.string().trim(),
+    amount: z.number(),
+    planType: z.nativeEnum(BillingCycleEnum, {
+      required_error: "Plan type is invalid",
+    }), 
+    isRecurring: z.boolean(),
+    currency: z.nativeEnum(TxnCurrencyEnum, {
+      required_error: "Currency is invalid",
+    }),
+    source: z.nativeEnum(TxnSourceEnum, {
+      required_error: "Source is invalid",
+    }),
+    gateway: z.nativeEnum(TxnGatewayEnum, { required_error: "Gateway is invalid" }),
+    meta: z.object({
+      from: z.string().trim().optional(),
+      to: z.string().trim().optional(),
+      hash: z.string().trim().optional(),
+      extHash: z.string().trim().optional(),
+      status: z.string().trim().optional(),
+      price: z.number().optional(),
+      discount: z.number().optional(),
+      tierId: z.string().trim().optional(),
+    }).passthrough().optional(),
+  })
+  .passthrough();
+
+export const UserWalletAddressZodSchema = z.object({
+  address: z.string({ required_error: "address must be a string" }).trim(),
+  token: z.string({ required_error: "token must be a string" }).trim(),
+  name: z.nativeEnum(CryptoName, { required_error: "crypto name is invalid" }),
+});
+
+export const signInSchema = object({
+  email: string({ required_error: "Email is required" })
+    .min(1, "Email is required")
+    .email("Invalid email")
+    .toLowerCase()
+    .trim(),
+  password: string({ required_error: "Password is required" })
+    .min(1, "Password is required")
+    .min(8, "Password must be more than 8 characters")
+    .max(32, "Password must be less than 32 characters"),
+});
+
+export const TransferCoinsZodSchema = z.object({
+  senderId: z.string({ required_error: "senderId must be a string" }).trim(),
+  recipientId: z
+    .string({ required_error: "recipientId must be a string" })
+    .trim(),
+  amount: z
+    .number({ required_error: "amount must be a number" })
+    .min(100, { message: "Minimum transfer amount is 100 Coins" }),
+});
+
+export const WithdrawCoinsZodSchema = z.object({
+  userId: z.string({ required_error: "userId must be a string" }).trim(),
+  amount: z.number({ required_error: "amount must be a number" }),
+});
+
+export const FundCoinsZodSchema = z.object({
+  userId: z.string({ required_error: "userId must be a string" }).trim(),
+  amount: z.number({ required_error: "amount must be a number" }),
+  bonus: z.number({ required_error: "bonus must be a number" }),
+});
+
+export const DailyBonusZodSchema = z.object({
+  userId: z.string({ required_error: "userId must be a string" }).trim(),
+  bonus: z.number({ required_error: "bonus must be a number" }),
+});
+
+export const IDZodSchema = z.object({
+  id: z.string({ required_error: "ID must be a string" }).trim(),
+});
+
+export const DailyTaskZodSchema = z.object({
+  id: z.string({ required_error: "ID must be a string" }).trim(),
+  code: z.union([z.string({ required_error: "ID must be a string" }).trim().optional(), z.null(), z.undefined()])
+  .transform((val) => (val === "" || val == null ? undefined : val)),
+});
+
+export const PaginateZodSchema = z.object({
+  userId: z.string({ required_error: "userId must be a string" }).trim(),
+  limit: z
+    .number({ required_error: "limit must be a number" })
+    .min(10, { message: "Limit must be at least 10" }),
+  page: z
+    .number({ required_error: "page must be a number" })
+    .min(0, { message: "Page must be at least 0" }),
+});
+
+export const QuerySchema = z.object({
+  page: z
+    .string()
+    .optional()
+    .transform((val) => (val ? parseInt(val, 10) : 1))
+    .refine((val) => Number.isInteger(val) && val > 0, {
+      message: "Page must be a positive integer.",
+    }),
+  limit: z
+    .string()
+    .optional()
+    .transform((val) => (val ? parseInt(val, 10) : 50))
+    .refine((val) => Number.isInteger(val) && val > 0, {
+      message: "Limit must be a positive integer.",
+    }),
+});
+
+
+export const TaskZodSchema = z
+.object({
+  title: z.string({required_error: "title must be a string"}).trim().min(3, {message: "Title must be at least 3 characters"}).max(100, {message: "Title must be at most 100 characters"}),
+  code: z.string({required_error: "code must be a string"}).trim().optional(),
+  description: z.string({required_error: "description must be a string"}).trim().min(3, {message: "Description must be at least 3 characters"}).max(100, {message: "Description must be at most 500 characters"}),
+  url: z.string({required_error: "url must be valid"}).url({message: "url must be valid"}).trim(),
+  reward: z.union([z.string(), z.number()])
+  .refine((val) => !isNaN(Number(val)), {
+    message: "Reward must be a valid number.",
+  })
+  .transform((val) => Number(val)),
+  rewardType: z.nativeEnum(RewardTypeEnum, { required_error: "reward type must be of the above values"  })
+})
+
+
+export const FlutterwaveConfigZodSchema = z
+  .object({
+    public_key: z.string({required_error: "public_key is required & must be a string"}).trim(),
+    redirect_url: z.string({required_error: "redirect_url is required & must be a string"}).trim(),
+    tx_ref: z.string({required_error: "tx_ref is required & must be a string"}).trim(),
+    amount: z.number({required_error: "amount is required & must be a string"}),
+    currency: z.string({required_error: "currency is required & must be a string"}).trim(),
+    payment_options: z.string({required_error: "payment_options is required & must be a string"}).trim(),
+    customer: z.object({
+        email: z.string({required_error: "customer email is required & must be a string"}).trim(),
+        name: z.string({required_error: "customer name is required & must be a string"}).trim(),
+        phone_number: z.string({required_error: "customer phone_number is required & must be a string"}).trim(),
+    }),
+    customizations: z.object({
+      title: z.string({required_error: "customizations title is required & must be a string"}).trim(),
+      description: z.string({required_error: "customizations description is required & must be a string"}).trim(),
+      logo: z.string({required_error: "customizations logo is required & must be a string"}).trim()
+    }).passthrough(),
+    meta: z.object({
+        
+    }).passthrough(),
+  }).passthrough();
+
+  export const VerifyFlwPaymentZodSchema = z
+  .object({
+    status: z.string({required_error: "Status is required & must be a string"}).trim(),
+    tx_ref: z.string({required_error: "Txn Ref is required & must be a string"}).trim(),
+    transaction_id: z.string({required_error: "Txn ID is required & must be a string"}).trim()
+  }).passthrough();
