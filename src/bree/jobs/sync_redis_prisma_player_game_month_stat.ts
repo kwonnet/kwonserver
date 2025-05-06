@@ -1,10 +1,9 @@
 // Resolve path aliases
 import 'tsconfig-paths/register';
 import prisma from '@/db';
-import pino from 'pino'
 import redisClient from '@/redis';
 import { PromisePool } from "@supercharge/promise-pool"
-import { getCurrentMonthAndYear, getExpiryAtUTC, getMonthlyExpiration, getPlayerRedisKeys, getRankingKeys, getRemainingDaysInMonth } from '@/utils';
+import { getCurrentDataInfo, getExpiryAtUTC, getMonthlyExpiration, getPlayerRedisKeys, getRankingKeys, getRemainingDaysInMonth } from '@/utils';
 import { retryExecution } from '@/utils/helpers';
 import logger from '@/logger';
 
@@ -15,7 +14,7 @@ interface PlayerMonthStat {
   updatedAt: Date;
   catId: string;
   year: number;
-  month: string;
+  month: number;
   playerId: string;
   rank: number;
   score: number;
@@ -34,7 +33,7 @@ async function syncPlayerMonthStatToRedis(item: PlayerMonthStat) {
     const expire = getMonthlyExpiration();
     // get day after week expireAt
     const remainingDays = getRemainingDaysInMonth()
-    const expireAt = getExpiryAtUTC( remainingDays < 7 ? remainingDays + 1 : 8)
+    const expireAt = getExpiryAtUTC( remainingDays + 7 )
     const todayExpireAt = getExpiryAtUTC(1)
     // get ranking keys
     const rankingKeys = getRankingKeys(item.catId)
@@ -80,18 +79,18 @@ async function syncPlayerMonthStatToRedis(item: PlayerMonthStat) {
 
  const syncUserTxns = async() =>{
       try {
-        const stat = getCurrentMonthAndYear()
+        const stat = getCurrentDataInfo()
         const totalRecords = await prisma.gameMonthStat.count()
         logger.info(`About ${totalRecords} Prisma Player Month Stats Records Found`)
         let skip = 0
-        const take = 10000
+        const take = 500
         let counter = 0
         while (skip < totalRecords){
           counter++;
           logger.info(`<<<<Starting Batch ${counter} Records Syncing>>>>`)
           const monthData = await prisma.gameMonthStat.findMany({ where: stat, include: { player: { select: { username: true, id: true  } } }, take, skip, orderBy: [{id: "desc"}] })
           const { errors } = await PromisePool.for(monthData)
-            .withConcurrency(1000)
+            .withConcurrency(250)
             .useCorrespondingResults()
             .process(async (item) => {
               return await syncPlayerMonthStatToRedis(item);
@@ -107,6 +106,7 @@ async function syncPlayerMonthStatToRedis(item: PlayerMonthStat) {
         throw error
       }
   }
+  
 
 (async () => {
   try {

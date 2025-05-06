@@ -1,23 +1,11 @@
 // Resolve path aliases
 import 'tsconfig-paths/register';
-import pino from 'pino'
 import { retryExecution } from '@/utils/helpers';
 import redisClient from '@/redis';
 import { PromisePool } from "@supercharge/promise-pool"
 import prisma from '@/db';
 import { isDateMinuteElapsed } from '@/utils';
-
-const logger = pino({
-  transport: {
-    target: 'pino-pretty',
-    options: {
-      colorize: true, // Add colors
-      singleLine: false, // Format logs over multiple lines for readability
-      translateTime: true, // Show human-readable time
-    },
-  },
-})
-
+import logger from '@/logger';
 
 
 async function syncUserRedisWalletToPrisma(playerId: string) {

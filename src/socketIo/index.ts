@@ -8,25 +8,28 @@ import {
   getCountGamePlayers,
   getGameRoomPlayer,
   getGameRoomPlayersWithRank,
+  getTotalRoomParticipants,
   getTotalRoomPlayers,
-  getUserData,
+  insertAcronymGameRoomAnswer,
+  insertGameRoomVote,
+  insertWordMakerGameRoomAnswer,
   notifyGameRoomPlayers,
   saveGameRoomPlayerAnswer,
   updateGameRoom,
-  updateGameRoomParticipants,
   updatePlayerGameEnergy,
   updatePlayerSession,
-} from "@/services/games";
-import { GameActionEnum, GameEventEnum, GameStatusEnum, PlayerGameEnergy, ThemedGameAnswer, ThemedGameChoice } from "@/types";
-import { composeMessage, getAuthUser, jwtVerify } from "@/utils";
+} from "@/services/v1/games";
+import { AcronymGameAnswer, GameActionEnum, GameEventEnum, GameStatusEnum, GameType, PlayerGameEnergy, SocketGameRoom, GameRoomAnswer, User, GameCatType } from "@/types";
+import { composeMessage, getAuthTokenUser } from "@/utils";
+import { composeGameAnswer, getGameCatType, getGameType } from "@/services/helper";
+import logger from "@/logger";
 
 const socketIo = (httpServer: any) => {
   const io = new Server(httpServer, {
     cors: {
       origin: [
         "http://localhost:3000", 
-        "https://kelvins-macbook-pro.tailb614a8.ts.net",
-        "https://725xlp02-3000.usw3.devtunnels.ms"
+        "https://v5wgzfbw-3000.uks1.devtunnels.ms"
       ],
       methods: ["GET", "POST"],
       credentials: true,
@@ -38,20 +41,22 @@ const socketIo = (httpServer: any) => {
     try {
       const token = socket.handshake.auth?.token
       if (!token) return next(new Error("Unauthenticated user"));
-      const user = getAuthUser(token)
+      const user = getAuthTokenUser(token)
       // console.log("Authenticated Socket user ", user)
       if(!user) return next(new Error("Error: Unauthenticated user"));
       socket.data.user = {...user, name: user.username};
+      logger.info(`Socket io Authenticated - ${socket.id}`)
       next();
-    } catch (e) {
+    } catch (error) {
+      console.error("Error authenticating socket user: ", error);
       next(new Error("Error: Unauthenticated user"));
     }
   });
   // Set up socket connection
   io.on("connection", (socket) => {
+    logger.info(`Connected socket io - ${socket.id}`)
     // declare it globally
     socket.data.room = undefined;
-    console.log("a user connected");
     socket.on(
       GameEventEnum.PLAYER_JOINED,
       async (
@@ -63,21 +68,23 @@ const socketIo = (httpServer: any) => {
         }) => void
       ) => {
         console.log("Player joined ", roomId )
+        
         // perform checks
         // check if the room exists
         const room = await checkGameRoom(roomId);
         if (!room) {
-          ackCallback({
+          return ackCallback({
             isError: true,
-            message: "Room is does not exist",
+            message: "Room does not exist",
             code: "ER-1",
           });
-          return;
         }
         // check if a user previously joined any room
         const prevUser = await getGameRoomPlayer(socket.data.user.id);
+        console.log("prevUser ", prevUser)
         if (prevUser) {
-          io.to(prevUser.socketId).socketsLeave(prevUser.roomId);
+          socket.leave(prevUser.roomId)
+          // io.to(prevUser.socketId).socketsLeave(prevUser.roomId);
         }
         // add player to the room
         const result = await addGameRoomPlayer({
@@ -88,35 +95,55 @@ const socketIo = (httpServer: any) => {
           socketId: socket.id,
           name: socket.data.user.name,
           voteCount: 0,
-
         });
         if (!result?.data) {
-          ackCallback({
+          return ackCallback({
             isError: true,
             message: result?.message,
             code: "ER-2",
           });
-          return;
         }
+        // assigned room
+        roomId = result?.data?.room?.id
         // attach room to socket
-        socket.data.room = { id: room.id, catId: room.catId, name: room.name, gameId: room.category.gameId}
+        socket.data.room = { id: roomId, catId: room.catId, name: room.name, gameId: room.category.gameId}
         // join a socket to a room
         socket.join(roomId);
         // join the player id to a room to receive personal messages
         socket.join(socket.data.user.id);
         // acknowledge
         ackCallback({ isError: false, message: "User joined room" });
-        // update room participants
-        const currentPlayers = await updateGameRoomParticipants(roomId)
-        io.emit(GameEventEnum.GAME_ROOM_PARTICIPANTS, { roomId, count: currentPlayers });
         // count players
+        const parentRoomId = roomId.split("_")[0];
         const totalPlayers = await getTotalRoomPlayers(roomId)
+        const totalParticipants = await getTotalRoomParticipants(parentRoomId)
+        // update room participants
+        io.emit(GameEventEnum.GAME_ROOM_PARTICIPANTS, { roomId: parentRoomId, count: totalParticipants });
+        // emit room data
         const timeout = setTimeout(async () => {
           //  emit player wallet and game energy
           socket.emit(GameEventEnum.GAME_PLAYER_DATA, result.data );
-          // check if just the joined player
+          // emit room info
+          socket.emit(GameEventEnum.GAME_ROOM_INFO, { 
+            gameId: room.category.gameId,
+            gameName: room.category.game.name,
+            gameType: getGameType(room.category.game.name),
+            catType: getGameCatType(room.category.name),
+            catName: room.category.name,
+            catId: room.catId, 
+            roomId, 
+          })
+          // check if only just the joined player
           if (totalPlayers === 1) {
-            await updateGameRoom({ roomId, catId: room.catId, status: GameStatusEnum.CHAT });
+            await updateGameRoom({ 
+              gameId: room.category.gameId, 
+              gameName: room.category.game.name,
+              catName: room.category.name,
+              catId: room.catId, 
+              topics: room.category.topics.join(","),
+              roomId, 
+              mode: room.category.modes[0],
+              status: GameStatusEnum.CHAT });
             gameChatTime(roomId, io, true);
           }
           // emitting a welcome message to a new player
@@ -128,6 +155,15 @@ const socketIo = (httpServer: any) => {
             })
           );
           // broadcasting to the room that a player has joined
+        //   io.to(roomId).except(socket.id).emit(
+        //     GameEventEnum.MESSAGE,
+        //     composeMessage({
+        //       playerName: "SWEN",
+        //       content: `${socket.data.user.name}, has joined!`,
+        //     })
+        //   );
+        // console.log("Connected socket rooms", socket.rooms)
+
           socket.broadcast.to(roomId).emit(
             GameEventEnum.MESSAGE,
             composeMessage({
@@ -175,12 +211,14 @@ const socketIo = (httpServer: any) => {
     });
 
     // listen to emitted answers
-    socket.on(GameEventEnum.GAME_ROOM_ANSWER, async(args:ThemedGameChoice) => {
+    socket.on(GameEventEnum.GAME_ROOM_ANSWER, async(args:GameRoomAnswer) => {
       try {
-        const user = socket.data.user
-        const room = socket.data.room
+        console.log("answer args ", args)
+        const user:User = socket.data.user 
+        const room:SocketGameRoom = socket.data.room
+        const isEntries = args.catType === GameCatType.WORDMAKER
         const result = await deductGameCoins({
-          action: GameActionEnum.ANSWER, 
+          action: isEntries ? GameActionEnum.ENTRIES : GameActionEnum.ANSWER, 
           playerId: user.id, 
           roomId: room.id, 
           gameId: room.gameId,
@@ -194,26 +232,65 @@ const socketIo = (httpServer: any) => {
         // emit to update user wallet
         socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data );
         // save transaction record
-        const body:ThemedGameAnswer = { 
-          ...args,
-          roomId: room.id, 
-          catId: room.catId,
-          playerId: user.id,
-          name: user.name,
-      }
-      saveGameRoomPlayerAnswer(body)
-      // update player session for the category
-      updatePlayerSession({playerId: body.playerId, catId: body.catId})
+        const body = composeGameAnswer({params: args, room, user })
+        if(args.gameType === GameType.ACRONYM){
+          const result = await insertAcronymGameRoomAnswer(body as AcronymGameAnswer)
+          if(result.isError){
+            socket.emit(GameEventEnum.NOTIFY_MESSAGE, result.message );
+            return
+          }
+        }
+        else if(args.gameType === GameType.MINDMASH && args.catType === GameCatType.WORDMAKER){
+          const result = await insertWordMakerGameRoomAnswer(body)
+          if(result.isError){
+            socket.emit(GameEventEnum.NOTIFY_MESSAGE, result.message );
+            return
+          }
+        }
+        else{
+          saveGameRoomPlayerAnswer(body)
+        }
+        // update player session for the category
+        updatePlayerSession({playerId: body.playerId, catId: body.catId})
       } catch (error: any) {
         console.log(error?.message);
       }
        
     });
+
+    // listen to emitted votes
+    socket.on(GameEventEnum.GAME_ROOM_VOTE, async(args:{ votedUserId: string; answerId: string, roomId: string}) => {
+      try {
+        console.log("GAME_ROOM_VOTE ", args)
+        const user:User = socket.data.user 
+        const room:SocketGameRoom = socket.data.room
+        const result = await deductGameCoins({
+          action: GameActionEnum.VOTE, 
+          playerId: user.id, 
+          roomId: room.id, 
+          gameId: room.gameId,
+          catId: room.catId, 
+        })
+        if(result.isError || !result.data){
+          socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, result.message );
+          return
+        }
+        // emit to update user wallet
+        socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data );
+        // save transaction record
+        await insertGameRoomVote({...args, playerId: user.id})
+        // update player session for the category
+      } catch (error: any) {
+        console.log(error?.message);
+      }
+       
+    });
+
     // listen to game energy events
     socket.on(GameEventEnum.GAME_PLAYER_ENERGY, (params: PlayerGameEnergy) => updatePlayerGameEnergy(socket,params))
 
     // listen to disconnecting
-    socket.on("disconnecting", (reason) => {
+    socket.on("disconnecting", (_reason) => {
       for (const room of socket.rooms) {
         if (room !== socket.id) {
           //   socket.to(room).emit("user has left", socket.data.user.id);

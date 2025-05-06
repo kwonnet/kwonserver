@@ -1,4 +1,4 @@
-import jwt from "jsonwebtoken"
+import jwt, { SignOptions } from "jsonwebtoken"
 import { encrytionKey, jwtKey } from "@/config"
 import CryptoJS from "crypto-js"
 import { ZodSchema, ZodIssue, infer as ZodInfer  } from 'zod';
@@ -13,8 +13,8 @@ import { v4 as uuidv4 } from 'uuid';
 
  * @returns string
  */
-export const jwtSign = (params: any, expiresIn: string | number = "7d") => {
-    return jwt.sign(params, jwtKey, { expiresIn })
+export const jwtSign = (params: any, options: SignOptions) => {
+    return jwt.sign(params, jwtKey, options)
 }
 
 export const jwtDecode = (token: string) =>{
@@ -36,6 +36,12 @@ export function decryptString(str: string, key: string) {
     let bytes = CryptoJS.AES.decrypt(decData, key).toString(CryptoJS.enc.Utf8)
     return JSON.parse(bytes)
 }
+
+export function generateToken(payload: object, options: SignOptions): string {
+    const jsonString = JSON.stringify(payload);
+    const encryptedPayload = encryptString(jsonString, encrytionKey );
+    return jwtSign({ data: encryptedPayload }, options);
+  }
 
 
 
@@ -269,12 +275,12 @@ export const getStringMonth = (index: number) => {
 };
 
 
-export const getCurrentMonthAndYear = () => {
-  const now = new Date();
-  const month = now.getUTCMonth()
-  const year = now.getUTCFullYear();
-  return { month, year };
-};
+// export const getCurrentMonthAndYear = () => {
+//   const now = new Date();
+//   const month = now.getUTCMonth() + 1
+//   const year = now.getUTCFullYear();
+//   return { month, year };
+// };
 
 export const getPlayerRankingKey = (args:{ranking: string, playerId: string, catId: string}) => {
   // get ranking keys
@@ -300,14 +306,14 @@ function getISOWeek(date: Date): { year: number; week: number } {
   return { year: tempDate.getUTCFullYear(), week };
 }
 
-function getCurrentDataInfo(){
+export function getCurrentDataInfo(){
   const date = new Date()
   const year = date.getUTCFullYear();
   const month = date.getUTCMonth() + 1; // Month is 1-indexed for the key
   const day = date.getUTCDate();
   const { week } = getISOWeek(date);
 
-  return { year: year, month, week, day}
+  return { year, month, week, day}
 }
 
 export const getRewardDateInfo = () => {
@@ -481,7 +487,7 @@ export const parseStringNumbers = (obj: StringNumberParser): Record<string, stri
   return parsed;
 };
 
-export const getAuthUser = (token?: string) => {
+export const getAuthTokenUser = (token?: string) => {
 
     if(!token) return null;
 
@@ -489,7 +495,7 @@ export const getAuthUser = (token?: string) => {
 
     if(!payload) return null;
     // decrypt the token
-    const user = decryptString(String(payload.token), encrytionKey)
+    const user = decryptString(String(payload.data), encrytionKey)
 
     return user as User
 }
@@ -521,10 +527,10 @@ export function getTONRate(
 }
 
 
-export function generateUniqueRef(): string {
+export function generateUniqueRef(size: number = 16): string {
   const uuid = uuidv4().replace(/-/g, ''); // Remove dashes
   const numericValue = BigInt(`0x${uuid}`).toString(); // Convert to a large number
-  return numericValue.slice(0, 16); // Take the first 15 digits
+  return numericValue.slice(0, size); // Take the first 15 digits
 }
 
 export const extractCatId = (str: string): string | null => {

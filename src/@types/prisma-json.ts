@@ -9,7 +9,8 @@ declare global {
 
     type PlanTier = { id: string,  name: string, price: number, message: string }
 
-    type ItemFeature = { id: string, title: string, description: string | boolean, [key: string]: any }
+    type ItemFeature = { id: string, title: string, label: string | boolean, [key: string]: any }
+
   }
 }
 

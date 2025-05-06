@@ -1,7 +1,7 @@
 import { boolean, object, string } from "zod";
-import { BillingCycleEnum, CryptoName, RewardTypeEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum } from "@prisma/client";
+import { BillingCycleEnum, CryptoName, PostContext, PostMediaAction, PostMediaKind, PostScopeEnum, PostTypeEnum, ReportReason, RewardTypeEnum, ScopeEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum } from "@prisma/client";
 import { z } from "zod";
-import { PlanTypeEnum, TmaPaymentGateway } from "@/types";
+import { BonusTypeEnum, PlanTypeEnum, TmaPaymentGateway } from "@/types";
 
 export const authZodSchema = z
   .object({
@@ -129,7 +129,9 @@ export const FundCoinsZodSchema = z.object({
 
 export const DailyBonusZodSchema = z.object({
   userId: z.string({ required_error: "userId must be a string" }).trim(),
-  bonus: z.number({ required_error: "bonus must be a number" }),
+  amount: z.number({ required_error: "amount must be a number" }),
+  date: z.string({ required_error: "date must be a string" }),
+  type: z.nativeEnum(BonusTypeEnum, { required_error: "Bonus type must be either BONUS or ADS"  }) 
 });
 
 export const IDZodSchema = z.object({
@@ -192,6 +194,7 @@ export const FlutterwaveConfigZodSchema = z
     tx_ref: z.string({required_error: "tx_ref is required & must be a string"}).trim(),
     amount: z.number({required_error: "amount is required & must be a string"}),
     currency: z.string({required_error: "currency is required & must be a string"}).trim(),
+    payment_plan: z.string({required_error: "Payment plan is must be atring or undefined"}).trim().optional(),
     payment_options: z.string({required_error: "payment_options is required & must be a string"}).trim(),
     customer: z.object({
         email: z.string({required_error: "customer email is required & must be a string"}).trim(),
@@ -208,9 +211,126 @@ export const FlutterwaveConfigZodSchema = z
     }).passthrough(),
   }).passthrough();
 
-  export const VerifyFlwPaymentZodSchema = z
+export const VerifyFlwPaymentZodSchema = z
   .object({
     status: z.string({required_error: "Status is required & must be a string"}).trim(),
     tx_ref: z.string({required_error: "Txn Ref is required & must be a string"}).trim(),
     transaction_id: z.string({required_error: "Txn ID is required & must be a string"}).trim()
   }).passthrough();
+
+
+export const PostZodSchema = z.array(z
+  .object({
+
+
+    content: z.string({required_error: "Content must be a string"}).trim().optional(),
+
+    type: z.nativeEnum(PostTypeEnum, { required_error: "Post type is invalid"}),
+
+    scope: z.nativeEnum(PostScopeEnum, { required_error: "Post scope is invalid"}),
+    
+    media: z.array(z.object({
+      fileId: z.string(), // Assuming fileId is a UUID
+      name: z.string().min(1),
+      url: z.string().url(),
+      height: z.number().positive(),
+      width: z.number().positive(),
+      size: z.number().positive(), // File size in bytes
+      thumbnailUrl: z.string().url().optional(),
+      fileType: z.string().min(1), // e.g., "image/png", "video/mp4"
+      filePath: z.string().min(1),
+      altText: z.string().min(0).optional(), // Optional for accessibility
+      flags: z.array(z.string()).default([]), // Ensures an array of strings
+    })).default([]),
+
+    poll: z
+    .object({
+      options: z
+        .array(z.object({
+          id: z.string().min(1, "Option ID cannot be empty"), // Ensure ID is not empty
+          text: z.string().min(1, "Poll option text cannot be empty"), // Ensure text is not empty
+        }))
+        .min(2, "A poll must have at least two options"), // Ensure at least two options
+  
+      continents: z.array(z.string().min(1, "Continents values must be string")).optional().default([]), // Can be empty but values must be non-empty strings
+      countries: z.array(z.string().min(1, "Countries values must be string")).optional().default([]), // Can be empty but values must be non-empty strings
+      scope: z.nativeEnum(ScopeEnum),
+      isMultiVote: z.boolean(),
+  
+      duration: z.object({
+        days: z.number().min(0).max(7), // Ensure days are between 0 and 7
+        hours: z.number().min(0).max(23), // Hours should be valid
+        minutes: z.number().min(0).max(59), // Minutes should be valid
+      }),
+    })
+    .optional() // Allows `poll` to be undefined
+    
+  }).passthrough());
+
+  
+  
+  export const QueryParams = z.object({
+    page: z.preprocess((val) => val === undefined ? undefined : Number(val), z.number().default(1)),
+    limit: z.preprocess((val) => val === undefined ? undefined : Number(val), z.number().default(21)),
+    type: z.string().optional(),
+    hidden: z.coerce.boolean().optional().default(false)
+  });
+
+  export const VisitorCreateSchema = z.object({
+    postId: z.string({message: "Post ID must string"}).optional(),
+    sessionId: z.string({message: "Session ID must be string"}), // assuming post.id is a string
+    userId: z.string({message: "User ID must string"}),
+  });
+
+  export const ReportCreateSchema = z.object({
+    id: z.string(), // assuming post.id is a string
+    code: z.nativeEnum(ReportReason),
+    message: z.string().optional(),
+    meta: z.object({
+      code: z.nativeEnum(ReportReason),
+      title: z.string(),
+      description: z.string(),
+    }),
+  });
+
+  
+  export type ReportSchema = z.infer<typeof ReportCreateSchema>;
+
+  export const CreatePostPinSchema = z.object({
+    id: z.string(), // assuming post.id is a string
+    context: z.nativeEnum(PostContext),
+  });
+
+  export const CreatePostHighlightSchema = z.object({
+    id: z.string(), // assuming post.id is a string
+    context: z.nativeEnum(PostContext),
+  });
+
+  export const CreatePostImpressionSchema = z.object({
+    id: z.string({message: "Post ID must string"}), // assuming post.id is a string
+    sessionId: z.string({message: "Session ID must be string"}).optional().nullish(),
+    timestamp: z.string()
+  });
+
+  export const CreatePostViewSchema = z.object({
+    id: z.string({message: "Post ID must string"}), // assuming post.id is a string
+    sessionId: z.string({message: "Session ID must be string"}).optional().nullish(),
+    timestamp: z.string({message: "Timestamp must be a date string"}),
+    duration: z.preprocess((val) => val === undefined ? undefined : Number(val), z.number().default(5))
+  });
+
+  export const CreatePostMediaLogSchema = z.object({
+    postId: z.string({message: "Post ID must string"}), // assuming post.id is a string
+    mediaId: z.string({message: "Media ID must string"}), // assuming post.media.id is a string
+    sessionId: z.string({message: "Session ID must be string"}).optional().nullish(),
+    referer: z.string({message: "referer must be a string"}).optional().nullish(),
+    muted: z.coerce.boolean().optional().default(true),
+    timestamp: z.string({message: "Timestamp must be a date string"}),
+    userId: z.string({message: "User ID must string"}).optional().nullish(),
+    duration: z.preprocess((val) => val === undefined ? undefined : Number(val), z.number().default(0)),
+    playbackRate: z.preprocess((val) => val === undefined ? undefined : Number(val), z.number().default(0)),
+    watchedPct: z.preprocess((val) => val === undefined ? undefined : Number(val), z.number().default(0)),
+    sessionDuration: z.preprocess((val) => val === undefined ? undefined : Number(val), z.number().default(0)),
+    kind: z.nativeEnum(PostMediaKind),
+    action: z.nativeEnum(PostMediaAction),
+  });

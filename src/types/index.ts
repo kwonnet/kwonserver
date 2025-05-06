@@ -1,5 +1,6 @@
-import { BillingCycleEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum, TxnTypeEnum, UserRoleEnum, UserTypeEnum } from "@prisma/client";
+import { GameMode, PostKindEnum, PostScopeEnum, PostTypeEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum, UserRoleEnum, UserTypeEnum } from "@prisma/client";
 import { Request } from "express";
+import { UserPublic } from "./user";
 
 export type RequestWithUser = Request & {
   user?: {
@@ -20,6 +21,14 @@ export interface AuthUser {
     role: UserRoleEnum;
     userType: UserTypeEnum;
     email: string;
+    country?: {
+        id: string;
+        name: string;
+        iso2: string;
+        iso3: string;
+        emoji: string;
+        continentId: string;
+    },
     meta: {
       type: "LEGACY" | "PRO";
       status: "ACTIVE" | "INACTIVE" | "PAUSED";
@@ -30,6 +39,117 @@ export interface AuthUser {
     };
   }
 
+  export type PostMedia = {
+    id: string;
+    postId: string;
+    fileId: string;
+    name: string;
+    url: string;
+    height: number;
+    width: number;
+    size: number;
+    thumbnailUrl: string;
+    fileType: string;
+    filePath: string;
+    altText?: string;
+    flags: string[];
+    meta?: Record<string, any>;
+    totalViews: number;
+    totalDownloads: number;
+    createdAt: Date;
+    updatedAt: Date;
+  };
+
+  export interface FeedPost {
+    id: string;
+    content?: string;
+    type: PostTypeEnum;
+    kind: PostKindEnum;
+    scope: PostScopeEnum;
+    totalViews: number;
+    totalLikes: number;
+    totalReplies: number;
+    totalShares: number;
+    totalBookmarks: number;
+    totalReposts: number;
+    totalQuotes: number;
+    totalImpressions: number;
+    totalHiddenReplies: number;
+    media: PostMedia[];
+    parentId?: string;
+    rootId?: string;
+    quotedPostId?: string;
+    userId: string;
+    countryId?: string;
+    meta?: Record<string, any>;
+    createdAt: Date;
+    updatedAt: Date;
+    author: User & { conn: { isFollowed: boolean, isFollowing: boolean}},
+    actions: { 
+        hasReposted: boolean;
+        hasSaved: boolean;
+        hasLiked: boolean;
+        canReply: boolean; 
+        canHideReply: boolean;
+    }
+    reposts: { id: string, userId: string }[],
+    likes: {id: string, userId: string}[],
+    bookmarks: {id: string, userId: string}[]
+    poll?: {
+      id: string;
+      continents: {continentId: string, id: string, [key: string]: any}[];
+      countries: {countryId: string, id: string, [key: string]: any}[];
+      createdAt: string;
+      expireAt: string;
+      hasVoted: boolean;
+      isExpired: boolean;
+      canVote: boolean;
+      isMultiVote: boolean;
+      options: {
+          id: string;
+          pollId: string;
+          text: string;
+          votes: number;
+          createdAt: string;
+          voters: any[]
+      }[];
+      postId: string;
+      scope: string;
+      updatedAt: string;
+    },
+    quiz?: {
+        id: string;
+        continents: {continentId: string, id: string, [key: string]: any}[];
+        countries: {countryId: string, id: string, [key: string]: any}[];
+        createdAt: string;
+        expireAt: string;
+        canVote: boolean;
+        hasVoted: boolean;
+        isExpired: boolean;
+        isPaid: boolean;
+        rewardAmount: number;
+        maxWinners: number;
+        options: {
+            id: string;
+            quizId: string;
+            text: string;
+            isCorrect: boolean;
+            votes: number;
+            createdAt: string;
+            participants: any[]
+        }[];
+        postId: string;
+        scope: string;
+        updatedAt: string;
+      },
+    tagUsers: UserPublic[]
+    mentions: UserPublic[]
+    parent?: FeedPost
+    root?: FeedPost
+    replies: FeedPost[]
+    thread: FeedPost[],
+    parentChain: FeedPost[],
+  };
 
 export interface User {
     id: string,
@@ -38,6 +158,13 @@ export interface User {
     username: string,
     avatar: string
     
+}
+
+export interface SocketGameRoom {
+    id: string, 
+    catId: string, 
+    name: string, 
+    gameId: string
 }
 
 export interface Coin {
@@ -87,12 +214,15 @@ export enum GameEventEnum {
     GAME_ROOM_PLAYERS = "game_room_players",
     GAME_ROOM_QUESTION = "game_room_question",
     GAME_ROOM_ANSWER = "game_room_answer",
+    GAME_ROOM_ANSWERS = "game_room_answers",
+    GAME_ROOM_VOTE = "game_room_vote",
     GAME_ROOM_PARTICIPANTS = "game_room_participants",
     GAME_ROOM_ACHIEVEMENT = "game_room_achievement",
     GAME_TOTAL_PLAYERS = "game_total_players",
     GAME_ERROR_NOTIFY = "game_error_notify",
     GAME_PLAYER_ENERGY = "game_player_energy",
     GAME_PLAYER_DATA = "game_player_data",
+    GAME_ROOM_INFO = "game_room_info",
     GAME_PLAYER_WALLET_UPDATE = "game_player_wallet_update",
     PLAYER_JOINED = "player_joined",
     MESSAGE = "message",
@@ -102,7 +232,32 @@ export interface TempGameRoom {
     status: GameStatusEnum;
     roomId: string;
     catId: string;
+    catName: string;
+    gameId: string;
+    gameName: string;
+    topics: string;
     timer?: number;
+    mode: GameMode
+}
+
+export enum GameType {
+    TRIVIA = "TRIVIA",
+    ACRONYM = "ACRONYM",
+    MINDMASH = "MINDMASH",
+    SPORTS = "SPORTS",
+    COUNTRY = "COUNTRY",
+    ACADEMIA = "ACADEMIA",
+}
+
+export enum GameCatType {
+    TYPEMANIA = "TYPEMANIA",
+    HANGMAN = "HANGMAN",
+    ANAGRAM = "ANAGRAM",
+    UNSCRAMBLE = "UNSCRAMBLE",
+    WORDMAKER = "WORDMAKER",
+    LUCKYFLIP = "LUCKYFLIP",
+    LUCKYWHIZ = "LUCKYWHIZ",
+    LUCKYSPIN = "LUCKYSPIN"
 }
 
 export interface ThemedGameQuestion {
@@ -110,7 +265,11 @@ export interface ThemedGameQuestion {
     question: string;
     options: string[];
     answer: string;
+    type: GameType
+
 }
+
+
 
 export interface ThemedGameAnswer {
     qId: number | string;
@@ -118,14 +277,35 @@ export interface ThemedGameAnswer {
     roomId: string;
     catId: string;
     playerId: string;
-    choice: string;
+    answer: string;
     timer: number;
+    mode: GameMode
+    answers?: {text: string, timer: number}[]
 }
 
-export interface ThemedGameChoice {
+export interface AcronymGameAnswer {
+    qId: number | string;
+    answer: string;
+    answerId: string;
+    timer: number;
+    votes: string[];
+    name: string;
+    room: string;
+    playerId: string;
+    catId: string;
+    roomId: string;
+    gameType: GameType;
+    voted: boolean;
+    score: number;
+    mode: GameMode
+}
+
+export interface GameRoomAnswer {
     timer:number; 
-    choice: string, 
-    qId: string | number
+    answer: string, 
+    qId: string | number;
+    gameType: GameType
+    catType: GameCatType
 }
 
 export interface ThemedGameScore {
@@ -133,9 +313,10 @@ export interface ThemedGameScore {
     catId: string;
     playerId: string;
     name: string;
-    choice: string;
+    answer: string;
     timer: number;
-    score: number
+    score: number;
+    mode: GameMode
 }
 
 export interface ThemedGameScoreStat {
@@ -145,6 +326,7 @@ export interface ThemedGameScoreStat {
     roomId: string;
     month: number;
     year: number;
+    mode: GameMode
 }
 
 export interface PlayerGameEnergy {
@@ -155,9 +337,17 @@ export interface PlayerGameEnergy {
     turbo: number
 }
 
+export enum WordGameType {
+    LETTER = "LETTER",
+    WORD = "WORD",
+    NUMBER = "NUMBER",
+}
+
 export enum GameActionEnum {
     CHAT = "CHAT",
     ANSWER = "ANSWER",
+    ENTRIES = "ENTRIES",
+    VOTE = "VOTE",
 }
 
 export interface RewardQuery {
@@ -168,6 +358,10 @@ export interface RewardQuery {
     limit: number;
 }
 
+export enum BonusTypeEnum {
+    BONUS = "BONUS",
+    ADS = "ADS",
+  }
 
 export enum PlanTypeEnum {
     MONTHLY = "MONTHLY",
@@ -183,12 +377,14 @@ export type UserMetaInfo = {
     isLegacy: boolean;
 };
 
+
 export interface FlutterwaveConfig {
     public_key: string;
     redirect_url: string;
     tx_ref: string;
     amount: number;
     currency: string;
+    payment_plan?: string;
     payment_options: string;
     customer: {
         email: string;
@@ -271,6 +467,30 @@ export interface FlutterwaveAppSubPurchase {
         customer: {[key: string]: any};
     };
 }
+
+export type FlutterwavePaymentPlanResponse = {
+    id: number;
+    name: string;
+    amount: number;
+    interval: string;
+    duration: number;
+    status: string;
+    currency: string;
+    plan_token: string;
+    created_at: string;
+  };
+  
+export type SubPaymentPlan = {
+    name: string;
+    amount: number;
+    interval: string;
+    duration: number;
+    currency: "USD";
+    planId: string;
+    planRef: string;
+    tierId: string | null;
+    flw?: FlutterwavePaymentPlanResponse | null;
+  };
 
 export enum TmaPaymentGateway {
     STARS = "STARS",

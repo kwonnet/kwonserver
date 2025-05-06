@@ -2,7 +2,7 @@
     "watch": ["src"],
     "ext": "ts",
     "ignore": ["dist"],
-    "exec": "NODE_NO_WARNINGS=1 ts-node -r tsconfig-paths/register src/index.ts"
+    "exec": "TS_NODE=true NODE_NO_WARNINGS=1 ts-node -r tsconfig-paths/register src/index.ts"
     
   }
   

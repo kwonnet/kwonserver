@@ -1,6 +1,5 @@
 // Resolve path aliases
 import "tsconfig-paths/register";
-import pino from "pino";
 import { retryExecution } from "@/utils/helpers";
 import redisClient from "@/redis";
 import { PromisePool } from "@supercharge/promise-pool";

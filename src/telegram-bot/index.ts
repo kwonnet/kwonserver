@@ -1,6 +1,6 @@
 // import { Bot } from "grammy";
 import TelegramBot from "node-telegram-bot-api";
-import { telegramBotToken } from "@/config";
+import { telegramBotToken, telegramBotWebhookUrl } from "@/config";
 
 interface LabeledPrice {
   label: string;
@@ -45,7 +45,7 @@ interface CreateInvoiceParams {
   prices: LabeledPrice[];
   max_tip_amount?: number;
   suggested_tip_amounts?: number[];
-  provider_data?: string;
+  provider_data?: object;
   photo_url?: string;
   photo_size?: number;
   photo_width?: number;
@@ -57,6 +57,7 @@ interface CreateInvoiceParams {
   send_phone_number_to_provider?: boolean;
   send_email_to_provider?: boolean;
   is_flexible?: boolean;
+  subscription_period?: number;
 }
 
 class MyTelegramBot extends TelegramBot {
@@ -114,7 +115,11 @@ class MyTelegramBot extends TelegramBot {
 }
 
 export const telegramBot = new MyTelegramBot(telegramBotToken, {
-  polling: true,
+  polling: false,
 });
+
+// telegramBot.setWebHook(telegramBotWebhookUrl+`/bot${telegramBotToken}`)
+
+
 
 // export const telBot = new Bot(telegramBotToken);

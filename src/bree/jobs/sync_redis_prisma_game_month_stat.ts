@@ -4,7 +4,7 @@ import { formatNumberWithCommas, retryExecution } from "@/utils/helpers";
 import redisClient from "@/redis";
 import { PromisePool } from "@supercharge/promise-pool";
 import prisma from "@/db";
-import { getRankingRewardKeys, getSpentCoinsKey, getStringMonth } from "@/utils";
+import { getRankingRewardKeys, getSpentCoinsKey } from "@/utils";
 import logger from "@/logger";
 import { getCategoryRankingPlayerData } from "@/services/helper";
 
@@ -107,7 +107,6 @@ const syncMonthlyPlayerStats = async ({gameId, catId}:{gameId: string, catId: st
     throw error;
   }
 };
-
 
 const syncMonthlyPlayersData = async () => {
   try {
