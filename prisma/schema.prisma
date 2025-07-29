@@ -33,7 +33,7 @@ model User {
   country               Country?           @relation(fields: [countryId], references: [id])
   role                  UserRoleEnum       @default(USER)
   status                UserStatus?        @default(ACTIVE)
-  userType              UserTypeEnum?      @default(INDIVIDUAL)
+  userType              UserTypeEnum?      @default(PERSONAL)
   isVerified            Boolean            @default(false) // Indicates if email is verified
   identityVerified      Boolean            @default(false) // Indicates if identity is verified
   accountVerified       Boolean            @default(false) // Indicates if account is verified for reaching a milestone like 1M followers and given badge
@@ -55,6 +55,7 @@ model User {
   creatorGameRooms      GameRoom[]
   creatorCategories     GameCategory[]
   creatorCoinPackages   CoinPackage[]
+  creatorTipPackages    TipPackage[]
   creatorTasks          Task[]
   performedTasks        UserTask[]
   creatorGameMilestones GameMilestone[]
@@ -68,12 +69,15 @@ model User {
   transactionsReceived  Transaction[]      @relation("Recipient")
   notifications         Notification[]     @relation("NotificationsReceived")
   sentNotifications     Notification[]     @relation("NotificationsSent")
+  postTipsReceived      PostTip[]          @relation("PostTipsReceived")
+  postTipsSent          PostTip[]          @relation("PostTipsSent")
   walletAddress         WalletAddress[]
   cryptoAddreses        CryptoAddress[]
   referralsSent         Referral[]         @relation("ReferralsSent") // Referrals this user initiated
   referralsReceived     Referral[]         @relation("ReferralsReceived") // Referrals this user received
   subscriptions         Subscription[]
   transactionLogs       TransactionLogs[]
+  tips                  RewardTip[]
   posts                 Post[]
   postMentions          PostMention[]
   postUserTags          PostUserTag[]
@@ -107,39 +111,44 @@ model User {
   reportedUsers UserReport[] @relation("Reporter")
   reportedBy    UserReport[] @relation("Reported")
 
-  disinterestPots     PostDisinterest[]
-  pinPosts            PostPin[]
-  highlightPosts      PostHighlight[]
-  historyPosts        PostHistory[]
-  impressionPosts     PostImpression[]
-  viewPosts           PostView[]
-  profileVisits       ProfileVisit[] @relation("Visitor")
-  profileVisitors     ProfileVisit[]
-  mediaPostLogs       PostMediaLog[]
+  disinterestPots PostDisinterest[]
+  pinPosts        PostPin[]
+  highlightPosts  PostHighlight[]
+  historyPosts    PostHistory[]
+  impressionPosts PostImpression[]
+  viewPosts       PostView[]
+  clickPosts      PostClick[]
+  profileVisits   ProfileVisit[]    @relation("Visitor")
+  profileVisitors ProfileVisit[]
+  mediaPostLogs   PostMediaLog[]
 
   @@index([name])
   @@index([email])
   @@index([phone])
   @@index([username])
+  @@index([createdAt])
 }
 
 model ProfileVisit {
-  id             String     @id @default(cuid())
-  postId         String?
-  post           Post?      @relation(fields: [postId], references: [id])
-  userId         String?
-  user           User?      @relation(fields: [userId], references: [id])
-  visitorId      String?    // Optional for anonymous
-  visitor        User?      @relation("Visitor", fields: [visitorId], references: [id])
-  sessionId      String?
-  device         Json?
-  meta           Json?
-  referer     String?
-  createdAt      DateTime   @default(now())
+  id        String   @id @default(cuid())
+  postId    String?
+  post      Post?    @relation(fields: [postId], references: [id])
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  visitorId String? // Optional for anonymous
+  visitor   User?    @relation("Visitor", fields: [visitorId], references: [id])
+  sessionId String?
+  device    Json?
+  meta      Json?
+  referer   String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+
 }
 
 model UserReport {
-  id         String         @id @default(cuid())
+  id         String       @id @default(cuid())
   reporterId String
   reportedId String
   reason     ReportReason
@@ -151,6 +160,9 @@ model UserReport {
 
   reporter     User @relation("Reporter", fields: [reporterId], references: [id])
   reportedUser User @relation("Reported", fields: [reportedId], references: [id])
+
+  @@index([createdAt])
+
 }
 
 model Follow {
@@ -161,10 +173,12 @@ model Follow {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  follower    User @relation("Follower", fields: [followerId], references: [id])
-  following   User @relation("Following", fields: [followingId], references: [id])
+  follower  User @relation("Follower", fields: [followerId], references: [id])
+  following User @relation("Following", fields: [followingId], references: [id])
 
   @@unique([followerId, followingId])
+  @@index([createdAt])
+
 }
 
 model FollowHistory {
@@ -178,6 +192,9 @@ model FollowHistory {
 
   follower  User @relation("HistoryFollower", fields: [followerId], references: [id])
   following User @relation("HistoryFollowing", fields: [followingId], references: [id])
+
+  @@index([createdAt])
+
 }
 
 model BlockUser {
@@ -191,6 +208,9 @@ model BlockUser {
   blocked User @relation("Blocked", fields: [blockedId], references: [id])
 
   @@unique([blockerId, blockedId])
+
+  @@index([createdAt])
+
 }
 
 model BlockHistory {
@@ -203,6 +223,9 @@ model BlockHistory {
 
   blocker User @relation("HistoryBlocker", fields: [blockerId], references: [id])
   blocked User @relation("HistoryBlocked", fields: [blockedId], references: [id])
+
+  @@index([createdAt])
+
 }
 
 model MuteUser {
@@ -216,6 +239,8 @@ model MuteUser {
   muted User @relation("Muted", fields: [mutedId], references: [id])
 
   @@unique([muterId, mutedId])
+  @@index([createdAt])
+
 }
 
 model MuteHistory {
@@ -228,6 +253,9 @@ model MuteHistory {
 
   muter User @relation("HistoryMuter", fields: [muterId], references: [id])
   muted User @relation("HistoryMuted", fields: [mutedId], references: [id])
+
+  @@index([createdAt])
+
 }
 
 model UserLocation {
@@ -239,6 +267,9 @@ model UserLocation {
   updatedAt DateTime @updatedAt
   userId    String   @unique
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+
 }
 
 model Story {
@@ -252,6 +283,9 @@ model Story {
   viewers    StoryViewer[]
   mentions   StoryMention[]
   reactions  StoryReaction[]
+
+  @@index([createdAt])
+
 }
 
 model StoryViewer {
@@ -261,8 +295,12 @@ model StoryViewer {
   user     User     @relation(fields: [userId], references: [id])
   userId   String
   viewedAt DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([storyId, userId]) // ensure a user only appears once per story
+  @@index([createdAt])
+  @@index([viewedAt])
+
 }
 
 model StoryMention {
@@ -272,8 +310,10 @@ model StoryMention {
   user     User     @relation(fields: [userId], references: [id])
   userId   String
   viewedAt DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([storyId, userId]) // ensure a user only appears once per story
+  @@index([createdAt])
 }
 
 model StoryReaction {
@@ -283,8 +323,10 @@ model StoryReaction {
   user     User     @relation(fields: [userId], references: [id])
   userId   String
   viewedAt DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([storyId, userId]) // ensure a user only appears once per story
+   @@index([createdAt])
 }
 
 enum StoryType {
@@ -310,117 +352,164 @@ model Post {
   totalReposts     BigInt        @default(0)
   totalQuotes      BigInt        @default(0)
   totalImpressions BigInt        @default(0)
-  media            PostMedia[]   // Relation to associated media
+  totalTips        BigInt        @default(0)
+  media            PostMedia[] // Relation to associated media
   isHidden         Boolean       @default(false) // <--- Add this
-  parentId String? // Links to parent post if this is a child
-  parent   Post?   @relation("PostParent", fields: [parentId], references: [id])
+  parentId         String? // Links to parent post if this is a child
+  parent           Post?         @relation("PostParent", fields: [parentId], references: [id])
   // Replies are direct children of a post (can be root or thread)
-  replies  Post[]  @relation("PostParent")
+  replies          Post[]        @relation("PostParent")
   // Thread posts are like children under the root
-  thread   Post[]  @relation("PostRoot")
-  root     Post?   @relation("PostRoot", fields: [rootId], references: [id])
-  rootId   String?
+  thread           Post[]        @relation("PostRoot")
+  root             Post?         @relation("PostRoot", fields: [rootId], references: [id])
+  rootId           String?
 
-  userId             String
-  user               User                @relation(fields: [userId], references: [id])
-  countryId          String? // References the Country model
-  country            Country?            @relation(fields: [countryId], references: [id])
-  meta               Json?
-  poll               Poll?
-  quiz               Quiz?
-  mentions           PostMention[]
-  tagUsers           PostUserTag[]
-  hashTags           PostHashTag[]
-  topics             PostTopic[] // Relation to extracted keywords
-  likes              LikedPost[]
-  bookmarks          Bookmark[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  deletedAt          DateTime?
-  transactions       Transaction[]
-  notifications      Notification[]
-  reports            PostReport[]
-  disinterest        PostDisinterest[]
-  pins               PostPin[]
-  highlights         PostHighlight[]
-  history            PostHistory[] 
-  impressions        PostImpression[]
-  views              PostView[]
-  profileVisits      ProfileVisit[]
-  mediaLogs          PostMediaLog[]
+  userId        String
+  user          User              @relation(fields: [userId], references: [id])
+  countryId     String? // References the Country model
+  country       Country?          @relation(fields: [countryId], references: [id])
+  meta          Json?
+  poll          Poll?
+  quiz          Quiz?
+  mentions      PostMention[]
+  tagUsers      PostUserTag[]
+  hashTags      PostHashTag[]
+  topics        PostTopic[] // Relation to extracted keywords
+  likes         LikedPost[]
+  bookmarks     Bookmark[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  deletedAt     DateTime?
+  transactions  Transaction[]
+  notifications Notification[]
+  reports       PostReport[]
+  disinterest   PostDisinterest[]
+  pins          PostPin[]
+  highlights    PostHighlight[]
+  history       PostHistory[]
+  impressions   PostImpression[]
+  views         PostView[]
+  clicks        PostClick[]
+  profileVisits ProfileVisit[]
+  mediaLogs     PostMediaLog[]
+  tips          PostTip[]
+
+  @@index([userId, createdAt, kind, status])
+   @@index([createdAt])
+}
+
+model PostClick {
+  id        String           @id @default(cuid())
+  postId    String
+  userId    String? // optional for anonymous/guest users
+  sessionId String? // useful for anonymous tracking
+  source    PostMetricSource // e.g., 'home_feed', 'search_results', 'profile'
+  action    PostMetricAction
+  timestamp DateTime // Time impression occurred (from client)
+  referer   String?
+  meta      Json?
+  device    Json?
+  createdAt DateTime         @default(now())
+
+  post Post  @relation(fields: [postId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([postId, userId])
+  @@index([userId, postId])
+  @@index([userId, createdAt])
+  @@index([userId, timestamp])
+   @@index([createdAt])
 }
 
 model PostImpression {
-  id         String      @id @default(cuid())
-  postId     String
-  sessionId  String?
-  userId     String?      // Optional if you want anonymous impressions
-  meta       Json?
-  device     Json?
-  timestamp  DateTime     // Time impression occurred (from client)
-  referer     String?
-  createdAt  DateTime     @default(now()) // Time it's stored
+  id        String   @id @default(cuid())
+  postId    String
+  sessionId String?
+  userId    String? // Optional if you want anonymous impressions
+  meta      Json?
+  device    Json?
+  timestamp DateTime // Time impression occurred (from client)
+  referer   String?
+  createdAt DateTime @default(now()) // Time it's stored
 
-  post       Post      @relation(fields: [postId], references: [id])
-  user       User?     @relation(fields: [userId], references: [id])
+  post Post  @relation(fields: [postId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([postId, userId])
+  @@index([userId, postId])
+  @@index([userId, createdAt])
+  @@index([postId, createdAt])
+  @@index([userId, timestamp])
+  @@index([postId, timestamp])
+   @@index([createdAt])
 }
 
 model PostView {
-  id         String   @id @default(cuid())
-  postId     String
-  userId     String?
-  sessionId  String?
-  meta       Json?
-  device     Json?
-  timestamp  DateTime     // Time impression occurred (from client)
-  duration   Int      // time spent viewing the post in secs
-  referer     String?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String?
+  sessionId String?
+  meta      Json?
+  device    Json?
+  timestamp DateTime // Time impression occurred (from client)
+  duration  Int // time spent viewing the post in secs
+  referer   String?
+  createdAt DateTime @default(now())
 
-  post   Post   @relation(fields: [postId], references: [id])
-  user   User?  @relation(fields: [userId], references: [id])
+  post Post  @relation(fields: [postId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([postId, userId])
+  @@index([userId, postId])
+  @@index([userId, createdAt])
+  @@index([postId, createdAt])
+  @@index([userId, timestamp])
+  @@index([postId, timestamp])
+   @@index([createdAt])
 }
-
 
 model PostHistory {
-  id        String    @id @default(cuid())
-  postId    String    // The post being deleted
-  userId    String    // The user who performed the action
+  id        String     @id @default(cuid())
+  postId    String // The post being deleted
+  userId    String // The user who performed the action
   action    PostAction
-  reason    String?   // Reason for deletion
-  createdAt DateTime  @default(now())
+  reason    String? // Reason for deletion
+  createdAt DateTime   @default(now())
 
-  post      Post      @relation(fields: [postId], references: [id])
-  user      User      @relation(fields: [userId], references: [id])
+  post Post @relation(fields: [postId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+   @@index([createdAt])
 }
 
-
 model PostPin {
-  id          String    @id @default(cuid())
+  id          String      @id @default(cuid())
   postId      String
-  post        Post      @relation(fields: [postId], references: [id])
-  userId      String    // who pinned it
-  user        User      @relation(fields: [userId], references: [id])
-  contextType PostContext @default(PROFILE)// Enum: GLOBAL, COMMUNITY, PROFILE
-  contextId   String?   // e.g., communityId if pinned in a community
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  post        Post        @relation(fields: [postId], references: [id])
+  userId      String // who pinned it
+  user        User        @relation(fields: [userId], references: [id])
+  contextType PostContext @default(PROFILE) // Enum: GLOBAL, COMMUNITY, PROFILE
+  contextId   String? // e.g., communityId if pinned in a community
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   @@index([postId, contextType, contextId])
+   @@index([createdAt])
 }
 
 model PostHighlight {
   id          String      @id @default(cuid())
   postId      String
   post        Post        @relation(fields: [postId], references: [id])
-  userId      String      // who pinned it
+  userId      String // who pinned it
   user        User        @relation(fields: [userId], references: [id])
-  contextType PostContext @default(PROFILE)// Enum: GLOBAL, COMMUNITY, PROFILE
-  contextId   String?     // e.g., communityId if pinned in a community
+  contextType PostContext @default(PROFILE) // Enum: GLOBAL, COMMUNITY, PROFILE
+  contextId   String? // e.g., communityId if pinned in a community
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
   @@index([postId, contextType, contextId])
+   @@index([createdAt])
 }
 
 model PostDisinterest {
@@ -433,6 +522,7 @@ model PostDisinterest {
   updatedAt DateTime @updatedAt
 
   @@unique([postId, userId]) //  One "not interested" record per user per post
+   @@index([createdAt])
 }
 
 model PostReport {
@@ -450,6 +540,7 @@ model PostReport {
   post     Post @relation(fields: [postId], references: [id])
 
   @@unique([userId, postId]) // A user can't report the same post twice
+   @@index([createdAt])
 }
 
 model Quiz {
@@ -469,6 +560,8 @@ model Quiz {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+   @@index([createdAt])
 }
 
 model QuizOption {
@@ -482,6 +575,9 @@ model QuizOption {
   participants QuizParticipant[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
+
+   @@index([createdAt])
+
 }
 
 model QuizReward {
@@ -495,6 +591,8 @@ model QuizReward {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, quizId]) // ✅ one reward per quiz
+
+   @@index([createdAt])
 }
 
 model QuizParticipant {
@@ -512,6 +610,10 @@ model QuizParticipant {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, quizId])
+
+  @@index([userId, createdAt])
+
+   @@index([createdAt])
 }
 
 model QuizCountry {
@@ -522,6 +624,8 @@ model QuizCountry {
   country   Country  @relation(fields: [countryId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+   @@index([createdAt])
 }
 
 model QuizContinent {
@@ -532,6 +636,8 @@ model QuizContinent {
   continent   Continent @relation(fields: [continentId], references: [id])
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+   @@index([createdAt])
 }
 
 model Topic {
@@ -541,6 +647,8 @@ model Topic {
   posts     PostTopic[] // Relation to posts containing this keyword
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+
+   @@index([createdAt])
 }
 
 model PostTopic {
@@ -552,12 +660,14 @@ model PostTopic {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+   @@index([createdAt])
 }
 
 model PostMedia {
-  id             String   @id @default(cuid())
+  id             String         @id @default(cuid())
   postId         String
-  post           Post     @relation(fields: [postId], references: [id])
+  post           Post           @relation(fields: [postId], references: [id])
   fileId         String // Unique identifier for the media file
   name           String
   url            String
@@ -568,37 +678,40 @@ model PostMedia {
   fileType       String // MIME type, e.g., image/jpeg, video/mp4
   filePath       String
   altText        String? // Optional alt text for accessibility
-  flags          String[] @default([]) // Metadata flags, e.g., "NSFW", "sensitive"
+  flags          String[]       @default([]) // Metadata flags, e.g., "NSFW", "sensitive"
   meta           Json? // Additional metadata
-  totalViews     BigInt   @default(0) // Analytics: Total views of this media
-  totalDownloads BigInt   @default(0) // Analytics: Total downloads of this media
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  totalViews     BigInt         @default(0) // Analytics: Total views of this media
+  totalDownloads BigInt         @default(0) // Analytics: Total downloads of this media
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
   analytics      PostMediaLog[]
+
+   @@index([createdAt])
 }
 
 model PostMediaLog {
-  id           String            @id @default(cuid())
-  action       PostMediaAction   @default(VIEW) // view, watch, download
-  kind         PostMediaKind
-  duration     Float             @default(0)
-  watchedPct   Float             @default(0)
-  muted        Boolean           @default(true)
-  playbackRate    Float          @default(0)
-  sessionDuration Float          @default(0)                            // actual engaged watch time in seconds
-  sessionId    String?
-  device       Json?
-  meta         Json?
-  timestamp    DateTime
-  referer      String?
-  mediaId      String
-  media        PostMedia @relation(fields: [mediaId], references: [id])
-  postId       String?
-  post         Post?     @relation(fields: [postId], references: [id])
-  userId       String?
-  user         User?     @relation(fields: [userId], references: [id])
-  createdAt    DateTime  @default(now())
+  id              String          @id @default(cuid())
+  action          PostMediaAction @default(VIEW) // view, watch, download
+  kind            PostMediaKind
+  duration        Float           @default(0)
+  watchedPct      Float           @default(0)
+  muted           Boolean         @default(true)
+  playbackRate    Float           @default(0)
+  sessionDuration Float           @default(0) // actual engaged watch time in seconds
+  sessionId       String?
+  device          Json?
+  meta            Json?
+  timestamp       DateTime
+  referer         String?
+  mediaId         String
+  media           PostMedia       @relation(fields: [mediaId], references: [id])
+  postId          String?
+  post            Post?           @relation(fields: [postId], references: [id])
+  userId          String?
+  user            User?           @relation(fields: [userId], references: [id])
+  createdAt       DateTime        @default(now())
 
+   @@index([createdAt])
 }
 
 model Poll {
@@ -613,6 +726,8 @@ model Poll {
   options     PollOption[]
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
+
+   @@index([createdAt])
 }
 
 model PollOption {
@@ -624,6 +739,8 @@ model PollOption {
   voters    PollVoter[] // Track voters for this option
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+
+   @@index([createdAt])
 }
 
 model PollVoter {
@@ -635,6 +752,10 @@ model PollVoter {
   votedAt   DateTime   @default(now())
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+
+  @@index([userId, createdAt])
+
+   @@index([createdAt])
 }
 
 model PollCountry {
@@ -645,6 +766,8 @@ model PollCountry {
   country   Country  @relation(fields: [countryId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+   @@index([createdAt])
 }
 
 model PollContinent {
@@ -655,6 +778,8 @@ model PollContinent {
   continent   Continent @relation(fields: [continentId], references: [id])
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+   @@index([createdAt])
 }
 
 model PostMention {
@@ -666,6 +791,9 @@ model PostMention {
   updatedAt DateTime @updatedAt
 
   @@id([postId, userId])
+  @@index([userId, createdAt])
+
+   @@index([createdAt])
 }
 
 model PostUserTag {
@@ -677,6 +805,9 @@ model PostUserTag {
   updatedAt DateTime @updatedAt
 
   @@id([postId, userId])
+  @@index([userId, createdAt])
+
+   @@index([createdAt])
 }
 
 model PostTag {
@@ -685,6 +816,8 @@ model PostTag {
   posts     PostHashTag[]
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
+
+   @@index([createdAt])
 }
 
 model PostHashTag {
@@ -697,6 +830,8 @@ model PostHashTag {
   updatedAt DateTime @updatedAt
 
   @@unique([postId, tagId]) // Ensure a tag is not associated with the same post multiple times
+
+   @@index([createdAt])
 }
 
 model LikedPost {
@@ -709,6 +844,9 @@ model LikedPost {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, postId]) // Prevents duplicate likes
+  @@index([userId, createdAt])
+
+   @@index([createdAt])
 }
 
 model Bookmark {
@@ -721,6 +859,9 @@ model Bookmark {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, postId]) // Prevents duplicate likes
+  @@index([userId, createdAt])
+
+   @@index([createdAt])
 }
 
 model Continent {
@@ -734,6 +875,8 @@ model Continent {
   updatedAt      DateTime        @updatedAt
 
   @@index([code])
+
+   @@index([createdAt])
 }
 
 model Country {
@@ -754,11 +897,14 @@ model Country {
   @@index([iso2])
   @@index([iso3])
   @@index([continentId])
+
+   @@index([createdAt])
 }
 
 model SubscriptionPlan {
   id            String         @id @default(cuid()) // Unique subscription plan ID
   name          String
+  ngnPrice      Float // Price in Nigerian Naira (NGN)
   price         Float // Monthly base price
   discount      Float // Discount for yearly plans (e.g., 0.1 for 10% off)
   accountType   UserTypeEnum
@@ -770,6 +916,8 @@ model SubscriptionPlan {
   transactions  Transaction[]
   createdAt     DateTime       @default(now()) // Timestamp when plan was created
   updatedAt     DateTime       @updatedAt // Timestamp of last plan update
+
+   @@index([createdAt])
 }
 
 model PlanFeature {
@@ -779,6 +927,7 @@ model PlanFeature {
   items  Json[]
   planId String
   plan   SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  
 }
 
 model Subscription {
@@ -798,6 +947,8 @@ model Subscription {
   metadata     Json[]           @default([])
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
+
+   @@index([createdAt])
 }
 
 model Notification {
@@ -817,6 +968,8 @@ model Notification {
   postId      String?
   createdAt   DateTime?     @default(now())
   updatedAt   DateTime?     @updatedAt
+
+   @@index([createdAt])
 }
 
 model PushNotification {
@@ -826,6 +979,8 @@ model PushNotification {
   user      User?     @relation(fields: [userId], references: [id])
   createdAt DateTime? @default(now())
   updatedAt DateTime? @updatedAt
+
+   @@index([createdAt])
 }
 
 model Revenue {
@@ -837,14 +992,16 @@ model Revenue {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+   @@index([createdAt])
 }
 
-model CoinPackage {
+model TipPackage {
   id              String            @id @default(cuid())
   name            String
-  amount          Float
-  price           Float
-  bonus           Float
+  price           Float             // Amount in coins to send this tip
+  kind            TipKindEnum       @default(ALL)
+  thumbnail       String?
   isActive        Boolean           @default(true)
   endDate         DateTime?
   createdAt       DateTime          @default(now())
@@ -853,12 +1010,78 @@ model CoinPackage {
   transactionLogs TransactionLogs[]
   userId          String?
   user            User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postTips        PostTip[]
+  @@index([createdAt])
+}
+
+model PostTip {
+  id              String       @id @default(cuid())
+  senderId        String
+  sender          User         @relation("PostTipsSent", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId     String
+  recipient       User         @relation("PostTipsReceived", fields: [recipientId], references: [id], onDelete: Cascade)
+  postId          String?
+  post            Post?        @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tipId           String
+  tip             TipPackage   @relation(fields: [tipId], references: [id], onDelete: Cascade)
+  rewardTip       RewardTip?   
+  message         String?
+  isAnon          Boolean      @default(false)
+  referer         String?
+  meta            Json?
+  device          Json?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+model RewardTip {
+  id              String       @id @default(cuid())
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletId        String
+  wallet          Wallet       @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  postTipId       String       @unique
+  postTip         PostTip      @relation(fields: [postTipId], references: [id], onDelete: Cascade)
+  txnId           String       @unique
+  transaction     Transaction  @relation(fields: [txnId], references: [id])
+  amount          Float
+  source          TipSource
+  status          TipStatus    @default(PENDING)
+  settledAt       DateTime?
+  availableAt     DateTime
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([userId])
+  @@index([availableAt])
+  @@index([settledAt])
+}
+
+
+model CoinPackage {
+  id              String            @id @default(cuid())
+  name            String
+  amount          Float
+  price           Float
+  bonus           Float
+  ngnPrice        Float             @default(0)
+  ngnBonus        Float             @default(0)
+  isActive        Boolean           @default(true)
+  endDate         DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  transactions    Transaction[]
+  transactionLogs TransactionLogs[]
+  userId          String?
+  user            User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+   @@index([createdAt])
 }
 
 model Wallet {
   id           String        @id @default(cuid())
   credit       Float         @default(0) // Credit that can be withrawn by the user 
-  amount       Float         @default(0) // Coins purchased by the user
+  coins        Float         @default(0) // Coins purchased by the user
   bonus        Float         @default(0) // Interaction-based rewards
   userId       String        @unique @map("user_id")
   isLocked     Boolean?      @default(false)
@@ -866,7 +1089,14 @@ model Wallet {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   transactions Transaction[]
+  tips         RewardTip[]
+
+  @@index([createdAt])
 }
+
+
+
+
 
 model Transaction {
   id             String            @id @default(cuid())
@@ -891,6 +1121,9 @@ model Transaction {
   wallet         Wallet?           @relation(fields: [walletId], references: [id])
   coinPackageId  String?
   package        CoinPackage?      @relation(fields: [coinPackageId], references: [id])
+  tipPackageId   String?
+  tip            TipPackage?      @relation(fields: [tipPackageId], references: [id])
+  rewardTip      RewardTip?       
   achievementId  String?           @unique
   achievement    GameAchievement?
   subscriptionId String?
@@ -902,8 +1135,11 @@ model Transaction {
   postId         String?
   post           Post?             @relation(fields: [postId], references: [id])
 
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+   @@index([createdAt])
 }
 
 model TransactionLogs {
@@ -911,10 +1147,14 @@ model TransactionLogs {
   userId        String?      @map("user_id")
   coinPackageId String?
   package       CoinPackage? @relation(fields: [coinPackageId], references: [id])
+  tipPackageId  String?
+  tipPackage    TipPackage?  @relation(fields: [tipPackageId], references: [id])
   meta          Json?
   user          User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
+
+  @@index([createdAt])
 }
 
 model UserTaskSettings {
@@ -925,6 +1165,8 @@ model UserTaskSettings {
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+   @@index([createdAt])
 }
 
 model Game {
@@ -935,9 +1177,13 @@ model Game {
   userId      String?        @map("user_id")
   user        User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
   categories  GameCategory[]
+  modes       GameMode[] // optional
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+
+   @@index([createdAt])
 }
+
 
 model GameCategory {
   id                   String                @id @default(cuid())
@@ -948,7 +1194,6 @@ model GameCategory {
   game                 Game                  @relation(fields: [gameId], references: [id], onDelete: Cascade)
   userId               String?               @map("user_id")
   user                 User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  modes                GameMode[] // optional
   topics               String[]              @default([])
   rooms                GameRoom[]
   gameYearStats        GameYearStat[]
@@ -976,6 +1221,7 @@ model GameRoom {
 
 model GameMonthStat {
   id        String       @id @default(cuid())
+  mode      GameMode
   catId     String
   category  GameCategory @relation(fields: [catId], references: [id], onDelete: Cascade)
   year      Int
@@ -985,7 +1231,6 @@ model GameMonthStat {
   rank      Int          @default(0)
   score     Int          @default(0)
   numPlayed Int          @default(0)
-  mode      GameMode
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
@@ -997,6 +1242,7 @@ model GameMonthStat {
 
 model GameYearStat {
   id               String            @id @default(cuid())
+  mode             GameMode
   catId            String
   category         GameCategory      @relation(fields: [catId], references: [id], onDelete: Cascade)
   year             Int
@@ -1009,8 +1255,8 @@ model GameYearStat {
   updatedAt        DateTime          @updatedAt
   gameAchievements GameAchievement[]
 
-  @@unique([playerId, catId, year]) // Unique entry for each player in a category for a given year
-  @@index([catId, year]) // Index for queries by category and year
+  @@unique([playerId, catId, year, mode]) // Unique entry for each player in a category for a given year
+  @@index([catId, year, mode]) // Index for queries by category and year
 }
 
 model GameMonthRewardStat {
@@ -1035,6 +1281,7 @@ model GameMonthRewardStat {
   month                    Int // Month of the game category
   catId                    String
   category                 GameCategory @relation(fields: [catId], references: [id], onDelete: Cascade)
+  mode                     GameMode
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 }
@@ -1062,6 +1309,7 @@ model GameAchievement {
   metadata    Json?
   amount      Float
   rewardType  RewardTypeEnum
+  mode        GameMode?
   txnId       String?          @unique
   transaction Transaction?     @relation(fields: [txnId], references: [id], onDelete: Cascade)
   catId       String?
@@ -1151,7 +1399,7 @@ model Referral {
   referrerId   String // The referring user
   refereeId    String // The referred user
   isRewarded   Boolean  @default(false) // issued for this referral
-  referer     User     @relation("ReferralsSent", fields: [referrerId], references: [id], onDelete: Cascade)
+  referer      User     @relation("ReferralsSent", fields: [referrerId], references: [id], onDelete: Cascade)
   referee      User     @relation("ReferralsReceived", fields: [refereeId], references: [id], onDelete: Cascade)
   rewardAmount Float?   @default(0)
   createdAt    DateTime @default(now())
@@ -1167,8 +1415,8 @@ enum UserStatus {
 }
 
 enum UserTypeEnum {
-  INDIVIDUAL
-  ORGANIZATION
+  PERSONAL
+  BUSINESS
   GOVERNMENT
 }
 
@@ -1205,8 +1453,8 @@ enum TaskStatus {
 }
 
 enum GameMode {
-  SINGLE_PLAYER
-  MULTI_PLAYER
+  SINGLE
+  MULTI
 }
 
 enum RewardReasonEnum {
@@ -1306,6 +1554,8 @@ enum TxnCategoryEnum {
   DAILY_BONUS
   APP_TASK
   QUIZ_POST
+  POST_TIP
+  SPARK_TIP
 }
 
 enum TxnGatewayEnum {
@@ -1322,6 +1572,7 @@ enum TxnGatewayEnum {
 enum TxnStatusEnum {
   COMPLETED
   PROCESSING
+  PENDING
   FAILED
   REFUNDED
 }
@@ -1423,7 +1674,7 @@ enum PostContext {
 }
 
 enum FollowStatus {
-  PENDING  // request sent, waiting for approval
+  PENDING // request sent, waiting for approval
   ACCEPTED // request accepted (follower relationship active)
   REJECTED // request rejected (optional, or just delete the pending record)
 }
@@ -1434,6 +1685,7 @@ enum PostAction {
   HIDDEN
   UNHIDDEN
 }
+
 enum PostMediaAction {
   VIEW
   WATCH
@@ -1443,4 +1695,45 @@ enum PostMediaAction {
 enum PostMediaKind {
   IMAGE
   VIDEO
+}
+
+enum PostMetricSource {
+  FORYOU
+  FOLLOWING
+  FRIENDS
+  LATEST
+  SEARCH
+  TRENDING
+}
+
+enum PostMetricAction {
+  CONTENT
+  FOLLOW
+  PROFILE
+  OPTION
+  REPOST
+  REPLY
+  TIP
+}
+
+enum TipKindEnum {
+  ALL
+  POST
+  SPARK
+  CHAT
+  LIVE
+} 
+
+enum TipSource {
+  POST
+  SPARK
+  LIVE
+  CHAT
+}
+
+enum TipStatus {
+  PENDING
+  SETTLED
+  EXPIRED
+  REFUNDED
 }

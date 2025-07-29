@@ -3,9 +3,10 @@ import 'tsconfig-paths/register';
 import prisma from '@/db';
 import redisClient from '@/redis';
 import { PromisePool } from "@supercharge/promise-pool"
-import { getCurrentDataInfo, getExpiryAtUTC, getMonthlyExpiration, getPlayerRedisKeys, getRankingKeys, getRemainingDaysInMonth } from '@/utils';
+import { getCurrentDataInfo, getExpiryAtUTC, getGameMode, getMonthlyExpiration, getPlayerRedisKeys, getRankingKeys, getRemainingDaysInMonth } from '@/utils';
 import { retryExecution } from '@/utils/helpers';
 import logger from '@/logger';
+import { GameMode } from '@prisma/client';
 
 
 interface PlayerMonthStat {
@@ -19,6 +20,7 @@ interface PlayerMonthStat {
   rank: number;
   score: number;
   numPlayed: number;
+  mode: GameMode;
   player: {
       id: string;
       username: string;
@@ -27,6 +29,7 @@ interface PlayerMonthStat {
 
 async function syncPlayerMonthStatToRedis(item: PlayerMonthStat) {
   try {
+    const mode = getGameMode(item.mode)
     // current date
     const currDate = new Date().toISOString();
     // get expiration
@@ -36,9 +39,9 @@ async function syncPlayerMonthStatToRedis(item: PlayerMonthStat) {
     const expireAt = getExpiryAtUTC( remainingDays + 7 )
     const todayExpireAt = getExpiryAtUTC(1)
     // get ranking keys
-    const rankingKeys = getRankingKeys(item.catId)
+    const rankingKeys = getRankingKeys(item.catId, mode)
     // player hash unique keys
-    const playerKeys = getPlayerRedisKeys(item.playerId, item.catId)
+    const playerKeys = getPlayerRedisKeys(item.playerId, item.catId, mode)
     // player infor
     const playerInfo = {
       id: item.playerId,

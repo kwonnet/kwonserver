@@ -1,5 +1,5 @@
 import { boolean, object, string } from "zod";
-import { BillingCycleEnum, CryptoName, PostContext, PostMediaAction, PostMediaKind, PostScopeEnum, PostTypeEnum, ReportReason, RewardTypeEnum, ScopeEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum } from "@prisma/client";
+import { BillingCycleEnum, CryptoName, PostContext, PostMediaAction, PostMediaKind, PostMetricAction, PostMetricSource, PostScopeEnum, PostTypeEnum, ReportReason, RewardTypeEnum, ScopeEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum } from "@prisma/client";
 import { z } from "zod";
 import { BonusTypeEnum, PlanTypeEnum, TmaPaymentGateway } from "@/types";
 
@@ -213,15 +213,15 @@ export const FlutterwaveConfigZodSchema = z
 
 export const VerifyFlwPaymentZodSchema = z
   .object({
-    status: z.string({required_error: "Status is required & must be a string"}).trim(),
-    tx_ref: z.string({required_error: "Txn Ref is required & must be a string"}).trim(),
-    transaction_id: z.string({required_error: "Txn ID is required & must be a string"}).trim()
-  }).passthrough();
+    status: z.string({ required_error: "Status is required & must be a string" }).trim(),
+    tx_ref: z.union([z.string(), z.number()], { required_error: "Txn Ref is required" }),
+    transaction_id: z.union([z.string(), z.number()], { required_error: "Txn ID is required" })
+  })
+  .passthrough();
 
 
 export const PostZodSchema = z.array(z
   .object({
-
 
     content: z.string({required_error: "Content must be a string"}).trim().optional(),
 
@@ -319,6 +319,13 @@ export const PostZodSchema = z.array(z
     duration: z.preprocess((val) => val === undefined ? undefined : Number(val), z.number().default(5))
   });
 
+  export const CreatePostClickSchema = z.object({
+    sessionId: z.string({message: "Session ID must be string"}).optional().nullish(),
+    timestamp: z.string({message: "Timestamp must be a date string"}),
+    action: z.nativeEnum(PostMetricAction, {message: "action must be an enum"}),
+    source: z.nativeEnum(PostMetricSource, {message: "source must be an enum"})
+  });
+
   export const CreatePostMediaLogSchema = z.object({
     postId: z.string({message: "Post ID must string"}), // assuming post.id is a string
     mediaId: z.string({message: "Media ID must string"}), // assuming post.media.id is a string
@@ -333,4 +340,13 @@ export const PostZodSchema = z.array(z
     sessionDuration: z.preprocess((val) => val === undefined ? undefined : Number(val), z.number().default(0)),
     kind: z.nativeEnum(PostMediaKind),
     action: z.nativeEnum(PostMediaAction),
+  });
+
+  export const CreatePostTipSchema = z.object({
+    postId: z.string({message: "Post ID must string"}),
+    tipId: z.string({message: "Tip ID must string"}),
+    recipientId: z.string({message: "Recipient ID must be string"}),
+    isAnon: z.boolean().optional().default(false),
+    message: z.string({message: "Message must string"}).optional(),
+    // timestamp: z.string({message: "Timestamp must be a date string"}),
   });

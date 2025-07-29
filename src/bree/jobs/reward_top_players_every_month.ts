@@ -6,6 +6,7 @@ import { PromisePool } from "@supercharge/promise-pool";
 import prisma from "@/db";
 import {
   generateUniqueRef,
+  getGameMode,
   getRankingRewardKeys,
   getSpentCoinsKey,
   getStringMonth,
@@ -17,6 +18,7 @@ import {
   syncRedisUserWalletToPrisma,
 } from "@/services/helper";
 import {
+  GameMode,
   RewardTypeEnum,
   TxnCategoryEnum,
   TxnCurrencyEnum,
@@ -83,12 +85,14 @@ const distributeReward = async ({
   rewardType,
   rewardCurrency,
   dateInfo,
+  mode,
 }: {
   player: any;
   catId: string;
   rewardAmount: number;
   rewardType: RewardTypeEnum;
   rewardCurrency: TxnCurrencyEnum;
+  mode: GameMode;
   dateInfo: { year: number, month: number};
 }) => {
   const txnRef = generateUniqueRef();
@@ -119,6 +123,7 @@ const distributeReward = async ({
           reason: milestone.reason,
           playerId: player.id,
           catId,
+          mode,
           amount: rewardAmount,
           rewardType,
           milestoneId: milestone.id,
@@ -177,16 +182,16 @@ const distributeReward = async ({
 };
 
 // Core function to reward players
-const rewardMonthlyPlayers = async ({
-  catId,
-  gameId,
-}: {
+const rewardMonthlyPlayers = async (item: {
   catId: string;
   gameId: string;
+  mode: GameMode
 }) => {
   try {
+    const {gameId, catId } = item
+    const mode = getGameMode(item.mode)
     // get reward ranking keys
-    const keys = getRankingRewardKeys(catId);
+    const keys = getRankingRewardKeys(catId, mode);
     // check if exists
     const exists = await redisClient.exists(keys.rewardMonth);
     if (!exists) return;
@@ -209,7 +214,7 @@ const rewardMonthlyPlayers = async ({
 
     logger.info(rewardTiers, "Reward participants tiers")
     // fetch spent coins stats  for this category
-    const spentKey = getSpentCoinsKey({ catId, gameId });
+    const spentKey = getSpentCoinsKey({ catId, gameId, mode: item.mode });
     const spentAmount = await getRedisHashKey<{
       coins: number;
       bonus: number;
@@ -267,6 +272,7 @@ const rewardMonthlyPlayers = async ({
           limit,
           catId,
           rankingKey: keys.rewardMonth,
+          mode
         },
         "MONTH"
       );
@@ -299,6 +305,7 @@ const rewardMonthlyPlayers = async ({
           await distributeReward({
             player,
             catId,
+            mode: item.mode,
             rewardAmount: Math.floor(rewardAmount),
             rewardType,
             rewardCurrency,
@@ -332,7 +339,8 @@ const rewardMonthlyPlayers = async ({
         numPlayed: monthStat?.numPlayed ?? 0,
         totalScore: monthStat?.score ?? 0,
         month: keys.dateInfo.month,
-        year: keys.dateInfo.year
+        year: keys.dateInfo.year,
+        mode: item.mode
       }
     })
     // remove spent coins record
@@ -356,10 +364,17 @@ const rewardPlayers = async () => {
     if (categories.length === 0)
       throw new Error("No game categories available");
 
-    const { results, errors } = await PromisePool.for(categories)
+    // loop through each category game modes and compose each category by mode.
+    const result = categories.map(c => {
+      return c.game.modes.map(m => {
+        return { catId: c.id, gameId: c.gameId, mode: m  }
+      })
+    }).flat()
+
+    const { results, errors } = await PromisePool.for(result)
       .withConcurrency(2)
-      .process(async ({ id: catId, gameId }) => {
-        await rewardMonthlyPlayers({ catId, gameId });
+      .process(async ({ catId, gameId, mode }) => {
+        await rewardMonthlyPlayers({ catId, gameId, mode });
       });
 
     if (errors.length > 0) {

@@ -23,6 +23,8 @@ import { AcronymGameAnswer, GameActionEnum, GameEventEnum, GameStatusEnum, GameT
 import { composeMessage, getAuthTokenUser } from "@/utils";
 import { composeGameAnswer, getGameCatType, getGameType } from "@/services/helper";
 import logger from "@/logger";
+import { GameMode } from "@prisma/client";
+
 
 const socketIo = (httpServer: any) => {
   const io = new Server(httpServer, {
@@ -35,7 +37,6 @@ const socketIo = (httpServer: any) => {
       credentials: true,
     },
   });
-
 
   io.use(async (socket, next) => {
     try {
@@ -60,18 +61,23 @@ const socketIo = (httpServer: any) => {
     socket.on(
       GameEventEnum.PLAYER_JOINED,
       async (
-        roomId: string,
+        args: { roomId: string, mode: string },
         ackCallback: (args: {
           isError: boolean;
           message: string;
           code?: string;
         }) => void
       ) => {
-        console.log("Player joined ", roomId )
-        
-        // perform checks
+        console.log("Player joined ", args )
+        // get room details
+        // const roomId = args.roomId
+        const shortPlayerId = socket.data.user.id.slice(-10)
+        const mode = args.mode.toUpperCase() as GameMode
+        let roomId = args.roomId
+        // let roomId = mode === GameMode.MULTI_PLAYER ? args.roomId : `${args.roomId}:${shortPlayerId}`
+        // perform checks 
         // check if the room exists
-        const room = await checkGameRoom(roomId);
+        const room = await checkGameRoom(args.roomId);
         if (!room) {
           return ackCallback({
             isError: true,
@@ -79,13 +85,14 @@ const socketIo = (httpServer: any) => {
             code: "ER-1",
           });
         }
-        // check if a user previously joined any room
+        // check if the user previously joined any room
         const prevUser = await getGameRoomPlayer(socket.data.user.id);
         console.log("prevUser ", prevUser)
         if (prevUser) {
           socket.leave(prevUser.roomId)
           // io.to(prevUser.socketId).socketsLeave(prevUser.roomId);
         }
+        
         // add player to the room
         const result = await addGameRoomPlayer({
           roomId,
@@ -95,6 +102,7 @@ const socketIo = (httpServer: any) => {
           socketId: socket.id,
           name: socket.data.user.name,
           voteCount: 0,
+          mode
         });
         if (!result?.data) {
           return ackCallback({
@@ -106,17 +114,21 @@ const socketIo = (httpServer: any) => {
         // assigned room
         roomId = result?.data?.room?.id
         // attach room to socket
-        socket.data.room = { id: roomId, catId: room.catId, name: room.name, gameId: room.category.gameId}
+        socket.data.room = { id: roomId, catId: room.catId, name: room.name, gameId: room.category.gameId, mode }
         // join a socket to a room
+        // socket.join(`${roomId}:${mode}`)
         socket.join(roomId);
         // join the player id to a room to receive personal messages
         socket.join(socket.data.user.id);
         // acknowledge
         ackCallback({ isError: false, message: "User joined room" });
         // count players
-        const parentRoomId = roomId.split("_")[0];
+        const roomArr = roomId.split("_"); //roomId = mode_roomId or mode_roomId_UID
+        const parentRoomId = roomArr[0]
+        console.log("connection parentRoomId ", parentRoomId)
         const totalPlayers = await getTotalRoomPlayers(roomId)
         const totalParticipants = await getTotalRoomParticipants(parentRoomId)
+        console.log("connection totalParticipants ", totalParticipants)
         // update room participants
         io.emit(GameEventEnum.GAME_ROOM_PARTICIPANTS, { roomId: parentRoomId, count: totalParticipants });
         // emit room data
@@ -142,7 +154,7 @@ const socketIo = (httpServer: any) => {
               catId: room.catId, 
               topics: room.category.topics.join(","),
               roomId, 
-              mode: room.category.modes[0],
+              mode,
               status: GameStatusEnum.CHAT });
             gameChatTime(roomId, io, true);
           }
@@ -150,7 +162,7 @@ const socketIo = (httpServer: any) => {
           socket.emit(
             GameEventEnum.MESSAGE,
             composeMessage({
-              playerName: "SWEN",
+              playerName: "SWEM",
               content: `${socket.data.user.name}, You're welcome to ${room.name} game room`,
             })
           );
@@ -158,7 +170,7 @@ const socketIo = (httpServer: any) => {
         //   io.to(roomId).except(socket.id).emit(
         //     GameEventEnum.MESSAGE,
         //     composeMessage({
-        //       playerName: "SWEN",
+        //       playerName: "SWEM",
         //       content: `${socket.data.user.name}, has joined!`,
         //     })
         //   );
@@ -167,18 +179,18 @@ const socketIo = (httpServer: any) => {
           socket.broadcast.to(roomId).emit(
             GameEventEnum.MESSAGE,
             composeMessage({
-              playerName: "SWEN",
+              playerName: "SWEM",
               content: `${socket.data.user.name}, has joined!`,
             })
           );
         //   send in game room players
-        const players = await getGameRoomPlayersWithRank(roomId, room.catId)
+        const players = await getGameRoomPlayersWithRank(roomId, room.catId, mode)
         io.to(roomId).emit(GameEventEnum.GAME_ROOM_PLAYERS, players );
         // total leaderboard players
-        const countPlayers = await getCountGamePlayers(room.catId)
+        const countPlayers = await getCountGamePlayers(room.catId, mode)
         io.to(roomId).emit(GameEventEnum.GAME_TOTAL_PLAYERS, countPlayers)
           // broadcasting to the room the total number of participants
-          notifyGameRoomPlayers(roomId, totalPlayers, io )
+          notifyGameRoomPlayers({roomId, totalPlayers, mode, io} )
           clearTimeout(timeout)
         }, 500);
         
@@ -187,13 +199,14 @@ const socketIo = (httpServer: any) => {
     // listen to emitted messages and forward
     socket.on(GameEventEnum.MESSAGE, async(arg) => {
         try {
-          const user = socket.data.user
-          const room = socket.data.room
+          const user: User = socket.data.user
+          const room: SocketGameRoom = socket.data.room
           const result = await deductGameCoins({
             action: GameActionEnum.CHAT, 
             playerId: user.id, 
             gameId: room.gameId,
             roomId: room.id, 
+            mode: room.mode,
             catId: room.catId  })
           if(result.isError || !result.data){
             socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, result.message );
@@ -204,7 +217,7 @@ const socketIo = (httpServer: any) => {
         // save transaction record
           io.in(socket.data.room.id).emit(GameEventEnum.MESSAGE, arg);
           // update player session for the category
-          updatePlayerSession({playerId: user.id, catId: room.catId})
+          updatePlayerSession({playerId: user.id, catId: room.catId, mode: room.mode})
         } catch (error: any) {
           console.log(error?.message);
         }
@@ -221,6 +234,7 @@ const socketIo = (httpServer: any) => {
           action: isEntries ? GameActionEnum.ENTRIES : GameActionEnum.ANSWER, 
           playerId: user.id, 
           roomId: room.id, 
+          mode: room.mode,
           gameId: room.gameId,
           catId: room.catId, 
           qId: args.qId  
@@ -251,7 +265,7 @@ const socketIo = (httpServer: any) => {
           saveGameRoomPlayerAnswer(body)
         }
         // update player session for the category
-        updatePlayerSession({playerId: body.playerId, catId: body.catId})
+        updatePlayerSession({playerId: body.playerId, catId: body.catId, mode: room.mode})
       } catch (error: any) {
         console.log(error?.message);
       }
@@ -261,13 +275,13 @@ const socketIo = (httpServer: any) => {
     // listen to emitted votes
     socket.on(GameEventEnum.GAME_ROOM_VOTE, async(args:{ votedUserId: string; answerId: string, roomId: string}) => {
       try {
-        console.log("GAME_ROOM_VOTE ", args)
         const user:User = socket.data.user 
         const room:SocketGameRoom = socket.data.room
         const result = await deductGameCoins({
           action: GameActionEnum.VOTE, 
           playerId: user.id, 
           roomId: room.id, 
+          mode: room.mode,
           gameId: room.gameId,
           catId: room.catId, 
         })

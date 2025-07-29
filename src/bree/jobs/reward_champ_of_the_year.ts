@@ -3,12 +3,13 @@ import "tsconfig-paths/register";
 import { retryExecution } from "@/utils/helpers";
 import { PromisePool } from "@supercharge/promise-pool";
 import prisma from "@/db";
-import { generateUniqueRef, getRewardDateInfo } from "@/utils";
+import { generateUniqueRef, getGameMode, getRewardDateInfo } from "@/utils";
 import {
   syncPrismaUserWalletToRedis,
   syncRedisUserWalletToPrisma,
 } from "@/services/helper";
 import {
+  GameMode,
   TxnCategoryEnum,
   TxnCurrencyEnum,
   TxnGatewayEnum,
@@ -24,6 +25,7 @@ type RewardGamePlayer = {
   playerId: string;
   year: number;
   totalScore: number;
+  mode: GameMode
 };
 
 const rewardPlayer = async (player: RewardGamePlayer) => {
@@ -48,6 +50,7 @@ const rewardPlayer = async (player: RewardGamePlayer) => {
           rewardType: milestone.rewardType,
           milestoneId: milestone.id,
           playerId: player.playerId,
+          mode: player.mode,
           description: `Rewarded ${milestone.reward} ${
             milestone.rewardType
           } & a trophy as the ${milestone.reason
@@ -120,7 +123,8 @@ const rewardPlayer = async (player: RewardGamePlayer) => {
   }
 };
 
-const rewardYearlyChampion = async (gameId: string) => {
+const rewardYearlyChampion = async (gameId: string, mode: GameMode) => {
+  
   logger.info(`Reward champ of the game processing...`);
   // get reward date info
   const dateInfo = getRewardDateInfo();
@@ -131,18 +135,20 @@ const rewardYearlyChampion = async (gameId: string) => {
       year: number;
       playerId: string;
       totalScore: number;
+      mode: GameMode
     }[] = await prisma.$queryRaw`
     SELECT
       gc."gameId",
       g."name" AS "gameName",
       gms."year",
       gms."playerId",
+      gms."mode",
       SUM(gms."score")::numeric AS "totalScore"
     FROM "GameMonthStat" gms
     INNER JOIN "GameCategory" gc ON gc."id" = gms."catId"
     INNER JOIN "Game" g ON g."id" = gc."gameId"
-    WHERE gc."gameId" = ${gameId} AND gms."year" = ${2024}
-    GROUP BY gc."gameId", g."name", gms."playerId", gms."year"
+    WHERE gc."gameId" = ${gameId} AND gms."year" = ${2024} AND gms."mode" = ${mode}
+    GROUP BY gc."gameId", g."name", gms."playerId", gms."year", gms."mode"
     ORDER BY "totalScore" DESC
     LIMIT 1;
   `;
@@ -170,10 +176,17 @@ const rewardPlayers = async () => {
 
     if (games.length === 0) throw new Error("No game categories available");
 
-    const { results, errors } = await PromisePool.for(games)
+    // loop through each game modes and compose each by mode.
+    const result = games.map(c => {
+      return c.modes.map(m => {
+        return { id: c.id, mode: m  }
+      })
+    }).flat()
+
+    const { results, errors } = await PromisePool.for(result)
       .withConcurrency(2)
-      .process(async ({ id }) => {
-        await rewardYearlyChampion(id);
+      .process(async ({ id, mode }) => {
+        await rewardYearlyChampion(id, mode);
       });
 
     if (errors.length > 0) {

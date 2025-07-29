@@ -22,7 +22,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true, }));
 
 const server = http.createServer(app);
-
 // ip lookup
 app.set('trust proxy', true);
 
@@ -48,6 +47,7 @@ app.use("/api/v1/", v1Routes)
 server.listen(port, () => {
     console.log(`listening on port: ${port}`);
 });
+
 
 
 

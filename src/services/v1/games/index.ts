@@ -16,6 +16,8 @@ import {
   GameType,
   GameRoomAnswer,
   GameCatType,
+  SocketGameRoom,
+  User,
 } from "@/types";
 import {
   composeMessage,
@@ -23,6 +25,7 @@ import {
   generateUniqueRef,
   getCurrentDataInfo,
   getExpiryAtUTC,
+  getGameMode,
   getMonthlyExpiration,
   getPlayerRankingKey,
   getPlayerRedisKeys,
@@ -38,6 +41,7 @@ import {
 import prisma from "@/db";
 import {
   GameEnergy,
+  GameMode,
   RewardTypeEnum,
   Transaction,
   TxnCategoryEnum,
@@ -59,6 +63,8 @@ import {
 } from "../../helper";
 import { faker } from "@faker-js/faker";
 
+
+
 export const getRedisHashKey = async <T = any>(key: string) => {
   const result = await redisClient.hGetAll(key);
 
@@ -73,19 +79,20 @@ export async function deductGameCoins(params: {
   gameId: string;
   qId?: string | number;
   playerId: string;
+  mode: GameMode;
   action: GameActionEnum;
   [key: string]: any;
 }) {
   const actionStat = {
-    [GameActionEnum.CHAT]: { min: 0.5, max: 1 },
-    [GameActionEnum.VOTE]: { min: 0.2, max: 0.6 },
-    [GameActionEnum.ANSWER]: { min: 1, max: 2 },
-    [GameActionEnum.ENTRIES]: { min: 0.5, max: 1.5 },
+    [GameActionEnum.CHAT]: { min: 0.15, max: 0.25 },
+    [GameActionEnum.VOTE]: { min: 0.25, max: 0.35 },
+    [GameActionEnum.ANSWER]: { min: 0.35, max: 0.45 },
+    [GameActionEnum.ENTRIES]: { min: 0.25, max: 0.50 },
   };
 
   try {
-    // Generate a random deduction between 2 and 5
-    const highDeduction = getRandomNumber(2, 5);
+    // Generate a random deduction between 0.5 and 0.8
+    const highDeduction = getRandomNumber(0.5, 0.9);
     // Determine if bonus can handle the high deduction
     const rate = actionStat[params.action];
     const deduction = highDeduction; // Assume high deduction is attempted
@@ -194,6 +201,7 @@ export async function deductGameCoins(params: {
     updateMonthlySpentCoins({
       gameId: params.gameId,
       catId: params.catId,
+      mode: params.mode,
       bonus: parseFloat(deductedBonus.toFixed(2)),
       coins: parseFloat(deductedCoins.toFixed(2)),
     });
@@ -236,9 +244,10 @@ export const getUserData = async (userId: string, catId: string) => {
 
 export const checkUserGameEnergy = async (userId: string, catId: string) => {
   try {
-    const playerKeys = getPlayerRedisKeys(userId, catId);
+    // const playerKeys = getPlayerRedisKeys(userId, catId);
+    const uKey = `player:${userId}:cat:${catId}:energy`
     // check redis
-    const energy = await getRedisHashKey<GameEnergy>(playerKeys.energy);
+    const energy = await getRedisHashKey<GameEnergy>(uKey);
 
     if (energy) {
       console.log("Join room - player energy - redis ", energy);
@@ -271,7 +280,7 @@ export const checkUserGameWallet = async (userId: string) => {
 
     if (wallet) {
       // check balance
-      const balance = wallet.amount + wallet.bonus;
+      const balance = wallet.coins + wallet.bonus;
       console.log("Join room - player wallet - redis ", wallet);
       const isError = balance < 10;
       return {
@@ -289,7 +298,7 @@ export const checkUserGameWallet = async (userId: string) => {
     }
     console.log("Join room - player wallet - prisma ", result2);
     // check balance
-    const balance = result2.amount + result2.bonus;
+    const balance = result2.coins + result2.bonus;
     const isError = balance < 10;
     return {
       message: isError
@@ -309,9 +318,10 @@ export const checkUserGameWallet = async (userId: string) => {
 
 async function syncUserRedisGameEnergyToPrisma(
   playerId: string,
-  catId: string
+  catId: string,
+  mode: "single" | "multi"
 ) {
-  const playerKeys = getPlayerRedisKeys(playerId, catId);
+  const playerKeys = getPlayerRedisKeys(playerId, catId, mode);
   try {
     const result = await getRedisHashKey<GameEnergy>(playerKeys.energy);
     if (!result) return;
@@ -342,7 +352,7 @@ export async function syncUserRedisWalletToPrisma(userId: string) {
     await prisma.wallet.update({
       where: { id: result.id },
       data: {
-        amount: result.amount,
+        coins: result.coins,
         bonus: result.bonus,
         credit: result.credit,
       },
@@ -665,10 +675,17 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
 
 export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
   try {
-    const parentRoomId = params.roomId;
-    let roomId = params.roomId;
+    const mode = getGameMode(params.mode)
+    // const parentRoomId = params.roomId;
+    // let roomId = params.roomId;
+    let parentRoomId = `${mode}-${params.roomId}` // MODE-ROOMID
+    let roomId = `${mode}-${params.roomId}` // MODE-ROOMID
     const totalPlayers = await getTotalRoomPlayers(roomId);
-    if (totalPlayers >= 20) {
+    if(params.mode === GameMode.SINGLE){
+      const uID = params.playerId.slice(-10)
+      roomId = `${roomId}_${uID}`; // user room partition
+    }
+    if (totalPlayers >= 20 && params.mode === GameMode.MULTI) {
       const partitionKey = `room:${parentRoomId}:partitions`;
       // Fetch only partitions with players < MAX_PLAYERS and limit the number of results
       const roomPartitions = await redisClient.zRangeByScore(
@@ -690,14 +707,13 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
       }, []);
       // If no available room, create a new partition
       if (partitions.length === 0) {
-        roomId = `${parentRoomId}_${generateUniqueRef(13)}`;
+        roomId = `${parentRoomId}_${generateUniqueRef(13)}`; //MODE-ROOMID_PARTITIONKEY
         await redisClient.zAdd(partitionKey, { score: 1, value: roomId }); // Add to partitions with 0 players
       } else {
         roomId = shuffleArray(partitions)[0].roomId;
         await redisClient.zIncrBy(partitionKey, 1, roomId);
       }
     }
-
     // current date
     const currDate = new Date().toISOString();
     // get expiration
@@ -709,9 +725,9 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
     // get user keys
     const userKeys = getUserRedisKeys(params.playerId);
     // get ranking keys
-    const rankingKeys = getRankingKeys(params.catId);
+    const rankingKeys = getRankingKeys(params.catId, mode);
     // player hash unique keys
-    const playerKeys = getPlayerRedisKeys(params.playerId, params.catId);
+    const playerKeys = getPlayerRedisKeys(params.playerId, params.catId, mode);
     // player infor
     const playerInfo = {
       id: params.playerId,
@@ -791,7 +807,7 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
     if (!isWalletExists) {
       redisClient.hSet(userKeys.wallet, {
         id: wallet.id,
-        amount: wallet.amount,
+        amount: wallet.coins,
         credit: wallet.credit,
         bonus: wallet.bonus,
         userId: wallet.userId,
@@ -823,11 +839,13 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
 export const updatePlayerSession = async (params: {
   playerId: string;
   catId: string;
+  mode: GameMode
 }) => {
+  const mode = getGameMode(params.mode)
   // current date
   const currDate = new Date().toISOString();
   // player hash unique keys
-  const playerKeys = getPlayerRedisKeys(params.playerId, params.catId);
+  const playerKeys = getPlayerRedisKeys(params.playerId, params.catId, mode);
   // update user session on the game category - this is to track their last played date
   redisClient.hSet(playerKeys.info, "lastLoggedIn", currDate);
   // update user session
@@ -839,6 +857,7 @@ export const updatePlayerSession = async (params: {
 export const getTotalRoomParticipants = async (roomId: string) => {
   const strArry = roomId.split("_");
   const parentRoomId = strArry[0];
+  // const parentRoomId = `${mode}-${roomId}`
   const count = await redisClient.get(`room:${parentRoomId}:participants`);
   return parseInt(count ?? "0", 10);
 };
@@ -867,10 +886,12 @@ export async function getGameRoomPlayers(roomId: string) {
 // Function to get players in a room with their rank and details
 export const getGameRoomPlayersWithRank = async (
   roomId: string,
-  catId: string
+  catId: string,
+  mode: GameMode
 ) => {
+  const _mode = getGameMode(mode)
   // get ranking keys and retrieve the over monthly data of the room player
-  const rankingKeys = getRankingKeys(catId);
+  const rankingKeys = getRankingKeys(catId, _mode);
   // room players key
   const roomPlayersKey = `room:${roomId}:players`;
   // Retrieve the list of player IDs in the room
@@ -879,7 +900,7 @@ export const getGameRoomPlayersWithRank = async (
   const playersData = await Promise.all(
     playerIds.map(async (playerId) => {
       // player hash unique keys
-      const playerKeys = getPlayerRedisKeys(playerId, catId);
+      const playerKeys = getPlayerRedisKeys(playerId, catId, _mode);
       // Get player details from hash
       const playerInfo = await redisClient.hGetAll(playerKeys.info);
       const player = playerInfo as unknown as GamePlayerInfo;
@@ -903,9 +924,10 @@ export const getGameRoomPlayersWithRank = async (
 };
 
 // Function to get leaderboard
-export const getCountGamePlayers = async (catId: string) => {
+export const getCountGamePlayers = async (catId: string, mode: GameMode) => {
+  const _mode = getGameMode(mode)
   // get ranking keys
-  const rankingKeys = getRankingKeys(catId);
+  const rankingKeys = getRankingKeys(catId, _mode);
   const [monthTotalPlayers, weekTotalPlayers, todayTotalPlayers] =
     await Promise.all([
       redisClient.zCard(rankingKeys.month),
@@ -915,9 +937,10 @@ export const getCountGamePlayers = async (catId: string) => {
   return { monthTotalPlayers, weekTotalPlayers, todayTotalPlayers };
 };
 
-export const getRankingKey = (ranking: string, catId: string) => {
+export const getRankingKey = (ranking: string, catId: string, mode: GameMode) => {
+  const _mode = getGameMode(mode)
   // get ranking keys
-  const rankingKeys = getRankingKeys(catId);
+  const rankingKeys = getRankingKeys(catId, _mode);
   if (ranking === "today") {
     return rankingKeys.today;
   }
@@ -933,13 +956,16 @@ export const getGameLeaderboard = async ({
   limit,
   catId,
   ranking,
+  mode
 }: {
   page: number;
   limit: number;
   catId: string;
   ranking: string;
+  mode: GameMode
 }) => {
-  const rankingKey = getRankingKey(ranking, catId);
+  const _mode = getGameMode(mode)
+  const rankingKey = getRankingKey(ranking, catId, mode);
   // Get players from the sorted set leaderboard
   const min = "1000000000000000000";
   const max = "0";
@@ -953,13 +979,13 @@ export const getGameLeaderboard = async ({
   const playersData = await Promise.all(
     result.map(async (item) => {
       // player hash unique keys
-      const playerKeys = getPlayerRedisKeys(item.value, catId);
+      const playerKeys = getPlayerRedisKeys(item.value, catId, _mode);
       // Get player details from hash
       const playerInfo = await redisClient.hGetAll(playerKeys.info);
       // Get player's rank from the sorted set leaderboard
       const player = playerInfo as unknown as GamePlayerInfo;
       // Get player stat
-      const key = getPlayerRankingKey({ ranking, playerId: item.value, catId });
+      const key = getPlayerRankingKey({ ranking, playerId: item.value, catId, mode: _mode });
       const stat = await redisClient.hGetAll(key);
       // Get player's rank from the sorted set leaderboard
       const playerRank = await redisClient.zRevRank(rankingKey, item.value);
@@ -974,17 +1000,18 @@ export const getGameLeaderboard = async ({
       };
     })
   );
+
   return playersData;
 };
 
-export async function removeGameRoomPlayer(roomId: string, playerId: string) {
+export async function removeGameRoomPlayer(roomId: string, playerId: string, mode: GameMode) {
   try {
     const strArry = roomId.split("_");
     const parentRoomId = strArry[0];
     const partitionKey = `room:${parentRoomId}:partitions`;
     const participantKey = `room:${parentRoomId}:participants`;
     // check if it's a partioned room
-    if (roomId.includes("_")) {
+    if (roomId.includes("_") && mode === GameMode.MULTI) {
       // Remove player from the room set & delete player details as no longer needed
       const [partitionCount, participantCount] = await Promise.all([
         // update partioned room
@@ -1004,11 +1031,12 @@ export async function removeGameRoomPlayer(roomId: string, playerId: string) {
         await redisClient.del(participantKey);
         logger.info(`Participants Room ${parentRoomId} has been cleaned up.`);
       }
+      return participantCount
     } else {
       // Remove player from the room set & delete player details as no longer needed
       const [participantCount] = await Promise.all([
         // update parent room total participants
-        redisClient.decr(`room:${parentRoomId}:participants`),
+        redisClient.decr(participantKey),
         redisClient.sRem(`room:${roomId}:players`, playerId),
         redisClient.del(`room:${playerId}:player`),
       ]);
@@ -1017,10 +1045,9 @@ export async function removeGameRoomPlayer(roomId: string, playerId: string) {
         await redisClient.del(participantKey);
         logger.info(`Participants Room ${parentRoomId} has been cleaned up.`);
       }
+      return participantCount
     }
-    const count = await redisClient.get(participantKey);
-    console.log(`Participants Room ${parentRoomId} has ${count}`);
-    return parseInt(count ?? "0") || 0;
+    
   } catch (error) {
     return 0;
   }
@@ -1064,9 +1091,10 @@ export const disconnectGameRoomPlayer = async (socket: Socket, io: Server) => {
       "from room ",
       socket.data.room
     );
-    const user = socket.data.user;
-    const room = socket.data.room;
+    const user: User = socket.data.user;
+    const room: SocketGameRoom = socket.data.room;
     if (!room || !user) return;
+    const mode = getGameMode(room.mode)
     // check if game room player exists
     const player = await getGameRoomPlayer(socket.data.user.id);
     if (!player) return;
@@ -1074,7 +1102,6 @@ export const disconnectGameRoomPlayer = async (socket: Socket, io: Server) => {
     // remove user from all rooms
     const socketRooms = Array.from(socket.rooms);
     for (let r = 0; r < socketRooms.length; r++) {
-      console.log("room ", r);
       if (r > 0) {
         socket.leave(socketRooms[r]);
       }
@@ -1088,8 +1115,9 @@ export const disconnectGameRoomPlayer = async (socket: Socket, io: Server) => {
       })
     );
     // remove player from game room
-    const totalParticipants = await removeGameRoomPlayer(room.id, user.id);
-    const parentRoomId = room?.id.split("_")[0];
+    const totalParticipants = await removeGameRoomPlayer(room.id, user.id, room.mode);
+    const roomStrArr = room?.id.split("_");
+    const parentRoomId = roomStrArr[0]
     console.log(
       "Discon totalParticipants ",
       totalParticipants,
@@ -1101,13 +1129,14 @@ export const disconnectGameRoomPlayer = async (socket: Socket, io: Server) => {
       count: totalParticipants,
     });
     // broadcast the players present in the room
-    const players = await getGameRoomPlayersWithRank(room.id, room.catId);
+    const players = await getGameRoomPlayersWithRank(room.id, room.catId, room.mode);
+    // clean up room data if no players in the room
     if (players.length === 0) {
       await cleanUpGameRoom(room.id);
     }
     socket.broadcast.to(room.id).emit(GameEventEnum.GAME_ROOM_PLAYERS, players);
     // sync redis user game energy to prisma
-    syncUserRedisGameEnergyToPrisma(user.id, room.catId);
+    syncUserRedisGameEnergyToPrisma(user.id, room.catId, mode);
     // sync redis user wallet to prisma
     syncUserRedisWalletToPrisma(user.id);
     // disconnect the socket
@@ -1117,7 +1146,7 @@ export const disconnectGameRoomPlayer = async (socket: Socket, io: Server) => {
 
 export const getGameRoom = async (roomId: string) => {
   try {
-    const uniqueKey = `room:${roomId}`; // Unique key for each user
+    const uniqueKey = `room:${roomId}`;
     const result = await redisClient.hGetAll(uniqueKey);
     if (Object.keys(result).length === 0) {
       return null;
@@ -1152,6 +1181,7 @@ async function updateMonthlySpentCoins(params: {
   catId: string;
   coins: number;
   bonus: number;
+  mode: GameMode
 }) {
   try {
     const spentKey = getSpentCoinsKey(params);
@@ -1178,16 +1208,17 @@ async function updateWinningStreak(
     catId,
     roomId,
     playerId,
+    mode
   }: {
     catId: string;
     roomId: string;
     playerId: string;
+    mode: string
   },
   io: Server
 ): Promise<void> {
   try {
     const streakKey = `room:${roomId}:streak`;
-
     // Get the current leader and their streak
     const currentLeader = await getRedisHashKey<{
       playerId: string;
@@ -1234,6 +1265,7 @@ async function updateWinningStreak(
                 milestoneId: milestone.id,
                 catId,
                 playerId,
+                mode: mode.toUpperCase() as GameMode,
                 description: `You won ${milestone.reward} ${
                   TxnCurrencyEnum.COINS
                 } & a trophy for achieving ${milestone.reason
@@ -1348,6 +1380,7 @@ async function updateGamePlayersScoresDb(data: ThemedGameScoreStat[]) {
 
 export const updateGamePlayersScores = async (scores: ThemedGameScore[]) => {
   // get utc month & date to track player score by month, year and overall
+  const mode = getGameMode(scores[0].mode)
   const stat = getCurrentDataInfo();
   const persistData: ThemedGameScoreStat[] = scores.map((item) => ({
     score: item.score,
@@ -1365,9 +1398,9 @@ export const updateGamePlayersScores = async (scores: ThemedGameScore[]) => {
     await Promise.all(
       scores.map(async (item) => {
         // get ranking keys
-        const rankingKeys = getRankingKeys(item.catId);
+        const rankingKeys = getRankingKeys(item.catId, mode);
         // player hash unique keys
-        const playerKeys = getPlayerRedisKeys(item.playerId, item.catId);
+        const playerKeys = getPlayerRedisKeys(item.playerId, item.catId, mode);
         // update leaderboard sorted set
         redisClient.zIncrBy(rankingKeys.month, item.score, item.playerId),
           redisClient.zIncrBy(rankingKeys.week, item.score, item.playerId),
@@ -1395,11 +1428,12 @@ export const updatePlayerGameEnergy = async (
 ) => {
   try {
     console.log("Game energy incoming request ", params);
-    const playerKeys = getPlayerRedisKeys(params.playerId, params.catId);
+    // const playerKeys = getPlayerRedisKeys(params.playerId, params.catId);
+    const uKey = `player:${params.playerId}:cat:${params.catId}:energy`
     await Promise.all([
-      redisClient.hSet(playerKeys.energy, "amount", params.amount),
-      redisClient.hSet(playerKeys.energy, "gauge", params.gauge),
-      redisClient.hSet(playerKeys.energy, "turbo", params.turbo),
+      redisClient.hSet(uKey, "amount", params.amount),
+      redisClient.hSet(uKey, "gauge", params.gauge),
+      redisClient.hSet(uKey, "turbo", params.turbo),
     ]);
     // emit back
     socket.emit(GameEventEnum.GAME_PLAYER_ENERGY, params);
@@ -1419,7 +1453,8 @@ export const updatePlayersGameEnergy = async (
     const result = await Promise.all(
       scores.map(async (item) => {
         // get user keys
-        const playerKeys = getPlayerRedisKeys(item.playerId, item.catId);
+        const mode = getGameMode(item.mode)
+        const playerKeys = getPlayerRedisKeys(item.playerId, item.catId, mode);
         // get random amount number
         const amount = getRandomNumber(150, 250, true);
         // get random number to decrement energy gauge
@@ -1482,37 +1517,40 @@ export const isGameRoomExists = async (roomId: string) => {
 export const updateGameRoom = async (params: TempGameRoom) => {
   const timer = params.timer ?? getRandomNumber(10, 20, true);
   const roomKey = `room:${params.roomId}`;
+  // console.log(`Update room - ${roomKey} payload `, { ...params, timer } )
   await redisClient.hSet(roomKey, { ...params, timer });
 };
 
-export const notifyGameRoomPlayers = (
-  roomId: string,
+export const notifyGameRoomPlayers = ({roomId, io, mode, totalPlayers}:{roomId: string,
   totalPlayers: number,
-  io: Server
-) => {
+  mode: GameMode,
+  io: Server}) => {
   // broadcasting to the room the total number of participants
   const minPlayers = 3 - totalPlayers;
   io.to(roomId).emit(
     GameEventEnum.NOTIFY_MESSAGE,
-    `We have ${totalPlayers} ${
+    mode === GameMode.SINGLE ? `Swem says, get ready!` : `We have ${totalPlayers} ${
       totalPlayers === 1 ? "player" : "players"
     } & waiting for ${minPlayers} to start!`
   );
 };
 
+const composeTimerKey = (name: string) => {
+  return name.toLowerCase()
+}
+
 // this function checks if the number of players in the room are up 3
 export const checkGameNumPlayers = async (room: TempGameRoom, io: Server) => {
   const totalPlayers = await getTotalRoomPlayers(room.roomId);
   if (totalPlayers === 0) return;
-  // if (totalPlayers >= 1 && totalPlayers < 3) {
-  //   notifyGameRoomPlayers(roomId, totalPlayers, io);
-  //   updateGameRoom({ status: GameStatusEnum.CHAT, roomId });
-  //   gameChatTime(roomId, io);
-  //   return;
-  // }
+  if ((totalPlayers >= 1 && totalPlayers < 3) && room.mode === GameMode.MULTI) {
+    notifyGameRoomPlayers({roomId: room.roomId, mode: room.mode, totalPlayers, io});
+    updateGameRoom({ ...room, status: GameStatusEnum.CHAT });
+    gameChatTime(room.roomId, io);
+    return;
+  }
   // generate a random themed question using Ai
   const gameQuestion = await generateRoomQuestion(room);
-  console.log("gameQuestion ", gameQuestion);
   const gameType = getGameType(room.gameName);
   const catType = getGameCatType(room.catName);
   if (!gameQuestion) {
@@ -1526,15 +1564,41 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: Server) => {
   }
   //   store in redis based on the game room
   await storeGameRoomQuestion(room.roomId, gameQuestion);
-  const timer =
-    gameType === GameType.ACRONYM ||
-    (gameType === GameType.MINDMASH && catType === GameCatType.TYPEMANIA) ||
-    (gameType === GameType.MINDMASH && catType === GameCatType.ANAGRAM)
-      ? 25
-      : (gameType === GameType.MINDMASH && catType === GameCatType.WORDMAKER) ||
-        (gameType === GameType.MINDMASH && catType === GameCatType.HANGMAN)
-      ? 30
-      : 20;
+  // mode
+  const mode = getGameMode(room.mode)
+  const timerKey = (`${mode}_${room.catName}`).toLowerCase()
+  const timers = {
+    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.LUCKYSPIN}`)]: 10,
+    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.LUCKYSPIN}`)]: 15,
+
+    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.LUCKYFLIP}`)]: 10,
+    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.LUCKYFLIP}`)]: 15,
+
+    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.LUCKYWHIZ}`)]: 10,
+    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.LUCKYWHIZ}`)]: 15,
+
+    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.UNSCRAMBLE}`)]: 15,
+    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.UNSCRAMBLE}`)]: 15,
+
+    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.HANGMAN}`)]: 15,
+    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.HANGMAN}`)]: 15,
+
+    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.WORDMAKER}`)]: 15,
+    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.WORDMAKER}`)]: 15,
+
+    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.TYPEMANIA}`)]: 15,
+    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.TYPEMANIA}`)]: 15,
+
+    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.ANAGRAM}`)]: 15,
+    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.ANAGRAM}`)]: 15,
+  }
+
+  // const initTimer = timers[timerKey] ?? 20
+
+  // console.log(" timerKey timerKey timerKey", timerKey, initTimer)
+
+  const timer = timers[timerKey] ?? 15 //gameType === GameType.ACRONYM ? 25 : initTimer
+
   await updateGameRoom({
     ...room,
     status: GameStatusEnum.PLAY,
@@ -1567,9 +1631,11 @@ export const getGameResult = async (roomId: string, io: Server) => {
   if (gameRoomScore.length > 0) {
     // update game room streak and game achievement or set game room streak
     const item = gameRoomScore[0];
-    item.score > 0
-      ? updateWinningStreak(item, io)
-      : resetRoomStreak(item.roomId);
+    if(item.score > 0){
+      updateWinningStreak(item, io)
+    }else{
+      resetRoomStreak(item.roomId);
+    } 
     // update players game energy
     updatePlayersGameEnergy(gameRoomScore, io);
     //   emit event to client
@@ -1577,7 +1643,7 @@ export const getGameResult = async (roomId: string, io: Server) => {
     // update game points
     await updateGamePlayersScores(gameRoomScore);
     //   send in game room players
-    const players = await getGameRoomPlayersWithRank(roomId, room.catId);
+    const players = await getGameRoomPlayersWithRank(roomId, room.catId, room.mode);
     io.to(roomId).emit(GameEventEnum.GAME_ROOM_PLAYERS, players);
   } else {
     // reset game room streak
@@ -1585,6 +1651,13 @@ export const getGameResult = async (roomId: string, io: Server) => {
   }
   // chat again
   gameChatTime(roomId, io, true);
+  // if(room.mode === GameMode.MULTI){
+   
+  // }
+  // else{
+  //   checkGameNumPlayers(room, io);
+  // }
+  
 };
 
 // when it's play time
@@ -1645,10 +1718,11 @@ export const gameChatTime = async (
   const room = await getGameRoom(roomId);
   if (!room) return;
   const status = room.status;
-  let countdown = room.timer ?? 1;
+  const isSolo = room.mode === GameMode.SINGLE
+  let countdown = isSolo  ? 5 : room.timer ?? 1;
   // emit initial message
   if (notify) {
-    io.to(roomId).emit(GameEventEnum.NOTIFY_MESSAGE, "You can chat now!");
+    io.to(roomId).emit(GameEventEnum.NOTIFY_MESSAGE, isSolo ? "Get ready!" : "You can chat now!");
   }
   // set interval
   const interval = setInterval(async () => {
@@ -1776,20 +1850,21 @@ export const createGameCategoryRoom = async (args: {
 
 export const getGameCategories = async (gameId: string) => {
   try {
-    const result = await prisma.gameCategory.findMany({ where: { gameId } });
-    return { status: 200, data: result, message: "success" };
+    const game = await prisma.game.findUniqueOrThrow({where: { id: gameId }})
+    const categories = await prisma.gameCategory.findMany({ where: { gameId } });
+    return { status: 200, data: {game, categories}, message: "success" };
   } catch (error: any) {
     return { status: 500, data: null, message: error?.message };
   }
 };
 
-export const getGameCategoryRooms = async (catId: string) => {
+export const getGameCategoryRooms = async (catId: string, mode: string) => {
   try {
     const rooms = await prisma.gameRoom.findMany({ where: { catId } });
     // Fetch participant counts from Redis for each room
     const result = await Promise.all(
       rooms.map(async (room) => {
-        const count = await getTotalRoomParticipants(room.id);
+        const count = await getTotalRoomParticipants(`${mode}-${room.id}`);
         return {
           ...room,
           participants: count, // Default to 0 if not set
@@ -1813,6 +1888,7 @@ export const getGameCategoryRoom = async (roomId: string) => {
   }
 };
 
+
 export const checkGameRoom = async (roomId: string) => {
   try {
     return await prisma.gameRoom.findUniqueOrThrow({
@@ -1826,10 +1902,11 @@ export const checkGameRoom = async (roomId: string) => {
 
 export const getGamePlayerRankings = async (
   userId: string,
-  rankType: "today" | "week" | "month"
+  rankType: "today" | "week" | "month",
+  mode: "single" | "multi"
 ) => {
   try {
-    const keyPatterns = getPlayerRedisKeys(userId, "*");
+    const keyPatterns = getPlayerRedisKeys(userId, "*", mode);
     const pattern =
       rankType === "today"
         ? keyPatterns.today
@@ -1854,7 +1931,7 @@ export const getGamePlayerRankings = async (
       });
       if (!category) break;
       // get ranking
-      const rankingKeys = getRankingKeys(catId);
+      const rankingKeys = getRankingKeys(catId, mode);
       const rankingKey =
         rankType === "today"
           ? rankingKeys.today
@@ -1894,6 +1971,7 @@ export const getGamePlayerRankings = async (
     };
   }
 };
+
 
 export const getGameWinnersStats = async () => {
   try {
@@ -1954,6 +2032,9 @@ export const getGameWinnersStats = async () => {
         return { ...item, stats: monthCatStats };
       })
     );
+    if(rankingStats.length === 0){
+      return { status: 404, data: "no found"}
+    }
     return { status: 200, data: rankingStats };
   } catch (error: any) {
     console.error("Error fetching game winners' stats:", error);
@@ -2015,10 +2096,11 @@ export const getGameWinners = async ({
 };
 
 export const getGameCategoriesRankings = async (
-  rankType: "today" | "week" | "month"
+  rankType: "today" | "week" | "month",
+  mode: "single" | "multi"
 ) => {
   try {
-    const keyPatterns = getRankingKeys("*");
+    const keyPatterns = getRankingKeys("*", mode);
     const pattern =
       rankType === "today"
         ? keyPatterns.today
@@ -2108,7 +2190,9 @@ export const getGamesRankingArchiveStats = async () => {
         return { ...item, stats: monthCatStats };
       })
     );
-
+    if(rankingStats.length === 0){
+      return { status: 404, data: "Not found"}
+    }
     return { status: 200, data: rankingStats };
   } catch (error: any) {
     console.error("Error fetching ranking stats:", error);
@@ -2275,83 +2359,83 @@ export const createDummyUsers = async () => {
   }
 };
 
-export const createDummyRedisMonthlyScoreRecord = async () => {
-  try {
-    const batchSize = 500;
-    let counter = 0;
-    const total = await prisma.user.count();
-    while (counter < total) {
-      const users = await prisma.user.findMany({
-        skip: counter,
-        take: batchSize,
-      });
-      if (users.length === 0) break;
-      // insert new users into redis database
-      const categories = await prisma.gameCategory.findMany({});
+// export const createDummyRedisMonthlyScoreRecord = async () => {
+//   try {
+//     const batchSize = 500;
+//     let counter = 0;
+//     const total = await prisma.user.count();
+//     while (counter < total) {
+//       const users = await prisma.user.findMany({
+//         skip: counter,
+//         take: batchSize,
+//       });
+//       if (users.length === 0) break;
+//       // insert new users into redis database
+//       const categories = await prisma.gameCategory.findMany({});
 
-      if (categories.length === 0) break;
+//       if (categories.length === 0) break;
 
-      for (const category of categories) {
-        const rankingKeys = getRankingRewardKeys(category.id);
-        const spentKey = getSpentCoinsKey({
-          gameId: category.gameId,
-          catId: category.id,
-        });
-        const fakeUserScore = users.map((user) => {
-          // insert fake redis user details
-          redisClient.hSet(
-            `player:${user.id}:category:${category.id}:${2024}`,
-            {
-              id: user.id,
-              name: user.username,
-              createdAt: new Date().toISOString(),
-              lastLoggedIn: new Date().toISOString(),
-            }
-          );
-          // fake score
-          const numPlayed = getRandomNumber(2000, 20_000, true);
-          const score = getRandomNumber(20_000, 2_000_000, true);
-          // insert fake month player data
-          redisClient.hSet(
-            `player:${user.id}:category:${
-              category.id
-            }:${2024}:${11}:month:${11}`,
-            {
-              score,
-              numPlayed,
-            }
-          );
-          // fake month stat
-          // update category total players score and num played
-          redisClient.hSet(rankingKeys.rewardMonthStat, {
-            score: getRandomNumber(5_000_000_000, 20_000_000_000, true),
-            numPlayed: getRandomNumber(1_000_000, 10_000_000, true),
-          }),
-            // fake user scores
-            redisClient.zAdd(rankingKeys.rewardMonth, {
-              value: user.id,
-              score: score,
-            });
-          // fake total coins spent
-          redisClient.hSet(spentKey, {
-            coins: getRandomNumber(8_000_000_000, 30_000_000_000),
-            bonus: getRandomNumber(100_000_000, 500_000_000),
-            gameId: category.gameId,
-            catId: category.id,
-          });
-        });
-        await Promise.all(fakeUserScore);
-      }
+//       for (const category of categories) {
+//         const rankingKeys = getRankingRewardKeys(category.id, "multi");
+//         const spentKey = getSpentCoinsKey({
+//           gameId: category.gameId,
+//           catId: category.id,
+//         });
+//         const fakeUserScore = users.map((user) => {
+//           // insert fake redis user details
+//           redisClient.hSet(
+//             `player:${user.id}:category:${category.id}:${2024}`,
+//             {
+//               id: user.id,
+//               name: user.username,
+//               createdAt: new Date().toISOString(),
+//               lastLoggedIn: new Date().toISOString(),
+//             }
+//           );
+//           // fake score
+//           const numPlayed = getRandomNumber(2000, 20_000, true);
+//           const score = getRandomNumber(20_000, 2_000_000, true);
+//           // insert fake month player data
+//           redisClient.hSet(
+//             `player:${user.id}:category:${
+//               category.id
+//             }:${2024}:${11}:month:${11}`,
+//             {
+//               score,
+//               numPlayed,
+//             }
+//           );
+//           // fake month stat
+//           // update category total players score and num played
+//           redisClient.hSet(rankingKeys.rewardMonthStat, {
+//             score: getRandomNumber(5_000_000_000, 20_000_000_000, true),
+//             numPlayed: getRandomNumber(1_000_000, 10_000_000, true),
+//           }),
+//             // fake user scores
+//             redisClient.zAdd(rankingKeys.rewardMonth, {
+//               value: user.id,
+//               score: score,
+//             });
+//           // fake total coins spent
+//           redisClient.hSet(spentKey, {
+//             coins: getRandomNumber(8_000_000_000, 30_000_000_000),
+//             bonus: getRandomNumber(100_000_000, 500_000_000),
+//             gameId: category.gameId,
+//             catId: category.id,
+//           });
+//         });
+//         await Promise.all(fakeUserScore);
+//       }
 
-      counter += users.length;
+//       counter += users.length;
 
-      console.log(`bATCH: ${counter} created successfully`);
-    }
-    logger.info(`Dummy monthly game score created successfully`);
-  } catch (error: any) {
-    console.log(`Error: Creating monthly dummy data failed ~ `, error?.message);
-  }
-};
+//       console.log(`bATCH: ${counter} created successfully`);
+//     }
+//     logger.info(`Dummy monthly game score created successfully`);
+//   } catch (error: any) {
+//     console.log(`Error: Creating monthly dummy data failed ~ `, error?.message);
+//   }
+// };
 
 const deleteAllRecords = async () => {
   await prisma.gameMonthStat.deleteMany({ where: { score: { gt: 0 } } });

@@ -131,10 +131,10 @@ export const transferCoins = async ({
     if (amount < 100)
       return { status: 400, message: "Minimun transfer amount is 100 coins" };
     // check from wallet balance
-    if (sender?.wallet?.amount < amount)
+    if (sender?.wallet?.coins < amount)
       return { status: 400, message: "Insufficient balance" };
     // check the wallet balance will cover the transaction fee
-    if (sender?.wallet?.amount < txnAmount)
+    if (sender?.wallet?.coins < txnAmount)
       return {
         status: 400,
         message: "Insufficient balance to cover transaction fees",
@@ -156,12 +156,12 @@ export const transferCoins = async ({
       // debit sender
       prisma.wallet.update({
         where: { userId: senderId },
-        data: { isLocked: false, amount: { decrement: txnAmount } },
+        data: { isLocked: false, coins: { decrement: txnAmount } },
       }),
       // credit recipient
       prisma.wallet.update({
         where: { userId: recipientId },
-        data: { isLocked: false, amount: { increment: amount } },
+        data: { isLocked: false, coins: { increment: amount } },
       }),
       // save sender transaction
       prisma.transaction.create({
@@ -406,7 +406,7 @@ export const fundCoins = async (
       // debit user
       prisma.wallet.update({
         where: { userId },
-        data: { amount: { increment: amount }, bonus: { increment: bonus } },
+        data: { coins: { increment: amount }, bonus: { increment: bonus } },
       }),
       // save sender transaction
       prisma.transaction.create({

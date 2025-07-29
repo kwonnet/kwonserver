@@ -113,8 +113,8 @@ const subscriptionResponse = (txnData: any) => {
 
 export const verifyFlutterwavePayment = async (arg: {
   status: string;
-  tx_ref: string;
-  transaction_id: string;
+  tx_ref: string | number;
+  transaction_id: string | number;
   [key: string]: any;
 }) => {
   try {
@@ -131,7 +131,7 @@ export const verifyFlutterwavePayment = async (arg: {
       };
     // check if transaction is already settled
     const tnxExists = await prisma.transaction.findFirst({
-      where: { exTxnRef: arg.tx_ref },
+      where: { exTxnRef: String(arg.tx_ref) },
     });
     if (tnxExists)
       return { message: "Transaction already settled", status: 400 };
@@ -153,6 +153,7 @@ export const verifyFlutterwavePayment = async (arg: {
     return { status, message, data: null };
   }
 };
+
 
 const getSubscriptionsPlan = async () => {
   try {

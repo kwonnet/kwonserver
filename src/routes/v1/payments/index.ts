@@ -9,6 +9,8 @@ router.post("/flw/link", authMiddleware(), getPaymentLinkController)
 
 router.get("/flw/verify", verifyFlwPaymentController)
 
+router.post("/flw/verify", verifyFlwPaymentController)
+
 router.post("/flw/sync-subscription-plans", authMiddleware(false),  syncFlwSubscriptionPlansController)
 
 const paymentRoutes = router

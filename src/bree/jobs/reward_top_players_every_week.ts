@@ -4,13 +4,14 @@ import { retryExecution } from "@/utils/helpers";
 import redisClient from "@/redis";
 import { PromisePool } from "@supercharge/promise-pool";
 import prisma from "@/db";
-import { generateUniqueRef, getRankingRewardKeys } from "@/utils";
+import { generateUniqueRef, getGameMode, getRankingRewardKeys } from "@/utils";
 import {
   getRewardTopRankingPlayers,
   syncPrismaUserWalletToRedis,
   syncRedisUserWalletToPrisma,
 } from "@/services/helper";
 import {
+  GameMode,
   TxnCategoryEnum,
   TxnCurrencyEnum,
   TxnGatewayEnum,
@@ -21,15 +22,16 @@ import {
 import logger from "@/logger";
 
 
-const rewardCategoryWeeklyPlayers = async (catId: string) => {
+const rewardCategoryWeeklyPlayers = async (catId: string, _mode: GameMode) => {
   try {
-    const keys = getRankingRewardKeys(catId);
+    const mode = getGameMode(_mode)
+    const keys = getRankingRewardKeys(catId, mode);
     // check if key exists
     const exists = await redisClient.exists(keys.rewardWeek);
     if (exists === 0) return;
     // get top 3 and reward them
     const players = await getRewardTopRankingPlayers(
-      { page: 1, catId, limit: 3, rankingKey: keys.rewardWeek },
+      { page: 1, catId, limit: 3, rankingKey: keys.rewardWeek, mode },
       "WEEK"
     );
     // check if 0
@@ -60,6 +62,7 @@ const rewardCategoryWeeklyPlayers = async (catId: string) => {
             milestoneId: milestone.id,
             catId,
             playerId: player.id,
+            mode: _mode,
             description: `Rewarded ${milestone.reward} ${
               milestone.rewardType
             } & a trophy for achieving ${milestone.reason
@@ -138,13 +141,18 @@ const rewardPlayers = async () => {
 
     if (categories.length === 0) throw new Error("No game categories");
 
-    const catIds = categories.map((c) => c.id);
+    // loop through each category game modes and compose each category by mode.
+    const result = categories.map(c => {
+      return c.game.modes.map(m => {
+        return { catId: c.id, gameId: c.gameId, mode: m  }
+      })
+    }).flat()
 
-    const { results, errors } = await PromisePool.for(catIds)
+    const { results, errors } = await PromisePool.for(result)
       .withConcurrency(5)
       .useCorrespondingResults()
-      .process(async (id: string) => {
-        return await rewardCategoryWeeklyPlayers(id);
+      .process(async ({catId, mode}) => {
+        return await rewardCategoryWeeklyPlayers(catId, mode);
       });
     // check errors and dispatch
     if (errors.length > 0) {

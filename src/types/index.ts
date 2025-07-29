@@ -164,7 +164,8 @@ export interface SocketGameRoom {
     id: string, 
     catId: string, 
     name: string, 
-    gameId: string
+    gameId: string;
+    mode: GameMode
 }
 
 export interface Coin {
@@ -190,6 +191,7 @@ export interface GameRoomPlayer {
     roomId: string;
     catId: string;
     voteCount: number;
+    mode: GameMode
 }
 export interface GamePlayerInfo {
     id: string;

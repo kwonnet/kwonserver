@@ -1,8 +1,10 @@
 import {
+  CreatePostClickSchema,
   CreatePostHighlightSchema,
   CreatePostImpressionSchema,
   CreatePostMediaLogSchema,
   CreatePostPinSchema,
+  CreatePostTipSchema,
   CreatePostViewSchema,
   QueryParams,
   ReportCreateSchema,
@@ -10,12 +12,14 @@ import {
 import { PostCreateSchema } from "@/schema/post";
 import {
   createPost,
+  createPostClick,
   createPostHighlight,
   createPostImpression,
   createPostMediaLog,
   createPostPin,
   createPostQuote,
   createPostReply,
+  createPostTip,
   createPostView,
   deletePost,
   getNewsfeed,
@@ -620,6 +624,47 @@ export const createPostViewController = async (
   }
 };
 
+export const createPostClickController = async (
+  req: RequestWithUser,
+  res: Response
+) => {
+  try {
+    console.log("Post Click logger ", req.body);
+
+    const user = req.user as AuthUser;
+
+    const postId = req.params.id;
+
+    const zodResult = validateZodInput(req.body, CreatePostClickSchema);
+
+    const zodData = zodResult.data;
+
+    if (!postId) return res.status(400).send("Invalid ID provided");
+
+    if (!zodData) return res.status(400).send(zodResult.message);
+
+    const reqInfo = await getReqInfo(req);
+
+    if (reqInfo.isBot) {
+      return res.status(400).send("Failed to process, bot request detected");
+    }
+
+    const payload = {
+      device: reqInfo.device,
+      meta: reqInfo.ipInfo,
+      postId,
+      userId: user.id,
+      referer: req.headers["referer"],
+      ...zodData
+    };
+    // save view in redis queue
+    const result = await createPostClick(payload);    
+    return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
 
 export const createPostMediaLogController = async (
   req: RequestWithUser,
@@ -772,6 +817,56 @@ export const voteQuizPostController = async (
 
     const result = await voteQuizPost(postId, optionId, user.id);
 
+    return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+
+export const createPostTipController = async (
+  req: RequestWithUser,
+  res: Response
+) => {
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+
+  try {
+    console.log("Post Tip logger ", req.body);
+
+    const user = req.user as AuthUser;
+
+    const postId = req.params.id;
+
+    const zodResult = validateZodInput(req.body, CreatePostTipSchema);
+
+    const zodData = zodResult.data;
+
+    if (!postId) return res.status(400).send("Invalid ID provided");
+
+    if (!zodData) return res.status(400).send(zodResult.message);
+
+    const reqInfo = await getReqInfo(req);
+
+    if (reqInfo.isBot) {
+      return res.status(400).send("Failed to process, bot request detected");
+    }
+
+    const payload = {
+      ...zodData,
+      postId,
+      device: reqInfo.device,
+      meta: reqInfo.ipInfo,
+      senderId: user.id,
+      referer: req.headers["referer"]
+    };
+    // save tip in redis queue?
+    // const result = await createPostTip(payload)
+    const result = await createPostTip(payload, user);
+    // emit sse event
+    const data = result.data;
+    if (typeof data !== "string") {
+      sseEmitter.send(result.data, `post_tip`);
+    }
     return res.status(result.status).send(result.data);
   } catch (error: any) {
     return res.status(400).send(error?.message);

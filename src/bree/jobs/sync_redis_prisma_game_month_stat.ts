@@ -4,9 +4,10 @@ import { formatNumberWithCommas, retryExecution } from "@/utils/helpers";
 import redisClient from "@/redis";
 import { PromisePool } from "@supercharge/promise-pool";
 import prisma from "@/db";
-import { getRankingRewardKeys, getSpentCoinsKey } from "@/utils";
+import { getGameMode, getRankingRewardKeys, getSpentCoinsKey } from "@/utils";
 import logger from "@/logger";
 import { getCategoryRankingPlayerData } from "@/services/helper";
+import { GameMode } from "@prisma/client";
 
 async function clearMonthStatsKeys(keys: {rewardMonth: string, spentCoins: string, stat: string}) {
   try {
@@ -45,10 +46,12 @@ async function clearRedisKeysByPattern(pattern: string){
 }
 
 
-const syncMonthlyPlayerStats = async ({gameId, catId}:{gameId: string, catId: string}) => {
+const syncMonthlyPlayerStats = async (item:{gameId: string, catId: string; mode: GameMode}) => {
   try {
+    const {gameId, catId } = item
+    const mode = getGameMode(item.mode)
     // get reward ranking keys
-    const keys = getRankingRewardKeys(catId);
+    const keys = getRankingRewardKeys(catId, mode);
     // check if exists
     const exists = await redisClient.exists(keys.rewardMonth);
     if (!exists) return;
@@ -68,6 +71,7 @@ const syncMonthlyPlayerStats = async ({gameId, catId}:{gameId: string, catId: st
           limit,
           catId,
           rankingKey: keys.rewardMonth,
+          mode
         },
         "MONTH"
       );
@@ -81,7 +85,8 @@ const syncMonthlyPlayerStats = async ({gameId, catId}:{gameId: string, catId: st
             score: player.score, 
             numPlayed: player.numPlayed,
             year: keys.dateInfo.year,
-            month: keys.dateInfo.month
+            month: keys.dateInfo.month,
+            mode: item.mode
           }
       })
       // create prisma data
@@ -94,12 +99,12 @@ const syncMonthlyPlayerStats = async ({gameId, catId}:{gameId: string, catId: st
     await clearMonthStatsKeys({ 
       rewardMonth: keys.rewardMonth, 
       stat: keys.rewardMonthStat,
-      spentCoins: getSpentCoinsKey({ catId, gameId, dateInfo: { year: keys.dateInfo.year, month: keys.dateInfo.month}})
+      spentCoins: getSpentCoinsKey({ catId, gameId, mode: item.mode, dateInfo: { year: keys.dateInfo.year, month: keys.dateInfo.month}})
     })
     // clear players stats
-    await clearRedisKeysByPattern(`player:*:category:${catId}:${keys.dateInfo.year}:${keys.dateInfo.month}:month:${keys.dateInfo.month}`)
+    await clearRedisKeysByPattern(`player:*:cat:${catId}:mode:${mode}:${keys.dateInfo.year}:${keys.dateInfo.month}:month:${keys.dateInfo.month}`)
     // clear players info at the end of the year
-    await clearRedisKeysByPattern(`player:*:category:${catId}:${keys.dateInfo.year}`)
+    await clearRedisKeysByPattern(`player:*:cat:${catId}:mode:${mode}:${keys.dateInfo.year}`)
     // update game reward stats
     logger.info(`Monthly game players stats synced successfully.`);
   } catch (error: any) {
@@ -108,18 +113,25 @@ const syncMonthlyPlayerStats = async ({gameId, catId}:{gameId: string, catId: st
   }
 };
 
+
 const syncMonthlyPlayersData = async () => {
   try {
     // get all categories
-    const categories = await prisma.gameCategory.findMany({});
+    const categories = await prisma.gameCategory.findMany({include: { game: true}});
 
     if (categories.length === 0)
       throw new Error("No game categories available");
+    // loop through each category game modes and compose each category by mode.
+    const result = categories.map(c => {
+      return c.game.modes.map(m => {
+        return { catId: c.id, gameId: c.gameId, mode: m  }
+      })
+    }).flat()
 
-    const { results, errors } = await PromisePool.for(categories)
+    const { results, errors } = await PromisePool.for(result)
       .withConcurrency(2)
-      .process(async ({ id: catId, gameId }) => {
-        await syncMonthlyPlayerStats({catId, gameId});
+      .process(async ({ catId, gameId, mode }) => {
+        await syncMonthlyPlayerStats({catId, gameId, mode});
       });
 
     if (errors.length > 0) {

@@ -28,7 +28,11 @@ import {
   UserRoleEnum,
   Prisma,
   PostMediaKind,
-  PostMediaAction
+  PostMediaAction,
+  PostMetricAction,
+  PostMetricSource,
+  TipSource,
+  TipStatus,
 } from "@prisma/client";
 import {
   checkPollPermissions,
@@ -42,6 +46,7 @@ import { ReportSchema } from "@/schema";
 import redisClient from "@/redis";
 import { DetectResult, ResultDevice } from "node-device-detector";
 import { LookupResult } from "ip-location-api";
+import { AppError } from "@/utils/helpers";
 
 interface CreatePostThread extends Post {
   quiz?: Quiz | null;
@@ -62,7 +67,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
       const userWallet = await prisma.wallet.findUniqueOrThrow({
         where: { userId },
       });
-      if (userWallet.amount < totalRewardAmount) {
+      if (userWallet.coins < totalRewardAmount) {
         return {
           data: "Insufficient balance to create reward quiz",
           status: 400,
@@ -469,7 +474,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
               where: { userId },
               data: {
                 isLocked: false,
-                amount: {
+                coins: {
                   decrement: quiz.rewardAmount,
                 },
               },
@@ -981,9 +986,12 @@ export const createPostPin = async (
     const checkCount = await prisma.postPin.count({
       where: { contextType: args.context, userId: user.id },
     });
-    logger.info(`Post pins ${checkCount}`)
-    if(checkCount >= 5){
-      return { data: "You've reached max of 5 post pins, please unpin others to pin again", status: 400,}
+    logger.info(`Post pins ${checkCount}`);
+    if (checkCount >= 5) {
+      return {
+        data: "You've reached max of 5 post pins, please unpin others to pin again",
+        status: 400,
+      };
     }
     // report the post
     await prisma.postPin.create({
@@ -1026,9 +1034,12 @@ export const createPostHighlight = async (
     const checkCount = await prisma.postHighlight.count({
       where: { contextType: args.context, userId: user.id },
     });
-    logger.info(`Post hightlights ${checkCount}`)
-    if(checkCount >= 20){
-      return { data: "You've reached max of 20 hightlight posts, please remove some highlight to add more", status: 400,}
+    logger.info(`Post hightlights ${checkCount}`);
+    if (checkCount >= 20) {
+      return {
+        data: "You've reached max of 20 hightlight posts, please remove some highlight to add more",
+        status: 400,
+      };
     }
     // report the post
     await prisma.postHighlight.create({
@@ -1072,31 +1083,34 @@ export const notInterestedPost = async (postId: string, userId: string) => {
   }
 };
 
-export async function createPostImpression(args:{
+export async function createPostImpression(args: {
   device: DetectResult;
   meta: LookupResult | null;
   postId: string;
   userId: string;
   sessionId: string | null | undefined;
   timestamp: string;
-  referer?: string | null
+  referer?: string | null;
 }) {
   try {
-    const result = await prisma.$transaction(async(tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await tx.postImpression.create({
-        data: args
-      })
+        data: args,
+      });
       // increment the post impression counter
-      await tx.post.update({where: { id: args.postId }, data: { totalImpressions: { increment: 1}}})
-      return { data: { id: args.postId, userId: args.userId }, status: 200 }
-    })
-    return result
+      await tx.post.update({
+        where: { id: args.postId },
+        data: { totalImpressions: { increment: 1 } },
+      });
+      return { data: { id: args.postId, userId: args.userId }, status: 200 };
+    });
+    return result;
   } catch (error) {
-    return {data: "Sorry an error occurred to process request ", status: 500}
+    return { data: "Sorry an error occurred to process request ", status: 500 };
   }
 }
 
-export async function createPostView(args:{
+export async function createPostView(args: {
   device: DetectResult;
   meta: LookupResult | null;
   postId: string;
@@ -1104,24 +1118,54 @@ export async function createPostView(args:{
   sessionId: string | null | undefined;
   timestamp: string;
   duration: number;
-  referer?: string | null
+  referer?: string | null;
 }) {
   try {
-    const result = await prisma.$transaction(async(tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await tx.postView.create({
-        data: args
-      })
+        data: args,
+      });
       // increment the post impression counter
-      await tx.post.update({where: { id: args.postId }, data: { totalViews: { increment: 1}}})
-      return { data: { id: args.postId, userId: args.userId }, status: 200 }
-    })
-    return result
+      await tx.post.update({
+        where: { id: args.postId },
+        data: { totalViews: { increment: 1 } },
+      });
+      return { data: { id: args.postId, userId: args.userId }, status: 200 };
+    });
+    return result;
   } catch (error) {
-    return {data: "Sorry an error occurred to process request ", status: 500}
+    return { data: "Sorry an error occurred to process request ", status: 500 };
   }
 }
 
-export async function createPostMediaLog(args:{
+export async function createPostClick(args: {
+  device: DetectResult;
+  meta: LookupResult | null;
+  postId: string;
+  userId: string;
+  sessionId?: string | null;
+  timestamp: string;
+  referer?: string | null;
+  action: PostMetricAction;
+  source: PostMetricSource;
+}) {
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.postClick.create({
+        data: args,
+      });
+      // increment the post impression counter
+      // await tx.post.update({where: { id: args.postId }, data: { totalViews: { increment: 1}}})
+      return { data: { id: args.postId, userId: args.userId }, status: 200 };
+    });
+    return result;
+  } catch (error: any) {
+    console.log("Post Click Error ", error.message);
+    return { data: "Sorry an error occurred to process request ", status: 500 };
+  }
+}
+
+export async function createPostMediaLog(args: {
   device: DetectResult;
   meta: LookupResult | null;
   postId: string;
@@ -1132,32 +1176,189 @@ export async function createPostMediaLog(args:{
   duration: number;
   playbackRate: number;
   watchedPct: number;
-  sessionId?: string | null
-  referer?: string | null
-  kind: PostMediaKind,
-  action: PostMediaAction
+  sessionId?: string | null;
+  referer?: string | null;
+  kind: PostMediaKind;
+  action: PostMediaAction;
 }) {
   try {
-    const result = await prisma.$transaction(async(tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await tx.postMediaLog.create({
-        data: args
-      })
+        data: args,
+      });
       // increment the post media action counter
-      if(args.action === PostMediaAction.DOWNLOAD){
-        await tx.postMedia.update({where: { id: args.mediaId }, data: { totalDownloads: { increment: 1}}})
+      if (args.action === PostMediaAction.DOWNLOAD) {
+        await tx.postMedia.update({
+          where: { id: args.mediaId },
+          data: { totalDownloads: { increment: 1 } },
+        });
       }
-      if(args.action === PostMediaAction.VIEW){
-        await tx.postMedia.update({where: { id: args.mediaId }, data: { totalViews: { increment: 1}}})
+      if (args.action === PostMediaAction.VIEW) {
+        await tx.postMedia.update({
+          where: { id: args.mediaId },
+          data: { totalViews: { increment: 1 } },
+        });
       }
-      return { data: { id: args.postId, mediaId: args.mediaId, userId: args.userId, isDownload: args.action === PostMediaAction.DOWNLOAD, isView: args.action === PostMediaAction.VIEW }, status: 200 }
-    })
-    return result
+      return {
+        data: {
+          id: args.postId,
+          mediaId: args.mediaId,
+          userId: args.userId,
+          isDownload: args.action === PostMediaAction.DOWNLOAD,
+          isView: args.action === PostMediaAction.VIEW,
+        },
+        status: 200,
+      };
+    });
+    return result;
   } catch (error) {
-    return {data: "Sorry an error occurred to process request ", status: 500}
+    return { data: "Sorry an error occurred to process request ", status: 500 };
   }
 }
 
-export async function insertImpressionQueue(args:{
+export async function createPostTip(
+  args: {
+    device: DetectResult;
+    meta: LookupResult | null;
+    referer?: string | null;
+    postId: string;
+    recipientId: string;
+    senderId: string;
+    tipId: string;
+    message?: string;
+    isAnon?: boolean;
+  },
+  user: AuthUser
+) {
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // check recipient
+      const recipient = await tx.user.findUniqueOrThrow({
+        where: { id: args.recipientId },
+        select: { id: true, name: true, wallet: { select: { id: true } } },
+      });
+      if (!recipient.wallet) {
+        throw new AppError("Recipient's wallet not found.");
+      }
+      // check tip package
+      const tip = await tx.tipPackage.findUniqueOrThrow({
+        where: { id: args.tipId },
+      });
+      // checker sender wallet balance
+      const wallet = await tx.wallet.findUniqueOrThrow({
+        where: { userId: args.senderId },
+      });
+      let info = { isCredit: false, amount: tip.price };
+      if (wallet.coins < tip.price) {
+        if (wallet.credit * 2.2 < tip.price) {
+          throw new AppError("Insufficient balance, please purchase coins");
+        }
+        info = { amount: Number((tip.price / 2.2).toFixed(2)), isCredit: true };
+      }
+      // deduct sender wallet - package price(coins) from wallet amount(coins)
+      await tx.wallet.update({
+        where: { id: wallet.id },
+        data: {
+          ...(info.isCredit
+            ? { credit: { decrement: info.amount } }
+            : { coins: { decrement: info.amount } }),
+        },
+      });
+      // log sender transaction
+      await tx.transaction.create({
+        data: {
+          amount: info.amount,
+          currency: info.isCredit ? TxnCurrencyEnum.TZX : TxnCurrencyEnum.COINS,
+          type: TxnTypeEnum.DEBIT,
+          walletId: wallet.id,
+          tipPackageId: tip.id,
+          category: TxnCategoryEnum.POST_TIP,
+          postId: args.postId,
+          senderId: args.senderId,
+          recipientId: args.senderId,
+          status: TxnStatusEnum.COMPLETED,
+          source: info.isCredit ? TxnSourceEnum.CREDIT : TxnSourceEnum.COINS,
+          gateway: TxnGatewayEnum.WALLET,
+          txnRef: generateUniqueRef(),
+          description: `Post tip sent to ${recipient.name}`,
+        },
+      });
+      // credit recipient wallet - package price(coins) from wallet amount(coins)
+      // we sell 2.2 coins for 1TZX but buy back at 3 coins --- tip.price is in coins
+      // The system takes 45% of all tips and the recipient takes 55%
+      const creditAmount = Number(((tip.price * 0.55) / 3).toFixed(2));
+      // log recipient transaction
+      const txn = await tx.transaction.create({
+        data: {
+          amount: creditAmount,
+          currency: TxnCurrencyEnum.TZX,
+          type: TxnTypeEnum.CREDIT,
+          walletId: recipient.wallet.id,
+          tipPackageId: tip.id,
+          category: TxnCategoryEnum.POST_TIP,
+          postId: args.postId,
+          senderId: args.senderId,
+          recipientId: args.recipientId,
+          status: TxnStatusEnum.PENDING,
+          source: TxnSourceEnum.CREDIT,
+          gateway: TxnGatewayEnum.WALLET,
+          txnRef: generateUniqueRef(),
+          description: `Tip reward from ${
+            args.isAnon ? "anonymous" : user.name
+          } on your post`,
+        },
+      });
+      // log post tip until available at
+      await tx.postTip.create({
+        data: {
+          postId: args.postId,
+          senderId: args.senderId,
+          recipientId: args.recipientId,
+          tipId: tip.id,
+          message: args.message,
+          isAnon: args.isAnon,
+          device: args.device,
+          meta: args.meta,
+          referer: args.referer,
+          rewardTip: {
+            create: {
+              userId: recipient.id,
+              walletId: recipient.wallet.id,
+              amount: creditAmount,
+              source: TipSource.POST,
+              status: TipStatus.PENDING,
+              txnId: txn.id,
+              availableAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 days
+            },
+          },
+        },
+      });
+      // increment post tips
+      await tx.post.update({
+        where: { id: args.postId },
+        data: { totalTips: { increment: 1 } },
+      });
+
+      return {
+        data: {
+          id: args.postId,
+          userId: args.senderId,
+          isTip: true,
+        },
+        status: 200,
+      };
+    });
+    return result;
+  } catch (error) {
+    if (error instanceof AppError) {
+      console.error("Handled AppError:", error.message);
+      return { data: error.message, status: error.statusCode };
+    }
+    return { data: "Sorry an error occurred to process request ", status: 500 };
+  }
+}
+
+export async function insertImpressionQueue(args: {
   device: ResultDevice;
   meta: LookupResult | null;
   postId: string;
@@ -1166,28 +1367,33 @@ export async function insertImpressionQueue(args:{
   timestamp: string;
 }) {
   try {
-    const key = `impressions:${args.postId}:${args?.userId?.slice(-10) || args?.sessionId}`;
+    const key = `impressions:${args.postId}:${
+      args?.userId?.slice(-10) || args?.sessionId
+    }`;
     const now = Date.now();
     const lastSeen = await redisClient.get(key);
     if (!lastSeen || now - Number(lastSeen) > 2 * 60 * 1000) {
-      await redisClient.set(key, now, { EX: 10 * 60}); // keep for 1h
-      await redisClient.rPush('impression:queue', JSON.stringify(args));
-      return { data: { id: args.postId, userId: args.userId }, status: 200 }
+      await redisClient.set(key, now, { EX: 10 * 60 }); // keep for 1h
+      await redisClient.rPush("impression:queue", JSON.stringify(args));
+      return { data: { id: args.postId, userId: args.userId }, status: 200 };
     }
-    return { data: "Too frequent & depublicated event", status: 400 }
+    return { data: "Too frequent & depublicated event", status: 400 };
   } catch (error) {
-    return {data: "Sorry an error occurred to process request ", status: 500}
+    return { data: "Sorry an error occurred to process request ", status: 500 };
   }
 }
 
-export const getNewsfeed = async ( args: { feed: string, limit?: number, page?: number}, user: AuthUser,) => {
+export const getNewsfeed = async (
+  args: { feed: string; limit?: number; page?: number },
+  user: AuthUser
+) => {
   try {
-    const { limit = 21, page = 1} = args
+    const { limit = 21, page = 1 } = args;
     const feedPosts = await prisma.post.findMany({
       where: {
         OR: [{ kind: "ROOT" }, { kind: "REPOST" }, { kind: "QUOTE" }],
         status: PostStatus.PUBLISHED,
-        deletedAt: null
+        deletedAt: null,
       },
       skip: (page - 1) * limit,
       take: limit,
@@ -1755,7 +1961,13 @@ export const getEmbedPost = async (postId: string, userId?: string) => {
 };
 
 export const getPostReplies = async (
-  args: { postId: string; userId?: string; page?: number; limit?: number; hidden?: boolean },
+  args: {
+    postId: string;
+    userId?: string;
+    page?: number;
+    limit?: number;
+    hidden?: boolean;
+  },
   user?: AuthUser
 ) => {
   try {
@@ -2424,7 +2636,7 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
       orderBy: [{ createdAt: "asc" }],
       include: {
         media: true,
-        _count: { select: { replies: { where: { isHidden: true}} }},
+        _count: { select: { replies: { where: { isHidden: true } } } },
         root: {
           select: {
             id: true,
@@ -2828,13 +3040,13 @@ export const fetchFeedPostReplies = async ({
   postId,
   limit = 20,
   page = 1,
-  hidden = false
+  hidden = false,
 }: {
   postId: string;
   userId?: string;
   page?: number;
   limit?: number;
-  hidden?: boolean
+  hidden?: boolean;
 }) => {
   const skip = (page - 1) * limit;
   try {
@@ -2851,7 +3063,7 @@ export const fetchFeedPostReplies = async ({
       orderBy: [{ createdAt: "desc" }],
       include: {
         media: true,
-        _count: { select: { replies: { where: { isHidden: true}} }},
+        _count: { select: { replies: { where: { isHidden: true } } } },
         root: {
           select: {
             id: true,
@@ -3285,18 +3497,32 @@ export const deletePost = async (postId: string, user: AuthUser) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       // check post ownership
-      const check = await tx.post.findUniqueOrThrow({where: { id: postId}, include: { user: { select: { id: true, role: true }  }}})
-      if(check?.user?.role === UserRoleEnum.USER && check.user.id !== user.id){
-        throw new Error("Invalid permission")
+      const check = await tx.post.findUniqueOrThrow({
+        where: { id: postId },
+        include: { user: { select: { id: true, role: true } } },
+      });
+      if (
+        check?.user?.role === UserRoleEnum.USER &&
+        check.user.id !== user.id
+      ) {
+        throw new Error("Invalid permission");
       }
-      const post = await tx.post.update({ where: { id: postId }, data: { deletedAt: new Date() } });
+      const post = await tx.post.update({
+        where: { id: postId },
+        data: { deletedAt: new Date() },
+      });
       // decrease counters for the original post
-      await updateParentCounter(tx, post, "decrement")
+      await updateParentCounter(tx, post, "decrement");
       // save history record
-      await tx.postHistory.create({ data: { postId, userId: user.id, action: PostAction.DELETE } })
+      await tx.postHistory.create({
+        data: { postId, userId: user.id, action: PostAction.DELETE },
+      });
       return post;
     });
-    return { data: { id: result.id, userId: user.id, deletedAt: result.deletedAt }, status: 200 };
+    return {
+      data: { id: result.id, userId: user.id, deletedAt: result.deletedAt },
+      status: 200,
+    };
   } catch (error) {
     return { data: "Error occurred reposting, please try again", status: 500 };
   }
@@ -3306,18 +3532,32 @@ export const restorePost = async (postId: string, user: AuthUser) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       // check post ownership
-      const check = await tx.post.findUniqueOrThrow({where: { id: postId}, include: { user: { select: { id: true, role: true }  }}})
-      if(check?.user?.role === UserRoleEnum.USER && check.user.id !== user.id){
-        throw new Error("Invalid permission")
+      const check = await tx.post.findUniqueOrThrow({
+        where: { id: postId },
+        include: { user: { select: { id: true, role: true } } },
+      });
+      if (
+        check?.user?.role === UserRoleEnum.USER &&
+        check.user.id !== user.id
+      ) {
+        throw new Error("Invalid permission");
       }
-      const post = await tx.post.update({ where: { id: postId }, data: { deletedAt: null} });
+      const post = await tx.post.update({
+        where: { id: postId },
+        data: { deletedAt: null },
+      });
       // increase counters for the original post
-      await updateParentCounter(tx, post, "increment")
+      await updateParentCounter(tx, post, "increment");
       // save history record
-      await tx.postHistory.create({ data: { postId, userId: user.id, action: PostAction.RESTORE } })
+      await tx.postHistory.create({
+        data: { postId, userId: user.id, action: PostAction.RESTORE },
+      });
       return post;
     });
-    return { data: { id: result.id, userId: user.id, deletedAt: result.deletedAt }, status: 200 };
+    return {
+      data: { id: result.id, userId: user.id, deletedAt: result.deletedAt },
+      status: 200,
+    };
   } catch (error) {
     return { data: "Error occurred reposting, please try again", status: 500 };
   }
@@ -3327,25 +3567,52 @@ export const hidePostReply = async (postId: string, user: AuthUser) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       // check post ownership
-      const check = await tx.post.findUniqueOrThrow({where: { id: postId}, include: { user: { select: { id: true, role: true }  }, root: { select: { id: true, userId: true}}}})
-      const isPostAuthor = check?.root ? check?.root?.userId === user.id : check?.userId === user?.id
-      const isHidden = !check.isHidden
-      if(check?.user?.role === UserRoleEnum.USER && !isPostAuthor){
-        throw new Error("Invalid permission")
+      const check = await tx.post.findUniqueOrThrow({
+        where: { id: postId },
+        include: {
+          user: { select: { id: true, role: true } },
+          root: { select: { id: true, userId: true } },
+        },
+      });
+      const isPostAuthor = check?.root
+        ? check?.root?.userId === user.id
+        : check?.userId === user?.id;
+      const isHidden = !check.isHidden;
+      if (check?.user?.role === UserRoleEnum.USER && !isPostAuthor) {
+        throw new Error("Invalid permission");
       }
-      const post = await tx.post.update({ where: { id: postId }, data: { isHidden  } });
+      const post = await tx.post.update({
+        where: { id: postId },
+        data: { isHidden },
+      });
       // save history record
-      await tx.postHistory.create({ data: { postId, userId: user.id, action: isHidden ? PostAction.HIDDEN : PostAction.UNHIDDEN } })
-      return { id: post.id, isHidden,};
+      await tx.postHistory.create({
+        data: {
+          postId,
+          userId: user.id,
+          action: isHidden ? PostAction.HIDDEN : PostAction.UNHIDDEN,
+        },
+      });
+      return { id: post.id, isHidden };
     });
-    return { data: { id: result.id, userId: user.id, hidden: result.isHidden }, status: 200 };
+    return {
+      data: { id: result.id, userId: user.id, hidden: result.isHidden },
+      status: 200,
+    };
   } catch (error: any) {
-    logger.error(error.message)
-    return { data: "Error occurred processing request, please try again", status: 500 };
+    logger.error(error.message);
+    return {
+      data: "Error occurred processing request, please try again",
+      status: 500,
+    };
   }
 };
 
-async function updateParentCounter(tx: Prisma.TransactionClient, post: Post, direction: "increment" | "decrement") {
+async function updateParentCounter(
+  tx: Prisma.TransactionClient,
+  post: Post,
+  direction: "increment" | "decrement"
+) {
   const counters = {
     [PostKindEnum.QUOTE]: "totalQuotes",
     [PostKindEnum.REPOST]: "totalReposts",
@@ -3504,7 +3771,7 @@ const getSinglePost = async (postId: string, userId?: string) => {
       },
       include: {
         media: true,
-        _count: { select: { replies: { where: { isHidden: true}} }},
+        _count: { select: { replies: { where: { isHidden: true } } } },
         root: {
           select: {
             id: true,
@@ -4136,3 +4403,435 @@ ORDER BY p."createdAt"`;
 
   return nestPosts(posts) as { post: FeedPost; parentChain: FeedPost[] };
 }
+
+export const retriveRecommendationModelData = async (userId: string) => {
+  try {
+    // Get current date and date 30 days ago
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const result = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: {
+        likedPosts: {
+          where: {
+            createdAt: { gte: thirtyDaysAgo },
+          },
+          select: {
+            postId: true,
+            userId: true,
+            createdAt: true,
+            post: {
+              select: {
+                content: true,
+                createdAt: true,
+                hashTags: { select: { tag: { select: { name: true } } } },
+              },
+            },
+          },
+        },
+
+        bookmarks: {
+          where: {
+            createdAt: { gte: thirtyDaysAgo },
+          },
+          select: {
+            postId: true,
+            userId: true,
+            createdAt: true,
+            post: {
+              select: {
+                content: true,
+                createdAt: true,
+                hashTags: { select: { tag: { select: { name: true } } } },
+              },
+            },
+          },
+        },
+        postVotes: {
+          where: {
+            createdAt: { gte: thirtyDaysAgo },
+          },
+          select: {
+            userId: true,
+            createdAt: true,
+            option: {
+              include: {
+                poll: {
+                  select: {
+                    postId: true,
+                    post: {
+                      select: {
+                        content: true,
+                        createdAt: true,
+                        hashTags: {
+                          select: { tag: { select: { name: true } } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          distinct: ["optionId"],
+        },
+        pariticipants: {
+          where: {
+            createdAt: { gte: thirtyDaysAgo },
+          },
+          select: {
+            userId: true,
+            createdAt: true,
+            option: {
+              include: {
+                quiz: {
+                  select: {
+                    postId: true,
+                    post: {
+                      select: {
+                        content: true,
+                        createdAt: true,
+                        hashTags: {
+                          select: { tag: { select: { name: true } } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          distinct: ["quizId"],
+        },
+        posts: {
+          where: {
+            createdAt: { gte: thirtyDaysAgo },
+            status: PostStatus.PUBLISHED,
+            OR: [
+              { kind: PostKindEnum.REPLY },
+              { kind: PostKindEnum.QUOTE },
+              { kind: PostKindEnum.REPOST },
+            ],
+          },
+          select: {
+            id: true,
+            userId: true,
+            parentId: true,
+            rootId: true,
+            createdAt: true,
+            content: true,
+            kind: true,
+            hashTags: { select: { tag: { select: { name: true } } } },
+            parent: {
+              select: {
+                id: true,
+                userId: true,
+                parentId: true,
+                rootId: true,
+                createdAt: true,
+                content: true,
+                kind: true,
+                hashTags: { select: { tag: { select: { name: true } } } },
+              }
+            }
+          },
+        },
+        viewPosts: {
+          where: {
+            timestamp: { gte: thirtyDaysAgo },
+          },
+          orderBy: [{ duration: "desc" }],
+          select: {
+            postId: true,
+            userId: true,
+            timestamp: true,
+            duration: true,
+            post: {
+              select: {
+                content: true,
+                createdAt: true,
+                hashTags: { select: { tag: { select: { name: true } } } },
+              },
+            },
+          },
+          distinct: ["postId"],
+        },
+        clickPosts: {
+          where: {
+            timestamp: { gte: thirtyDaysAgo },
+          },
+          orderBy: [{ timestamp: "desc" }],
+          select: {
+            postId: true,
+            userId: true,
+            timestamp: true,
+            post: {
+              select: {
+                content: true,
+                createdAt: true,
+                hashTags: { select: { tag: { select: { name: true } } } },
+              },
+            },
+          },
+          distinct: ["postId"],
+        },
+        // postMentions: {
+        //   where: {
+        //     createdAt: { gte: thirtyDaysAgo },
+        //   },
+        //   select: {
+        //     postId: true,
+        //     userId: true,
+        //     createdAt: true,
+        //     post: {
+        //       select: {
+        //         content: true,
+        //         createdAt: true,
+        //         hashTags: { select: { tag: { select: { name: true } } } },
+        //       },
+        //     },
+        //   },
+        //   distinct: ["postId"],
+        // },
+        // postUserTags: {
+        //   where: {
+        //     createdAt: { gte: thirtyDaysAgo },
+        //   },
+        //   select: {
+        //     postId: true,
+        //     userId: true,
+        //     createdAt: true,
+        //     post: {
+        //       select: {
+        //         content: true,
+        //         createdAt: true,
+        //         hashTags: { select: { tag: { select: { name: true } } } },
+        //       },
+        //     },
+        //   },
+        //   distinct: ["postId"],
+        // },
+      },
+    });
+    const {
+      likedPosts,
+      bookmarks,
+      postVotes,
+      pariticipants,
+      posts,
+      viewPosts,
+      clickPosts,
+      // postMentions,
+      // postUserTags,
+    } = result;
+    // Process each interaction type & Structure the Data:
+    const WEIGHTS = {
+      // Highest-intent interactions
+      reply: 1.0,
+      quote: 1.0,
+
+      // Strong signals of preference or endorsement
+      bookmark: 0.95,
+      repost: 0.95,
+
+      // Expressive but lower-effort actions
+      like: 0.85,
+
+      // Participation-based actions
+      poll: 0.8,
+      quiz: 0.8,
+
+      // View = user read (high quality but passive)
+      view: 0.8,
+
+      // Click = intent to explore (not always full consumption)
+      click: 0.75,
+    };
+    const interactions: {
+      user_id: string;
+      type:
+        | "click"
+        | "view"
+        | "like"
+        | "bookmark"
+        | "poll_vote"
+        | "quiz_vote"
+        | "reply"
+        | "quote"
+        | "repost";
+      timestamp: Date;
+      weight: number;
+      post: {
+        id: string;
+        content: string | null;
+        tags: string[];
+        createdAt: string | Date;
+      };
+    }[] = [];
+    // 1. Likes
+    likedPosts.forEach((item) => {
+      interactions.push({
+        user_id: item.userId,
+        type: "like",
+        timestamp: item.createdAt,
+        weight: WEIGHTS.like,
+        post: {
+          id: item.postId,
+          content: item.post.content,
+          tags: item.post.hashTags.map((tag) => tag.tag.name),
+          createdAt: item.post.createdAt,
+        },
+      });
+    });
+
+    // 2. Bookmarks
+    bookmarks.forEach((item) => {
+      interactions.push({
+        user_id: item.userId,
+        type: "bookmark",
+        timestamp: item.createdAt,
+        weight: WEIGHTS.bookmark,
+        post: {
+          id: item.postId,
+          content: item.post.content,
+          tags: item.post.hashTags.map((tag) => tag.tag.name),
+
+          createdAt: item.post.createdAt,
+        },
+      });
+    });
+
+    // 3. Poll Votes
+    postVotes.forEach((item) => {
+      interactions.push({
+        user_id: item.userId,
+        type: "poll_vote",
+        timestamp: item.createdAt,
+        weight: WEIGHTS.poll,
+        post: {
+          id: item.option.poll.postId,
+          content: item.option.poll.post.content,
+          tags: item.option.poll.post.hashTags.map((tag) => tag.tag.name),
+
+          createdAt: item.option.poll.post.createdAt,
+        },
+      });
+    });
+
+    // 4. Quiz Votes
+    pariticipants.forEach((item) => {
+      interactions.push({
+        user_id: item.userId,
+        type: "quiz_vote",
+        timestamp: item.createdAt,
+        weight: WEIGHTS.quiz,
+        post: {
+          id: item.option.quiz.postId,
+          content: item.option.quiz.post.content,
+          tags: item.option.quiz.post.hashTags.map((tag) => tag.tag.name),
+
+          createdAt: item.option.quiz.post.createdAt,
+        },
+      });
+    });
+
+    // 5. Replies
+    posts.forEach((item) => {
+      const parentPostId = item.parentId || item.rootId;
+      if (parentPostId && item.parent) {
+        interactions.push({
+          user_id: item.userId,
+          type: item.kind === PostKindEnum.QUOTE ? "quote" : item.kind === PostKindEnum.REPOST ? "repost" : "reply",
+          timestamp: item.createdAt,
+          weight: item.kind === PostKindEnum.QUOTE ? WEIGHTS.quote : item.kind === PostKindEnum.REPOST ? WEIGHTS.repost : WEIGHTS.reply,
+          post: {
+            id: parentPostId,
+            content: item?.parent?.content,
+            tags: item?.parent?.hashTags.map((tag) => tag.tag.name) ?? [],
+            createdAt: item?.parent?.createdAt,
+          },
+        });
+      }
+    });
+
+    // 6. Views
+
+    viewPosts.forEach((item) => {
+      const MAX_VIEW_DURATION = 120; // 2 minutes (in seconds)
+      const duration = item.duration || 0;
+
+      // Calculate duration multiplier (0-1 scale)
+      const durationMultiplier = Math.min(duration / MAX_VIEW_DURATION, 1);
+
+      // Apply scaling to base view weight
+      const weight = Number((WEIGHTS.view * durationMultiplier).toFixed(2));
+      interactions.push({
+        user_id: item.userId!,
+        type: "view",
+        timestamp: item.timestamp,
+        weight,
+        post: {
+          id: item.postId,
+          content: item.post.content,
+          tags: item.post.hashTags.map((tag) => tag.tag.name),
+
+          createdAt: item.post.createdAt,
+        },
+      });
+    });
+
+    // 7. Clicks
+    clickPosts.forEach((item) => {
+      interactions.push({
+        user_id: item.userId!,
+        type: "click",
+        timestamp: item.timestamp,
+        weight: WEIGHTS.click,
+        post: {
+          id: item.postId,
+          content: item.post.content,
+          tags: item.post.hashTags.map((tag) => tag.tag.name),
+
+          createdAt: item.post.createdAt,
+        },
+      });
+    });
+
+    // // 8. Mentions & Tags
+    // postMentions.forEach((item) => {
+    //   interactions.push({
+    //     user_id: item.userId,
+    //     type: "mention",
+    //     timestamp: item.createdAt,
+    //     weight: WEIGHTS.mention,
+    //     post: {
+    //       id: item.postId,
+    //       content: item.post.content,
+    //       tags: item.post.hashTags.map((tag) => tag.tag.name),
+
+    //       createdAt: item.post.createdAt,
+    //     },
+    //   });
+    // });
+    // postUserTags.forEach((item) => {
+    //   interactions.push({
+    //     user_id: item.userId,
+    //     type: "tag",
+    //     timestamp: item.createdAt,
+    //     weight: WEIGHTS.tag,
+    //     post: {
+    //       id: item.postId,
+    //       content: item.post.content,
+    //       tags: item.post.hashTags.map((tag) => tag.tag.name),
+    //       createdAt: item.post.createdAt,
+    //     },
+    //   });
+    // });
+    console.log(interactions);
+    return { data: { user_id: userId, interactions }, status: 200 };
+  } catch (error) {
+    logger.error(error);
+    return { data: "Sorry an error occurred", status: 500 };
+  }
+};
+
+retriveRecommendationModelData("cm9jlc6so0000vd3i7rhv4czf");

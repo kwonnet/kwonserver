@@ -112,3 +112,24 @@ export const getReqInfo = async (req: Request) => {
 
   return { device: deviceResult, ipInfo, isBot };
 };
+
+export class AppError extends Error {
+  public readonly isOperational: boolean;
+  public readonly statusCode: number;
+
+  constructor(message: string, statusCode: number = 500, isOperational: boolean = true) {
+    super(message);
+
+    this.name = this.constructor.name;
+    this.statusCode = statusCode;
+    this.isOperational = isOperational;
+
+    // Ensures instanceof works when transpiled to ES5
+    Object.setPrototypeOf(this, new.target.prototype);
+
+    // Optional: capture stack trace
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+  }
+}

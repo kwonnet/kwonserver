@@ -5,6 +5,7 @@ import { ZodSchema, ZodIssue, infer as ZodInfer  } from 'zod';
 import { randomUUID } from "crypto";
 import { User } from "@/types";
 import { v4 as uuidv4 } from 'uuid';
+import { GameMode } from "@prisma/client";
 
 /**
  * 
@@ -274,6 +275,9 @@ export const getStringMonth = (index: number) => {
   return monthNames[`${index}`]
 };
 
+export const getGameMode = (mode: GameMode) => {
+  return mode.toLowerCase() as "single" | "multi"
+}
 
 // export const getCurrentMonthAndYear = () => {
 //   const now = new Date();
@@ -282,9 +286,9 @@ export const getStringMonth = (index: number) => {
 //   return { month, year };
 // };
 
-export const getPlayerRankingKey = (args:{ranking: string, playerId: string, catId: string}) => {
+export const getPlayerRankingKey = (args:{ranking: string, playerId: string, catId: string, mode: "single" | "multi"}) => {
   // get ranking keys
-  const playerKeys = getPlayerRedisKeys(args.playerId, args.catId)
+  const playerKeys = getPlayerRedisKeys(args.playerId, args.catId, args.mode)
   if(args.ranking === "today"){
     return playerKeys.today
   }
@@ -350,17 +354,17 @@ export const getRewardDateInfo = () => {
   };
 }
 
-export function getRankingKeys(catId: string){
+export function getRankingKeys(catId: string, mode: "single" | "multi"){
   const { day, month, week, year } = getCurrentDataInfo()
   return {
-    month: `ranking:category:${catId}:${year}:${month}:month:${month}`,
-    monthStat:`ranking:category:${catId}:${year}:${month}:stat`,
-    week:  `ranking:category:${catId}:${year}:${month}:week:${week}`,
-    today: `ranking:category:${catId}:${year}:${month}:today:${day}`
+    month: `ranking:cat:${catId}:mode:${mode}:${year}:${month}:month:${month}`,
+    monthStat:`ranking:cat:${catId}:mode:${mode}:${year}:${month}:stat`,
+    week:  `ranking:cat:${catId}:mode:${mode}:${year}:${month}:week:${week}`,
+    today: `ranking:cat:${catId}:mode:${mode}:${year}:${month}:today:${day}`
   }
 }
 
-export function getRankingRewardKeys(catId: string) {
+export function getRankingRewardKeys(catId: string, mode: "single" | "multi") {
 
   const info = getRewardDateInfo()
 
@@ -369,29 +373,29 @@ export function getRankingRewardKeys(catId: string) {
       year: info.monthlyRewardYear,
       month: info.monthlyRewardMonth,
     },
-    rewardMonth: `ranking:category:${catId}:${info.monthlyRewardYear}:${info.monthlyRewardMonth}:month:${info.monthlyRewardMonth}`,
+    rewardMonth: `ranking:cat:${catId}:mode:${mode}:${info.monthlyRewardYear}:${info.monthlyRewardMonth}:month:${info.monthlyRewardMonth}`,
 
-    rewardMonthStat: `ranking:category:${catId}:${info.monthlyRewardYear}:${info.monthlyRewardMonth}:stat`,
+    rewardMonthStat: `ranking:cat:${catId}:mode:${mode}:${info.monthlyRewardYear}:${info.monthlyRewardMonth}:stat`,
 
-    rewardWeek:  `ranking:category:${catId}:${info.weeklyRewardYear}:${info.weeklyRewardMonth}:week:${info.weeklyRewardWeek}`,
+    rewardWeek:  `ranking:cat:${catId}:mode:${mode}:${info.weeklyRewardYear}:${info.weeklyRewardMonth}:week:${info.weeklyRewardWeek}`,
 
-    rewardDay: `ranking:category:${catId}:${info.dailyRewardYear}:${info.dailyRewardMonth}:today:${info.dailyRewardDay}`,
+    rewardDay: `ranking:cat:${catId}:mode:${mode}:${info.dailyRewardYear}:${info.dailyRewardMonth}:today:${info.dailyRewardDay}`,
 
   }
 }
 
-export function getPlayerRewardKeys(playerId: string, catId: string) {
+export function getPlayerRewardKeys(playerId: string, catId: string, mode: "single" | "multi") {
 
   const info = getRewardDateInfo()
 
   return {
-    month: `player:${playerId}:category:${catId}:${info.monthlyRewardYear}:${info.monthlyRewardMonth}:month:${info.monthlyRewardMonth}`,
+    month: `player:${playerId}:cat:${catId}:mode:${mode}:${info.monthlyRewardYear}:${info.monthlyRewardMonth}:month:${info.monthlyRewardMonth}`,
 
 
-    week:  `player:${playerId}:category:${catId}:${info.weeklyRewardYear}:${info.weeklyRewardMonth}:week:${info.weeklyRewardWeek}`,
+    week:  `player:${playerId}:cat:${catId}:mode:${mode}:${info.weeklyRewardYear}:${info.weeklyRewardMonth}:week:${info.weeklyRewardWeek}`,
 
 
-    day: `player:${playerId}:category:${catId}:${info.dailyRewardYear}:${info.dailyRewardMonth}:today:${info.dailyRewardDay}`
+    day: `player:${playerId}:cat:${catId}:mode:${mode}:${info.dailyRewardYear}:${info.dailyRewardMonth}:today:${info.dailyRewardDay}`
   }
 }
 
@@ -405,23 +409,25 @@ export function getUserRedisKeys(userId: string){
 }
 
 
-export function getPlayerRedisKeys(playerId: string, catId: string){
+
+export function getPlayerRedisKeys(playerId: string, catId: string, mode: "single" | "multi"){
   const { day, month, week, year } = getCurrentDataInfo()
   return {
-    info: `player:${playerId}:category:${catId}:${year}`,
-    energy: `player:${playerId}:category:${catId}:energy`,
-    month: `player:${playerId}:category:${catId}:${year}:${month}:month:${month}`,
-    week:  `player:${playerId}:category:${catId}:${year}:${month}:week:${week}`,
-    today: `player:${playerId}:category:${catId}:${year}:${month}:today:${day}`
+    energy: `player:${playerId}:cat:${catId}:energy`,
+    info: `player:${playerId}:cat:${catId}:mode:${mode}:${year}`,
+    month: `player:${playerId}:cat:${catId}:mode:${mode}:${year}:${month}:month:${month}`,
+    week:  `player:${playerId}:cat:${catId}:mode:${mode}:${year}:${month}:week:${week}`,
+    today: `player:${playerId}:cat:${catId}:mode:${mode}:${year}:${month}:today:${day}`
   }
 }
 
-export function getSpentCoinsKey({gameId, catId, dateInfo}:{gameId: string, catId: string, dateInfo?: { year: number, month: number}}){
+export function getSpentCoinsKey({gameId, catId, mode, dateInfo}:{gameId: string, catId: string, mode: GameMode, dateInfo?: { year: number, month: number}}){
+  const _mode = getGameMode(mode)
   if(!dateInfo){
     const { month, year } = getCurrentDataInfo()
-    return `game:${gameId}:category:${catId}:${year}:${month}:spent`
+    return `game:${gameId}:category:${catId}:${_mode}:${year}:${month}:spent`
   }
-  return `game:${gameId}:category:${catId}:${dateInfo.year}:${dateInfo.month}:spent`
+  return `game:${gameId}:category:${catId}:${_mode}:${dateInfo.year}:${dateInfo.month}:spent`
 
 }
 

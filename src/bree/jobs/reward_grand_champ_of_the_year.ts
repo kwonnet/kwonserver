@@ -1,7 +1,6 @@
 // Resolve path aliases
 import "tsconfig-paths/register";
 import { retryExecution } from "@/utils/helpers";
-import { PromisePool } from "@supercharge/promise-pool";
 import prisma from "@/db";
 import { generateUniqueRef, getRewardDateInfo } from "@/utils";
 import {

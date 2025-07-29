@@ -149,7 +149,7 @@ export const purchaseCoinsWithWallet = async (
         data: {
           isLocked: false,
           credit: { decrement: coin.price },
-          amount: { increment: coin.amount },
+          coins: { increment: coin.amount },
           bonus: { increment: coin.bonus },
         },
       }),
@@ -245,7 +245,7 @@ export const purchaseCoinsWithToken = async (
         where: { userId: user.id },
         data: {
           isLocked: false,
-          amount: { increment: coin.amount },
+          coins: { increment: coin.amount },
           bonus: { increment: coin.bonus },
         },
       }),
@@ -343,7 +343,7 @@ export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase
         where: { userId },
         data: {
           isLocked: false,
-          amount: { increment: item.coin.amount },
+          coins: { increment: item.coin.amount },
           bonus: { increment: item.coin.bonus },
         },
       }),

@@ -1,7 +1,8 @@
 
 import express from "express";
 import { authMiddleware } from "@/middleware";
-import { createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController } from "@/controllers/v1/posts";
+import { createPostClickController, createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostTipController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController } from "@/controllers/v1/posts";
+
 
 const router = express.Router();
 
@@ -54,7 +55,11 @@ router.post("/:id/impressions", authMiddleware(false), createPostImpressionContr
 
 router.post("/:id/views", authMiddleware(false), createPostViewController)
 
+router.post("/:id/clicks", authMiddleware(false), createPostClickController)
+
 router.post("/:id/media", authMiddleware(false), createPostMediaLogController)
+
+router.post("/:id/tips", authMiddleware(), createPostTipController)
 
 
 const postRoutes = router

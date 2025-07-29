@@ -48,7 +48,7 @@ export const syncRedisUserWalletToPrisma = async (userId: string) => {
           where: { id: redisWallet.id, userId: redisWallet.userId },
           data: {
             credit: redisWallet.credit,
-            amount: redisWallet.amount,
+            coins: redisWallet.amount,
             bonus: redisWallet.bonus,
           },
         });
@@ -72,7 +72,7 @@ export const syncPrismaUserWalletToRedis = async (
       // check and sync the sender prisma wallet to redis
       await Promise.all([
         redisClient.hSet(walletKey, "credit", userWallet.credit.toFixed(2)),
-        redisClient.hSet(walletKey, "amount", userWallet.amount.toFixed(2)),
+        redisClient.hSet(walletKey, "amount", userWallet.coins.toFixed(2)),
         redisClient.hSet(walletKey, "bonus", userWallet.bonus.toFixed(2)),
       ]);
     }
@@ -105,7 +105,7 @@ export const syncRedisSenderRecipientWalletToPrisma = async (
           where: { id: redisWallet.id, userId: redisWallet.userId },
           data: {
             credit: redisWallet.credit,
-            amount: redisWallet.amount,
+            coins: redisWallet.amount,
             bonus: redisWallet.bonus,
           },
         });
@@ -129,7 +129,7 @@ export const syncRedisSenderRecipientWalletToPrisma = async (
           where: { id: redisWallet.id, userId: redisWallet.userId },
           data: {
             credit: redisWallet.credit,
-            amount: redisWallet.amount,
+            coins: redisWallet.amount,
             bonus: redisWallet.bonus,
           },
         });
@@ -169,7 +169,7 @@ export const syncPrismaSenderRecipientWalletToRedis = async ({
         redisClient.hSet(
           senderWalletKey,
           "amount",
-          senderWallet.amount.toFixed(2)
+          senderWallet.coins.toFixed(2)
         ),
         redisClient.hSet(
           senderWalletKey,
@@ -190,7 +190,7 @@ export const syncPrismaSenderRecipientWalletToRedis = async ({
         redisClient.hSet(
           recipientWalletKey,
           "amount",
-          recipientWallet.amount.toFixed(2)
+          recipientWallet.coins.toFixed(2)
         ),
         redisClient.hSet(
           recipientWalletKey,
@@ -214,11 +214,13 @@ export const getRewardTopRankingPlayers = async (
     limit,
     catId,
     rankingKey,
+    mode
   }: {
     page: number;
     limit: number;
     catId: string;
     rankingKey: string;
+    mode: "single" | "multi"
   },
   rewardType: "MONTH" | "WEEK" | "DAY"
 ) => {
@@ -235,13 +237,13 @@ export const getRewardTopRankingPlayers = async (
   const playersData = await Promise.all(
     result.map(async (item) => {
       // player hash unique keys
-      const playerKeys = getPlayerRedisKeys(item.value, catId);
+      const playerKeys = getPlayerRedisKeys(item.value, catId, mode);
       // Get player details from hash
       const playerInfo = await redisClient.hGetAll(playerKeys.info);
       // Get player's rank from the sorted set leaderboard
       const player = playerInfo as unknown as GamePlayerInfo;
       // Get player stat
-      const keys = getPlayerRewardKeys(item.value, catId);
+      const keys = getPlayerRewardKeys(item.value, catId, mode);
       const key =
         rewardType === "MONTH"
           ? keys.month
@@ -272,11 +274,13 @@ export const getCategoryRankingPlayerData = async (
     limit,
     catId,
     rankingKey,
+    mode
   }: {
     offset: number;
     limit: number;
     catId: string;
     rankingKey: string;
+    mode: "single" | "multi"
   },
   type: "MONTH" | "WEEK" | "DAY"
 ) => {
@@ -292,13 +296,13 @@ export const getCategoryRankingPlayerData = async (
   const playersData = await Promise.all(
     result.map(async (item) => {
       // player hash unique keys
-      const playerKeys = getPlayerRedisKeys(item.value, catId);
+      const playerKeys = getPlayerRedisKeys(item.value, catId, mode);
       // Get player details from hash
       const playerInfo = await redisClient.hGetAll(playerKeys.info);
       // Get player's rank from the sorted set leaderboard
       const player = playerInfo as unknown as GamePlayerInfo;
       // Get player stat
-      const keys = getPlayerRewardKeys(item.value, catId);
+      const keys = getPlayerRewardKeys(item.value, catId, mode);
       const key =
         type === "MONTH" ? keys.month : type === "WEEK" ? keys.week : keys.day;
       const stat = await redisClient.hGetAll(key);
@@ -363,7 +367,7 @@ export const composeGameAnswer = ({
       gameType: GameType.ACRONYM,
       voted: false,
       score: 0,
-      mode: GameMode.MULTI_PLAYER
+      mode: room.mode
     };
     return body;
   }
@@ -373,7 +377,7 @@ export const composeGameAnswer = ({
     catId: room.catId,
     playerId: user.id,
     name: user.name,
-    mode: GameMode.MULTI_PLAYER
+    mode: room.mode
   };
   return body;
 };

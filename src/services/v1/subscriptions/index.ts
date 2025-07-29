@@ -265,7 +265,7 @@ export const purchaseAppSubscriptionWithWallet = async (
             color:
               user.userType === UserTypeEnum.GOVERNMENT
                 ? "grey"
-                : user.userType === UserTypeEnum.ORGANIZATION
+                : user.userType === UserTypeEnum.BUSINESS
                 ? "gold"
                 : "blue",
           },
@@ -458,7 +458,7 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
             color:
               user.userType === UserTypeEnum.GOVERNMENT
                 ? "grey"
-                : user.userType === UserTypeEnum.ORGANIZATION
+                : user.userType === UserTypeEnum.BUSINESS
                 ? "gold"
                 : "blue",
           },
@@ -621,7 +621,7 @@ export const purchaseAppSubscription = async (
             color:
               user.userType === UserTypeEnum.GOVERNMENT
                 ? "grey"
-                : user.userType === UserTypeEnum.ORGANIZATION
+                : user.userType === UserTypeEnum.BUSINESS
                 ? "gold"
                 : "blue",
           },
@@ -658,7 +658,7 @@ export const cancelAppSubscription = async (arg: {
     const color =
       user.accountVerified && user.userType === UserTypeEnum.GOVERNMENT
         ? "grey"
-        : user.accountVerified && user.userType === UserTypeEnum.ORGANIZATION
+        : user.accountVerified && user.userType === UserTypeEnum.BUSINESS
         ? "gold"
         : "blue";
 

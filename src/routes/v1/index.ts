@@ -14,6 +14,7 @@ import postRoutes from './posts';
 import locationRoutes from './locations';
 import notificationsRoutes from './notifications';
 import sseEmitter from '@/sseEmitter';
+import tipRoutes from './tips';
 
 const router = express.Router();
 
@@ -24,6 +25,8 @@ router.use("/users/", userRoutes)
 router.use("/games/", gameRoutes)
 
 router.use("/coins/", coinRoutes)
+
+router.use("/tips", tipRoutes)
 
 router.use("/wallets/", walletRoutes)
 

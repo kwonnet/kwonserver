@@ -6,6 +6,7 @@ import { PromisePool } from "@supercharge/promise-pool";
 import prisma from "@/db";
 import {
   generateUniqueRef,
+  getGameMode,
   getRankingRewardKeys,
   getSpentCoinsKey,
   getStringMonth,
@@ -17,6 +18,7 @@ import {
   syncRedisUserWalletToPrisma,
 } from "@/services/helper";
 import {
+  GameMode,
   RewardTypeEnum,
   TxnCategoryEnum,
   TxnCurrencyEnum,
@@ -33,6 +35,7 @@ const rewardPlayer = async (player: {
   totalscore: number,
   rank: number,
   year: number,
+  mode: GameMode
 }) => {
   try {
     // get milestone rewards
@@ -60,6 +63,7 @@ const rewardPlayer = async (player: {
             milestoneId: milestone.id,
             catId: player.catId,
             playerId: player.id,
+            mode: player.mode,
             description: `Rewarded ${milestone.reward} ${
               milestone.rewardType
             } & a trophy for achieving ${milestone.reason
@@ -130,10 +134,11 @@ const rewardPlayer = async (player: {
   }
 };
 
-const rewardYearlyPlayers = async(catId: string ) => {
+const rewardYearlyPlayers = async(catId: string, _mode: GameMode ) => {
+  const mode = getGameMode(_mode)
   logger.info(`Processing... Top 3 from each category by score`);
   // get reward ranking keys
-  const keys = getRankingRewardKeys(catId);
+  const keys = getRankingRewardKeys(catId, mode);
   try {
     const topThreePlayers: { 
       catId: string,
@@ -171,7 +176,8 @@ const rewardYearlyPlayers = async(catId: string ) => {
       id: player.playerId,
       totalscore: Number(player.totalscore), // Ensure it's within safe range
       rank: index + 1,
-      year: keys.dateInfo.year
+      year: keys.dateInfo.year,
+      mode: _mode
     }));
 
     console.log(formattedResults)
@@ -186,15 +192,22 @@ const rewardYearlyPlayers = async(catId: string ) => {
 // Main reward execution
 const rewardPlayers = async () => {
   try {
-    const categories = await prisma.gameCategory.findMany({});
+    const categories = await prisma.gameCategory.findMany({include: { game: true}});
 
     if (categories.length === 0)
       throw new Error("No game categories available");
 
-    const { results, errors } = await PromisePool.for(categories)
+    // loop through each category game modes and compose each category by mode.
+    const result = categories.map(c => {
+      return c.game.modes.map(m => {
+        return { catId: c.id, gameId: c.gameId, mode: m  }
+      })
+    }).flat()
+
+    const { results, errors } = await PromisePool.for(result)
       .withConcurrency(2)
-      .process(async ({ id }) => {
-        await rewardYearlyPlayers(id);
+      .process(async ({ catId, mode }) => {
+        await rewardYearlyPlayers(catId, mode);
       });
 
     if (errors.length > 0) {

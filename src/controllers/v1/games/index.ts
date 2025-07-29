@@ -26,6 +26,7 @@ import {
 } from "@/schema/gameSchema";
 import { RequestWithUser } from "@/types";
 import { validateZodInput } from "@/utils";
+import { GameMode } from "@prisma/client";
 
 export const getGameLeaderboardController = async (
   req: Request,
@@ -36,7 +37,12 @@ export const getGameLeaderboardController = async (
   const limit = parseInt(query?.limit ?? 10);
   const catId = query.catId;
   const ranking = query.ranking;
-  const data = await getGameLeaderboard({ page, limit, catId, ranking });
+  const _mode = query?.mode?.toUpperCase()
+  if(!Object.values(GameMode).includes(_mode as GameMode)){
+    return res.status(400).send("Invalid mode value - value can be either single or multi")
+  }
+  const mode =  _mode === GameMode.MULTI ? GameMode.MULTI : GameMode.SINGLE
+  const data = await getGameLeaderboard({ page, limit, catId, ranking, mode });
   return res.json(data);
 };
 
@@ -102,7 +108,7 @@ export const getGameCategoryRoomsController = async (
   res: Response
 ) => {
   try {
-    const result = await getGameCategoryRooms(req.params.id);
+    const result = await getGameCategoryRooms(req.params.id, String(req.query.mode));
     return res.status(result.status).send(result.data);
   } catch (error: any) {
     return res.status(400).send(error?.message);
@@ -120,9 +126,12 @@ export const getGamePlayerRankingsController = async (
 
     if (!zodData) return res.status(400).send(zodResult.message);
 
+    const mode = "multi"
+
     const result = await getGamePlayerRankings(
       zodData.userId,
-      zodData.rankType
+      zodData.rankType,
+      mode
     );
     return res.status(result.status).send(result.data);
   } catch (error: any) {
@@ -141,6 +150,7 @@ export const getGameWinnersStatsController = async (
     return res.status(400).send(error?.message);
   }
 };
+
 
 export const getGameWinnersController = async (
   req: RequestWithUser,
@@ -177,7 +187,9 @@ export const getGameCategoriesRankingsController = async (
 
     if (!zodData) return res.status(400).send(zodResult.message);
 
-    const result = await getGameCategoriesRankings(zodData.rankType);
+    const mode = "single"
+
+    const result = await getGameCategoriesRankings(zodData.rankType, mode);
 
     return res.status(result.status).send(result.data);
   } catch (error: any) {

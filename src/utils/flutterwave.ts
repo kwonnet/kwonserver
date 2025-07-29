@@ -1,4 +1,5 @@
 const Flutterwave = require('flutterwave-node-v3');
+// import { Flutterwave } from "flutterwave-node-v3";
 
 export const flwAPI = new Flutterwave(
     process.env.FLUTTERWAVE_PUBK,
