@@ -2,6 +2,7 @@ import express from "express";
 import { createGameCategoryController, createGameCategoryRoomController, createGameController, getGameCategoriesController, getGameCategoriesRankingsController, getGameCategoryRoomsController, getGameLeaderboardController, getGamePlayerRankingsController, getGamesController, getGamesRankingArchiveController, getGamesRankingArchiveStatsController, getGameWinnersController, getGameWinnersStatsController, getUserGameRankingArchiveController, getUserGamesRankingArchiveStatsController } from "@/controllers/v1/games";
 import { authMiddleware } from "@/middleware";
 
+
 const router = express.Router();
 
 router.post("/", createGameController)

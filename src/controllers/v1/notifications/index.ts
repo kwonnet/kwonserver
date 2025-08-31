@@ -1,10 +1,10 @@
+import { AuthUser } from "@/types/user";
 import { subscribePushNotification } from "@/services/v1/notifications";
-import { AuthUser, RequestWithUser } from "@/types"
-import { Response } from "express"
+import { Response, Request } from "express"
 
 
 export const subscribePushNotifController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   const user = req.user as AuthUser;

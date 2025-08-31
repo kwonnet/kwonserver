@@ -1,10 +1,11 @@
 import { smartGlocalApiKey, unlimintApiKey } from "@/config"
 import { IDZodSchema, purchasePremiumZodSchema, TmaSubscriptionInvoiceZodSchema } from "@/schema"
 import { cancelAppSubscription, genTmaSubscriptionInvoice, getPlans, purchaseAppSubscription, purchaseAppSubscriptionWithWallet } from "@/services/v1/subscriptions"
-import { AuthUser, RequestWithUser, TmaPaymentGateway, User } from "@/types"
+import { TmaPaymentGateway, User } from "@/types"
 import { validateZodInput } from "@/utils"
 import { SubStatusEnum, TxnCurrencyEnum } from "@prisma/client"
 import { Request, Response } from "express"
+import { AuthUser } from "@/types/user"
 
 export const getSubscriptionPlansController = async(req: Request, res: Response) => {
     try {
@@ -18,7 +19,7 @@ export const getSubscriptionPlansController = async(req: Request, res: Response)
     }
 }
 
-export const subscriptionPremiumController = async(req: RequestWithUser, res: Response) => {
+export const subscriptionPremiumController = async(req: Request, res: Response) => {
     try {
         const zodResult = validateZodInput(req.body, purchasePremiumZodSchema)
         
@@ -42,7 +43,7 @@ export const subscriptionPremiumController = async(req: RequestWithUser, res: Re
     }
 }
 
-export const cancelSubscriptionController = async(req: RequestWithUser, res: Response) => {
+export const cancelSubscriptionController = async(req: Request, res: Response) => {
     try {
         const zodResult = validateZodInput(req.body, IDZodSchema)
         
@@ -64,7 +65,7 @@ export const cancelSubscriptionController = async(req: RequestWithUser, res: Res
 }
 
 export const getSubTmaInvoiceController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   const user = req.user as AuthUser;

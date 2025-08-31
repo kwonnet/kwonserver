@@ -1,7 +1,12 @@
 import prisma from "@/db";
 import logger from "@/logger";
-import { AuthUser, FeedPost } from "@/types";
-import { PollThread, PostCreate, QuizThread } from "@/types/post";
+import { FeedPost } from "@/types";
+import {
+  PollThread,
+  PostCreate,
+  PostTagMention,
+  QuizThread,
+} from "@/types/post";
 import { generateUniqueRef } from "@/utils";
 import webpush from "@/utils/webpush";
 import {
@@ -33,20 +38,23 @@ import {
   PostMetricSource,
   TipSource,
   TipStatus,
+  FollowStatus,
 } from "@prisma/client";
 import {
-  checkPollPermissions,
-  checkQuizPermissions,
+  analyticsPercentageChange,
+  composeAuthUser,
   composePostAuthor,
   convertBigInts,
-  removeProperty,
+  getAnalyticsDuration,
   transformPost,
+  transformPrismaTagMentions,
 } from "../utils";
 import { ReportSchema } from "@/schema";
 import redisClient from "@/redis";
 import { DetectResult, ResultDevice } from "node-device-detector";
 import { LookupResult } from "ip-location-api";
-import { AppError } from "@/utils/helpers";
+import { AppError, removeProperty } from "@/utils/helpers";
+import { SessionUser, AuthUser } from "@/types/user";
 
 interface CreatePostThread extends Post {
   quiz?: Quiz | null;
@@ -93,7 +101,16 @@ export const createPost = async (body: PostCreate, userId: string) => {
           }
         : {};
       // Step 1: Create the root post (first item in the array)
-      const { poll, quiz, tags, mentions, tagUsers, ...rest } = body.thread[0];
+      const {
+        poll,
+        quiz,
+        tags,
+        mentions,
+        tagUsers,
+        countries,
+        continents,
+        ...rest
+      } = body.thread[0];
       let rootPost = undefined;
       // get mentioned users if any
       const users = await prisma.user.findMany({
@@ -112,6 +129,18 @@ export const createPost = async (body: PostCreate, userId: string) => {
             ...schedule,
             location: body.location,
             media: { createMany: { data: rest.media } },
+            replyCountries: {
+              createMany: {
+                data: countries.map((id) => ({ countryId: id })),
+              },
+            },
+            replyContinents: {
+              createMany: {
+                data: continents.map((id) => ({
+                  continentId: id,
+                })),
+              },
+            },
             hashTags: {
               create: tags.map((name) => ({
                 tag: {
@@ -176,6 +205,18 @@ export const createPost = async (body: PostCreate, userId: string) => {
             userId,
             kind: PostKindEnum.ROOT,
             media: { createMany: { data: rest.media } },
+            replyCountries: {
+              createMany: {
+                data: countries.map((id) => ({ countryId: id })),
+              },
+            },
+            replyContinents: {
+              createMany: {
+                data: continents.map((id) => ({
+                  continentId: id,
+                })),
+              },
+            },
             hashTags: {
               create: tags.map((name) => ({
                 tag: {
@@ -236,6 +277,18 @@ export const createPost = async (body: PostCreate, userId: string) => {
             ...schedule,
             location: body.location,
             media: { createMany: { data: rest.media } },
+            replyCountries: {
+              createMany: {
+                data: countries.map((id) => ({ countryId: id })),
+              },
+            },
+            replyContinents: {
+              createMany: {
+                data: continents.map((id) => ({
+                  continentId: id,
+                })),
+              },
+            },
             hashTags: {
               create: tags.map((name) => ({
                 tag: {
@@ -512,9 +565,8 @@ export const createPost = async (body: PostCreate, userId: string) => {
     // isScheduled, scheduleAt, postId: result.id
     // 2. Notify tagged & mentioned users
 
-    return { data: {}, status: 200 };
+    return { data: convertBigInts(result), status: 200 };
   } catch (error: any) {
-    console.log(error?.message);
     return {
       data: "Error occurred trying to create post, please try again",
       status: 500,
@@ -540,7 +592,16 @@ export const createPostQuote = async (
           }
         : {};
       // Step 1: Create the root post (first item in the array)
-      const { poll, quiz, tags, mentions, tagUsers, ...rest } = body.thread[0];
+      const {
+        poll,
+        quiz,
+        tags,
+        mentions,
+        tagUsers,
+        continents,
+        countries,
+        ...rest
+      } = body.thread[0];
       let rootPost = undefined;
       // get mentioned users if any
       const users = await prisma.user.findMany({
@@ -559,6 +620,18 @@ export const createPostQuote = async (
             ...schedule,
             location: body.location,
             media: { createMany: { data: rest.media } },
+            replyCountries: {
+              createMany: {
+                data: countries.map((id) => ({ countryId: id })),
+              },
+            },
+            replyContinents: {
+              createMany: {
+                data: continents.map((id) => ({
+                  continentId: id,
+                })),
+              },
+            },
             hashTags: {
               create: tags.map((name) => ({
                 tag: {
@@ -616,6 +689,18 @@ export const createPostQuote = async (
             ...schedule,
             location: body.location,
             media: { createMany: { data: rest.media } },
+            replyCountries: {
+              createMany: {
+                data: countries.map((id) => ({ countryId: id })),
+              },
+            },
+            replyContinents: {
+              createMany: {
+                data: continents.map((id) => ({
+                  continentId: id,
+                })),
+              },
+            },
             hashTags: {
               create: tags.map((name) => ({
                 tag: {
@@ -799,8 +884,17 @@ export const createPostReply = async (
           }
         : {};
       // create new post reply
-      const { mentions, tagUsers, tags, media, poll, quiz, ...rest } =
-        thread[0];
+      const {
+        mentions,
+        tagUsers,
+        tags,
+        media,
+        poll,
+        quiz,
+        countries,
+        continents,
+        ...rest
+      } = thread[0];
       // get mentioned users if any
       const users = await prisma.user.findMany({
         where: { username: { in: mentions } },
@@ -903,11 +997,28 @@ export const createPostReply = async (
           },
         });
       }
-      // Increase totalQuotes count for the parent post
+      // Increase totalReplies count for the parent post
       await tx.post.update({
         where: { id: postId },
         data: { totalReplies: { increment: 1 } },
       });
+      // insert reply notification IF Not owner
+      if (post?.userId !== user.id) {
+        // insert notification
+        await tx.notification.create({
+          data: {
+            senderId: user.id,
+            recipientId: post.userId,
+            postId: reply.id,
+            type: NotifTypeEnum.POST,
+            action: NotifAction.COMMENT,
+            message: `${user.name} replied to your ${
+              post.kind === PostKindEnum.REPLY ? "comment" : "post"
+            }`,
+            title: "New post comment",
+          },
+        });
+      }
       return { reply, replied: true, id: postId, userId: user.id };
     });
     const { reply, ...rest } = result;
@@ -915,7 +1026,7 @@ export const createPostReply = async (
     if (reply && !body.isDraft && !body.scheduleAt) {
       const res = await getSinglePost(reply.id, user.id);
       if (!res) return { data: rest, status: 200 };
-      const transformed = transformPost(res, true, user);
+      const transformed = transformPost(res, user);
       return { data: { ...rest, reply: transformed }, status: 200 };
     }
     return { data: rest, status: 200 };
@@ -925,7 +1036,7 @@ export const createPostReply = async (
   }
 };
 
-export const reportPost = async (body: ReportSchema, user: AuthUser) => {
+export const reportPost = async (body: ReportSchema, user: SessionUser) => {
   try {
     const report = await prisma.postReport.findFirst({
       where: { postId: body.id, userId: user.id },
@@ -964,14 +1075,25 @@ export const reportPost = async (body: ReportSchema, user: AuthUser) => {
 
 export const createPostPin = async (
   args: { id: string; context: PostContext },
-  user: AuthUser
+  user: SessionUser
 ) => {
   try {
+    // check if user is the post owner
+    const post = await prisma.post.findFirst({
+      where: { id: args.id, userId: user.id, status: PostStatus.PUBLISHED },
+    });
+    if (!post)
+      return {
+        data: "Post doesn't exist or you are not the post owner",
+        status: 404,
+      };
+    // check post pins
     const result = await prisma.postPin.findFirst({
       where: { postId: args.id, contextType: args.context, userId: user.id },
       orderBy: [{ createdAt: "desc" }],
     });
-    // check if the user has already reported the post with 24 hours
+
+    // check if the user has already pinned this post
     if (result) {
       await prisma.postPin.delete({ where: { id: result.id } });
       return {
@@ -979,10 +1101,7 @@ export const createPostPin = async (
         status: 200,
       };
     }
-    // check if the post exists
-    const post = await prisma.post.findUniqueOrThrow({
-      where: { id: args.id },
-    });
+    // check current count
     const checkCount = await prisma.postPin.count({
       where: { contextType: args.context, userId: user.id },
     });
@@ -1012,9 +1131,19 @@ export const createPostPin = async (
 
 export const createPostHighlight = async (
   args: { id: string; context: PostContext },
-  user: AuthUser
+  user: SessionUser
 ) => {
   try {
+    // check if user is the post owner
+    const post = await prisma.post.findFirst({
+      where: { id: args.id, userId: user.id, status: PostStatus.PUBLISHED },
+    });
+    if (!post)
+      return {
+        data: "Post doesn't exist or you are not the post owner",
+        status: 404,
+      };
+    // check post pins
     const result = await prisma.postHighlight.findFirst({
       where: { postId: args.id, contextType: args.context, userId: user.id },
       orderBy: [{ createdAt: "desc" }],
@@ -1027,10 +1156,7 @@ export const createPostHighlight = async (
         status: 200,
       };
     }
-    // check if the post exists
-    const post = await prisma.post.findUniqueOrThrow({
-      where: { id: args.id },
-    });
+    // check current count
     const checkCount = await prisma.postHighlight.count({
       where: { contextType: args.context, userId: user.id },
     });
@@ -1160,7 +1286,6 @@ export async function createPostClick(args: {
     });
     return result;
   } catch (error: any) {
-    console.log("Post Click Error ", error.message);
     return { data: "Sorry an error occurred to process request ", status: 500 };
   }
 }
@@ -1228,7 +1353,7 @@ export async function createPostTip(
     message?: string;
     isAnon?: boolean;
   },
-  user: AuthUser
+  user: SessionUser
 ) {
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -1351,7 +1476,6 @@ export async function createPostTip(
     return result;
   } catch (error) {
     if (error instanceof AppError) {
-      console.error("Handled AppError:", error.message);
       return { data: error.message, status: error.statusCode };
     }
     return { data: "Sorry an error occurred to process request ", status: 500 };
@@ -1388,25 +1512,88 @@ export const getNewsfeed = async (
   user: AuthUser
 ) => {
   try {
+    const userId = user?.id;
     const { limit = 21, page = 1 } = args;
     const feedPosts = await prisma.post.findMany({
       where: {
-        OR: [{ kind: "ROOT" }, { kind: "REPOST" }, { kind: "QUOTE" }],
         status: PostStatus.PUBLISHED,
-        deletedAt: null,
+        OR: [{ kind: "ROOT" }, { kind: "REPOST" }, { kind: "QUOTE" }],
+        disinterest: { none: { userId: user.id } }, // exclude not interested posts
+        user: {
+          NOT: [
+            { blockedUsers: { some: { blockedId: user.id } } },
+            { blockedBy: { some: { blockerId: user.id } } },
+            { mutedUsers: { some: { mutedId: user.id } } },
+            { mutedBy: { some: { muterId: user.id } } },
+          ],
+        },
       },
       skip: (page - 1) * limit,
       take: limit,
       include: {
         thread: false,
         media: true,
+        replyContinents: true,
+        replyCountries: true,
         root: {
           select: {
             id: true,
             scope: true,
             userId: true,
             rootId: true,
+            replyContinents: true,
+            replyCountries: true,
+            user: {
+              select: {
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
+                },
+              },
+            },
           },
+        },
+        pins: {
+          where: { userId: user.id },
+          select: { id: true, userId: true },
+        },
+        highlights: {
+          where: { userId: user.id },
+          select: { id: true, userId: true },
         },
         user: {
           select: {
@@ -1419,18 +1606,46 @@ export const getNewsfeed = async (
             userType: true,
             meta: true,
             isVerified: true,
-
+            metadata: true,
+            createdAt: true,
+            status: true,
             followers: {
               where: {
                 followerId: user.id,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
             },
             following: {
               where: {
                 followingId: user.id,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
+            },
+            // 1. if this target user blocked the current user
+            blockedUsers: {
+              where: { blockedId: userId },
+            },
+            // 2. if current user blocked the target user
+            blockedBy: {
+              where: { blockerId: userId },
+            },
+            // 1. if this target user blocked the current user
+            mutedUsers: {
+              where: { mutedId: userId },
+            },
+            // 2. if current user blocked the target user
+            mutedBy: {
+              where: { muterId: userId },
             },
             subscriptions: {
               where: {
@@ -1452,6 +1667,186 @@ export const getNewsfeed = async (
                 emoji: true,
                 continentId: true,
                 continent: true,
+              },
+            },
+          },
+        },
+        tagUsers: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                avatar: true,
+                bio: true,
+                role: true,
+                userType: true,
+                meta: true,
+                isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: user.id,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: user.id,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
+                },
+                subscriptions: {
+                  where: {
+                    status: {
+                      in: [
+                        SubStatusEnum.ACTIVE,
+                        SubStatusEnum.TRIAL,
+                        SubStatusEnum.PAYMENT_ERROR,
+                      ],
+                    },
+                  },
+                },
+                country: {
+                  select: {
+                    id: true,
+                    name: true,
+                    iso2: true,
+                    iso3: true,
+                    emoji: true,
+                    continentId: true,
+                    continent: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        mentions: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                avatar: true,
+                bio: true,
+                role: true,
+                userType: true,
+                meta: true,
+                isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: user.id,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: user.id,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
+                },
+                subscriptions: {
+                  where: {
+                    status: {
+                      in: [
+                        SubStatusEnum.ACTIVE,
+                        SubStatusEnum.TRIAL,
+                        SubStatusEnum.PAYMENT_ERROR,
+                      ],
+                    },
+                  },
+                },
+                country: {
+                  select: {
+                    id: true,
+                    name: true,
+                    iso2: true,
+                    iso3: true,
+                    emoji: true,
+                    continentId: true,
+                    continent: true,
+                  },
+                },
               },
             },
           },
@@ -1489,6 +1884,68 @@ export const getNewsfeed = async (
         parent: {
           include: {
             media: true,
+            replyContinents: true,
+            replyCountries: true,
+            root: {
+              select: {
+                id: true,
+                scope: true,
+                userId: true,
+                rootId: true,
+                replyContinents: true,
+                replyCountries: true,
+                user: {
+                  select: {
+                    followers: {
+                      where: {
+                        followerId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    // 1. if this target user blocked the current user
+                    blockedUsers: {
+                      where: { blockedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    blockedBy: {
+                      where: { blockerId: userId },
+                    },
+                    // 1. if this target user blocked the current user
+                    mutedUsers: {
+                      where: { mutedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    mutedBy: {
+                      where: { muterId: userId },
+                    },
+                  },
+                },
+              },
+            },
+            pins: {
+              where: { userId: user.id },
+              select: { id: true, userId: true },
+            },
+            highlights: {
+              where: { userId: user.id },
+              select: { id: true, userId: true },
+            },
             user: {
               select: {
                 id: true,
@@ -1500,17 +1957,46 @@ export const getNewsfeed = async (
                 userType: true,
                 meta: true,
                 isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
                 followers: {
                   where: {
                     followerId: user.id,
                   },
-                  select: { id: true, followerId: true, followingId: true },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
                 },
                 following: {
                   where: {
                     followingId: user.id,
                   },
-                  select: { id: true, followerId: true, followingId: true },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
                 },
                 subscriptions: {
                   where: {
@@ -1532,6 +2018,186 @@ export const getNewsfeed = async (
                     emoji: true,
                     continentId: true,
                     continent: true,
+                  },
+                },
+              },
+            },
+            tagUsers: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    username: true,
+                    avatar: true,
+                    bio: true,
+                    role: true,
+                    userType: true,
+                    meta: true,
+                    isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
+                    _count: {
+                      select: {
+                        followers: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                        following: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                      },
+                    },
+                    followers: {
+                      where: {
+                        followerId: user.id,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: user.id,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    // 1. if this target user blocked the current user
+                    blockedUsers: {
+                      where: { blockedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    blockedBy: {
+                      where: { blockerId: userId },
+                    },
+                    // 1. if this target user blocked the current user
+                    mutedUsers: {
+                      where: { mutedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    mutedBy: {
+                      where: { muterId: userId },
+                    },
+                    subscriptions: {
+                      where: {
+                        status: {
+                          in: [
+                            SubStatusEnum.ACTIVE,
+                            SubStatusEnum.TRIAL,
+                            SubStatusEnum.PAYMENT_ERROR,
+                          ],
+                        },
+                      },
+                    },
+                    country: {
+                      select: {
+                        id: true,
+                        name: true,
+                        iso2: true,
+                        iso3: true,
+                        emoji: true,
+                        continentId: true,
+                        continent: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            mentions: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    username: true,
+                    avatar: true,
+                    bio: true,
+                    role: true,
+                    userType: true,
+                    meta: true,
+                    isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
+                    _count: {
+                      select: {
+                        followers: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                        following: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                      },
+                    },
+                    followers: {
+                      where: {
+                        followerId: user.id,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: user.id,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    // 1. if this target user blocked the current user
+                    blockedUsers: {
+                      where: { blockedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    blockedBy: {
+                      where: { blockerId: userId },
+                    },
+                    // 1. if this target user blocked the current user
+                    mutedUsers: {
+                      where: { mutedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    mutedBy: {
+                      where: { muterId: userId },
+                    },
+                    subscriptions: {
+                      where: {
+                        status: {
+                          in: [
+                            SubStatusEnum.ACTIVE,
+                            SubStatusEnum.TRIAL,
+                            SubStatusEnum.PAYMENT_ERROR,
+                          ],
+                        },
+                      },
+                    },
+                    country: {
+                      select: {
+                        id: true,
+                        name: true,
+                        iso2: true,
+                        iso3: true,
+                        emoji: true,
+                        continentId: true,
+                        continent: true,
+                      },
+                    },
                   },
                 },
               },
@@ -1587,12 +2253,66 @@ export const getNewsfeed = async (
             parent: {
               include: {
                 media: true,
+                replyContinents: true,
+                replyCountries: true,
+                pins: {
+                  where: { userId: user.id },
+                  select: { id: true, userId: true },
+                },
+                highlights: {
+                  where: { userId: user.id },
+                  select: { id: true, userId: true },
+                },
                 root: {
                   select: {
                     id: true,
                     scope: true,
                     userId: true,
                     rootId: true,
+                    replyContinents: true,
+                    replyCountries: true,
+                    user: {
+                      select: {
+                        followers: {
+                          where: {
+                            followerId: userId,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        following: {
+                          where: {
+                            followingId: userId,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        // 1. if this target user blocked the current user
+                        blockedUsers: {
+                          where: { blockedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        blockedBy: {
+                          where: { blockerId: userId },
+                        },
+                        // 1. if this target user blocked the current user
+                        mutedUsers: {
+                          where: { mutedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        mutedBy: {
+                          where: { muterId: userId },
+                        },
+                      },
+                    },
                   },
                 },
                 user: {
@@ -1606,17 +2326,46 @@ export const getNewsfeed = async (
                     userType: true,
                     meta: true,
                     isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
                     followers: {
                       where: {
                         followerId: user.id,
                       },
-                      select: { id: true, followerId: true, followingId: true },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
                     },
                     following: {
                       where: {
                         followingId: user.id,
                       },
-                      select: { id: true, followerId: true, followingId: true },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    // 1. if this target user blocked the current user
+                    blockedUsers: {
+                      where: { blockedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    blockedBy: {
+                      where: { blockerId: userId },
+                    },
+                    // 1. if this target user blocked the current user
+                    mutedUsers: {
+                      where: { mutedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    mutedBy: {
+                      where: { muterId: userId },
                     },
                     subscriptions: {
                       where: {
@@ -1638,6 +2387,186 @@ export const getNewsfeed = async (
                         emoji: true,
                         continentId: true,
                         continent: true,
+                      },
+                    },
+                  },
+                },
+                tagUsers: {
+                  include: {
+                    user: {
+                      select: {
+                        id: true,
+                        name: true,
+                        username: true,
+                        avatar: true,
+                        bio: true,
+                        role: true,
+                        userType: true,
+                        meta: true,
+                        isVerified: true,
+                        metadata: true,
+                        createdAt: true,
+                        status: true,
+                        _count: {
+                          select: {
+                            followers: {
+                              where: { status: FollowStatus.ACCEPTED },
+                            },
+                            following: {
+                              where: { status: FollowStatus.ACCEPTED },
+                            },
+                          },
+                        },
+                        followers: {
+                          where: {
+                            followerId: user.id,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        following: {
+                          where: {
+                            followingId: user.id,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        // 1. if this target user blocked the current user
+                        blockedUsers: {
+                          where: { blockedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        blockedBy: {
+                          where: { blockerId: userId },
+                        },
+                        // 1. if this target user blocked the current user
+                        mutedUsers: {
+                          where: { mutedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        mutedBy: {
+                          where: { muterId: userId },
+                        },
+                        subscriptions: {
+                          where: {
+                            status: {
+                              in: [
+                                SubStatusEnum.ACTIVE,
+                                SubStatusEnum.TRIAL,
+                                SubStatusEnum.PAYMENT_ERROR,
+                              ],
+                            },
+                          },
+                        },
+                        country: {
+                          select: {
+                            id: true,
+                            name: true,
+                            iso2: true,
+                            iso3: true,
+                            emoji: true,
+                            continentId: true,
+                            continent: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                mentions: {
+                  include: {
+                    user: {
+                      select: {
+                        id: true,
+                        name: true,
+                        username: true,
+                        avatar: true,
+                        bio: true,
+                        role: true,
+                        userType: true,
+                        meta: true,
+                        isVerified: true,
+                        metadata: true,
+                        createdAt: true,
+                        status: true,
+                        _count: {
+                          select: {
+                            followers: {
+                              where: { status: FollowStatus.ACCEPTED },
+                            },
+                            following: {
+                              where: { status: FollowStatus.ACCEPTED },
+                            },
+                          },
+                        },
+                        followers: {
+                          where: {
+                            followerId: user.id,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        following: {
+                          where: {
+                            followingId: user.id,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        // 1. if this target user blocked the current user
+                        blockedUsers: {
+                          where: { blockedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        blockedBy: {
+                          where: { blockerId: userId },
+                        },
+                        // 1. if this target user blocked the current user
+                        mutedUsers: {
+                          where: { mutedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        mutedBy: {
+                          where: { muterId: userId },
+                        },
+                        subscriptions: {
+                          where: {
+                            status: {
+                              in: [
+                                SubStatusEnum.ACTIVE,
+                                SubStatusEnum.TRIAL,
+                                SubStatusEnum.PAYMENT_ERROR,
+                              ],
+                            },
+                          },
+                        },
+                        country: {
+                          select: {
+                            id: true,
+                            name: true,
+                            iso2: true,
+                            iso3: true,
+                            emoji: true,
+                            continentId: true,
+                            continent: true,
+                          },
+                        },
                       },
                     },
                   },
@@ -1732,10 +2661,6 @@ export const getNewsfeed = async (
         parentId: true, // Get only parent post IDs (original posts the user reposted)
       },
     });
-    // Step 3: Mark both the original and the child reposts
-    const repostedPostIds = new Set(
-      userReposts.flatMap((repost) => [repost.id, repost.parentId]) // Include both original and child reposts
-    );
     // Step 3: Attach repost status to feed posts
     const data = feedPosts.map((post) => ({
       ...post,
@@ -1751,19 +2676,247 @@ export const getNewsfeed = async (
       // Check if this post was reposted by the user
     }));
 
-    const _posts = data.map((p) => transformPost(p, true, user));
-
-    console.log(_posts[0]?.author);
+    const _posts = data
+      ?.map(transformPrismaTagMentions)
+      .map((p) => transformPost(p, user));
 
     return {
       data: _posts.length > 0 ? _posts : "Not found",
       status: _posts.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
+    console.log(error);
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
     };
+  }
+};
+
+export const getPostTagUsersOrMentions = async (
+  userId: string,
+  args: {
+    limit: number;
+    page: number;
+    query?: string;
+    id: string;
+    type?: string;
+  }
+) => {
+  try {
+    if (args.query === PostTagMention.TAG_USERS) {
+      return await getPostTagUsers(args, userId);
+    }
+    if (args.query === PostTagMention.MENTIONS) {
+      return await getPostMentionUsers(args, userId);
+    }
+    return { data: "Invalid query provided, try again", status: 400 };
+  } catch (error) {
+    return { data: "Error occurred, please try again", status: 500 };
+  }
+};
+
+export const getPostTagUsers = async (
+  {
+    id,
+    limit = 50,
+    page = 1,
+  }: {
+    id?: string;
+    limit?: number;
+    page?: number;
+  },
+  userId?: string
+) => {
+  const skip = (page - 1) * limit;
+  try {
+    const result = await prisma.postUserTag.findMany({
+      where: {
+        postId: id,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            name: true,
+            avatar: true,
+            bio: true,
+            meta: true,
+            role: true,
+            userType: true,
+            accountVerified: true,
+            createdAt: true,
+            metadata: true,
+            status: true,
+            _count: {
+              select: {
+                followers: {
+                  where: { status: FollowStatus.ACCEPTED },
+                },
+                following: {
+                  where: { status: FollowStatus.ACCEPTED },
+                },
+              },
+            },
+            subscriptions: {
+              where: {
+                status: {
+                  in: [
+                    SubStatusEnum.ACTIVE,
+                    SubStatusEnum.TRIAL,
+                    SubStatusEnum.PAYMENT_ERROR,
+                  ],
+                },
+              },
+            },
+            country: {
+              select: {
+                id: true,
+                name: true,
+                iso2: true,
+                iso3: true,
+                emoji: true,
+                continentId: true,
+              },
+            },
+
+            // 1. is follower following current user?
+            following: {
+              where: { followingId: userId },
+              select: { id: true, status: true },
+            },
+            // 2. is current user following follower?
+            followers: {
+              where: { followerId: userId },
+              select: { id: true, status: true },
+            },
+          },
+        },
+      },
+      orderBy: [{ createdAt: "desc" }],
+      skip,
+      take: limit,
+    });
+
+    if (result.length === 0) {
+      return { status: 404, data: "not found" };
+    }
+    // compose result
+    const data = result
+      .map((t) => ({
+        ...t.user,
+        followerCount: t.user._count.followers,
+        followingCount: t.user._count.following,
+      }))
+      .map((u) => ({
+        ...composePostAuthor(u),
+      }));
+    return { status: 200, data };
+  } catch (error) {
+    return { data: "Error occurred, please try again", status: 500 };
+  }
+};
+
+export const getPostMentionUsers = async (
+  {
+    id,
+    limit = 50,
+    page = 1,
+  }: {
+    id?: string;
+    limit?: number;
+    page?: number;
+  },
+  userId?: string
+) => {
+  const skip = (page - 1) * limit;
+  try {
+    const result = await prisma.postMention.findMany({
+      where: {
+        postId: id,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            name: true,
+            avatar: true,
+            bio: true,
+            meta: true,
+            role: true,
+            userType: true,
+            accountVerified: true,
+            createdAt: true,
+            metadata: true,
+            status: true,
+            _count: {
+              select: {
+                followers: {
+                  where: { status: FollowStatus.ACCEPTED },
+                },
+                following: {
+                  where: { status: FollowStatus.ACCEPTED },
+                },
+              },
+            },
+            subscriptions: {
+              where: {
+                status: {
+                  in: [
+                    SubStatusEnum.ACTIVE,
+                    SubStatusEnum.TRIAL,
+                    SubStatusEnum.PAYMENT_ERROR,
+                  ],
+                },
+              },
+            },
+            country: {
+              select: {
+                id: true,
+                name: true,
+                iso2: true,
+                iso3: true,
+                emoji: true,
+                continentId: true,
+              },
+            },
+
+            // 1. is follower following current user?
+            following: {
+              where: { followingId: userId },
+              select: { id: true, status: true },
+            },
+            // 2. is current user following follower?
+            followers: {
+              where: { followerId: userId },
+              select: { id: true, status: true },
+            },
+          },
+        },
+      },
+      orderBy: [{ createdAt: "desc" }],
+      skip,
+      take: limit,
+    });
+
+    if (result.length === 0) {
+      return { status: 404, data: "not found" };
+    }
+    // compose result
+    const data = result
+      .map((t) => ({
+        ...t.user,
+        followerCount: t.user._count.followers,
+        followingCount: t.user._count.following,
+      }))
+      .map((u) => ({
+        ...composePostAuthor(u),
+      }));
+    return { status: 200, data };
+  } catch (error) {
+    return { data: "Error occurred, please try again", status: 500 };
   }
 };
 
@@ -1949,7 +3102,7 @@ export const getEmbedPost = async (postId: string, userId?: string) => {
       },
     });
 
-    const data = transformPost(post, true);
+    const data = transformPost(post);
 
     return { data, status: 200 };
   } catch (error) {
@@ -1986,6 +3139,7 @@ export const getPostReplies = async (
         where: {
           followerId: post?.root?.userId,
           followingId: args.userId,
+          status: FollowStatus.ACCEPTED,
         },
       });
       userCanReply = !!result2;
@@ -1994,7 +3148,7 @@ export const getPostReplies = async (
     const result = await fetchFeedPostReplies(args);
 
     const transformed = result.map((p) =>
-      transformPost({ ...p, replies: result }, userCanReply, user)
+      transformPost({ ...p, replies: [] }, user)
     );
 
     return {
@@ -2002,7 +3156,6 @@ export const getPostReplies = async (
       status: 200,
     };
   } catch (error: any) {
-    console.log(error?.message);
     return {
       data: "Error occurred trying to get post replies, please try again",
       status: 500,
@@ -2053,17 +3206,30 @@ export const getPostQuotes = async (
             meta: true,
             isVerified: true,
             accountVerified: true,
+            status: true,
+            metadata: true,
+            createdAt: true,
             followers: {
               where: {
                 followerId: userId,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
             },
             following: {
               where: {
                 followingId: userId,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
             },
             subscriptions: {
               where: {
@@ -2094,15 +3260,49 @@ export const getPostQuotes = async (
             user: {
               select: {
                 id: true,
+                name: true,
                 username: true,
                 avatar: true,
-                name: true,
-                isVerified: true,
-                accountVerified: true,
                 bio: true,
                 role: true,
                 userType: true,
                 meta: true,
+                isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: user.id,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: user.id,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
                 subscriptions: {
                   where: {
                     status: {
@@ -2134,15 +3334,49 @@ export const getPostQuotes = async (
             user: {
               select: {
                 id: true,
+                name: true,
                 username: true,
                 avatar: true,
-                name: true,
-                isVerified: true,
-                accountVerified: true,
                 bio: true,
                 role: true,
                 userType: true,
                 meta: true,
+                isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: user.id,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: user.id,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
                 subscriptions: {
                   where: {
                     status: {
@@ -2206,17 +3440,40 @@ export const getPostQuotes = async (
                 userType: true,
                 meta: true,
                 isVerified: true,
+                status: true,
+                metadata: true,
+                createdAt: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
                 followers: {
                   where: {
                     followerId: userId,
                   },
-                  select: { id: true, followerId: true, followingId: true },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
                 },
                 following: {
                   where: {
                     followingId: userId,
                   },
-                  select: { id: true, followerId: true, followingId: true },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
                 },
                 subscriptions: {
                   where: {
@@ -2247,14 +3504,49 @@ export const getPostQuotes = async (
                 user: {
                   select: {
                     id: true,
+                    name: true,
                     username: true,
                     avatar: true,
-                    name: true,
-                    isVerified: true,
                     bio: true,
                     role: true,
                     userType: true,
                     meta: true,
+                    isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
+                    _count: {
+                      select: {
+                        followers: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                        following: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                      },
+                    },
+                    followers: {
+                      where: {
+                        followerId: user.id,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: user.id,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
                     subscriptions: {
                       where: {
                         status: {
@@ -2286,14 +3578,49 @@ export const getPostQuotes = async (
                 user: {
                   select: {
                     id: true,
+                    name: true,
                     username: true,
                     avatar: true,
-                    name: true,
-                    isVerified: true,
                     bio: true,
                     role: true,
                     userType: true,
                     meta: true,
+                    isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
+                    _count: {
+                      select: {
+                        followers: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                        following: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                      },
+                    },
+                    followers: {
+                      where: {
+                        followerId: user.id,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: user.id,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
                     subscriptions: {
                       where: {
                         status: {
@@ -2391,15 +3718,13 @@ export const getPostQuotes = async (
           userId: true,
         },
       });
-
       // Step 3: Attach repost status to replies posts
       const posts = result.map((post) => ({
         ...post,
         reposts: userReposts.filter((r) => r.parentId === post.id),
-        tagUsers: post.tagUsers.map((u) => u.user),
-        mentions: post.mentions.map((m) => m.user),
+        ...transformPrismaTagMentions(post),
       }));
-      const data = posts.map((p) => transformPost(p, false, user));
+      const data = posts.map((p) => transformPost(p, user));
       return { data, status: 200 };
     }
     // const data = result.map(p => transformPost(p, false, user))
@@ -2422,7 +3747,7 @@ export const getPostReposters = async (
     limit: number;
     page: number;
   },
-  user: AuthUser
+  user: SessionUser
 ) => {
   try {
     const result = await prisma.post.findMany({
@@ -2445,17 +3770,40 @@ export const getPostReposters = async (
             userType: true,
             meta: true,
             isVerified: true,
+            status: true,
+            metadata: true,
+            createdAt: true,
+            _count: {
+              select: {
+                followers: {
+                  where: { status: FollowStatus.ACCEPTED },
+                },
+                following: {
+                  where: { status: FollowStatus.ACCEPTED },
+                },
+              },
+            },
             followers: {
               where: {
                 followerId: user.id,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
             },
             following: {
               where: {
                 followingId: user.id,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
             },
             subscriptions: {
               where: {
@@ -2485,13 +3833,19 @@ export const getPostReposters = async (
       orderBy: [{ createdAt: "desc" }],
     });
 
-    const reposters = result?.map((r) => composePostAuthor(r.user));
+    const reposters = result?.map((r) =>
+      composePostAuthor({
+        ...r.user,
+        followerCount: r.user._count.followers,
+        followingCount: r.user._count.following,
+      })
+    );
+
     return {
       data: reposters.length > 0 ? reposters : "Not found",
       status: reposters.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
-    console.log(error?.message);
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -2499,87 +3853,14 @@ export const getPostReposters = async (
   }
 };
 
-export const getAuthUser = async (userId?: string) => {
+export const getPostFeedDetails = async (postId: string, user?: AuthUser) => {
   try {
-    const user = await prisma.user.findFirst({
-      where: { id: userId },
-      include: {
-        subscriptions: {
-          where: {
-            status: {
-              in: [
-                SubStatusEnum.ACTIVE,
-                SubStatusEnum.TRIAL,
-                SubStatusEnum.PAYMENT_ERROR,
-              ],
-            },
-          },
-        },
-        country: {
-          select: {
-            id: true,
-            name: true,
-            iso2: true,
-            iso3: true,
-            emoji: true,
-            continentId: true,
-          },
-        },
-      },
-    });
-    if (!user) return undefined;
-    const {
-      id,
-      username,
-      avatar,
-      userType,
-      meta,
-      accountVerified,
-      role,
-      name,
-      subscriptions,
-      email,
-      telId,
-      country,
-    } = user;
-    const subscription = subscriptions[0];
-    const statuses = [
-      SubStatusEnum.ACTIVE,
-      SubStatusEnum.TRIAL,
-      SubStatusEnum.PAYMENT_ERROR,
-    ] as string[];
-    return {
-      id,
-      avatar,
-      username,
-      role,
-      name,
-      userType,
-      email,
-      telId,
-      country,
-      meta: {
-        ...meta,
-        isPro: !!subscription,
-        isLegacy: accountVerified,
-        isActive: statuses.includes(String(meta?.status)),
-      },
-    } as AuthUser;
-  } catch (error) {
-    return undefined;
-  }
-};
-
-export const getPostFeedDetails = async (postId: string, userId?: string) => {
-  try {
+    const userId = user?.id;
     // get post details and parentChain if any
     // const result2 = await getPostParentChain(postId, userId!);
     const result = await fetchPostAncestry(postId, userId);
 
     if (!result) return { data: "not found", status: 404 };
-
-    // get current user details
-    const user = await getAuthUser(userId);
 
     // get feed post thread
 
@@ -2588,20 +3869,6 @@ export const getPostFeedDetails = async (postId: string, userId?: string) => {
     // get feed post replies
     const replies = await fetchFeedPostReplies({ postId, userId });
     // check if the current user is following author
-    let userCanReply = false;
-    if (
-      result.scope === PostScopeEnum.FOLLOWED &&
-      result?.root?.userId !== userId
-    ) {
-      // check if the post author is following the current user
-      const result2 = await prisma.follow.findFirst({
-        where: {
-          followerId: result?.root?.userId,
-          followingId: userId,
-        },
-      });
-      userCanReply = !!result2;
-    }
 
     const data = transformPost(
       {
@@ -2609,7 +3876,6 @@ export const getPostFeedDetails = async (postId: string, userId?: string) => {
         thread,
         replies,
       },
-      userCanReply,
       user
     );
 
@@ -2618,6 +3884,7 @@ export const getPostFeedDetails = async (postId: string, userId?: string) => {
       status: 200,
     };
   } catch (error: any) {
+    console.log(error);
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -2636,13 +3903,61 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
       orderBy: [{ createdAt: "asc" }],
       include: {
         media: true,
+        replyContinents: true,
+        replyCountries: true,
         _count: { select: { replies: { where: { isHidden: true } } } },
+        pins: { where: { userId }, select: { id: true, userId: true } },
+        highlights: { where: { userId }, select: { id: true, userId: true } },
         root: {
           select: {
             id: true,
             scope: true,
             userId: true,
             rootId: true,
+            replyContinents: true,
+            replyCountries: true,
+            user: {
+              select: {
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
+                },
+              },
+            },
           },
         },
         user: {
@@ -2656,17 +3971,46 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
             userType: true,
             meta: true,
             isVerified: true,
+            status: true,
+            metadata: true,
+            createdAt: true,
             followers: {
               where: {
                 followerId: userId,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
             },
             following: {
               where: {
                 followingId: userId,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
+            },
+            // 1. if this target user blocked the current user
+            blockedUsers: {
+              where: { blockedId: userId },
+            },
+            // 2. if current user blocked the target user
+            blockedBy: {
+              where: { blockerId: userId },
+            },
+            // 1. if this target user blocked the current user
+            mutedUsers: {
+              where: { mutedId: userId },
+            },
+            // 2. if current user blocked the target user
+            mutedBy: {
+              where: { muterId: userId },
             },
             subscriptions: {
               where: {
@@ -2697,14 +4041,49 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
             user: {
               select: {
                 id: true,
+                name: true,
                 username: true,
                 avatar: true,
-                name: true,
-                accountVerified: true,
                 bio: true,
                 role: true,
                 userType: true,
                 meta: true,
+                isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
                 subscriptions: {
                   where: {
                     status: {
@@ -2736,14 +4115,49 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
             user: {
               select: {
                 id: true,
+                name: true,
                 username: true,
                 avatar: true,
-                name: true,
-                accountVerified: true,
                 bio: true,
                 role: true,
                 userType: true,
                 meta: true,
+                isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
                 subscriptions: {
                   where: {
                     status: {
@@ -2809,7 +4223,56 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
                 scope: true,
                 userId: true,
                 rootId: true,
+                replyContinents: true,
+                replyCountries: true,
+                user: {
+                  select: {
+                    followers: {
+                      where: {
+                        followerId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    // 1. if this target user blocked the current user
+                    blockedUsers: {
+                      where: { blockedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    blockedBy: {
+                      where: { blockerId: userId },
+                    },
+                    // 1. if this target user blocked the current user
+                    mutedUsers: {
+                      where: { mutedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    mutedBy: {
+                      where: { muterId: userId },
+                    },
+                  },
+                },
               },
+            },
+            pins: { where: { userId }, select: { id: true, userId: true } },
+            highlights: {
+              where: { userId },
+              select: { id: true, userId: true },
             },
             user: {
               select: {
@@ -2822,17 +4285,56 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
                 userType: true,
                 meta: true,
                 isVerified: true,
+                status: true,
+                metadata: true,
+                createdAt: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
                 followers: {
                   where: {
                     followerId: userId,
                   },
-                  select: { id: true, followerId: true, followingId: true },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
                 },
                 following: {
                   where: {
                     followingId: userId,
                   },
-                  select: { id: true, followerId: true, followingId: true },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
                 },
                 subscriptions: {
                   where: {
@@ -2863,14 +4365,49 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
                 user: {
                   select: {
                     id: true,
+                    name: true,
                     username: true,
                     avatar: true,
-                    name: true,
-                    isVerified: true,
                     bio: true,
                     role: true,
                     userType: true,
                     meta: true,
+                    isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
+                    _count: {
+                      select: {
+                        followers: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                        following: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                      },
+                    },
+                    followers: {
+                      where: {
+                        followerId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
                     subscriptions: {
                       where: {
                         status: {
@@ -2902,14 +4439,49 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
                 user: {
                   select: {
                     id: true,
+                    name: true,
                     username: true,
                     avatar: true,
-                    name: true,
-                    isVerified: true,
                     bio: true,
                     role: true,
                     userType: true,
                     meta: true,
+                    isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
+                    _count: {
+                      select: {
+                        followers: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                        following: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                      },
+                    },
+                    followers: {
+                      where: {
+                        followerId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
                     subscriptions: {
                       where: {
                         status: {
@@ -3007,24 +4579,17 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
           parentId: true, // Get only parent post IDs (original posts the user reposted)
         },
       });
-      // Step 2: Mark both the original and the child reposts
-      // const repostIds = new Set(
-      //   userReposts.flatMap((repost) => [repost.id, repost.parentId]) // Include both original and child reposts
       // );
-      // Step 3: Attach repost status to replies posts
-      return thread.map((post) => ({
+      // Step 2: Attach repost status to replies posts
+      return thread?.map(transformPrismaTagMentions).map((post) => ({
         ...post,
         reposts: userReposts.filter((r) => r.parentId === post.id),
-        tagUsers: post.tagUsers.map((u) => u.user),
-        mentions: post.mentions.map((m) => m.user),
         parent: post.parent
           ? {
               ...post.parent,
               reposts: userReposts.filter(
                 (r) => r.parentId === post?.parent?.id
               ),
-              tagUsers: post?.parent.tagUsers.map((u) => u.user),
-              mentions: post?.parent.mentions.map((m) => m.user),
             }
           : post.parent,
       }));
@@ -3056,7 +4621,16 @@ export const fetchFeedPostReplies = async ({
         parentId: postId,
         kind: PostKindEnum.REPLY,
         status: PostStatus.PUBLISHED,
-        isHidden: hidden,
+        // isHidden: hidden,
+        ...(hidden
+          ? {
+              isHidden: hidden,
+              OR: [
+                { status: PostStatus.DELETED },
+                { totalReplies: { gte: 1 } },
+              ],
+            }
+          : { isHidden: hidden }),
       },
       skip,
       take: limit,
@@ -3070,8 +4644,54 @@ export const fetchFeedPostReplies = async ({
             scope: true,
             userId: true,
             rootId: true,
+            replyContinents: true,
+            replyCountries: true,
+            user: {
+              select: {
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
+                },
+              },
+            },
           },
         },
+        pins: { where: { userId }, select: { id: true, userId: true } },
+        highlights: { where: { userId }, select: { id: true, userId: true } },
         user: {
           select: {
             id: true,
@@ -3084,17 +4704,56 @@ export const fetchFeedPostReplies = async ({
             meta: true,
             isVerified: true,
             accountVerified: true,
+            status: true,
+            metadata: true,
+            createdAt: true,
+            _count: {
+              select: {
+                followers: {
+                  where: { status: FollowStatus.ACCEPTED },
+                },
+                following: {
+                  where: { status: FollowStatus.ACCEPTED },
+                },
+              },
+            },
             followers: {
               where: {
                 followerId: userId,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
             },
             following: {
               where: {
                 followingId: userId,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
+            },
+            // 1. if this target user blocked the current user
+            blockedUsers: {
+              where: { blockedId: userId },
+            },
+            // 2. if current user blocked the target user
+            blockedBy: {
+              where: { blockerId: userId },
+            },
+            // 1. if this target user blocked the current user
+            mutedUsers: {
+              where: { mutedId: userId },
+            },
+            // 2. if current user blocked the target user
+            mutedBy: {
+              where: { muterId: userId },
             },
             subscriptions: {
               where: {
@@ -3125,15 +4784,49 @@ export const fetchFeedPostReplies = async ({
             user: {
               select: {
                 id: true,
+                name: true,
                 username: true,
                 avatar: true,
-                name: true,
-                isVerified: true,
-                accountVerified: true,
                 bio: true,
                 role: true,
                 userType: true,
                 meta: true,
+                isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
                 subscriptions: {
                   where: {
                     status: {
@@ -3165,15 +4858,49 @@ export const fetchFeedPostReplies = async ({
             user: {
               select: {
                 id: true,
+                name: true,
                 username: true,
                 avatar: true,
-                name: true,
-                isVerified: true,
-                accountVerified: true,
                 bio: true,
                 role: true,
                 userType: true,
                 meta: true,
+                isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
                 subscriptions: {
                   where: {
                     status: {
@@ -3213,6 +4940,332 @@ export const fetchFeedPostReplies = async ({
             },
             continents: true,
             countries: true,
+          },
+        },
+        parent: {
+          include: {
+            media: true,
+            root: {
+              select: {
+                id: true,
+                scope: true,
+                userId: true,
+                rootId: true,
+                replyContinents: true,
+                replyCountries: true,
+                user: {
+                  select: {
+                    followers: {
+                      where: {
+                        followerId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    // 1. if this target user blocked the current user
+                    blockedUsers: {
+                      where: { blockedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    blockedBy: {
+                      where: { blockerId: userId },
+                    },
+                    // 1. if this target user blocked the current user
+                    mutedUsers: {
+                      where: { mutedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    mutedBy: {
+                      where: { muterId: userId },
+                    },
+                  },
+                },
+              },
+            },
+            pins: { where: { userId }, select: { id: true, userId: true } },
+            highlights: {
+              where: { userId },
+              select: { id: true, userId: true },
+            },
+            user: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                avatar: true,
+                bio: true,
+                role: true,
+                userType: true,
+                meta: true,
+                isVerified: true,
+                status: true,
+                metadata: true,
+                createdAt: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
+                },
+                subscriptions: {
+                  where: {
+                    status: {
+                      in: [
+                        SubStatusEnum.ACTIVE,
+                        SubStatusEnum.TRIAL,
+                        SubStatusEnum.PAYMENT_ERROR,
+                      ],
+                    },
+                  },
+                },
+                country: {
+                  select: {
+                    id: true,
+                    name: true,
+                    iso2: true,
+                    iso3: true,
+                    emoji: true,
+                    continentId: true,
+                    continent: true,
+                  },
+                },
+              },
+            },
+            tagUsers: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    username: true,
+                    avatar: true,
+                    bio: true,
+                    role: true,
+                    userType: true,
+                    meta: true,
+                    isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
+                    _count: {
+                      select: {
+                        followers: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                        following: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                      },
+                    },
+                    followers: {
+                      where: {
+                        followerId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    subscriptions: {
+                      where: {
+                        status: {
+                          in: [
+                            SubStatusEnum.ACTIVE,
+                            SubStatusEnum.TRIAL,
+                            SubStatusEnum.PAYMENT_ERROR,
+                          ],
+                        },
+                      },
+                    },
+                    country: {
+                      select: {
+                        id: true,
+                        name: true,
+                        iso2: true,
+                        iso3: true,
+                        emoji: true,
+                        continentId: true,
+                        continent: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            mentions: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    username: true,
+                    avatar: true,
+                    bio: true,
+                    role: true,
+                    userType: true,
+                    meta: true,
+                    isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
+                    _count: {
+                      select: {
+                        followers: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                        following: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                      },
+                    },
+                    followers: {
+                      where: {
+                        followerId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    subscriptions: {
+                      where: {
+                        status: {
+                          in: [
+                            SubStatusEnum.ACTIVE,
+                            SubStatusEnum.TRIAL,
+                            SubStatusEnum.PAYMENT_ERROR,
+                          ],
+                        },
+                      },
+                    },
+                    country: {
+                      select: {
+                        id: true,
+                        name: true,
+                        iso2: true,
+                        iso3: true,
+                        emoji: true,
+                        continentId: true,
+                        continent: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            quiz: {
+              include: {
+                options: {
+                  include: {
+                    participants: {
+                      where: {
+                        userId,
+                      },
+                    },
+                  },
+                },
+                continents: true,
+                countries: true,
+              },
+            },
+            poll: {
+              include: {
+                options: {
+                  include: {
+                    voters: {
+                      where: {
+                        userId,
+                      },
+                    },
+                  },
+                },
+                continents: true,
+                countries: true,
+              },
+            },
           },
         },
         likes: {
@@ -3256,16 +5309,576 @@ export const fetchFeedPostReplies = async ({
       });
 
       // Step 3: Attach repost status to replies posts
-      return replies.map((post) => ({
+      return replies?.map(transformPrismaTagMentions).map((post) => ({
         ...post,
         reposts: userReposts.filter((r) => r.parentId === post.id),
-        tagUsers: post.tagUsers.map((u) => u.user),
-        mentions: post.mentions.map((m) => m.user),
       }));
     }
     return replies;
   } catch (error) {
+    console.log(error);
     throw error;
+  }
+};
+
+export const getPostAnalytics = async (
+  postId: string,
+  user: AuthUser,
+  args: { duration: string }
+) => {
+  const userId = user.id;
+  try {
+    const startDate = getAnalyticsDuration(args.duration);
+    const rangeLengthMs = Date.now() - startDate.getTime();
+    const prevStartDate = new Date(startDate.getTime() - rangeLengthMs);
+
+    const [
+      currentPostImpressions,
+      prevPostImpressions,
+
+      currentPostLikes,
+      prevPostLikes,
+
+      currentPostQuotes,
+      prevPostQuotes,
+
+      currentPostReplies,
+      prevPostReplies,
+
+      currentPostReposts,
+      prevPostReposts,
+
+      currentPostViews,
+      prevPostViews,
+
+      currentPostShares,
+      prevPostShares,
+
+      currentPostBookmarks,
+      prevPostBookmarks,
+
+      currentPostTips,
+      prevPostTips,
+
+      currentPostFollows,
+      prevPostFollows,
+
+      currentPostProfileVisits,
+      prevPostProfileVisits,
+
+      currentPostClicks,
+      prevPostClicks,
+
+      currentPostDisinterest,
+      prevPostDisinterest,
+
+      currentPostReports,
+      prevPostReports,
+
+      currentPostMediaClicks,
+      prevPostMediaClicks,
+
+      // currentProfileVisits,
+      // prevProfileVisits,
+
+      currentPostMediaStats,
+      prevPostMediaStats,
+    ] = await Promise.all([
+      // current post impression
+      prisma.postImpression.count({
+        where: { postId, post: { userId }, createdAt: { gte: startDate } },
+      }),
+      // previous post impression
+      prisma.postImpression.count({
+        where: {
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post likes
+      prisma.likedPost.count({
+        where: { postId, post: { userId }, createdAt: { gte: startDate } },
+      }),
+      // previous post likes
+      prisma.likedPost.count({
+        where: {
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post quotes
+      prisma.post.count({
+        where: {
+          id: postId,
+          kind: PostKindEnum.QUOTE,
+          status: PostStatus.PUBLISHED,
+          parent: { userId },
+          createdAt: { gte: startDate },
+        },
+      }),
+      // previous post quotes
+      prisma.post.count({
+        where: {
+          id: postId,
+          kind: PostKindEnum.QUOTE,
+          status: PostStatus.PUBLISHED,
+          parent: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post replies
+      prisma.post.count({
+        where: {
+          id: postId,
+          kind: PostKindEnum.REPLY,
+          status: PostStatus.PUBLISHED,
+          parent: { userId },
+          createdAt: { gte: startDate },
+        },
+      }),
+      // previous post replies
+      prisma.post.count({
+        where: {
+          id: postId,
+          kind: PostKindEnum.REPLY,
+          status: PostStatus.PUBLISHED,
+          parent: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post reposts
+      prisma.post.count({
+        where: {
+          id: postId,
+          kind: PostKindEnum.REPOST,
+          status: PostStatus.PUBLISHED,
+          parent: { userId },
+          createdAt: { gte: startDate },
+        },
+      }),
+      // previous post reposts
+      prisma.post.count({
+        where: {
+          id: postId,
+          kind: PostKindEnum.REPOST,
+          status: PostStatus.PUBLISHED,
+          parent: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post views
+      prisma.postView.count({
+        where: { postId, post: { userId }, createdAt: { gte: startDate } },
+      }),
+      // previous post views
+      prisma.postView.count({
+        where: {
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post shares
+      prisma.postShare.count({
+        where: { postId, post: { userId }, createdAt: { gte: startDate } },
+      }),
+      // previous post shares
+      prisma.postShare.count({
+        where: {
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post bookmarks
+      prisma.bookmark.count({
+        where: { postId, post: { userId }, createdAt: { gte: startDate } },
+      }),
+      // previous post bookmarks
+      prisma.bookmark.count({
+        where: {
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post tips
+      prisma.postTip.count({
+        where: { postId, post: { userId }, createdAt: { gte: startDate } },
+      }),
+      // previous post tips
+      prisma.postTip.count({
+        where: {
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post follows
+      prisma.postClick.count({
+        where: {
+          action: PostMetricAction.FOLLOW,
+          postId,
+          post: { userId },
+          createdAt: { gte: startDate },
+        },
+      }),
+      // previous post follows
+      prisma.postClick.count({
+        where: {
+          action: PostMetricAction.FOLLOW,
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post profile visit
+      prisma.postClick.count({
+        where: {
+          action: PostMetricAction.PROFILE,
+          postId,
+          post: { userId },
+          createdAt: { gte: startDate },
+        },
+      }),
+      // previous post profile visit
+      prisma.postClick.count({
+        where: {
+          action: PostMetricAction.PROFILE,
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post interactions
+      prisma.postClick.count({
+        where: { postId, post: { userId }, createdAt: { gte: startDate } },
+      }),
+      // previous post interactions
+      prisma.postClick.count({
+        where: {
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post not interested
+      prisma.postDisinterest.count({
+        where: { postId, post: { userId }, createdAt: { gte: startDate } },
+      }),
+      // previous post not interested
+      prisma.postDisinterest.count({
+        where: {
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post reports
+      prisma.postReport.count({
+        where: { postId, post: { userId }, createdAt: { gte: startDate } },
+      }),
+      // previous post reports
+      prisma.postReport.count({
+        where: {
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // current post media interaction
+      prisma.postMediaLog.count({
+        where: { postId, post: { userId }, createdAt: { gte: startDate } },
+      }),
+      // previous post media interaction
+      prisma.postMediaLog.count({
+        where: {
+          postId,
+          post: { userId },
+          createdAt: { gte: prevStartDate, lt: startDate },
+        },
+      }),
+      // // current post profile visits
+      // prisma.profileVisit.count({
+      //   where: { userId, postId, createdAt: { gte: startDate } },
+      // }),
+      // // previous post profile visits
+      // prisma.profileVisit.count({
+      //   where: {
+      //     userId,
+      //     postId,
+      //     createdAt: { gte: prevStartDate, lt: startDate },
+      //   },
+      // }),
+      // current user post media stats
+      prisma.postMedia.aggregate({
+        _sum: {
+          totalDownloads: true,
+          totalViews: true,
+        },
+        where: {
+          createdAt: { gte: startDate },
+          postId,
+          post: {
+            userId,
+          },
+        },
+      }),
+      // prev user post media stats
+      prisma.postMedia.aggregate({
+        _sum: {
+          totalDownloads: true,
+          totalViews: true,
+        },
+        where: {
+          createdAt: { gte: prevStartDate, lt: startDate },
+          postId,
+          post: {
+            userId,
+          },
+        },
+      }),
+    ]);
+
+    // calculate engagement on post level
+    const calcEngagement = () => {
+      // current
+      const currSum =
+        currentPostLikes +
+        currentPostQuotes +
+        currentPostReplies +
+        currentPostReposts +
+        currentPostViews +
+        currentPostShares +
+        currentPostBookmarks +
+        currentPostTips +
+        currentPostClicks +
+        currentPostMediaClicks;
+
+      // engagement rate on post level
+      const currImpressions = Number(currentPostImpressions);
+      const currRate =
+        currSum > 0 && currImpressions > 0
+          ? Number(((currSum / currImpressions) * 100).toFixed(2))
+          : 0;
+      // previous
+      const prevSum =
+        prevPostLikes +
+        prevPostQuotes +
+        prevPostReplies +
+        prevPostReposts +
+        prevPostViews +
+        prevPostShares +
+        prevPostBookmarks +
+        prevPostTips +
+        prevPostClicks +
+        currentPostMediaClicks;
+      // engagement rate on post level
+      const prevImpressions = Number(prevPostImpressions);
+      const prevRate =
+        prevSum > 0 && prevImpressions > 0
+          ? Number(((prevSum / prevImpressions) * 100).toFixed(2))
+          : 0;
+
+      return { currRate, prevRate };
+    };
+
+    const engageStats = calcEngagement();
+
+    const analytics = [
+      {
+        title: "Engagement Rate",
+        value: engageStats.currRate,
+        change: analyticsPercentageChange(
+          engageStats.currRate,
+          engageStats.prevRate
+        ),
+      },
+      {
+        title: "Post Impressions",
+        value: currentPostImpressions,
+        change: analyticsPercentageChange(
+          currentPostImpressions,
+          prevPostImpressions
+        ),
+      },
+      {
+        title: "Post Likes",
+        value: currentPostLikes,
+        change: analyticsPercentageChange(currentPostLikes, prevPostLikes),
+      },
+
+      {
+        title: "Post Quotes",
+        value: currentPostQuotes,
+        change: analyticsPercentageChange(currentPostQuotes, prevPostQuotes),
+      },
+
+      {
+        title: "Post Replies",
+        value: currentPostReplies,
+        change: analyticsPercentageChange(currentPostReplies, prevPostReplies),
+      },
+
+      {
+        title: "Post Reposts",
+        value: currentPostReplies,
+        change: analyticsPercentageChange(currentPostReposts, prevPostReposts),
+      },
+
+      {
+        title: "Post Views",
+        value: currentPostViews,
+        change: analyticsPercentageChange(currentPostViews, prevPostViews),
+      },
+
+      {
+        title: "Post Shares",
+        value: currentPostShares,
+        change: analyticsPercentageChange(currentPostShares, prevPostShares),
+      },
+
+      {
+        title: "Post Bookmarks",
+        value: currentPostBookmarks,
+        change: analyticsPercentageChange(
+          currentPostBookmarks,
+          prevPostBookmarks
+        ),
+      },
+
+      {
+        title: "Post Clicks",
+        value: currentPostClicks,
+        change: analyticsPercentageChange(currentPostClicks, prevPostClicks),
+      },
+
+      {
+        title: "Post Media Clicks",
+        value: currentPostMediaClicks,
+        change: analyticsPercentageChange(
+          currentPostMediaClicks,
+          prevPostMediaClicks
+        ),
+      },
+
+      {
+        title: "Post Follows",
+        value: currentPostFollows,
+        change: analyticsPercentageChange(currentPostFollows, prevPostFollows),
+      },
+
+      {
+        title: "Post Tips",
+        value: currentPostTips,
+        change: analyticsPercentageChange(currentPostTips, prevPostTips),
+      },
+
+      {
+        title: "Post Profile Visits",
+        value: currentPostProfileVisits,
+        change: analyticsPercentageChange(
+          currentPostProfileVisits,
+          prevPostProfileVisits
+        ),
+      },
+
+      // {
+      //   title: "Post Profile Visits 2",
+      //   value: currentProfileVisits,
+      //   change: analyticsPercentageChange(
+      //     currentProfileVisits,
+      //     prevProfileVisits
+      //   ),
+      // },
+
+      {
+        title: "Post Reports",
+        value: currentPostReports,
+        change: analyticsPercentageChange(currentPostReports, prevPostReports),
+      },
+
+      {
+        title: "Post Disinterest",
+        value: currentPostDisinterest,
+        change: analyticsPercentageChange(
+          currentPostDisinterest,
+          prevPostDisinterest
+        ),
+      },
+
+      {
+        title: "Media Views",
+        value: Number(currentPostMediaStats._sum.totalViews),
+        change: analyticsPercentageChange(
+          Number(currentPostMediaStats._sum.totalViews),
+          Number(prevPostMediaStats._sum.totalViews)
+        ),
+      },
+
+      {
+        title: "Media Downloads",
+        value: Number(currentPostMediaStats._sum.totalDownloads),
+        change: analyticsPercentageChange(
+          Number(currentPostMediaStats._sum.totalDownloads),
+          Number(prevPostMediaStats._sum.totalDownloads)
+        ),
+      },
+
+      // {
+      //   title: "Follows",
+      //   value: currentFollow._count.followerId,
+      //   change: analyticsPercentageChange(
+      //     currentFollow._count.followerId,
+      //     prevFollow._count.followerId
+      //   ),
+      // },
+
+      // {
+      //   title: "Unfollows",
+      //   value: currentUnfollow._count.followerId,
+      //   change: analyticsPercentageChange(
+      //     currentUnfollow._count.followerId,
+      //     prevUnfollow._count.followerId
+      //   ),
+      // },
+
+      // {
+      //   title: "Blockers",
+      //   value: currentBlockers._count.blockerId,
+      //   change: analyticsPercentageChange(
+      //     currentBlockers._count.blockerId,
+      //     prevBlockers._count.blockerId
+      //   ),
+      // },
+
+      // {
+      //   title: "Muters",
+      //   value: currentMuters._count.muterId,
+      //   change: analyticsPercentageChange(
+      //     currentMuters._count.muterId,
+      //     prevMuters._count.muterId
+      //   ),
+      // },
+
+      // {
+      //   title: "Reporters",
+      //   value: currentReporters._count.reporterId,
+      //   change: analyticsPercentageChange(
+      //     currentReporters._count.reporterId,
+      //     prevReporters._count.reporterId
+      //   ),
+      // },
+    ];
+    return {
+      data: analytics,
+      status: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return { data: "Error occurred, please try again", status: 500 };
   }
 };
 
@@ -3345,7 +5958,6 @@ export const updatePostReactions = async (postId: string, user: AuthUser) => {
 
 export const updatePostBookmarks = async (postId: string, userId: string) => {
   try {
-    console.log("Updating post bookmarks", userId, postId);
     const data = await prisma.$transaction(async (tx) => {
       const result = await tx.bookmark.findUnique({
         where: {
@@ -3384,14 +5996,24 @@ export const updatePostBookmarks = async (postId: string, userId: string) => {
   }
 };
 
-export const updatePostShares = async (postId: string, userId: string) => {
+export const createAndUpdatePostShares = async (body: {
+  device: DetectResult;
+  meta: LookupResult | null;
+  postId: string;
+  userId: string;
+  sessionId: string | null | undefined;
+  timestamp: string;
+  referer?: string | null;
+}) => {
   try {
-    console.log("Updating post shares", userId, postId);
-    const result = await prisma.post.update({
-      where: { id: postId },
-      data: { totalShares: { increment: 1 } },
-    });
-    return { data: { id: result.id, userId: result.userId }, status: 200 };
+    await prisma.$transaction([
+      prisma.post.update({
+        where: { id: body.postId },
+        data: { totalShares: { increment: 1 } },
+      }),
+      prisma.postShare.create({ data: body }),
+    ]);
+    return { data: { id: body.postId, userId: body.userId }, status: 200 };
   } catch (error) {
     return {
       data: "Error occurred updating post shares, please try again",
@@ -3493,7 +6115,7 @@ export const updateReposts = async (postId: string, user: AuthUser) => {
   }
 };
 
-export const deletePost = async (postId: string, user: AuthUser) => {
+export const deletePost = async (postId: string, user: SessionUser) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       // check post ownership
@@ -3509,7 +6131,7 @@ export const deletePost = async (postId: string, user: AuthUser) => {
       }
       const post = await tx.post.update({
         where: { id: postId },
-        data: { deletedAt: new Date() },
+        data: { deletedAt: new Date(), status: PostStatus.DELETED },
       });
       // decrease counters for the original post
       await updateParentCounter(tx, post, "decrement");
@@ -3520,7 +6142,12 @@ export const deletePost = async (postId: string, user: AuthUser) => {
       return post;
     });
     return {
-      data: { id: result.id, userId: user.id, deletedAt: result.deletedAt },
+      data: {
+        id: result.id,
+        userId: user.id,
+        deletedAt: result.deletedAt,
+        status: result.status,
+      },
       status: 200,
     };
   } catch (error) {
@@ -3528,7 +6155,7 @@ export const deletePost = async (postId: string, user: AuthUser) => {
   }
 };
 
-export const restorePost = async (postId: string, user: AuthUser) => {
+export const restorePost = async (postId: string, user: SessionUser) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       // check post ownership
@@ -3544,7 +6171,7 @@ export const restorePost = async (postId: string, user: AuthUser) => {
       }
       const post = await tx.post.update({
         where: { id: postId },
-        data: { deletedAt: null },
+        data: { deletedAt: null, status: PostStatus.PUBLISHED },
       });
       // increase counters for the original post
       await updateParentCounter(tx, post, "increment");
@@ -3555,7 +6182,12 @@ export const restorePost = async (postId: string, user: AuthUser) => {
       return post;
     });
     return {
-      data: { id: result.id, userId: user.id, deletedAt: result.deletedAt },
+      data: {
+        id: result.id,
+        userId: user.id,
+        deletedAt: result.deletedAt,
+        status: result.status,
+      },
       status: 200,
     };
   } catch (error) {
@@ -3563,7 +6195,7 @@ export const restorePost = async (postId: string, user: AuthUser) => {
   }
 };
 
-export const hidePostReply = async (postId: string, user: AuthUser) => {
+export const hidePostReply = async (postId: string, user: SessionUser) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       // check post ownership
@@ -3657,7 +6289,6 @@ export const votePollPost = async (
         },
       },
     });
-    console.log("Post option voted ");
     return {
       data: JSON.parse(
         JSON.stringify(data, (_, value) =>
@@ -3667,7 +6298,6 @@ export const votePollPost = async (
       status: 200,
     };
   } catch (error: any) {
-    console.log("Voting option error ", error?.message);
     return { data: "Error occurred reposting, please try again", status: 500 };
   }
 };
@@ -3771,15 +6401,63 @@ const getSinglePost = async (postId: string, userId?: string) => {
       },
       include: {
         media: true,
-        _count: { select: { replies: { where: { isHidden: true } } } },
+        replyContinents: true,
+        replyCountries: true,
         root: {
           select: {
             id: true,
             scope: true,
             userId: true,
             rootId: true,
+            replyContinents: true,
+            replyCountries: true,
+            user: {
+              select: {
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
+                },
+              },
+            },
           },
         },
+        _count: { select: { replies: { where: { isHidden: true } } } },
+        pins: { where: { userId }, select: { id: true, userId: true } },
+        highlights: { where: { userId }, select: { id: true, userId: true } },
         user: {
           select: {
             id: true,
@@ -3791,17 +6469,46 @@ const getSinglePost = async (postId: string, userId?: string) => {
             userType: true,
             meta: true,
             isVerified: true,
+            status: true,
+            metadata: true,
+            createdAt: true,
             followers: {
               where: {
                 followerId: userId,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
             },
             following: {
               where: {
                 followingId: userId,
               },
-              select: { id: true, followerId: true, followingId: true },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
+            },
+            // 1. if this target user blocked the current user
+            blockedUsers: {
+              where: { blockedId: userId },
+            },
+            // 2. if current user blocked the target user
+            blockedBy: {
+              where: { blockerId: userId },
+            },
+            // 1. if this target user blocked the current user
+            mutedUsers: {
+              where: { mutedId: userId },
+            },
+            // 2. if current user blocked the target user
+            mutedBy: {
+              where: { muterId: userId },
             },
             subscriptions: {
               where: {
@@ -3840,6 +6547,41 @@ const getSinglePost = async (postId: string, userId?: string) => {
                 userType: true,
                 meta: true,
                 isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
                 subscriptions: {
                   where: {
                     status: {
@@ -3879,6 +6621,41 @@ const getSinglePost = async (postId: string, userId?: string) => {
                 userType: true,
                 meta: true,
                 isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
                 subscriptions: {
                   where: {
                     status: {
@@ -3955,10 +6732,8 @@ const getSinglePost = async (postId: string, userId?: string) => {
         },
       });
       return {
-        ...post,
+        ...transformPrismaTagMentions(post),
         reposts: repost ? [repost] : [],
-        tagUsers: post.tagUsers.map((u) => u.user),
-        mentions: post.mentions.map((m) => m.user),
       };
     }
     return post;
@@ -3969,6 +6744,7 @@ const getSinglePost = async (postId: string, userId?: string) => {
 
 export async function fetchPostAncestry(postId: string, userId?: string) {
   const post = await getSinglePost(postId, userId);
+
   if (!post) return null;
 
   const parentChain: any[] = [];
@@ -4474,7 +7250,7 @@ export const retriveRecommendationModelData = async (userId: string) => {
           },
           distinct: ["optionId"],
         },
-        pariticipants: {
+        participants: {
           where: {
             createdAt: { gte: thirtyDaysAgo },
           },
@@ -4531,8 +7307,8 @@ export const retriveRecommendationModelData = async (userId: string) => {
                 content: true,
                 kind: true,
                 hashTags: { select: { tag: { select: { name: true } } } },
-              }
-            }
+              },
+            },
           },
         },
         viewPosts: {
@@ -4616,7 +7392,7 @@ export const retriveRecommendationModelData = async (userId: string) => {
       likedPosts,
       bookmarks,
       postVotes,
-      pariticipants,
+      participants,
       posts,
       viewPosts,
       clickPosts,
@@ -4718,7 +7494,7 @@ export const retriveRecommendationModelData = async (userId: string) => {
     });
 
     // 4. Quiz Votes
-    pariticipants.forEach((item) => {
+    participants.forEach((item) => {
       interactions.push({
         user_id: item.userId,
         type: "quiz_vote",
@@ -4740,9 +7516,19 @@ export const retriveRecommendationModelData = async (userId: string) => {
       if (parentPostId && item.parent) {
         interactions.push({
           user_id: item.userId,
-          type: item.kind === PostKindEnum.QUOTE ? "quote" : item.kind === PostKindEnum.REPOST ? "repost" : "reply",
+          type:
+            item.kind === PostKindEnum.QUOTE
+              ? "quote"
+              : item.kind === PostKindEnum.REPOST
+              ? "repost"
+              : "reply",
           timestamp: item.createdAt,
-          weight: item.kind === PostKindEnum.QUOTE ? WEIGHTS.quote : item.kind === PostKindEnum.REPOST ? WEIGHTS.repost : WEIGHTS.reply,
+          weight:
+            item.kind === PostKindEnum.QUOTE
+              ? WEIGHTS.quote
+              : item.kind === PostKindEnum.REPOST
+              ? WEIGHTS.repost
+              : WEIGHTS.reply,
           post: {
             id: parentPostId,
             content: item?.parent?.content,
@@ -4834,4 +7620,4 @@ export const retriveRecommendationModelData = async (userId: string) => {
   }
 };
 
-retriveRecommendationModelData("cm9jlc6so0000vd3i7rhv4czf");
+// retriveRecommendationModelData("cm9jlc6so0000vd3i7rhv4czf");

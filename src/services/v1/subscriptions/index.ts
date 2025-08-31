@@ -13,10 +13,11 @@ import {
   UserTypeEnum,
 } from "@prisma/client";
 import { syncPrismaUserWalletToRedis } from "../../helper";
-import { AuthUser, PlanTypeEnum } from "@/types";
+import { PlanTypeEnum } from "@/types";
 import { syncUserRedisWalletToPrisma } from "../games";
 import { telegramBot } from "@/telegram-bot";
 import { addSubscriptionCronJob, removeSubscriptionCronJob } from "@/cron/utils";
+import { AuthUser } from "@/types/user";
 
 
 export const getPlans = async () => {

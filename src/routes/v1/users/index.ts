@@ -1,23 +1,41 @@
 
 import express from "express";
-import { authMiddleware } from "@/middleware";
-import { blockUserController, followUserController, getConnectionsController, getUserProfileOverviewController, muteUserController, profileVisitorController, reportUserController, searchUserController, searchUsersController, userAchievementsController, userActiveSubscriptionController, userLocationController, userStatsController, userUserTaskSettingsController } from "@/controllers/v1/users";
+import { authMiddleware, detectBotMiddleware } from "@/middleware";
+import { blockUserController, followUserController, getConnectionsController, getUserAccountAnalyticsController, getUserBlockedUsersController, getUserBookmarksController, getUserFollowersController, getUserFollowingController, getUserFollowRequestsController, getUserFriendsController, getUserHighlightPostsController, getUserLikesController, getUserMediaPostsController, getUserMutedUsersController, getUserNotificationsController, getUserPostsController, getUserProfileOverviewController, getUserRepliesController, getUserScheduledPostsController, getUserVerifiedFollowersController, muteUserController, profileVisitorController, reportUserController, searchUserController, searchUsersController, updateAccountStatusController, updateUserNotifController, userAchievementsController, userActiveSubscriptionController, userLocationController, userStatsController, userUserTaskSettingsController } from "@/controllers/v1/users";
 
 const router = express.Router();
 
-router.post("/search", authMiddleware(), searchUserController)
+router.post("/search", detectBotMiddleware(), authMiddleware(), searchUserController)
 
-router.get("/search", authMiddleware(), searchUsersController)
+router.get("/search", detectBotMiddleware(), authMiddleware(), searchUsersController)
 
-router.get("/:id/achievements", authMiddleware(), userAchievementsController)
+router.get("/:id/achievements", detectBotMiddleware(), authMiddleware(), userAchievementsController)
 
-router.get("/:id/stats", authMiddleware(), userStatsController)
+router.get("/:id/stats", detectBotMiddleware(), authMiddleware(), userStatsController)
 
-router.get("/:id/pro", authMiddleware(), userActiveSubscriptionController)
+router.patch("/:id/notifications", detectBotMiddleware(), authMiddleware(), updateUserNotifController)
+
+router.get("/:id/notifications", detectBotMiddleware(), authMiddleware(), getUserNotificationsController)
+
+router.get("/:id/pro", detectBotMiddleware(), authMiddleware(), userActiveSubscriptionController)
 
 router.get("/:id/task-settings", authMiddleware(), userUserTaskSettingsController)
 
 router.post("/follows", authMiddleware(), followUserController)
+
+router.get("/:id/followers", authMiddleware(), getUserFollowersController)
+
+router.get("/:id/following", authMiddleware(), getUserFollowingController)
+
+router.get("/:id/friends", authMiddleware(), getUserFriendsController)
+
+router.get("/:id/verified-followers", authMiddleware(), getUserVerifiedFollowersController)
+
+router.get("/:id/follow-requests", authMiddleware(), getUserFollowRequestsController)
+
+router.get("/:id/blocked", authMiddleware(), getUserBlockedUsersController)
+
+router.get("/:id/muted", authMiddleware(), getUserMutedUsersController)
 
 router.post("/locations", authMiddleware(), userLocationController)
 
@@ -32,6 +50,25 @@ router.post("/:id/mute", authMiddleware(), muteUserController)
 router.post("/:id/reports", authMiddleware(), reportUserController)
 
 router.post("/:id/visitors", authMiddleware(), profileVisitorController)
+
+router.get("/:id/posts", authMiddleware({checkPermission: true}), getUserPostsController)
+
+router.get("/:id/replies", authMiddleware({checkPermission: true}), getUserRepliesController)
+
+router.get("/:id/scheduled", authMiddleware({checkPermission: true}), getUserScheduledPostsController)
+
+router.get("/:id/likes", authMiddleware({checkPermission: true}), getUserLikesController)
+
+router.get("/:id/bookmarks", authMiddleware({checkPermission: true}), getUserBookmarksController)
+
+router.get("/:id/highlights", authMiddleware({checkPermission: true}), getUserHighlightPostsController)
+
+router.get("/:id/media", authMiddleware({checkPermission: true}), getUserMediaPostsController)
+
+router.post("/:id/update-account-status", authMiddleware({checkPermission: true}), updateAccountStatusController)
+
+router.get("/:id/account-analytics", authMiddleware({checkPermission: true}), getUserAccountAnalyticsController)
+
 
 const userRoutes = router
 

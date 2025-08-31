@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import express, { Request, Response } from 'express';
+import * as express from 'express';
 import http from "http";
 import app from './app';
 import socketIo from './socketIo';
@@ -9,6 +9,9 @@ import { startBreeJob } from './bree';
 import helmet from 'helmet';
 import cookieParser from "cookie-parser"
 import v1Routes from './routes/v1';
+import { startMongodb } from './db/mongodb';
+import gameSocketIo from './socketIo/gameSocketIo';
+import convoSocketIo from './socketIo/convoSocketIo';
 
 const port = process.env.PORT || 8000;
 
@@ -31,14 +34,21 @@ app.use(helmet());
 // cookies
 app.use(cookieParser())
 
+// start mongo db
+
+startMongodb()
+
 // initialize socket.io
-socketIo(server)
-// initialize telegram bot
+const io = socketIo(server)
+// initialize game namespace 
+gameSocketIo(io)
+// initialize conversation(chat) namespace
+convoSocketIo(io)
 // telegramBotListener()
 // start breeJob
 startBreeJob()
 // Routes
-app.get('/', (req: Request, res: Response) => {
+app.get('/', (req: express.Request, res: express.Response) => {
   res.send('Hello, server is up & running!');
 });
 

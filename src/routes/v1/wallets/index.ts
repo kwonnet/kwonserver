@@ -5,6 +5,7 @@ import { claimDailyBonusController, claimDailyTaskController, fundCoinsControlle
 
 const router = express.Router();
 
+
 router.get("/", authMiddleware(), getUserCoinsWalletController)
 
 router.get("/proof", authMiddleware(), getProofTokenController)

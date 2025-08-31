@@ -32,8 +32,8 @@ model User {
   countryId             String? // References the Country model
   country               Country?           @relation(fields: [countryId], references: [id])
   role                  UserRoleEnum       @default(USER)
-  status                UserStatus?        @default(ACTIVE)
-  userType              UserTypeEnum?      @default(PERSONAL)
+  status                UserStatus         @default(ACTIVE)
+  userType              UserTypeEnum       @default(PERSONAL)
   isVerified            Boolean            @default(false) // Indicates if email is verified
   identityVerified      Boolean            @default(false) // Indicates if identity is verified
   accountVerified       Boolean            @default(false) // Indicates if account is verified for reaching a milestone like 1M followers and given badge
@@ -78,7 +78,8 @@ model User {
   subscriptions         Subscription[]
   transactionLogs       TransactionLogs[]
   tips                  RewardTip[]
-  posts                 Post[]
+  posts                 Post[]             @relation("PostAuthor")
+  // scheduledPosts        Post[]             @relation("ScheduledPosts")
   postMentions          PostMention[]
   postUserTags          PostUserTag[]
   postVotes             PollVoter[]
@@ -95,7 +96,7 @@ model User {
   storyMention          StoryMention[]
   storyReactions        StoryReaction[]
   pushNotifications     PushNotification[]
-  pariticipants         QuizParticipant[]
+  participants          QuizParticipant[]
   winners               QuizReward[]
   followerHistory       FollowHistory[]    @relation("HistoryFollowing")
   followingHistory      FollowHistory[]    @relation("HistoryFollower")
@@ -111,22 +112,130 @@ model User {
   reportedUsers UserReport[] @relation("Reporter")
   reportedBy    UserReport[] @relation("Reported")
 
-  disinterestPots PostDisinterest[]
-  pinPosts        PostPin[]
-  highlightPosts  PostHighlight[]
-  historyPosts    PostHistory[]
-  impressionPosts PostImpression[]
-  viewPosts       PostView[]
-  clickPosts      PostClick[]
-  profileVisits   ProfileVisit[]    @relation("Visitor")
-  profileVisitors ProfileVisit[]
-  mediaPostLogs   PostMediaLog[]
+  disinterestPosts PostDisinterest[]
+  pinPosts         PostPin[]
+  highlightPosts   PostHighlight[]
+  historyPosts     PostHistory[]
+  impressionPosts  PostImpression[]
+  viewPosts        PostView[]
+  clickPosts       PostClick[]
+  profileVisits    ProfileVisit[]    @relation("Visitor")
+  profileVisitors  ProfileVisit[]
+  mediaPostLogs    PostMediaLog[]
+  convoDevices     ConvoDevice[]   
+  convoMemberships ConvoMembership[]
+  convoMessages    ConvoMessage[]
+  sharePosts       PostShare[]
 
   @@index([name])
   @@index([email])
   @@index([phone])
   @@index([username])
   @@index([createdAt])
+}
+
+model ConvoDevice {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+  // E2E keys — public material only
+  identityKeyPub    Bytes    // Curve25519 public key
+  signedPrekeyPub   Bytes
+  oneTimePrekeys    OneTimePrekey[]
+  meta              Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model OneTimePrekey {
+  id         String       @id @default(cuid())
+  deviceId   String
+  device     ConvoDevice  @relation(fields: [deviceId], references: [id])
+  keyPub     Bytes
+  consumed   Boolean      @default(false)
+  createdAt  DateTime     @default(now())
+}
+
+model Conversation {
+  id            String        @id @default(cuid())
+  // one-on-one only in this starter
+  memberships   ConvoMembership[]
+  messages      ConvoMessage[]
+  callLogs      CallLog[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model ConvoMembership {
+  id              String        @id @default(cuid())
+
+  conversationId  String
+  conversation    Conversation  @relation(fields: [conversationId], references: [id])
+
+  userId          String        @unique
+  user            User          @relation(fields: [userId], references: [id])
+  // Stores encrypted shared secret material sealed to device keys if you want multi-device support
+  // For simple single-device use, derive per-message keys from a root via a ratchet and do not store here.
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model ConvoMessage {
+  id              String        @id @default(cuid())
+  // ciphertext & metadata
+  cipherText      Bytes
+  nonce           Bytes
+  // optional additional data (JSON) e.g., mime type, file ref, thumbnails – encrypted separately if sensitive
+  metaEnc         Bytes?
+  // plaintext preview/safety not stored — keep server blind
+  conversationId  String
+  conversation    Conversation  @relation(fields: [conversationId], references: [id])
+
+  senderId        String
+  sender          User          @relation(fields: [senderId], references: [id])
+
+  attachments     Attachment[]
+
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+}
+
+model Attachment {
+  id         String        @id @default(cuid())
+  messageId  String
+  message    ConvoMessage  @relation(fields: [messageId], references: [id])
+  // store blobs externally, server holds only opaque IDs/paths
+  storageKey String   // e.g., S3 key or file path
+  cipherKey  Bytes    // encrypted file key (sealed to recipient devices)
+  mimeType   String
+  size       Int
+
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model CallLog {
+  id              String       @id @default(cuid())
+  callerId        String
+  calleeId        String
+  startedAt       DateTime     @default(now())
+  endedAt         DateTime?
+  status          CallStatus
+  
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id])
+
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+enum CallStatus {
+  RINGING
+  CONNECTED
+  ENDED
+  MISSED
 }
 
 model ProfileVisit {
@@ -173,8 +282,8 @@ model Follow {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  follower  User @relation("Follower", fields: [followerId], references: [id])
-  following User @relation("Following", fields: [followingId], references: [id])
+  follower    User @relation("Follower", fields: [followerId], references: [id])
+  following   User @relation("Following", fields: [followingId], references: [id])
 
   @@unique([followerId, followingId])
   @@index([createdAt])
@@ -364,8 +473,9 @@ model Post {
   root             Post?         @relation("PostRoot", fields: [rootId], references: [id])
   rootId           String?
 
+
   userId        String
-  user          User              @relation(fields: [userId], references: [id])
+  user          User              @relation("PostAuthor", fields: [userId], references: [id])
   countryId     String? // References the Country model
   country       Country?          @relation(fields: [countryId], references: [id])
   meta          Json?
@@ -393,8 +503,35 @@ model Post {
   profileVisits ProfileVisit[]
   mediaLogs     PostMediaLog[]
   tips          PostTip[]
+  shares        PostShare[]
+  replyCountries PostReplyCountry[]
+  replyContinents PostReplyContinent[]
 
   @@index([userId, createdAt, kind, status])
+  @@index([createdAt])
+}
+
+model PostReplyCountry {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id])
+  countryId String // Links to Country
+  country   Country  @relation(fields: [countryId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+model PostReplyContinent {
+  id          String    @id @default(cuid())
+  postId      String
+  post        Post      @relation(fields: [postId], references: [id])
+  continentId String // Links to Continent
+  continent   Continent @relation(fields: [continentId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
    @@index([createdAt])
 }
 
@@ -444,6 +581,30 @@ model PostImpression {
    @@index([createdAt])
 }
 
+model PostShare {
+  id        String   @id @default(cuid())
+  postId    String
+  sessionId String?
+  userId    String? // Optional if you want anonymous impressions
+  meta      Json?
+  device    Json?
+  kind      String?
+  timestamp DateTime // Time impression occurred (from client)
+  referer   String?
+  createdAt DateTime @default(now()) // Time it's stored
+
+  post Post  @relation(fields: [postId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([postId, userId])
+  @@index([userId, postId])
+  @@index([userId, createdAt])
+  @@index([postId, createdAt])
+  @@index([userId, timestamp])
+  @@index([postId, timestamp])
+  @@index([createdAt])
+}
+
 model PostView {
   id        String   @id @default(cuid())
   postId    String
@@ -465,7 +626,7 @@ model PostView {
   @@index([postId, createdAt])
   @@index([userId, timestamp])
   @@index([postId, timestamp])
-   @@index([createdAt])
+  @@index([createdAt])
 }
 
 model PostHistory {
@@ -865,34 +1026,36 @@ model Bookmark {
 }
 
 model Continent {
-  id             String          @id @default(cuid())
-  code           String          @unique // 2-letter code (e.g., AF, AS, EU)
-  name           String          @unique
-  countries      Country[]
-  pollContinents PollContinent[]
-  quizContinents QuizContinent[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id                  String          @id @default(cuid())
+  code                String          @unique // 2-letter code (e.g., AF, AS, EU)
+  name                String          @unique
+  countries           Country[]
+  pollContinents      PollContinent[]
+  quizContinents      QuizContinent[]
+  postReplyContinents PostReplyContinent[]
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
 
   @@index([code])
 
-   @@index([createdAt])
+  @@index([createdAt])
 }
 
 model Country {
-  id            String        @id @default(cuid())
-  name          String        @unique
-  iso2          String        @unique @db.Char(2) // 2-letter code (e.g., US, FR)
-  iso3          String        @unique @db.Char(3) // 3-letter code (e.g., USA, FRA)
-  emoji         String        @unique
-  continent     Continent     @relation(fields: [continentId], references: [id])
-  continentId   String
-  users         User[]
-  posts         Post[]
-  pollCountries PollCountry[]
-  quizCountries QuizCountry[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                  String        @id @default(cuid())
+  name                String        @unique
+  iso2                String        @unique @db.Char(2) // 2-letter code (e.g., US, FR)
+  iso3                String        @unique @db.Char(3) // 3-letter code (e.g., USA, FRA)
+  emoji               String        @unique
+  continent           Continent     @relation(fields: [continentId], references: [id])
+  continentId         String
+  users               User[]
+  posts               Post[]
+  pollCountries       PollCountry[]
+  quizCountries       QuizCountry[]
+  postReplyCountries  PostReplyCountry[]
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
   @@index([iso2])
   @@index([iso3])
@@ -993,7 +1156,7 @@ model Revenue {
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-   @@index([createdAt])
+  @@index([createdAt])
 }
 
 model TipPackage {
@@ -1094,10 +1257,6 @@ model Wallet {
   @@index([createdAt])
 }
 
-
-
-
-
 model Transaction {
   id             String            @id @default(cuid())
   txnRef         String
@@ -1122,7 +1281,7 @@ model Transaction {
   coinPackageId  String?
   package        CoinPackage?      @relation(fields: [coinPackageId], references: [id])
   tipPackageId   String?
-  tip            TipPackage?      @relation(fields: [tipPackageId], references: [id])
+  tip            TipPackage?       @relation(fields: [tipPackageId], references: [id])
   rewardTip      RewardTip?       
   achievementId  String?           @unique
   achievement    GameAchievement?
@@ -1399,9 +1558,9 @@ model Referral {
   referrerId   String // The referring user
   refereeId    String // The referred user
   isRewarded   Boolean  @default(false) // issued for this referral
-  referer      User     @relation("ReferralsSent", fields: [referrerId], references: [id], onDelete: Cascade)
+  referrer     User     @relation("ReferralsSent", fields: [referrerId], references: [id], onDelete: Cascade)
   referee      User     @relation("ReferralsReceived", fields: [refereeId], references: [id], onDelete: Cascade)
-  rewardAmount Float?   @default(0)
+  amount       Float    @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -1412,6 +1571,8 @@ enum UserStatus {
   ACTIVE
   BANNED
   SUSPENDED
+  PRIVATE
+  DEACTIVATED
 }
 
 enum UserTypeEnum {
@@ -1588,6 +1749,8 @@ enum PostScopeEnum {
   VERIFIED
   FOLLOWED
   MENTIONS
+  COUNTRY
+  CONTINENT
 }
 
 enum ScopeEnum {
@@ -1615,6 +1778,7 @@ enum PostStatus {
   DRAFT
   SCHEDULED
   REPORTED
+  DELETED
 }
 
 enum NotifTypeEnum {

@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { AuthUser, RequestWithUser, TmaPaymentGateway, User } from "@/types";
+import { TmaPaymentGateway } from "@/types";
 import {
   getCoinPackages,
   getStarsCoinsInvoice,
@@ -11,10 +11,11 @@ import { validateZodInput } from "@/utils";
 import { purchaseCoinsZodSchema, TmaInvoiceZodSchema } from "@/schema";
 import { TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum } from "@prisma/client";
 import { smartGlocalApiKey, unlimintApiKey } from "@/config";
+import { AuthUser } from "@/types/user";
 
 
 export const getTmaPaymentInvoiceController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   const user = req.user as AuthUser;
@@ -46,7 +47,7 @@ export const getCoinsController = async (req: Request, res: Response) => {
 };
 
 export const purchaseCoinsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {

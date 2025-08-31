@@ -69,3 +69,8 @@ export const deepSeekAi = new OpenAi({
   baseURL: process.env.DEEP_SEEK_BASE_URL,
   apiKey: process.env.DEEP_SEEK_API_KEY,
 });
+
+
+export const mongodbUri =  String(process.env.MONGO_URL )
+
+export const allowedOrigins = process.env.NODE_ENV === "production" ? [String(process.env.REMOTE_APP_URL)] : [String(process.env.LOCAL_APP_URL), String(process.env.LOCAL_TUNNEL_URL)]

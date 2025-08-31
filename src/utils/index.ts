@@ -32,10 +32,10 @@ export function encryptString(str: string, key: string) {
     return encData
   }
   
-export function decryptString(str: string, key: string) {
+export function decryptString<T>(str: string, key: string) {
     let decData = CryptoJS.enc.Base64.parse(str).toString(CryptoJS.enc.Utf8)
     let bytes = CryptoJS.AES.decrypt(decData, key).toString(CryptoJS.enc.Utf8)
-    return JSON.parse(bytes)
+    return JSON.parse(bytes) as T
 }
 
 export function generateToken(payload: object, options: SignOptions): string {
@@ -540,7 +540,7 @@ export function generateUniqueRef(size: number = 16): string {
 }
 
 export const extractCatId = (str: string): string | null => {
-  const match = str.match(/category:([a-zA-Z0-9]+)/); // Match 'category:' followed by alphanumeric characters
+  const match = str.match(/cat:([a-zA-Z0-9]+)/); // Match 'cat:' followed by alphanumeric characters
   return match ? match[1] : null; // Return the captured group or null if not found
 };
 

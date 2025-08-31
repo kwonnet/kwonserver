@@ -1,43 +1,6 @@
-import { GameMode, PostKindEnum, PostScopeEnum, PostTypeEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum, UserRoleEnum, UserTypeEnum } from "@prisma/client";
-import { Request } from "express";
+import { FollowStatus, GameMode, PostKindEnum, PostScopeEnum, PostTypeEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum } from "@prisma/client";
 import { UserPublic } from "./user";
 
-export type RequestWithUser = Request & {
-  user?: {
-    id: string;
-    telId: string;
-    name: string;
-    username: string;
-    avatar: string;
-  };
-};
-
-export interface AuthUser {
-    id: string;
-    name: string;
-    telId: string;
-    username: string;
-    avatar: string;
-    role: UserRoleEnum;
-    userType: UserTypeEnum;
-    email: string;
-    country?: {
-        id: string;
-        name: string;
-        iso2: string;
-        iso3: string;
-        emoji: string;
-        continentId: string;
-    },
-    meta: {
-      type: "LEGACY" | "PRO";
-      status: "ACTIVE" | "INACTIVE" | "PAUSED";
-      color: "blue" | "gold" | "grey";
-      isActive: boolean;
-      isPro: boolean;
-      isLegacy: boolean;
-    };
-  }
 
   export type PostMedia = {
     id: string;
@@ -84,17 +47,29 @@ export interface AuthUser {
     meta?: Record<string, any>;
     createdAt: Date;
     updatedAt: Date;
-    author: User & { conn: { isFollowed: boolean, isFollowing: boolean}},
+    author: UserPublic,
     actions: { 
         hasReposted: boolean;
         hasSaved: boolean;
         hasLiked: boolean;
+        hasPinned: boolean;
+        hasHighlighted: boolean;
         canReply: boolean; 
         canHideReply: boolean;
+        hasBlockedUser: boolean;
+        isBlockedByUser: boolean;
+        hasMutedUser: boolean;
+        isMutedByUser: boolean;
+        hasBlockedByRootUser: boolean;
+        isRootBlockedByUser: boolean;
+        hasMutedByRootUser: boolean;
+        isRootMutedByUser: boolean;
     }
     reposts: { id: string, userId: string }[],
     likes: {id: string, userId: string}[],
     bookmarks: {id: string, userId: string}[]
+    replyContinents: {continentId: string, id: string, [key: string]: any}[];
+    replyCountries: {countryId: string, id: string, [key: string]: any}[];
     poll?: {
       id: string;
       continents: {continentId: string, id: string, [key: string]: any}[];
@@ -145,7 +120,54 @@ export interface AuthUser {
     tagUsers: UserPublic[]
     mentions: UserPublic[]
     parent?: FeedPost
-    root?: FeedPost
+    user: {
+        blockedUsers: {
+        id: string;
+        blockedId: string
+        blockerId: string
+        [key: string]: any
+    }[];
+    blockedBy: {
+        id: string;
+        blockedId: string
+        blockerId: string
+        [key: string]: any
+    }[];
+    }
+    root?: {
+        id: string;
+        scope: PostScopeEnum;
+        userId: string;
+        rootId: string;
+        replyContinents: {continentId: string, id: string, [key: string]: any}[];
+        replyCountries: {countryId: string, id: string, [key: string]: any}[];
+        user: {
+            followers: {
+                id: string;
+                followerId: string;
+                followingId: string;
+                status: FollowStatus;
+            }[];
+            following: {
+                id: string;
+                followerId: string;
+                followingId: string;
+                status: FollowStatus;
+            }[];
+            blockedUsers: {
+                id: string;
+                blockedId: string
+                blockerId: string
+                [key: string]: any
+            }[];
+            blockedBy: {
+                id: string;
+                blockedId: string
+                blockerId: string
+                [key: string]: any
+            }[];
+        };
+    };
     replies: FeedPost[]
     thread: FeedPost[],
     parentChain: FeedPost[],
@@ -153,11 +175,8 @@ export interface AuthUser {
 
 export interface User {
     id: string,
-    telId: string,
     name: string,
-    username: string,
-    avatar: string
-    
+    username: string,    
 }
 
 export interface SocketGameRoom {
@@ -498,4 +517,17 @@ export enum TmaPaymentGateway {
     STARS = "STARS",
     SMART_GLOCAL = "SMART_GLOCAL",
     UNLIMINT = "UNLIMINT",
+}
+
+export enum UserFollowAction {
+    FOLLOW = "FOLLOW",
+    UNFOLLOW = "UNFOLLOW",
+    ACCEPT = "ACCEPT", 
+    REJECT = "REJECT",
+    CANCEL = "CANCEL"
+}
+
+export enum ConvoKind {
+    CHAT = "chat",
+    ANONYMOUS = "anonymous"
 }

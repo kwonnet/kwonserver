@@ -4,13 +4,16 @@ import {
   CreatePostImpressionSchema,
   CreatePostMediaLogSchema,
   CreatePostPinSchema,
+  CreatePostShareSchema,
   CreatePostTipSchema,
   CreatePostViewSchema,
   QueryParams,
   ReportCreateSchema,
+  SearchQuerySchema,
 } from "@/schema";
 import { PostCreateSchema } from "@/schema/post";
 import {
+  createAndUpdatePostShares,
   createPost,
   createPostClick,
   createPostHighlight,
@@ -23,41 +26,42 @@ import {
   createPostView,
   deletePost,
   getNewsfeed,
+  getPostAnalytics,
   getPostFeedDetails,
   getPostQuotes,
   getPostReplies,
   getPostReposters,
+  getPostTagUsersOrMentions,
   hidePostReply,
   notInterestedPost,
   reportPost,
   restorePost,
   updatePostBookmarks,
   updatePostReactions,
-  updatePostShares,
   updateReposts,
   votePollPost,
   voteQuizPost,
 } from "@/services/v1/posts";
 import sseEmitter from "@/sseEmitter";
-import { AuthUser, RequestWithUser, User } from "@/types";
 import { validateZodInput } from "@/utils";
 import { getReqInfo } from "@/utils/helpers";
-import { Response } from "express";
+import { Response, Request } from "express";
+import { SessionUser, AuthUser } from "@/types/user";
+
 
 
 export const createPostController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    console.log(req.body);
     const zodResult = validateZodInput(req.body, PostCreateSchema);
 
     const zodData = zodResult.data;
 
     if (!zodData) return res.status(400).send(zodResult.message);
 
-    const user = req.user as User;
+    const user = req.user as AuthUser;
 
     const result = await createPost(zodData, user.id);
 
@@ -67,8 +71,9 @@ export const createPostController = async (
   }
 };
 
+
 export const getNewsfeedController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -96,7 +101,7 @@ export const getNewsfeedController = async (
 };
 
 export const getPostRepliesController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -107,8 +112,6 @@ export const getPostRepliesController = async (
     const zodResult = validateZodInput(req.query, QueryParams);
 
     const zodData = zodResult.data;
-
-    console.log("Post rEPLIES ", zodData);
 
     if (!zodData) return res.status(400).send(zodResult.message);
 
@@ -125,8 +128,30 @@ export const getPostRepliesController = async (
   }
 };
 
+export const getTagUsersOrMentionsController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = req.user as SessionUser;
+
+    const zodResult = validateZodInput(req.query, SearchQuerySchema);
+
+    if (!zodResult.data) return res.status(400).send(zodResult.message);
+
+    console.log("mentions-tag-users query ", zodResult.data)
+
+    const result = await getPostTagUsersOrMentions(user.id, zodResult.data);
+
+    return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    
+    return res.status(400).send(error?.message);
+  }
+};
+
 export const getPostQuotesController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -152,7 +177,7 @@ export const getPostQuotesController = async (
 };
 
 export const getPostRepostersController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -167,7 +192,7 @@ export const getPostRepostersController = async (
         .status(400)
         .send(!postId ? "Invalid post id" : zodResult.message);
 
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const result = await getPostReposters({ postId, ...zodData }, user);
 
@@ -178,7 +203,7 @@ export const getPostRepostersController = async (
 };
 
 export const getPostDetailsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -186,7 +211,7 @@ export const getPostDetailsController = async (
 
     const user = req.user as AuthUser;
 
-    const result = await getPostFeedDetails(postId, user.id);
+    const result = await getPostFeedDetails(postId, user);
 
     return res.status(result.status).send(result.data);
   } catch (error: any) {
@@ -195,7 +220,7 @@ export const getPostDetailsController = async (
 };
 
 export const getEmbedPostController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -203,7 +228,7 @@ export const getEmbedPostController = async (
 
     const user = req.user as AuthUser;
 
-    const result = await getPostFeedDetails(postId, user?.id);
+    const result = await getPostFeedDetails(postId, user);
 
     return res.status(result.status).send(result.data);
   } catch (error: any) {
@@ -212,7 +237,7 @@ export const getEmbedPostController = async (
 };
 
 export const updatePostReactionsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -242,11 +267,10 @@ export const updatePostReactionsController = async (
 };
 
 export const updatePostBookmarksController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    console.log(" bookmark ", req.body);
     const postId = req.params.id;
 
     const user = req.user as AuthUser;
@@ -273,16 +297,43 @@ export const updatePostBookmarksController = async (
 };
 
 export const updatePostSharesController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    console.log(" shares ", req.body);
+
+    const user = req.user as SessionUser;
+
     const postId = req.params.id;
 
-    const user = req.user as AuthUser;
+    const zodResult = validateZodInput(req.body, CreatePostShareSchema);
 
-    const result = await updatePostShares(postId, user.id);
+    const zodData = zodResult.data;
+
+    if (!postId) return res.status(400).send("Invalid ID provided");
+
+    if (!zodData) return res.status(400).send(zodResult.message);
+
+    const reqInfo = await getReqInfo(req);
+
+    if (reqInfo.isBot) {
+      return res.status(400).send("Failed to process, bot request detected");
+    }
+
+    const payload = {
+      device: reqInfo.device,
+      meta: reqInfo.ipInfo,
+      postId,
+      userId: user.id,
+      kind: zodData.kind,
+      sessionId: zodData.sessionId,
+      timestamp: zodData.timestamp,
+      referer: req.headers["referer"]
+    };
+    // save post share in redis queue
+    // const result = await insertPostShareQueue(payload)
+
+    const result = await createAndUpdatePostShares(payload);
 
     // emit sse event
     const data = result.data;
@@ -297,11 +348,10 @@ export const updatePostSharesController = async (
 };
 
 export const updateRepostsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    console.log(" reposts ", req.body);
     const postId = req.params.id;
 
     const user = req.user as AuthUser;
@@ -315,8 +365,8 @@ export const updateRepostsController = async (
         {
           reposted: data.isReposted,
           userId: data?.data?.userId,
-          id: data?.data?.id,
-          postId: data?.data?.parentId,
+          childId: data?.data?.id, // created reposted post child ID
+          postId: data?.data?.parentId, // parent reposted post ID
         },
         "post_repost"
       );
@@ -328,13 +378,12 @@ export const updateRepostsController = async (
 };
 
 export const createPostQuoteController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    console.log(" quote ", req.body);
 
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -368,7 +417,7 @@ export const createPostQuoteController = async (
 };
 
 export const createPostReplyController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -399,11 +448,11 @@ export const createPostReplyController = async (
 };
 
 export const reportPostController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -429,11 +478,11 @@ export const reportPostController = async (
 };
 
 export const notInterestedPostController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -454,13 +503,12 @@ export const notInterestedPostController = async (
 };
 
 export const deletePostController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    console.log(" delete ", req.body);
 
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -478,13 +526,12 @@ export const deletePostController = async (
 };
 
 export const restorePostController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    console.log(" restore ", req.body);
 
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -502,11 +549,11 @@ export const restorePostController = async (
 };
 
 export const hidePostReplyController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -524,15 +571,14 @@ export const hidePostReplyController = async (
 };
 
 export const createPostImpressionController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 
   try {
-    console.log("Post impressions logger ", req.body);
 
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -574,15 +620,14 @@ export const createPostImpressionController = async (
 };
 
 export const createPostViewController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 
   try {
-    console.log("Post View logger ", req.body);
 
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -625,13 +670,12 @@ export const createPostViewController = async (
 };
 
 export const createPostClickController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    console.log("Post Click logger ", req.body);
 
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -667,15 +711,14 @@ export const createPostClickController = async (
 
 
 export const createPostMediaLogController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 
   try {
-    console.log("Post Media Analytics logger ", req.body);
 
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -716,11 +759,11 @@ export const createPostMediaLogController = async (
 };
 
 export const createPostPinController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -746,11 +789,11 @@ export const createPostPinController = async (
 };
 
 export const createPostHightlightController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -776,11 +819,10 @@ export const createPostHightlightController = async (
 };
 
 export const votePollPostController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    console.log("Vote Poll", req.params, req.body);
 
     const postId = req?.params?.id;
 
@@ -800,11 +842,10 @@ export const votePollPostController = async (
 };
 
 export const voteQuizPostController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    console.log("Vote Quiz", req.params, req.body);
 
     const postId = req?.params?.id;
 
@@ -825,15 +866,14 @@ export const voteQuizPostController = async (
 
 
 export const createPostTipController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 
   try {
-    console.log("Post Tip logger ", req.body);
 
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const postId = req.params.id;
 
@@ -868,6 +908,42 @@ export const createPostTipController = async (
       sseEmitter.send(result.data, `post_tip`);
     }
     return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+export const getPostAnalyticsController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const postId = req.params.id;
+
+    const user = req.user as AuthUser;
+
+    if (!postId){
+      return res
+        .status(400)
+        .send("Invalid post ID provided");
+    }
+
+    const Params = QueryParams.pick({duration: true})
+
+    const zodResult = validateZodInput(req.query, Params);
+
+    const zodData = zodResult.data;
+
+    if (!zodData || !zodData.duration){
+      return res
+        .status(400)
+        .send("Invalid duration value provided");
+    }
+
+    const result = await getPostAnalytics(postId, user, {duration: zodData.duration!});
+
+    return res.status(result.status).send(result.data);
+    
   } catch (error: any) {
     return res.status(400).send(error?.message);
   }

@@ -1,6 +1,5 @@
 import prisma from "@/db";
-import { AuthUser } from "@/types";
-import { RewardTypeEnum, UserRoleEnum } from "@prisma/client";
+import { RewardTypeEnum } from "@prisma/client";
 
 export const checkUserTask = async (userId: string, taskId: string) => {
   try {

@@ -1,5 +1,4 @@
-import { Response } from "express";
-import { AuthUser, RequestWithUser } from "@/types";
+import { Request, Response } from "express";
 import {
   decryptString,
   encryptString,
@@ -27,15 +26,17 @@ import {
   updateWalletBonus,
   withdrawCoins,
 } from "@/services/v1/wallets";
+import { AuthUser } from "@/types/user";
 
 
 export const getProofTokenController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   const user = req.user as AuthUser;
   const token = encryptString(
-    JSON.stringify(`${user.id}_${user.telId}`),
+    JSON.stringify({}),
+    // JSON.stringify(`${user.id}_${user.telId}`),
     encrytionKey
   );
   const jwtToken = jwtSign({ proof: token }, {expiresIn: "10m"});
@@ -43,7 +44,7 @@ export const getProofTokenController = async (
 };
 
 export const saveUserWalletAddressController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -62,7 +63,7 @@ export const saveUserWalletAddressController = async (
 
     const clientProof = decryptString(jwtData.proof, encrytionKey);
 
-    const serverProof = `${user.id}_${user.telId}`;
+    const serverProof = `${user.id}`; //`${user.id}_${user.telId}`;
 
     if (clientProof !== serverProof)
       return res
@@ -84,7 +85,7 @@ export const saveUserWalletAddressController = async (
 };
 
 export const getUserCoinsWalletController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -96,7 +97,7 @@ export const getUserCoinsWalletController = async (
 };
 
 export const transferCoinsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   const zodResult = validateZodInput(req.body, TransferCoinsZodSchema);
@@ -114,7 +115,7 @@ export const transferCoinsController = async (
 };
 
 export const withdrawCoinsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   const zodResult = validateZodInput(
@@ -134,7 +135,7 @@ export const withdrawCoinsController = async (
 };
 
 export const fundCoinsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   const user = req.user as AuthUser;
@@ -159,7 +160,7 @@ export const fundCoinsController = async (
 };
 
 export const getTxnHistoryController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   const user = req.user as AuthUser;
@@ -185,7 +186,7 @@ export const getTxnHistoryController = async (
 };
 
 export const claimDailyBonusController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   const user = req.user as AuthUser;
@@ -215,8 +216,9 @@ export const claimDailyBonusController = async (
   }
 };
 
+
 export const claimDailyTaskController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   const user = req.user as AuthUser;

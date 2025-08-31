@@ -1,4 +1,4 @@
-import { AuthUser, FlutterwaveCoinPurchase, User } from "@/types";
+import { FlutterwaveCoinPurchase, User } from "@/types";
 import prisma from "@/db";
 import { telegramBot } from "@/telegram-bot";
 import {
@@ -15,6 +15,7 @@ import {
 } from "../../helper";
 import { generateUniqueRef } from "@/utils";
 import { get_tzx_usd_rate } from "@/utils/payment";
+import { AuthUser } from "@/types/user";
 
 
 export const getCoinPackages = async () => {

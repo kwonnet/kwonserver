@@ -81,6 +81,8 @@ const PostThreadSchema = z.object({
   tags: z.array(z.string().toLowerCase()).default([]),
   mentions: z.array(z.string()).default([]),
   tagUsers: z.array(z.string()).default([]),
+  countries: z.array(z.string()).default([]),
+  continents: z.array(z.string()).default([]),
   scope: z.nativeEnum(PostScopeEnum),
 });
 

@@ -1,4 +1,5 @@
-import { QueryParams, ReportCreateSchema, VisitorCreateSchema } from "@/schema";
+import { SessionUser, AuthUser } from "@/types/user";
+import { QueryParams, ReportCreateSchema, SearchQuerySchema, updateAccountStatusSchema, VisitorCreateSchema } from "@/schema";
 import { rewardQuerySchema, SearchUserSchema } from "@/schema/gameSchema";
 import { FollowUserSchema, UserLocationSchema } from "@/schema/user";
 import {
@@ -16,9 +17,26 @@ import {
   blockUser,
   reportUser,
   profileVisit,
+  getUserFollowers,
+  getUserFollowing,
+  getUserVerifiedFollowers,
+  getUserFriends,
+  getUserFollowRequests,
+  getUserPosts,
+  getUserReplies,
+  getUserLikedPosts,
+  getUserBookmarkPosts,
+  getUserHighlightPosts,
+  getUserMediaPosts,
+  getUserScheduledPosts,
+  updateAccountStatus,
+  getUserAccountAnalytics,
+  updateUserNotifications,
+  getUserNotifications,
+  getUserBlockedUsers,
+  getUserMutedUsers,
 } from "@/services/v1/users";
 import sseEmitter from "@/sseEmitter";
-import { AuthUser, RequestWithUser, RewardQuery, User } from "@/types";
 import { validateZodInput } from "@/utils";
 import { getReqInfo } from "@/utils/helpers";
 import { Request, Response } from "express";
@@ -78,11 +96,11 @@ export const userAchievementsController = async (
 };
 
 export const userStatsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const result = await getUserStats(user?.id);
 
@@ -92,12 +110,72 @@ export const userStatsController = async (
   }
 };
 
-export const userActiveSubscriptionController = async (
-  req: RequestWithUser,
+export const getUserNotificationsController = async (req: Request, res: Response) => {
+  try {
+    const user = req.user as SessionUser;
+
+    if(user?.id !== req.params.id){
+      return res.status(403).send("Authorization failed, operation failed")
+    }
+
+    const zodResult = validateZodInput(req.query, QueryParams)
+
+    const zodData = zodResult.data
+
+    if(!zodData){
+      return res.status(400).send(zodResult.message)
+    }
+
+    const { limit, page } = zodData
+
+    const result = await getUserNotifications(user, { limit, page });
+
+    return res.status(result.status).send(result.data);
+
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res
+        .status(400)
+        .send(error?.issues.map((issue) => issue.message).toString());
+    }
+    return res.status(400).send(error?.message);
+  }
+};
+
+export const updateUserNotifController = async (
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const BodySchema = z.object({
+      userId: z.string({message: "User ID must be string"}),
+      isSeen: z.boolean().optional(),
+      isRead: z.boolean().optional()
+    });
+
+    const { userId, ...rest} = await BodySchema.parseAsync(req.body);
+
+    const user = req.user as SessionUser;
+
+    if(userId !== user.id){
+      return res.status(403).send("Authorization failed, operation failed")
+    }
+
+    const result = await updateUserNotifications({recipientId: user.id, ...rest });
+
+    return res.status(result.status).send(result.data);
+
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+export const userActiveSubscriptionController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = req.user as SessionUser;
 
     const result = await getUserActiveSubscription(user?.id);
 
@@ -108,11 +186,11 @@ export const userActiveSubscriptionController = async (
 };
 
 export const userUserTaskSettingsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const result = await getUserTaskSettings(user?.id);
 
@@ -123,20 +201,25 @@ export const userUserTaskSettingsController = async (
 };
 
 export const followUserController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const zodResult = validateZodInput(req.body, FollowUserSchema);
 
     if (!zodResult.data) return res.status(400).send(zodResult.message);
 
+    console.log("Follow request ", zodResult.data)
+
     const result = await followUser(zodResult.data, user);
 
+    console.log("Follow response ", result)
+
     if (typeof result.data !== "string") {
-      sseEmitter.send(zodResult.data, "user_follower");
+      console.log("emitted sse event user_follower")
+      sseEmitter.send(result.data, "user_follower");
     }
 
     return res.status(result.status).send(result.data);
@@ -146,11 +229,11 @@ export const followUserController = async (
 };
 
 export const userLocationController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const zodResult = validateZodInput(req.body, UserLocationSchema);
 
@@ -165,11 +248,11 @@ export const userLocationController = async (
 };
 
 export const getConnectionsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const zodResult = validateZodInput(req.query, QueryParams);
 
@@ -184,30 +267,30 @@ export const getConnectionsController = async (
 };
 
 export const getUserProfileOverviewController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const identifier = req.params.id;
+    const targetUserId = req.params.id;
 
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
-    if (!identifier) return res.status(400).send("Invalid identifier provided");
+    if (!targetUserId) return res.status(400).send("Invalid identifier provided");
 
-    const result = await getUserProfileOverview(identifier, user.id);
+    const result = await getUserProfileOverview(targetUserId, user.id);
 
     return res.status(result.status).send(result.data);
   } catch (error: any) {
-    return res.status(400).send(error?.message);
+    return res.status(500).send(error?.message);
   }
 };
 
 export const blockUserController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const blockedId = req.params.id;
 
@@ -226,11 +309,11 @@ export const blockUserController = async (
 };
 
 export const muteUserController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const mutedId = req.params.id;
 
@@ -249,11 +332,11 @@ export const muteUserController = async (
 };
 
 export const reportUserController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    const user = req.user as SessionUser;
 
     const reportedId = req.params.id;
 
@@ -279,18 +362,38 @@ export const reportUserController = async (
   }
 };
 
-export const profileVisitorController = async (
-  req: RequestWithUser,
+export const updateAccountStatusController = async (
+  req: Request,
   res: Response
 ) => {
   try {
-    const user = req.user as AuthUser;
+    console.log("Reactivation payload ", req.body)
+    const user = req.user as SessionUser;
+
+    const zodResult = validateZodInput(req.body, updateAccountStatusSchema);
+
+    const zodData = zodResult.data;
+
+    if (!zodData) return res.status(400).send(zodResult.message);
+
+    const result = await updateAccountStatus(zodData, user);
+
+    console.log("Reactivation response ", result)
+
+    return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+export const profileVisitorController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = req.user as SessionUser;
 
     const userId = req.params.id;
-    
-    console.log("profile visit")
-
-    console.log(req.body)
 
     const zodResult = validateZodInput(req.body, VisitorCreateSchema);
 
@@ -302,8 +405,6 @@ export const profileVisitorController = async (
 
     const reqInfo = await getReqInfo(req);
 
-    console.log("Profile log visit")
-
     if (reqInfo.isBot) {
       return res.status(400).send("Failed to process, bot request detected");
     }
@@ -311,6 +412,436 @@ export const profileVisitorController = async (
     const result = await profileVisit({ ...zodData, device: reqInfo.device, meta: reqInfo.ipInfo, referer: req.headers["referer"]}, user);
 
     return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+export const getUserFollowersController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = req.user as SessionUser;
+
+    const QueryParams = SearchQuerySchema.pick({limit: true, page: true, id: true})
+
+    const zodResult = validateZodInput({...req.query, id: req.params.id}, QueryParams);
+
+    const zodData = zodResult.data
+
+    if (!zodData) return res.status(400).send(zodResult.message);
+    
+    const {id, ...rest } = zodData
+
+    const result = await getUserFollowers({...rest, targetUserId: id, currentUserId: user.id })
+
+    return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+
+export const getUserFollowingController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = req.user as SessionUser;
+
+    const QueryParams = SearchQuerySchema.pick({limit: true, page: true, id: true})
+
+    const zodResult = validateZodInput({...req.query, id: req.params.id}, QueryParams);
+
+    const zodData = zodResult.data
+
+    if (!zodData) return res.status(400).send(zodResult.message);
+    
+    const {id, ...rest } = zodData
+
+    const result = await getUserFollowing({...rest, targetUserId: id, currentUserId: user.id })
+
+    return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+
+export const getUserFriendsController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = req.user as SessionUser;
+
+    const QueryParams = SearchQuerySchema.pick({limit: true, page: true, id: true})
+
+    const zodResult = validateZodInput({...req.query, id: req.params.id}, QueryParams);
+
+    const zodData = zodResult.data
+
+    if (!zodData) return res.status(400).send(zodResult.message);
+    
+    const {id, ...rest } = zodData
+
+    const result = await getUserFriends({...rest, targetUserId: id, currentUserId: user.id })
+
+    return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+
+export const getUserVerifiedFollowersController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = req.user as SessionUser;
+
+    const QueryParams = SearchQuerySchema.pick({limit: true, page: true, id: true})
+
+    const zodResult = validateZodInput({...req.query, id: req.params.id}, QueryParams);
+
+    const zodData = zodResult.data
+
+    if (!zodData) return res.status(400).send(zodResult.message);
+    
+    const {id, ...rest } = zodData
+
+    const result = await getUserVerifiedFollowers({...rest, targetUserId: id, currentUserId: user.id })
+
+    return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+export const getUserFollowRequestsController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = req.user as SessionUser;
+
+    const QueryParams = SearchQuerySchema.pick({limit: true, page: true, id: true})
+
+    const zodResult = validateZodInput({...req.query, id: req.params.id}, QueryParams);
+
+    const zodData = zodResult.data
+
+    if (!zodData) return res.status(400).send(zodResult.message);
+    
+    const {id, ...rest } = zodData
+
+    const result = await getUserFollowRequests({...rest, targetUserId: id, currentUserId: user.id })
+
+    return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+
+export const getUserBlockedUsersController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = req.user as SessionUser;
+
+    const QueryParams = SearchQuerySchema.pick({limit: true, page: true, id: true})
+
+    const zodResult = validateZodInput({...req.query, id: req.params.id}, QueryParams);
+
+    const zodData = zodResult.data
+
+    if (!zodData) return res.status(400).send(zodResult.message);
+    
+    const {id, ...rest } = zodData
+
+    const result = await getUserBlockedUsers({...rest, targetUserId: id, currentUserId: user.id })
+
+    return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+export const getUserMutedUsersController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = req.user as SessionUser;
+
+    const QueryParams = SearchQuerySchema.pick({limit: true, page: true, id: true})
+
+    const zodResult = validateZodInput({...req.query, id: req.params.id}, QueryParams);
+
+    const zodData = zodResult.data
+
+    if (!zodData) return res.status(400).send(zodResult.message);
+    
+    const {id, ...rest } = zodData
+
+    const result = await getUserMutedUsers({...rest, targetUserId: id, currentUserId: user.id })
+
+    return res.status(result.status).send(result.data);
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+
+
+export const getUserPostsController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const userId = req.params.id;
+
+    const user = req.user as AuthUser;
+
+    const Params = QueryParams.pick({limit: true, page: true})
+
+    const zodResult = validateZodInput(req.query, Params);
+
+    const zodData = zodResult.data;
+
+    if (!zodData || !userId){
+      return res
+        .status(400)
+        .send(!userId ? "Invalid user ID provided" : zodResult.message);
+    }
+
+    const result = await getUserPosts({userId, ...zodData }, user);
+
+    return res.status(result.status).send(result.data);
+    
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+export const getUserScheduledPostsController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const userId = req.params.id;
+
+    const user = req.user as AuthUser;
+
+    const Params = QueryParams.pick({limit: true, page: true})
+
+    const zodResult = validateZodInput(req.query, Params);
+
+    const zodData = zodResult.data;
+
+    if (!zodData || !userId){
+      return res
+        .status(400)
+        .send(!userId ? "Invalid user ID provided" : zodResult.message);
+    }
+
+    const result = await getUserScheduledPosts({userId, ...zodData }, user);
+
+    return res.status(result.status).send(result.data);
+    
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+export const getUserRepliesController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const userId = req.params.id;
+
+    const user = req.user as AuthUser;
+
+    const Params = QueryParams.pick({limit: true, page: true})
+
+    const zodResult = validateZodInput(req.query, Params);
+
+    const zodData = zodResult.data;
+
+    if (!zodData || !userId){
+      return res
+        .status(400)
+        .send(!userId ? "Invalid user ID provided" : zodResult.message);
+    }
+
+    const result = await getUserReplies({userId, ...zodData }, user);
+
+    return res.status(result.status).send(result.data);
+    
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+export const getUserLikesController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const userId = req.params.id;
+
+    const user = req.user as AuthUser;
+
+    const Params = QueryParams.pick({limit: true, page: true})
+
+    const zodResult = validateZodInput(req.query, Params);
+
+    const zodData = zodResult.data;
+
+    if (!zodData || !userId){
+      return res
+        .status(400)
+        .send(!userId ? "Invalid user ID provided" : zodResult.message);
+    }
+
+    const result = await getUserLikedPosts({userId, ...zodData }, user);
+
+    return res.status(result.status).send(result.data);
+    
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+
+export const getUserBookmarksController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const userId = req.params.id;
+
+    const user = req.user as AuthUser;
+
+    const Params = QueryParams.pick({limit: true, page: true})
+
+    const zodResult = validateZodInput(req.query, Params);
+
+    const zodData = zodResult.data;
+
+    if (!zodData || !userId){
+      return res
+        .status(400)
+        .send(!userId ? "Invalid user ID provided" : zodResult.message);
+    }
+
+    const result = await getUserBookmarkPosts({userId, ...zodData }, user);
+
+    return res.status(result.status).send(result.data);
+    
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+
+export const getUserHighlightPostsController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const userId = req.params.id;
+
+    const user = req.user as AuthUser;
+
+    const Params = QueryParams.pick({limit: true, page: true})
+
+    const zodResult = validateZodInput(req.query, Params);
+
+    const zodData = zodResult.data;
+
+    if (!zodData || !userId){
+      return res
+        .status(400)
+        .send(!userId ? "Invalid user ID provided" : zodResult.message);
+    }
+
+    const result = await getUserHighlightPosts({userId, ...zodData }, user);
+
+    return res.status(result.status).send(result.data);
+    
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+
+export const getUserMediaPostsController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const userId = req.params.id;
+
+    const user = req.user as AuthUser;
+
+    const Params = QueryParams.pick({limit: true, page: true})
+
+    const zodResult = validateZodInput(req.query, Params);
+
+    const zodData = zodResult.data;
+
+    if (!zodData || !userId){
+      return res
+        .status(400)
+        .send(!userId ? "Invalid user ID provided" : zodResult.message);
+    }
+
+    const result = await getUserMediaPosts({userId, ...zodData }, user);
+
+    return res.status(result.status).send(result.data);
+    
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+export const getUserAccountAnalyticsController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const userId = req.params.id;
+
+    const user = req.user as AuthUser;
+
+    if (!userId || (user.id !== userId)){
+      return res
+        .status(400)
+        .send("Authorization error, you are not authorised to access this resource");
+    }
+
+    const Params = QueryParams.pick({duration: true})
+
+    const zodResult = validateZodInput(req.query, Params);
+
+    const zodData = zodResult.data;
+
+    if (!zodData || !userId || !zodData.duration){
+      return res
+        .status(400)
+        .send(!userId ? "Invalid user ID provided" : "Invalid duration value provided");
+    }
+
+    const result = await getUserAccountAnalytics(user.id, {duration: zodData.duration!});
+
+    return res.status(result.status).send(result.data);
+    
   } catch (error: any) {
     return res.status(400).send(error?.message);
   }

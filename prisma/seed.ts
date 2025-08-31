@@ -198,7 +198,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.BONUS,
     reward: 20,
     milestone: 5,
-    thumbnail: "/static/trophies/silver-4.jpeg",
+    thumbnail: "/static/badges/silver-4.jpeg",
   },
 
   {
@@ -207,7 +207,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.BONUS,
     reward: 30,
     milestone: 10,
-    thumbnail: "/static/trophies/silver-3.jpeg",
+    thumbnail: "/static/badges/silver-3.jpeg",
   },
 
   {
@@ -216,7 +216,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.BONUS,
     reward: 55,
     milestone: 20,
-    thumbnail: "/static/trophies/silver-2.jpeg",
+    thumbnail: "/static/badges/silver-2.jpeg",
   },
 
   {
@@ -225,7 +225,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.BONUS,
     reward: 75,
     milestone: 50,
-    thumbnail: "/static/trophies/silver-1.jpeg",
+    thumbnail: "/static/badges/silver-1.jpeg",
   },
 
   {
@@ -234,7 +234,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.BONUS,
     reward: 100,
     milestone: 100,
-    thumbnail: "/static/trophies/gold-1.jpeg",
+    thumbnail: "/static/badges/gold-1.jpeg",
   },
 
   // week
@@ -244,7 +244,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.BONUS,
     reward: 150,
     milestone: 1,
-    thumbnail: "/static/trophies/gold-1.jpeg",
+    thumbnail: "/static/badges/gold-1.jpeg",
   },
 
   {
@@ -253,7 +253,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.BONUS,
     reward: 135,
     milestone: 2,
-    thumbnail: "/static/trophies/gold-2.jpeg",
+    thumbnail: "/static/badges/gold-2.jpeg",
   },
 
   {
@@ -262,7 +262,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.BONUS,
     reward: 110,
     milestone: 3,
-    thumbnail: "/static/trophies/gold-3.jpeg",
+    thumbnail: "/static/badges/gold-3.jpeg",
   },
 
   // Month
@@ -272,7 +272,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.COINS,
     reward: 770,
     milestone: 1,
-    thumbnail: "/static/trophies/gold-4.jpeg",
+    thumbnail: "/static/badges/gold-4.jpeg",
   },
 
   {
@@ -281,7 +281,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.COINS,
     reward: 539,
     milestone: 2,
-    thumbnail: "/static/trophies/gold-5.jpeg",
+    thumbnail: "/static/badges/gold-5.jpeg",
   },
 
   {
@@ -290,7 +290,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.COINS,
     reward: 385,
     milestone: 3,
-    thumbnail: "/static/trophies/gold-6.jpeg",
+    thumbnail: "/static/badges/gold-6.jpeg",
   },
 
   // Year
@@ -300,7 +300,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.COINS,
     reward: 1539,
     milestone: 1,
-    thumbnail: "/static/trophies/gold-4.jpeg",
+    thumbnail: "/static/badges/gold-4.jpeg",
   },
 
   {
@@ -309,7 +309,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.COINS,
     reward: 1231,
     milestone: 2,
-    thumbnail: "/static/trophies/gold-5.jpeg",
+    thumbnail: "/static/badges/gold-5.jpeg",
   },
 
   {
@@ -318,7 +318,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.COINS,
     reward: 924,
     milestone: 3,
-    thumbnail: "/static/trophies/gold-6.jpeg",
+    thumbnail: "/static/badges/gold-6.jpeg",
   },
   //   champ
   {
@@ -327,7 +327,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.COINS,
     reward: 2308,
     milestone: 1,
-    thumbnail: "/static/trophies/diamond-1.jpeg",
+    thumbnail: "/static/badges/diamond-1.jpeg",
   },
 
   {
@@ -336,7 +336,7 @@ const gameMilestones = [
     rewardType: RewardTypeEnum.COINS,
     reward: 3847,
     milestone: 1,
-    thumbnail: "/static/trophies/diamond-2.jpeg",
+    thumbnail: "/static/badges/diamond-2.jpeg",
   },
 ];
 

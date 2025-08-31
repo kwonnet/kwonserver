@@ -1,4 +1,4 @@
-import { Server, Socket } from "socket.io";
+import { DefaultEventsMap, Namespace, Server, Socket } from "socket.io";
 import redisClient from "@/redis";
 import {
   GameEventEnum,
@@ -63,7 +63,7 @@ import {
 } from "../../helper";
 import { faker } from "@faker-js/faker";
 
-
+interface GameIoNamespace extends Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any> {}
 
 export const getRedisHashKey = async <T = any>(key: string) => {
   const result = await redisClient.hGetAll(key);
@@ -84,15 +84,15 @@ export async function deductGameCoins(params: {
   [key: string]: any;
 }) {
   const actionStat = {
-    [GameActionEnum.CHAT]: { min: 0.15, max: 0.25 },
-    [GameActionEnum.VOTE]: { min: 0.25, max: 0.35 },
-    [GameActionEnum.ANSWER]: { min: 0.35, max: 0.45 },
-    [GameActionEnum.ENTRIES]: { min: 0.25, max: 0.50 },
+    [GameActionEnum.CHAT]: { min: 0.35, max: 0.64 },
+    [GameActionEnum.VOTE]: { min: 0.65, max: 0.99 },
+    [GameActionEnum.ANSWER]: { min: 0.75, max: 1.0 },
+    [GameActionEnum.ENTRIES]: { min: 0.55, max: 0.90 },
   };
 
   try {
-    // Generate a random deduction between 0.5 and 0.8
-    const highDeduction = getRandomNumber(0.5, 0.9);
+    // Generate a random deduction between 0.99 and 2.5
+    const highDeduction = getRandomNumber(0.99, 2.2);
     // Determine if bonus can handle the high deduction
     const rate = actionStat[params.action];
     const deduction = highDeduction; // Assume high deduction is attempted
@@ -1083,11 +1083,11 @@ export const getGameRoomPlayer = async (playerId: string) => {
   }
 };
 
-export const disconnectGameRoomPlayer = async (socket: Socket, io: Server) => {
+export const disconnectGameRoomPlayer = async (socket: Socket, io: GameIoNamespace) => {
   try {
     logger.info(
-      "Disconnecting player...",
       socket.data.user,
+      "Disconnecting player...",
       "from room ",
       socket.data.room
     );
@@ -1215,7 +1215,7 @@ async function updateWinningStreak(
     playerId: string;
     mode: string
   },
-  io: Server
+  io: GameIoNamespace
 ): Promise<void> {
   try {
     const streakKey = `room:${roomId}:streak`;
@@ -1268,7 +1268,7 @@ async function updateWinningStreak(
                 mode: mode.toUpperCase() as GameMode,
                 description: `You won ${milestone.reward} ${
                   TxnCurrencyEnum.COINS
-                } & a trophy for achieving ${milestone.reason
+                } & a badge for achieving ${milestone.reason
                   ?.replace(/_/g, " ")
                   .toLowerCase()} under ${category.name}`,
                 thumbnail: milestone.thumbnail,
@@ -1447,7 +1447,7 @@ export const updatePlayerGameEnergy = async (
 
 export const updatePlayersGameEnergy = async (
   scores: ThemedGameScore[],
-  io: Server
+  io: GameIoNamespace
 ) => {
   try {
     const result = await Promise.all(
@@ -1524,7 +1524,8 @@ export const updateGameRoom = async (params: TempGameRoom) => {
 export const notifyGameRoomPlayers = ({roomId, io, mode, totalPlayers}:{roomId: string,
   totalPlayers: number,
   mode: GameMode,
-  io: Server}) => {
+  io: GameIoNamespace
+}) => {
   // broadcasting to the room the total number of participants
   const minPlayers = 3 - totalPlayers;
   io.to(roomId).emit(
@@ -1540,10 +1541,11 @@ const composeTimerKey = (name: string) => {
 }
 
 // this function checks if the number of players in the room are up 3
-export const checkGameNumPlayers = async (room: TempGameRoom, io: Server) => {
+export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespace) => {
   const totalPlayers = await getTotalRoomPlayers(room.roomId);
+  console.log("checkGameNumPlayers totalPlayers ", totalPlayers, " room ", room);
   if (totalPlayers === 0) return;
-  if ((totalPlayers >= 1 && totalPlayers < 3) && room.mode === GameMode.MULTI) {
+  if (totalPlayers < 2 && room.mode === GameMode.MULTI) {
     notifyGameRoomPlayers({roomId: room.roomId, mode: room.mode, totalPlayers, io});
     updateGameRoom({ ...room, status: GameStatusEnum.CHAT });
     gameChatTime(room.roomId, io);
@@ -1613,7 +1615,7 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: Server) => {
 };
 
 // this function signifies time for voting
-export const getGameResult = async (roomId: string, io: Server) => {
+export const getGameResult = async (roomId: string, io: GameIoNamespace) => {
   const room = await getGameRoom(roomId);
   if (!room) return;
   // // get all the game answers for a particular room when answering is done
@@ -1663,7 +1665,7 @@ export const getGameResult = async (roomId: string, io: Server) => {
 // when it's play time
 export const gamePlayTime = async (
   roomId: string,
-  io: Server,
+  io: GameIoNamespace,
   question: ThemedGameQuestion
 ) => {
   const room = await getGameRoom(roomId);
@@ -1712,7 +1714,7 @@ export const gamePlayTime = async (
 
 export const gameChatTime = async (
   roomId: string,
-  io: Server,
+  io: GameIoNamespace,
   notify?: boolean
 ) => {
   const room = await getGameRoom(roomId);
@@ -1749,7 +1751,7 @@ export const gameChatTime = async (
 };
 
 // this function signifies time for voting
-const gameVoteTime = async (room: TempGameRoom, io: Server) => {
+const gameVoteTime = async (room: TempGameRoom, io: GameIoNamespace) => {
   // get all the game answers for a particular room when answering is done
   const answers = await retrieveGameRoomAnswers<AcronymGameAnswer>(room.roomId);
   if (answers.length === 0) {
@@ -2107,11 +2109,13 @@ export const getGameCategoriesRankings = async (
         : rankType === "week"
         ? keyPatterns.week
         : keyPatterns.month;
+     console.log("ranking key patterns ", pattern)
     // Use SCAN to fetch a batch of keys
     const { keys } = await redisClient.scan(0, {
       COUNT: 50000,
       MATCH: pattern,
     });
+    console.log("found keys ", keys)
     // ranking store
     const rankings = [];
     // loop through keys and get player rank for each category

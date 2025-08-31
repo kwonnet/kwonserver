@@ -69,6 +69,8 @@ export const SearchUserSchema = z.object({
   query: z.string({ required_error: "Query must be a string" }).trim(),
 });
 
+
+
 export const rewardQuerySchema = z.object({
   userId: z
     .string({ required_error: "ID is required" })
@@ -114,6 +116,7 @@ export const userRankQuerySchema = z.object({
     .min(3, "ID is required")
     .trim(),
   rankType: z.enum(['today', 'week', 'month'], { required_error: "rank type is invalid" }),
+  mode: z.enum(['single', 'multi'], { required_error: "Invalid game mode - single | multi expected" }),
 });
 
 export const winnersQuerySchema = z.object({

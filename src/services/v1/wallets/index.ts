@@ -493,6 +493,14 @@ export const updateWalletBonus = async (arg: {
     // check if from user and wallet exists
     if (!user || !user.wallet)
       return { status: 404, message: "User does not exist " };
+
+    // check if a user is already rewarded daily bonus today
+    const now = Date.now()
+    const result = await prisma.userTaskSettings.findFirst({
+        where: { userId: arg.userId,  }})
+    if(result && result.dailyBonusDate?.getTime() > now){
+      return { status: 400, message: "User already rewarded today"}
+    }
     // execute transaction
     const desc = arg.isTask
       ? `Rewarded ${arg.amount} bonus ${TxnCurrencyEnum.COINS} for performing app task`
@@ -539,7 +547,7 @@ export const updateWalletBonus = async (arg: {
       prisma.userTaskSettings.upsert({
         where: { userId: arg.userId},
         update: { ...(arg.type === BonusTypeEnum.BONUS ? { dailyBonusDate: date} : { adsBonusDate: date}) },
-        create: { userId: arg.userId,...(arg.type === BonusTypeEnum.BONUS? { dailyBonusDate: date} : { adsBonusDate: date}) },
+        create: { userId: arg.userId,...(arg.type === BonusTypeEnum.BONUS ? { dailyBonusDate: date} : { adsBonusDate: date}) },
       }),
     ]);
     // sync user prisma wallet to redis
@@ -553,6 +561,7 @@ export const updateWalletBonus = async (arg: {
     };
   }
 };
+
 
 export const rewardDailyTask = async ({
   id: taskId,

@@ -1,4 +1,4 @@
-import { UserRoleEnum, UserTypeEnum } from "@prisma/client";
+import { Country, FollowStatus, UserRoleEnum, UserStatus, UserTypeEnum } from "@prisma/client";
 
 type UserMeta = {
     type: string;
@@ -7,6 +7,11 @@ type UserMeta = {
     isPro: boolean
     isLegacy: boolean
     isActive: boolean,
+    isPrivate: boolean
+    message: string
+    accountStatus: UserStatus,
+    tier: string
+    level: string
 };
 
 export interface UserInfo {
@@ -17,31 +22,62 @@ export interface UserInfo {
     bio: string;
     role: UserRoleEnum;
     userType: UserTypeEnum;
+    createdAt: Date | string;
+    country?: Country
+    email?: string
     meta: UserMeta
 }
 
-export interface UserPublic extends UserInfo {
+export interface SessionUser extends Pick<UserInfo, 'id' | 'avatar' | 'username' | 'name'| 'email' | 'role'> {
     
 }
 
-export interface UserConnection extends UserInfo {
-    followBack: boolean,
-    hasFollowed: boolean;
-    followerCount: number,
-    followingCount: number
+export interface AuthUser extends UserInfo {}
 
+export interface MutualFollower {
+    id: string;
+    name: string;
+    avatar?: string | null;
+    username: string;
+    conn: {
+        followerCount: number;
+        followingCount: number;
+    }
 }
 
-interface UserFollower extends UserInfo {
-    followerCount: number;
-    followingCount: number;
-}
-
-export interface UserMiniProfile extends UserInfo {
+export interface UserConnInfo {
     followerCount: number;
     followingCount: number;
     mutualCount: number;
-    followers: UserFollower[];
+    isFollowingUser: boolean
+    isFollowedByUser: boolean
+    followingStatus?: FollowStatus
+    followedStatus?: FollowStatus
+}
+
+export interface UserPublic extends UserInfo {
+    conn: UserConnInfo
+    mutualFollowers?: MutualFollower[];
+}
+
+export interface UserProfileOverview extends UserInfo {
+    stats: {
+        totalReplies: number;
+        totalMediaPosts: number;
+        totalPosts: number;
+        totalBookmarks: number;
+        totalHighlights: number;
+        totalLikes: number;
+        totalScheduled: number;
+    }
+    actions: {
+        hasBlockedUser: boolean;
+        isBlockedByUser: boolean;
+        hasMutedUser: boolean;
+        isMutedByUser: boolean
+    }
+    conn: UserConnInfo
+    mutualFollowers?: MutualFollower[];
 }
 
 export enum ConnTypeEnum {

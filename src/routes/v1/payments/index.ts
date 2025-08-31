@@ -11,7 +11,7 @@ router.get("/flw/verify", verifyFlwPaymentController)
 
 router.post("/flw/verify", verifyFlwPaymentController)
 
-router.post("/flw/sync-subscription-plans", authMiddleware(false),  syncFlwSubscriptionPlansController)
+router.post("/flw/sync-subscription-plans", authMiddleware(),  syncFlwSubscriptionPlansController)
 
 const paymentRoutes = router
 

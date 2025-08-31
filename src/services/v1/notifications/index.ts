@@ -1,5 +1,5 @@
 import prisma from "@/db";
-import { AuthUser } from "@/types";
+import { AuthUser } from "@/types/user";
 
 export const subscribePushNotification = async (body: any, user: AuthUser) => {
   try {

@@ -7,6 +7,14 @@ const detector = new DeviceDetector();
 
 const clientHints = new ClientHints();
 
+export const removeProperty = <T extends object, K extends keyof T>(
+  obj: T,
+  key: K
+): Omit<T, K> => {
+  const { [key]: _, ...rest } = obj;
+  return rest as Omit<T, K>;
+};
+
 export function delayExecution(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

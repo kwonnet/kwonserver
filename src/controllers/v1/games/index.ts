@@ -24,7 +24,6 @@ import {
   userRankQuerySchema,
   winnersQuerySchema,
 } from "@/schema/gameSchema";
-import { RequestWithUser } from "@/types";
 import { validateZodInput } from "@/utils";
 import { GameMode } from "@prisma/client";
 
@@ -116,7 +115,7 @@ export const getGameCategoryRoomsController = async (
 };
 
 export const getGamePlayerRankingsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -140,7 +139,7 @@ export const getGamePlayerRankingsController = async (
 };
 
 export const getGameWinnersStatsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -153,7 +152,7 @@ export const getGameWinnersStatsController = async (
 
 
 export const getGameWinnersController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -173,11 +172,11 @@ export const getGameWinnersController = async (
 };
 
 export const getGameCategoriesRankingsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
-    const rankingTypeSchema = userRankQuerySchema.pick({ rankType: true });
+    const rankingTypeSchema = userRankQuerySchema.pick({ rankType: true, mode: true });
 
     const zodResult = validateZodInput(req.query as any, rankingTypeSchema);
 
@@ -187,9 +186,9 @@ export const getGameCategoriesRankingsController = async (
 
     if (!zodData) return res.status(400).send(zodResult.message);
 
-    const mode = "single"
+    const result = await getGameCategoriesRankings(zodData.rankType, zodData.mode);
 
-    const result = await getGameCategoriesRankings(zodData.rankType, mode);
+    console.log("Ranking result ", result);
 
     return res.status(result.status).send(result.data);
   } catch (error: any) {
@@ -197,8 +196,9 @@ export const getGameCategoriesRankingsController = async (
   }
 };
 
+
 export const getGamesRankingArchiveStatsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -212,7 +212,7 @@ export const getGamesRankingArchiveStatsController = async (
 
 
 export const getGamesRankingArchiveController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -231,7 +231,7 @@ export const getGamesRankingArchiveController = async (
 };
 
 export const getUserGamesRankingArchiveStatsController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -243,7 +243,7 @@ export const getUserGamesRankingArchiveStatsController = async (
 };
 
 export const getUserGameRankingArchiveController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {

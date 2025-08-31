@@ -13,13 +13,6 @@ export interface PostMedia {
     altText?: string;
     flags: string[];
 }
-
-// export enum PostScopeEnum {
-//     ANYONE = "ANYONE",
-//     VERIFIED = "VERIFIED",
-//     FOLLOWED = "FOLLOWED",
-//     MENTIONS = "MENTIONS",
-// }
  
 type PollOption = { id: string; text: string };
 
@@ -70,6 +63,8 @@ export type PollThread =  {
     tags: string[],
     mentions: string[],
     tagUsers: string[];
+    countries: string[],
+    continents: string[];
     scope: PostScopeEnum;
   };
 
@@ -79,3 +74,8 @@ export type PollThread =  {
     location?: string;
     isDraft: boolean;
   }
+
+  export enum PostTagMention {
+  TAG_USERS = "tag-users",
+  MENTIONS = "mentions"
+}

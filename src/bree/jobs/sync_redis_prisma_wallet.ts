@@ -18,7 +18,7 @@ async function syncUserRedisWalletToPrisma(playerId: string) {
     // update object
     const wallet = {
       bonus: parseFloat(result.bonus || "0"),
-      amount: parseFloat(result.amount || "0"),
+      coins: parseFloat(result.coins || "0"),
       credit: parseFloat(result.credit || "0"),
     };
     // perform prisma update
@@ -31,7 +31,8 @@ async function syncUserRedisWalletToPrisma(playerId: string) {
     if(isExpired){
       await Promise.all([redisClient.del(sessionKey), redisClient.del(walletKey)])
     }
-  } catch (error) {
+  } catch (error: any) {
+    console.log("Error 1: ",error?.message)
     throw error
   }
 
@@ -54,6 +55,7 @@ async function syncUserRedisWalletToPrisma(playerId: string) {
         }
         return results
       } catch (error:any) {
+        console.log("Error 2: ",error?.message)
         throw error
       }
   }

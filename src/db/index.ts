@@ -26,9 +26,11 @@ if(process.env.NODE_ENV === 'production'){
           params.action === "queryRaw" ||
           params.action === "createManyAndReturn" ||
           params.action === "createMany" || 
-          params.action === "create"
+          params.action === "create" ||
+          params.action === "groupBy" ||
+          params.action === "aggregate"
         ) &&  
-          (params.model === "Post" || params.model === "PostMedia" || params.model === "PollOption")
+          (params.model === "Post" || params.model === "PostMedia" || params.model === "PollOption" || params.model === "Bookmark" || params.model === "LikedPost" || params.model === "PostHighlight" )
         ) {
           const result = await next(params);
           return convertBigIntToNumber(result);
@@ -47,8 +49,11 @@ if(process.env.NODE_ENV === 'production'){
           (params.action === "findUnique" ||
           params.action === "findMany" ||
           params.action === "findFirst" ||
-          params.action === "queryRaw") && 
-          (params.model === "Post" || params.model === "PostMedia")
+          params.action === "queryRaw") ||
+          params.action === "groupBy" ||
+          params.action === "aggregate"
+          && 
+          (params.model === "Post" || params.model === "PostMedia" || params.model === "Bookmark" || params.model === "LikedPost" || params.model === "PostHighlight")
         ) {
           const result = await next(params);
           return convertBigIntToNumber(result);

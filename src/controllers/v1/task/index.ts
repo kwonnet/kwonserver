@@ -1,11 +1,11 @@
 import { DailyTaskZodSchema, IDZodSchema, QuerySchema, TaskZodSchema } from "@/schema";
 import { createTask, getTask, getTasks, getUserCompletedTasks } from "@/services/v1/tasks";
-import { AuthUser, RequestWithUser, User } from "@/types";
 import { validateZodInput } from "@/utils";
 import { Request, Response } from "express";
+import { AuthUser } from "@/types/user";
 
 export const createTaskController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -22,7 +22,7 @@ export const createTaskController = async (
 };
 
 export const getTasksController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -61,7 +61,7 @@ export const getTaskController = async (req: Request, res: Response) => {
 };
 
 export const getUserCompletedTasksController = async (
-  req: RequestWithUser,
+  req: Request,
   res: Response
 ) => {
   try {

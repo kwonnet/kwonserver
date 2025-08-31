@@ -2,12 +2,12 @@ import { FlutterwaveConfigZodSchema, VerifyFlwPaymentZodSchema } from "@/schema"
 import { purchaseCoinsWithFlutterwave } from "@/services/v1/coins";
 import { generateFlutterwavePaymentLink, syncFlwSubscriptionPlans, verifyFlutterwavePayment } from "@/services/v1/payments"
 import { purchaseAppSubscription } from "@/services/v1/subscriptions";
-import { AuthUser, FlutterwaveAppSubPurchase, FlutterwaveCoinPurchase, FlutterwaveTxnType, RequestWithUser } from "@/types"
+import { FlutterwaveAppSubPurchase, FlutterwaveCoinPurchase, FlutterwaveTxnType } from "@/types"
 import { validateZodInput } from "@/utils";
 import { getHtmlText } from "@/utils/html";
 import { Request, Response } from "express"
 
-export const getPaymentLinkController = async(req: RequestWithUser, res: Response) => {
+export const getPaymentLinkController = async(req: Request, res: Response) => {
     try {
         const zodResult = validateZodInput(req.body, FlutterwaveConfigZodSchema)
 
@@ -67,7 +67,7 @@ export const verifyFlwPaymentController = async(req: Request, res: Response) => 
     }
 }
 
-export const syncFlwSubscriptionPlansController = async(req: RequestWithUser, res: Response) => {
+export const syncFlwSubscriptionPlansController = async(req: Request, res: Response) => {
     try {
 
         const result = await syncFlwSubscriptionPlans()

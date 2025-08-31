@@ -1,65 +1,67 @@
 
 import express from "express";
 import { authMiddleware } from "@/middleware";
-import { createPostClickController, createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostTipController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController } from "@/controllers/v1/posts";
-
+import { createPostClickController, createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostTipController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostAnalyticsController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, getTagUsersOrMentionsController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController } from "@/controllers/v1/posts";
 
 const router = express.Router();
 
+router.post("/", authMiddleware({checkPermission: true}), createPostController)
 
-router.post("/", authMiddleware(), createPostController)
+router.get("/feed/:feedType", authMiddleware({checkPermission: true}), getNewsfeedController)
 
-router.get("/feed/:feedType", authMiddleware(), getNewsfeedController)
+router.get("/:id", authMiddleware({checkPermission: true}), getPostDetailsController)
 
-router.get("/:id", authMiddleware(false), getPostDetailsController)
+router.post("/:id/reactions", authMiddleware({checkPermission: true}), updatePostReactionsController)
 
-router.post("/:id/reactions", authMiddleware(), updatePostReactionsController)
+router.post("/:id/bookmarks", authMiddleware({checkPermission: true}), updatePostBookmarksController)
 
-router.post("/:id/bookmarks", authMiddleware(), updatePostBookmarksController)
+router.post("/:id/shares", authMiddleware({checkPermission: true}), updatePostSharesController)
 
-router.post("/:id/shares", authMiddleware(), updatePostSharesController)
-
-router.post("/:id/reposts", authMiddleware(), updateRepostsController)
+router.post("/:id/reposts", authMiddleware({checkPermission: true}), updateRepostsController)
 
 router.get("/:id/reposts", authMiddleware(), getPostRepostersController)
 
-router.post("/:id/quotes", authMiddleware(), createPostQuoteController)
+router.post("/:id/quotes", authMiddleware({checkPermission: true}), createPostQuoteController)
 
-router.get("/:id/quotes", authMiddleware(), getPostQuotesController)
+router.get("/:id/quotes", authMiddleware({checkPermission: true}), getPostQuotesController)
 
-router.post("/:id/replies", authMiddleware(), createPostReplyController)
+router.post("/:id/replies", authMiddleware({checkPermission: true}), createPostReplyController)
 
 router.get("/:id/replies", authMiddleware(), getPostRepliesController)
 
-router.patch("/:id/replies", authMiddleware(), hidePostReplyController)
+router.patch("/:id/replies", authMiddleware({checkPermission: true}), hidePostReplyController)
 
-router.get("/:id/embed", authMiddleware(false), getEmbedPostController)
+router.get("/:id/mentions", authMiddleware(), getTagUsersOrMentionsController)
 
-router.patch("/:id/poll", authMiddleware(), votePollPostController)
+router.get("/:id/embed", authMiddleware({required: false}), getEmbedPostController)
 
-router.patch("/:id/quiz", authMiddleware(), voteQuizPostController)
+router.patch("/:id/poll", authMiddleware({checkPermission: true}), votePollPostController)
 
-router.post("/:id/reports", authMiddleware(), reportPostController)
+router.patch("/:id/quiz", authMiddleware({checkPermission: true}), voteQuizPostController)
 
-router.post("/:id/pins", authMiddleware(), createPostPinController)
+router.post("/:id/reports", authMiddleware({checkPermission: true}), reportPostController)
 
-router.post("/:id/highlights", authMiddleware(), createPostHightlightController)
+router.post("/:id/pins", authMiddleware({checkPermission: true}), createPostPinController)
 
-router.post("/:id/not-interested", authMiddleware(), notInterestedPostController)
+router.post("/:id/highlights", authMiddleware({checkPermission: true}), createPostHightlightController)
 
-router.delete("/:id", authMiddleware(), deletePostController)
+router.post("/:id/not-interested", authMiddleware({checkPermission: true}), notInterestedPostController)
 
-router.patch("/:id/restore", authMiddleware(), restorePostController)
+router.delete("/:id", authMiddleware({checkPermission: true}), deletePostController)
 
-router.post("/:id/impressions", authMiddleware(false), createPostImpressionController)
+router.patch("/:id/restore", authMiddleware({checkPermission: true}), restorePostController)
 
-router.post("/:id/views", authMiddleware(false), createPostViewController)
+router.post("/:id/impressions", authMiddleware({checkPermission: true}), createPostImpressionController)
 
-router.post("/:id/clicks", authMiddleware(false), createPostClickController)
+router.post("/:id/views", authMiddleware({checkPermission: true}), createPostViewController)
 
-router.post("/:id/media", authMiddleware(false), createPostMediaLogController)
+router.post("/:id/clicks", authMiddleware({checkPermission: true}), createPostClickController)
 
-router.post("/:id/tips", authMiddleware(), createPostTipController)
+router.post("/:id/media", authMiddleware({checkPermission: true}), createPostMediaLogController)
+
+router.post("/:id/tips", authMiddleware({checkPermission: true}), createPostTipController)
+
+router.get("/:id/post-analytics", authMiddleware({checkPermission: true}), getPostAnalyticsController)
 
 
 const postRoutes = router
