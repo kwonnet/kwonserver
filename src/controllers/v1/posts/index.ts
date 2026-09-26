@@ -41,13 +41,15 @@ import {
   updateReposts,
   votePollPost,
   voteQuizPost,
+  getRecommendedPosts
 } from "@/services/v1/posts";
 import sseEmitter from "@/sseEmitter";
-import { validateZodInput } from "@/utils";
+import { validateZodInput, generateUniqueRef } from "@/utils";
 import { getReqInfo } from "@/utils/helpers";
 import { Response, Request } from "express";
 import { SessionUser, AuthUser } from "@/types/user";
-
+import axios from "axios"
+import { storeDataInCacheMemory } from "@/interceptors"
 
 
 export const createPostController = async (
@@ -91,14 +93,43 @@ export const getNewsfeedController = async (
         .send(!feedType ? "Invalid feed type provided" : zodResult.message);
     }
 
-    const result = await getNewsfeed({feed:feedType, ...zodData }, user);
+    const { limit } = zodData
+
+    console.log("Get Newsfeed recommendations", zodData)
+
+    const user_id = user?.id ?? generateUniqueRef()
+
+    console.log("Newsfeed recommendations User - ", user_id )
+    console.log("Newsfeed Req URL - ", req.url )
+
+    // 1. Get recs from redis? if not found then retrieve from recs api
+    // 2. Retrieve boosted posts from redis and inject into the recs - probably 5 posts
+
+    const resp = await axios.get(`http://localhost:8003/recommend/${user_id}?limit=${limit}`)
+
+    const rec = resp.data 
+
+    const recommendations = rec?.recommendations as {id: string, score: number}[]
+
+    const recs = recommendations?.map(item => item.id)
+
+    console.log("Actual Recommended Posts - ", recs.length )
+
+    const result = await getNewsfeed(recs, user, {feed:feedType, ...zodData });
+
+    if(typeof result.data !== "string"){
+      storeDataInCacheMemory(req, result.data, {ttl: 120000, global: false})
+      console.log("Filtered Recommended posts to the user - ", result.data.length)
+    }
 
     return res.status(result.status).send(result.data);
     
   } catch (error: any) {
+    console.log(error?.message, "Error in getNewsfeedController")
     return res.status(400).send(error?.message);
   }
 };
+
 
 export const getPostRepliesController = async (
   req: Request,
@@ -212,7 +243,7 @@ export const getPostDetailsController = async (
     const user = req.user as AuthUser;
 
     const result = await getPostFeedDetails(postId, user);
-
+    
     return res.status(result.status).send(result.data);
   } catch (error: any) {
     return res.status(400).send(error?.message);
@@ -948,3 +979,51 @@ export const getPostAnalyticsController = async (
     return res.status(400).send(error?.message);
   }
 };
+
+export const getRecommendationsController = async(req: Request,
+  res: Response) => {
+  try {
+    const {user_id, limit } = req.query as { user_id: string, limit: string}
+
+    console.log(req.query, "Get recommendations")
+
+    const resp = await axios.get(`http://localhost:8003/recommend/${user_id}?limit=${limit}`)
+
+    const rec = resp.data 
+
+    const recommendations = rec?.recommendations as {id: string, score: number}[]
+
+    console.log(recommendations)
+
+    const result = await getRecommendedPosts(user_id, recommendations?.map(item => item.id))
+
+    return res.status(result.status).send(result.data);
+    
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+}
+
+export const getContentTopicController = async(req: Request,
+  res: Response) => {
+  try {
+    const {user_id, limit } = req.query as { user_id: string, limit: string}
+
+    console.log(req.query, "Get recommendations")
+
+    const resp = await axios.get(`http://localhost:8003/recommend/${user_id}?limit=${limit}`)
+
+    const rec = resp.data 
+
+    const recommendations = rec?.recommendations as {id: string, score: number}[]
+
+    console.log(recommendations)
+
+    const result = await getRecommendedPosts(user_id, recommendations?.map(item => item.id))
+
+    return res.status(result.status).send(result.data);
+    
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+}

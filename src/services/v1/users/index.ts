@@ -35,6 +35,8 @@ import { ReportSchema } from "@/schema";
 import { DetectResult } from "node-device-detector";
 import { LookupResult } from "ip-location-api";
 import { MessageModel } from "@/db/models";
+import { cleanTextContent, commentClassifier} from "@/utils/helpers";
+import logger from "@/logger";
 
 export const searchUser = async (query: string) => {
   try {
@@ -314,8 +316,8 @@ export const getUserStats = async (id: string) => {
       },
       status: 200,
     };
-  } catch (error) {
-    console.log(error);
+  } catch (error: any) {
+    console.log(error?.message);
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -1402,7 +1404,6 @@ export async function getEngagementAndInterestSuggestions(
       limit
     );
 
-    console.log(result[1]);
 
     const suggestions: UserPublic[] = result.map((user) =>
       composeUserConnection(user)
@@ -1413,7 +1414,6 @@ export async function getEngagementAndInterestSuggestions(
       status: notFound ? 404 : 200,
     };
   } catch (error: any) {
-    console.log(error);
     throw error;
   }
 }
@@ -3657,7 +3657,6 @@ export const getUserPosts = async (
       status: _posts.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
-    console.log(error);
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -4727,7 +4726,6 @@ export const getUserScheduledPosts = async (
       status: _posts.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
-    console.log(error);
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -10626,7 +10624,324 @@ export const getUserAccountAnalytics = async (
       status: 200,
     };
   } catch (error) {
-    console.log(error);
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
+
+
+
+const BATCH_SIZE = 100; // reduced for debugging
+const EMBED_BATCH_SIZE = 10;
+
+interface InteractionRow {
+  user_id: string;
+  post_id: string;
+  author_id: string;
+  type: string;
+  weight: number;
+  label: number;
+  timestamp: string;
+  post_content: string;
+  post_created_at: string;
+  post_age_hours: number;
+  post_created_hour: number;
+  post_day_of_week: number;
+  interaction_count: number;
+  total_duration_seconds?: number;
+}
+
+async function fetchPaginated<T>(
+  queryFn: (params: { skip: number; take: number }) => Promise<T[]>
+): Promise<T[]> {
+  const results: T[] = [];
+  let skip = 0;
+  while (true) {
+    const batch = await queryFn({ skip, take: BATCH_SIZE });
+    if (batch.length === 0) break;
+    results.push(...batch);
+    skip += batch.length;
+    logger.info(`Fetched ${skip} rows from this source`);
+  }
+  return results;
+}
+
+export async function getUserInteractionHistory(userId: string) {
+  try {
+    logger.info("=== STARTING INTERACTIONS SYNC ===");
+
+    const LAST_SYNC = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    logger.info(`Looking for interactions since: ${LAST_SYNC.toISOString()}`);
+
+    const allInteractions: InteractionRow[] = [];
+
+    // Helper — clean and safe
+    const addInteraction = (
+      userId: string,
+      postId: string,
+      authorId: string,
+      type: string,
+      weight: number,
+      timestamp: Date,
+      postContent: string,
+      postCreatedAt: Date
+    ) => {
+      allInteractions.push({
+        user_id: userId,
+        post_id: postId,
+        author_id: authorId,
+        type,
+        weight,
+        label: weight >= 0.5 ? 1 : 0,
+        timestamp: timestamp.toISOString(),
+        post_content: cleanTextContent(postContent),
+        post_created_at: postCreatedAt.toISOString(),
+        post_age_hours: Number(((Date.now() - postCreatedAt.getTime()) / 3600000).toFixed(2)),
+        post_created_hour: postCreatedAt.getHours(),
+        post_day_of_week: postCreatedAt.getDay(),
+        interaction_count: 0,
+      });
+    };
+
+    // === 1. Strong positives (money & virality first) ===
+    logger.info("1. Fetching money & viral signals...");
+
+    // Tips — money = king
+    const tips = await fetchPaginated(({ skip, take }) => prisma.postTip.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { senderId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true } } },
+    }));
+    for (const t of tips) if (t.post?.content) addInteraction(t.senderId, t.postId!, t.post.userId!, "tip", 13.5, t.createdAt, t.post.content, t.post.createdAt);
+
+    // Shares
+    const shares = await fetchPaginated(({ skip, take }) => prisma.postShare.findMany({
+      where: { createdAt: { gte: LAST_SYNC }, userId: { not: null } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true } } },
+    }));
+    for (const s of shares) if (s.post?.content) addInteraction(s.userId!, s.postId!, s.post.userId!, "share", 6.5, s.createdAt, s.post.content, s.post.createdAt);
+
+    // Bookmarks
+    const bookmarks = await fetchPaginated(({ skip, take }) => prisma.bookmark.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true } } },
+    }));
+    for (const b of bookmarks) if (b.post?.content) addInteraction(b.userId, b.postId, b.post.userId!, "bookmark", 7.0, b.createdAt, b.post.content, b.post.createdAt);
+
+    // Likes
+    const likes = await fetchPaginated(({ skip, take }) => prisma.likedPost.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+    for (const l of likes) if (l.post?.content) addInteraction(l.userId, l.postId, l.post.userId!, "like", 5.5, l.createdAt, l.post.content, l.post.createdAt);
+
+    // Clicks
+    const clicks = await fetchPaginated(({ skip, take }) => prisma.postClick.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+    for (const c of clicks) if (c.post?.content) addInteraction(c.userId!, c.postId!, c.post.userId!, "click", 2.3, c.createdAt, c.post.content, c.post.createdAt);
+
+    // === 2. Replies + Quotes + Reposts (with toxicity-aware reply boost) ===
+    logger.info("2. Fetching replies, reposts, quotes + toxicity analysis...");
+    const childPosts = await fetchPaginated(({ skip, take }) => prisma.post.findMany({
+      where: {
+        createdAt: { gte: LAST_SYNC },
+        parentId: { not: null },
+        kind: { in: [PostKindEnum.REPLY, PostKindEnum.REPOST, PostKindEnum.QUOTE] },
+      },
+      skip, take,
+      orderBy: { createdAt: "asc" },
+      select: {
+        userId: true,
+        parentId: true,
+        kind: true,
+        content: true,
+        createdAt: true,
+        parent: { select: { content: true, createdAt: true, userId: true} },
+      },
+    }));
+
+    logger.info(`→ Found ${childPosts.length} child posts`);
+
+    for (const post of childPosts) {
+      if (!post.parent?.content) continue;
+
+      let type: string;
+      let weight = 0;
+
+      switch (post.kind) {
+        case PostKindEnum.QUOTE:
+          type = "quote";
+          weight = 9.5;
+          break;
+
+        case PostKindEnum.REPOST:
+          type = "repost";
+          weight = 7.6;
+          break;
+
+        case PostKindEnum.REPLY:
+          type = "reply";
+          weight = 8.5; // base
+
+          const text = cleanTextContent(post.content || "");
+          if (text.length >= 5) {
+            let toxicityScore = 0.5;
+            try {
+              const result = await commentClassifier(text);
+              toxicityScore = result.score; // 0.0 = clean, 1.0 = very toxic
+            } catch (err) {
+              logger.warn("Toxicity classifier failed", err);
+            }
+
+            const cleanliness = 1.0 - toxicityScore;
+            const lengthBonus = Math.min(text.length / 120, 1.0) * 4.0; // max +4.0
+            const cleanBonus = cleanliness * 4.0;                     // max +4.0
+
+            weight = 4.0 + lengthBonus + cleanBonus;
+
+            // Strong toxicity → penalty
+            if (toxicityScore > 0.7) {
+              weight -= (toxicityScore - 0.7) * 30; // max -9.0
+            }
+
+            weight = Math.max(-10.0, Math.min(12.0, weight)); // sane caps
+          } else {
+            weight = 1.5; // "k", "lol"
+          }
+          break;
+
+        default:
+          continue;
+      }
+
+      addInteraction(post.userId, post.parentId!, post.parent.userId!, type, weight, post.createdAt, post.parent.content, post.parent.createdAt);
+    }
+
+    // Long views
+    const longViews = await fetchPaginated(({ skip, take }) => prisma.postView.findMany({
+      where: { timestamp: { gte: LAST_SYNC }, duration: { gt: 30 } },
+      skip, take,
+      select: { userId: true, postId: true, duration: true, timestamp: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+    for (const v of longViews) {
+      if (!v.post?.content) continue;
+      const dwellBonus = Math.min(v.duration / 120, 1) * 2.0;
+      addInteraction(v.userId!, v.postId, v.post.userId!, "view", 1.5 + dwellBonus, v.timestamp, v.post.content, v.post.createdAt);
+    }
+
+    // === 3. Hard negatives ===
+    logger.info("3. Fetching hard negatives...");
+
+    const reports = await fetchPaginated(({ skip, take }) => prisma.postReport.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+    for (const r of reports) if (r.post?.content) addInteraction(r.userId, r.postId!, r.post.userId!, "report", -15.0, r.createdAt, r.post.content, r.post.createdAt);
+
+    const dislikes = await fetchPaginated(({ skip, take }) => prisma.postDisinterest.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+    for (const d of dislikes) if (d.post?.content) addInteraction(d.userId!, d.postId!, d.post.userId!, "dislike", -8.0, d.createdAt, d.post.content, d.post.createdAt);
+
+    // === 4. Impressions (weak positive) ===
+    logger.info("4. Adding impressions...");
+    const positiveIds = new Set(allInteractions.map(i => i.post_id));
+
+    const impressions = await fetchPaginated(({ skip, take }) => prisma.postImpression.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+
+    let impCount = 0;
+    for (const i of impressions) {
+      if (positiveIds.has(i.postId)) continue;
+      if (!i.post?.content) continue;
+      addInteraction(i.userId!, i.postId, i.post.userId!, "impression", 0.1, i.createdAt, i.post.content, i.post.createdAt);
+      if (++impCount >= allInteractions.length * 4) break;
+    }
+
+    logger.info(`Total raw interactions: ${allInteractions.length}`);
+
+    // === 5. Smart Aggregation (final fix) ===
+    const aggregated = new Map<string, InteractionRow>();
+
+    for (const row of allInteractions) {
+      const key = `${row.user_id}-${row.post_id}`;
+      let e = aggregated.get(key);
+
+      if (!e) {
+        e = { ...row, weight: 0, interaction_count: 0 };
+        aggregated.set(key, e);
+      }
+
+      const w = {
+        tip: 13.5, quote: 9.5, repost: 7.6, share: 6.5, bookmark: 7.0,
+        reply: row.weight, // already computed with toxicity
+        like: 5.5, click: 2.3, view: 3.5, impression: 0.1,
+        report: -15, dislike: -8,
+      }[row.type] ?? row.weight;
+
+      // --- NEW LOGIC: Negative Weight Precedence ---
+      const negativeSignals = ["report", "dislike"];
+
+      if (negativeSignals.includes(row.type)) {
+        // If the current interaction is a negative signal,
+        // it immediately becomes the new aggregated weight if it's lower (more negative).
+        // This takes precedence over all other logic.
+        if (w < e.weight) {
+             e.weight = w;
+        }
+      } 
+      // --- END NEW LOGIC ---
+
+      // --- ORIGINAL LOGIC (for non-negative signals) ---
+      else if (["quote", "repost", "bookmark", "like", "reply", "tip", "share"].includes(row.type)) {
+        // One-time/High-value signals: strongest wins
+        // This logic is now only applied to positive/neutral one-time signals
+        if (w > e.weight) e.weight = w;
+      }
+      else { 
+        // Repeatable/Low-value signals: small boost (view, click, impression)
+        // Note: For repeatable signals like 'view', you might want straight summation instead of this min/max logic.
+        if (w > e.weight) e.weight = w;
+        else e.weight = Math.min(e.weight + w * 0.2, w * 1.5);
+      }
+      // --- END ORIGINAL LOGIC ---
+
+      e.interaction_count++;
+      if (row.timestamp > e.timestamp) e.timestamp = row.timestamp;
+    }
+
+    const finalInteractions = Array.from(aggregated.values());
+
+    const filter = finalInteractions.filter(item => item.user_id === userId).sort((a, b) => {
+    // 1. Convert to numbers to solve TSError TS2362
+    const timeA = new Date(a.timestamp).getTime();
+    const timeB = new Date(b.timestamp).getTime();
+
+    // 2. Sort by Recent Timestamp (Descending)
+    if (timeB !== timeA) {
+      return timeB - timeA;
+    }
+
+    // 3. If timestamps are identical, sort by Highest Weight (Descending)
+    return b.weight - a.weight;
+  });
+
+    return { data: filter, status: 200}
+    
+  } catch (error: any) {
+    logger.error("Getting history failed", error?.message);
+    return { data: "Getting history failed", status: 500}
+  }
+}

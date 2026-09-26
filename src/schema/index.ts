@@ -403,7 +403,8 @@ export const QueryParams = z.object({
   slug: z.string({message: 'Slug must be specified'}).optional(),
   kind: z.string({message: 'Kind must be specified'}).optional(),
   hidden: z.coerce.boolean().optional().default(false),
-  duration: z.string({message: "Duration must be specified"}).optional()
+  duration: z.string({message: "Duration must be specified"}).optional(),
+  country: z.string({message: "Country must be valid"}).optional().nullable().default(null)
 });
 
 export const VisitorCreateSchema = z.object({

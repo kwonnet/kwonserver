@@ -4,7 +4,6 @@ import Bree  from 'bree'
 import Graceful from '@ladjs/graceful'
 import path from 'path';
 import logger from '@/logger';
-import { appSubReminderWorker, appSubscriptionWorker } from '@/cron/subscription/workers';
 
 Bree.extend(require('@breejs/ts-worker'));
 
@@ -157,6 +156,19 @@ const breeJob = new Bree({
       // } } ,
       cron: '*/2 * * * *'
     },
+
+    // run this job after every 5 minutes
+    {
+        name: 'sync_users_interactions_clickhouse',
+        // path: typescript_worker,
+        // worker: { 
+        //   // argv: ['-r', 'ts-node/register'],
+        //   workerData: { 
+        //     // __filename: path.join(__dirname, './jobs/sync_redis_prisma_transactions.ts')
+        //     path: path.join(__dirname, './jobs/sync_redis_prisma_transactions')
+        // } } ,
+        cron: '*/2 * * * *'
+    },
   ]
 });
 
@@ -181,15 +193,6 @@ breeJob.on('worker deleted', (name) => {
 export const startBreeJob = async () => {
   try {
     await breeJob.start();
-    logger.info('Bree Cron Job Started');
-    if(!appSubscriptionWorker.isRunning()){
-      await appSubscriptionWorker.run();
-      logger.info('App Subscription Cron Job Worker Started');
-    }
-    if(!appSubReminderWorker.isRunning()){
-      await appSubReminderWorker.run();
-      logger.info('App Subscription Reminder Cron Job Worker Started');
-    }
   } catch (error: any) {
     logger.error(`Starting Bree - Bullmq Cron Job Error - ${error?.message}`);
   }

@@ -67,6 +67,6 @@ async function syncUserRedisWalletToPrisma(playerId: string) {
     process.exit(0);
   } catch (error) {
     logger.info('Error: Syncing Wallet txns to Prisma failed after retries.');
-    process.exit(1);
+    process.exit(0);
   }
 } )();

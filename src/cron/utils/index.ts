@@ -5,7 +5,9 @@ import dayjs from "dayjs";
 import {
   appSubReminderQueue,
   appSubscriptionQueue,
-} from "../subscription/queue";
+  postEmbeddingQueue,
+  postTopicQueue,
+} from "../jobs/queue";
 import logger from "@/logger";
 import { delayExecution } from "@/utils/helpers";
 
@@ -127,5 +129,91 @@ export async function removeSubscriptionCronJob(arg: {
     logger.info(`Removed Scheduled subscription cron ${jobId}`);
   } catch (error) {
     logger.error(`Error Removing subscription cron job ${jobId}`);
+  }
+}
+
+export async function addPostEmbeddingCronJob(id: string) {
+  try {
+    await delayExecution(500)
+    logger.info(id, "Inserting post embedding job");
+    const jobName = `emb-${id}`;
+    const jobId = id
+    // remove any old sub & reminder jobs with the same id
+    const delJob = await postEmbeddingQueue.remove(jobId, { removeChildren: true});
+    logger.info(`Deleting old job for embedding ${id}, job: ${delJob}`);
+    // calculate date delay
+    const backoffDelay = 5 * 60 * 1000 // 5 minutes
+
+    await postEmbeddingQueue.add(
+      jobName,
+      { id  },
+      {
+        delay: 60_000,
+        attempts: 2,
+        jobId,
+        backoff: { type: "fixed", delay: backoffDelay },
+        removeOnComplete: true,
+        removeOnFail: {
+          age: 24 * 3600, // keep up to 24 hours
+        },
+      }
+    );
+
+    logger.info(`Inserted Scheduled job for post embedding ${id}`);
+  } catch (error) {
+    logger.error(`Error inserting post embedding job ${id}`);
+  }
+}
+
+export async function removePostEmbeddingCronJob(id: string) {
+  try {
+    // remove job
+    await postEmbeddingQueue.remove(id, { removeChildren: true});
+    logger.info(`Removed Scheduled post embedding cron ${id}`);
+  } catch (error) {
+    logger.error(`Error Removing post embedding cron job ${id}`);
+  }
+}
+
+
+export async function addPostTopicCronJob(id: string) {
+  try {
+    await delayExecution(500)
+    logger.info(id, "Inserting post topic job");
+    const jobName = `topic-${id}`;
+    const jobId = id
+    // remove any old sub & reminder jobs with the same id
+    const delJob = await postTopicQueue.remove(jobId, { removeChildren: true});
+    logger.info(`Deleting old job for post topic ${id}, job: ${delJob}`);
+    // calculate date delay
+    const backoffDelay = 5 * 60 * 1000 // 5 minutes
+
+    await postTopicQueue.add(
+      jobName,
+      { id  },
+      {
+        delay: 60_000,
+        attempts: 2,
+        jobId,
+        backoff: { type: "fixed", delay: backoffDelay },
+        removeOnComplete: true,
+        removeOnFail: {
+          age: 24 * 3600, // keep up to 24 hours
+        },
+      }
+    );
+
+    logger.info(`Inserted Scheduled job for post topic ${id}`);
+  } catch (error) {
+    logger.error(`Error inserting post topic job ${id}`);
+  }
+}
+
+export async function removePostTopicCronJob(id: string) {
+  try {
+    await postEmbeddingQueue.remove(id, { removeChildren: true});
+    logger.info(`Removed Scheduled post topic cron ${id}`);
+  } catch (error) {
+    logger.error(`Error Removing post topic cron job ${id}`);
   }
 }

@@ -81,7 +81,7 @@ export const signInController = async (req: Request, res: Response) => {
 
     // create or login a user
     const result = await loginUser(body);
-    console.log(result)
+    // console.log(result)
     if ( typeof result.data === "string" || result.status !== 200){
       // console.log(result)
       return res.status(result.status).send(result.data);
@@ -90,7 +90,7 @@ export const signInController = async (req: Request, res: Response) => {
     // generate access token
     const accessToken = generateToken(composeAuthUser(user), { expiresIn: "24h" });
 
-    logger.info(user, "Signed in user")
+    // logger.info(user, "Signed in user")
     
     // set cookies
     res.cookie("tx_a_t", accessToken, {

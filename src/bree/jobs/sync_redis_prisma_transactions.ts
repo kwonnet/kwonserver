@@ -93,6 +93,6 @@ async function syncRedisTxnsToPrisma(playerId: string) {
     process.exit(0);
   } catch (error) {
     logger.info('Error: Syncing Redis txns to Prisma failed after retries.');
-    process.exit(1);
+    process.exit(0);
   }
 } )();

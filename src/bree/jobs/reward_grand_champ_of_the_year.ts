@@ -158,6 +158,6 @@ const rewardYearlyGrandChampion = async () => {
     process.exit(0);
   } catch (error) {
     logger.info("Error: Reward champ of the game year failed after retries.");
-    process.exit(1);
+    process.exit(0);
   }
 })();

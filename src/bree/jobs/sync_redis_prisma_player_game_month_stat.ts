@@ -119,6 +119,6 @@ async function syncPlayerMonthStatToRedis(item: PlayerMonthStat) {
     process.exit(0);
   } catch (error) {
     logger.info('Error: Syncing Prisma Player Month Stats to Redis failed after retries.');
-    process.exit(1);
+    process.exit(0);
   }
 } )();

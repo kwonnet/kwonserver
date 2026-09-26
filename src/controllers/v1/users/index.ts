@@ -35,6 +35,7 @@ import {
   getUserNotifications,
   getUserBlockedUsers,
   getUserMutedUsers,
+  getUserInteractionHistory
 } from "@/services/v1/users";
 import sseEmitter from "@/sseEmitter";
 import { validateZodInput } from "@/utils";
@@ -839,6 +840,23 @@ export const getUserAccountAnalyticsController = async (
     }
 
     const result = await getUserAccountAnalytics(user.id, {duration: zodData.duration!});
+
+    return res.status(result.status).send(result.data);
+    
+  } catch (error: any) {
+    return res.status(400).send(error?.message);
+  }
+};
+
+
+export const getUserInteractionHistoryController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const userId = req.params.id
+
+    const result = await getUserInteractionHistory(userId);
 
     return res.status(result.status).send(result.data);
     

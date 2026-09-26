@@ -6,7 +6,7 @@
 
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["fullTextSearch"]
+  previewFeatures = ["fullTextSearch", "postgresqlExtensions"]
   // output   = "../src/generated/client"
 }
 
@@ -15,8 +15,9 @@ generator json {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
 }
 
 model User {
@@ -449,6 +450,7 @@ model Post {
   content          String?
   scheduleAt       DateTime?
   location         String?
+  topic            String?
   status           PostStatus    @default(PUBLISHED)
   type             PostTypeEnum
   kind             PostKindEnum
@@ -509,6 +511,21 @@ model Post {
 
   @@index([userId, createdAt, kind, status])
   @@index([createdAt])
+}
+
+model PostTrendingEvent {
+  postId     String
+  authorId   String    // ← Required for unique users
+  keyword    String
+  createdAt  DateTime  @db.Timestamptz(6)
+  countryId  String?
+  isHashtag  Boolean   @default(false)
+
+  @@id([postId, keyword, createdAt])
+  @@index([createdAt])
+  @@index([keyword, createdAt(sort: Desc)])
+  @@index([authorId, createdAt(sort: Desc)])
+  @@index([countryId, createdAt(sort: Desc)])
 }
 
 model PostReplyCountry {

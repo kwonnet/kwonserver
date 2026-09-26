@@ -17,6 +17,8 @@ import sseEmitter from '@/sseEmitter';
 import tipRoutes from './tips';
 import conversationRoutes from './conversations';
 import anonymousRoutes from './anonymous';
+import discoverRoutes from './discover';
+
 
 const router = express.Router();
 
@@ -53,6 +55,8 @@ router.use("/notifications/", notificationsRoutes)
 router.use("/conversations/", conversationRoutes)
 
 router.use("/anonymous/", anonymousRoutes)
+
+router.use("/discover/", discoverRoutes)
 
 router.use("/stream", sseEmitter.init)
 

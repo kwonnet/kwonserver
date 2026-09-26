@@ -1,4 +1,4 @@
-import { getLastScheduledJob, insertSubscriptionJob } from "@/cron/utils";
+import { getLastScheduledJob, insertSubscriptionJob, updateLastScheduledJob } from "@/cron/utils";
 import prisma from "@/db";
 import logger from "@/logger";
 import { SubStatusEnum, TxnCurrencyEnum } from "@prisma/client";
@@ -19,20 +19,20 @@ import { SubStatusEnum, TxnCurrencyEnum } from "@prisma/client";
       orderBy: [{ createdAt: "asc" }],
     });
 
-    logger.info(subscriptions, "subscriptions: ")
+    logger.info(subscriptions?.length, "subscriptions: ")
 
     for (const sub of subscriptions) {
       await insertSubscriptionJob(sub)
       logger.info(`Scheduled jobs for sub ${sub.id}`);
     }
     // Update the last scheduled job time
-    // if (subscriptions.length > 0) {
-    //   const lastJobDate = subscriptions[subscriptions.length - 1].createdAt;
-    //   await updateLastScheduledJob(lastJobDate);
-    // }
+    if (subscriptions.length > 0) {
+      const lastJobDate = subscriptions[subscriptions.length - 1].createdAt;
+      await updateLastScheduledJob(lastJobDate);
+    }
     process.exit(0);
   } catch (error: any) {
     logger.error(`Error scheduling app sub jobs ~ ${error.message}`);
-    process.exit(1);
+    process.exit(0);
   }
 })();

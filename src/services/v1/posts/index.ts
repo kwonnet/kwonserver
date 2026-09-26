@@ -44,7 +44,7 @@ import {
   analyticsPercentageChange,
   composeAuthUser,
   composePostAuthor,
-  convertBigInts,
+  serializeBigInts,
   getAnalyticsDuration,
   transformPost,
   transformPrismaTagMentions,
@@ -53,8 +53,14 @@ import { ReportSchema } from "@/schema";
 import redisClient from "@/redis";
 import { DetectResult, ResultDevice } from "node-device-detector";
 import { LookupResult } from "ip-location-api";
-import { AppError, removeProperty } from "@/utils/helpers";
+import { AppError, cleanTextContent, generateEmbedding, removeProperty, commentClassifier, contentTopicClassifier, topicClassifier, cleanTextContentWithHashtag } from "@/utils/helpers";
 import { SessionUser, AuthUser } from "@/types/user";
+import { clickHouseClient } from "@/db/clickhouse";
+import { prismaAnalytics, sequelizeAnalytics } from "@/db/timescaleDb";
+import axios from "axios";
+import { removeStopwords, eng, fra } from 'stopword'
+
+// Precompute script — GOLD STANDARD 2025
 
 interface CreatePostThread extends Post {
   quiz?: Quiz | null;
@@ -62,6 +68,16 @@ interface CreatePostThread extends Post {
 
 export const createPost = async (body: PostCreate, userId: string) => {
   try {
+    // if(!body.isDraft){
+    //   body.thread = await Promise.all(body?.thread?.map(async(item) => {
+    //     const text = cleanTextContent(item?.content);
+    //     const contentEmbedding = text ? await generateEmbedding(text) : null
+    //     return {
+    //       ...item,
+    //       contentEmbedding
+    //     }
+    //   }))
+    // }
     // check rewarded quiz and check if user has enough coins
     const rewardedQuiz = body.thread.filter(
       (item) => item.type === PostTypeEnum.QUIZ || item.quiz?.isPaid
@@ -83,6 +99,8 @@ export const createPost = async (body: PostCreate, userId: string) => {
       }
     }
     const isScheduled = !!body.scheduleAt;
+    
+
     const result = await prisma.$transaction(async (tx) => {
       // locked user wallet temporary
       if (rewardedQuiz.length > 0) {
@@ -128,6 +146,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
             ...rest,
             ...schedule,
             location: body.location,
+            
             media: { createMany: { data: rest.media } },
             replyCountries: {
               createMany: {
@@ -565,8 +584,9 @@ export const createPost = async (body: PostCreate, userId: string) => {
     // isScheduled, scheduleAt, postId: result.id
     // 2. Notify tagged & mentioned users
 
-    return { data: convertBigInts(result), status: 200 };
+    return { data: serializeBigInts(result), status: 200 };
   } catch (error: any) {
+    console.log(error?.message)
     return {
       data: "Error occurred trying to create post, please try again",
       status: 500,
@@ -1027,9 +1047,9 @@ export const createPostReply = async (
       const res = await getSinglePost(reply.id, user.id);
       if (!res) return { data: rest, status: 200 };
       const transformed = transformPost(res, user);
-      return { data: { ...rest, reply: transformed }, status: 200 };
+      return { data: serializeBigInts({ ...rest, reply: transformed }), status: 200 };
     }
-    return { data: rest, status: 200 };
+    return { data: serializeBigInts(rest), status: 200 };
   } catch (error: any) {
     logger.error(error?.message);
     return { data: "Error occurred reposting, please try again", status: 500 };
@@ -1507,15 +1527,21 @@ export async function insertImpressionQueue(args: {
   }
 }
 
-export const getNewsfeed = async (
-  args: { feed: string; limit?: number; page?: number },
-  user: AuthUser
-) => {
+export const getNewsfeed = async (recs: string[], user: AuthUser, args: { feed: string; limit?: number; page?: number }) => {
   try {
-    const userId = user?.id;
+
+     const userId = user?.id;
     const { limit = 21, page = 1 } = args;
+        // 1. Get the total count
+    const totalPosts = await prisma.post.count(); // Assuming 300
+    // 3. Calculate a random skip offset
+    // Ensure the skip offset doesn't exceed the total count minus the batch size
+    const maxSkip = totalPosts - limit;
+    const skipAmount = Math.floor(Math.random() * maxSkip);
+   
     const feedPosts = await prisma.post.findMany({
       where: {
+        id: { in : recs},
         status: PostStatus.PUBLISHED,
         OR: [{ kind: "ROOT" }, { kind: "REPOST" }, { kind: "QUOTE" }],
         disinterest: { none: { userId: user.id } }, // exclude not interested posts
@@ -1528,8 +1554,9 @@ export const getNewsfeed = async (
           ],
         },
       },
-      skip: (page - 1) * limit,
-      take: limit,
+      // skip: (page - 1) * limit,
+      // skip: skipAmount,
+      // take: limit,
       include: {
         thread: false,
         media: true,
@@ -2676,16 +2703,40 @@ export const getNewsfeed = async (
       // Check if this post was reposted by the user
     }));
 
+    // convert all bigint to js convertible number
+    // const convertedPosts = serializeBigInts(data)
+
     const _posts = data
       ?.map(transformPrismaTagMentions)
       .map((p) => transformPost(p, user));
 
+    const idToIndexMap: Record<string, number> = {};
+    recs.forEach((id, index) => {
+      idToIndexMap[id] = index;
+    });
+
+  // --- Step 3: Sort the fetched posts based on the index map ---
+  const reorderedPosts = _posts.sort((a, b) => {
+    const indexA = idToIndexMap[a.id];
+    const indexB = idToIndexMap[b.id];
+
+    // Handle cases where a post ID from the database might be missing 
+    // in the map (though rare if IDsInOrder came directly from the map source)
+    if (indexA === undefined || indexB === undefined) {
+      // Should not happen if data integrity is maintained, 
+      // but safe practice might be to handle missing IDs last.
+      return 0; 
+    }
+
+    return indexA - indexB; // Ascending sort based on rank (lower index = higher rank)
+  });
+
     return {
-      data: _posts.length > 0 ? _posts : "Not found",
-      status: _posts.length > 0 ? 200 : 404,
+      data: reorderedPosts.length > 0 ? reorderedPosts : "Not found",
+      status: reorderedPosts.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
-    console.log(error);
+    console.log(error?.message);
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -3884,7 +3935,7 @@ export const getPostFeedDetails = async (postId: string, user?: AuthUser) => {
       status: 200,
     };
   } catch (error: any) {
-    console.log(error);
+    console.log(error?.message);
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -5315,8 +5366,8 @@ export const fetchFeedPostReplies = async ({
       }));
     }
     return replies;
-  } catch (error) {
-    console.log(error);
+  } catch (error: any) {
+    console.log(error?.message);
     throw error;
   }
 };
@@ -5876,8 +5927,8 @@ export const getPostAnalytics = async (
       data: analytics,
       status: 200,
     };
-  } catch (error) {
-    console.log(error);
+  } catch (error: any) {
+    console.log(error?.message);
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -6107,7 +6158,7 @@ export const updateReposts = async (postId: string, user: AuthUser) => {
           });
         }
       }
-      return { isReposted, data: convertBigInts(post) };
+      return { isReposted, data: serializeBigInts(post) };
     });
     return { data, status: 200 };
   } catch (error: any) {
@@ -7158,10 +7209,10 @@ ORDER BY p."createdAt"`;
     const map = new Map();
     const parentChain = [];
     const rootRaw = posts.find((p: any) => p.id === postId);
-    const rootPost = convertBigInts(rootRaw);
+    const rootPost = serializeBigInts(rootRaw);
 
     for (const post of posts) {
-      const converted = convertBigInts(post);
+      const converted = serializeBigInts(post);
       map.set(converted.id, converted);
     }
 
@@ -7180,7 +7231,7 @@ ORDER BY p."createdAt"`;
   return nestPosts(posts) as { post: FeedPost; parentChain: FeedPost[] };
 }
 
-export const retriveRecommendationModelData = async (userId: string) => {
+export const retriveUserRecommendationModelData = async (userId: string) => {
   try {
     // Get current date and date 30 days ago
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -7612,7 +7663,7 @@ export const retriveRecommendationModelData = async (userId: string) => {
     //     },
     //   });
     // });
-    console.log(interactions);
+    // console.log(interactions);
     return { data: { user_id: userId, interactions }, status: 200 };
   } catch (error) {
     logger.error(error);
@@ -7620,4 +7671,2394 @@ export const retriveRecommendationModelData = async (userId: string) => {
   }
 };
 
-// retriveRecommendationModelData("cm9jlc6so0000vd3i7rhv4czf");
+const convertPostContentToEmbedding = async () => {
+  try {
+    
+
+    const posts = await prisma.post.findMany({
+      where: { content: { not: null } },
+    });
+
+    const item = posts[0];
+
+    const text = cleanTextContent(item.content);
+
+    const contentEmbedding = await generateEmbedding(text);
+
+    // console.log(contentEmbedding);
+
+
+  //   if(posts.length > 0){
+  //     const filterPosts = await Promise.all(posts.map(async(item) => {
+
+  //        const text = cleanText(item.content)
+
+  //       const contentEmbedding = await generateEmbedding(text)
+
+  //       prisma.post.update({
+  //         where: { id: item.id },
+  //         data: { contentEmbedding }
+  //       })
+
+  //       return { id: item.id, textEmbedding: contentEmbedding }
+  //     })
+  //   )
+  // }
+  } catch (error) {}
+};
+
+// convertPostContentToEmbedding()
+
+
+export const getRecommendedPosts = async(userId: string, recs: string[]) => {
+  try {
+    const result = await prisma.post.findMany({where: { id: { in: recs}}, select: {id: true, content: true, userId: true, createdAt: true}})
+    // --- Step 2: Create a mapping from Post ID to its desired index/rank ---
+  // This allows for O(1) lookup during the sorting process.
+  const idToIndexMap: Record<string, number> = {};
+  recs.forEach((id, index) => {
+    idToIndexMap[id] = index;
+  });
+
+  // --- Step 3: Sort the fetched posts based on the index map ---
+  const reorderedPosts = result.sort((a, b) => {
+    const indexA = idToIndexMap[a.id];
+    const indexB = idToIndexMap[b.id];
+
+    // Handle cases where a post ID from the database might be missing 
+    // in the map (though rare if IDsInOrder came directly from the map source)
+    if (indexA === undefined || indexB === undefined) {
+      // Should not happen if data integrity is maintained, 
+      // but safe practice might be to handle missing IDs last.
+      return 0; 
+    }
+
+    return indexA - indexB; // Ascending sort based on rank (lower index = higher rank)
+  });
+    return { data: reorderedPosts, status: 200}
+  } catch (error) {
+    return { data: "Error getting posts ", status: 500}
+  }
+}
+
+const BATCH_SIZE = 100; // reduced for debugging
+const EMBED_BATCH_SIZE = 10;
+
+interface InteractionRow {
+  user_id: string;
+  post_id: string;
+  author_id: string;
+  type: string;
+  weight: number;
+  label: number;
+  timestamp: string;
+  post_content: string;
+  post_created_at: string;
+  post_age_hours: number;
+  post_created_hour: number;
+  post_day_of_week: number;
+  interaction_count: number;
+  total_duration_seconds?: number;
+}
+
+async function fetchPaginated<T>(
+  queryFn: (params: { skip: number; take: number }) => Promise<T[]>
+): Promise<T[]> {
+  const results: T[] = [];
+  let skip = 0;
+  while (true) {
+    const batch = await queryFn({ skip, take: BATCH_SIZE });
+    if (batch.length === 0) break;
+    results.push(...batch);
+    skip += batch.length;
+    logger.info(`Fetched ${skip} rows from this source`);
+  }
+  return results;
+}
+
+async function getLastSyncTime(): Promise<Date> {
+  try {
+    const result = await clickHouseClient.query({
+      query: `SELECT * FROM sync_timestamp WHERE kind = 'interactions'`,
+      format: "JSONEachRow",
+    });
+    const rows = await result.json<{ sync_at: string }>();
+    const ts = rows[0]?.sync_at;
+    if (ts && ts !== "1970-01-01T00:00:00.000Z") {
+      return new Date(ts);
+    }
+  } catch (err) {
+    logger.warn(
+      "sync_timestamp table missing or empty — starting from 7 days ago"
+    );
+  }
+  // TEMP: Force recent data for testing
+  return new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+}
+
+async function upsertSyncTimestamp(kind: string) {
+  const exists = await clickHouseClient
+    .query({
+      query: `SELECT 1 FROM sync_timestamp WHERE kind = {kind: String} LIMIT 1`,
+      query_params: { kind },
+    })
+    .then((res) => res.json())
+    .then((data) => data.data.length > 0);
+
+  if (exists) {
+    await clickHouseClient.command({
+      query: `ALTER TABLE sync_timestamp UPDATE sync_at = now64(3) WHERE kind = {kind: String}`,
+      query_params: { kind },
+    });
+  } else {
+    await clickHouseClient.command({
+      query: `INSERT INTO sync_timestamp (kind, sync_at) VALUES ({kind: String}, now64(3))`,
+      query_params: { kind },
+    });
+  }
+}
+
+async function syncUsersInteractionsToClickHouse() {
+  try {
+    logger.info("=== STARTING INTERACTIONS SYNC ===");
+
+    const LAST_SYNC = await getLastSyncTime();
+    logger.info(`Looking for interactions since: ${LAST_SYNC.toISOString()}`);
+
+    const allInteractions: InteractionRow[] = [];
+
+    // Helper — clean and safe
+    const addInteraction = (
+      userId: string,
+      postId: string,
+      authorId: string,
+      type: string,
+      weight: number,
+      timestamp: Date,
+      postContent: string,
+      postCreatedAt: Date
+    ) => {
+      allInteractions.push({
+        user_id: userId,
+        post_id: postId,
+        author_id: authorId,
+        type,
+        weight,
+        label: weight >= 0.5 ? 1 : 0,
+        timestamp: timestamp.toISOString(),
+        post_content: cleanTextContent(postContent),
+        post_created_at: postCreatedAt.toISOString(),
+        post_age_hours: Number(((Date.now() - postCreatedAt.getTime()) / 3600000).toFixed(2)),
+        post_created_hour: postCreatedAt.getHours(),
+        post_day_of_week: postCreatedAt.getDay(),
+        interaction_count: 0,
+      });
+    };
+
+    // === 1. Strong positives (money & virality first) ===
+    logger.info("1. Fetching money & viral signals...");
+
+    // Tips — money = king
+    const tips = await fetchPaginated(({ skip, take }) => prisma.postTip.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { senderId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true } } },
+    }));
+    for (const t of tips) if (t.post?.content) addInteraction(t.senderId, t.postId!, t.post.userId!, "tip", 13.5, t.createdAt, t.post.content, t.post.createdAt);
+
+    // Shares
+    const shares = await fetchPaginated(({ skip, take }) => prisma.postShare.findMany({
+      where: { createdAt: { gte: LAST_SYNC }, userId: { not: null } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true } } },
+    }));
+    for (const s of shares) if (s.post?.content) addInteraction(s.userId!, s.postId!, s.post.userId!, "share", 6.5, s.createdAt, s.post.content, s.post.createdAt);
+
+    // Bookmarks
+    const bookmarks = await fetchPaginated(({ skip, take }) => prisma.bookmark.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true } } },
+    }));
+    for (const b of bookmarks) if (b.post?.content) addInteraction(b.userId, b.postId, b.post.userId!, "bookmark", 7.0, b.createdAt, b.post.content, b.post.createdAt);
+
+    // Likes
+    const likes = await fetchPaginated(({ skip, take }) => prisma.likedPost.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+    for (const l of likes) if (l.post?.content) addInteraction(l.userId, l.postId, l.post.userId!, "like", 5.5, l.createdAt, l.post.content, l.post.createdAt);
+
+    // Clicks
+    const clicks = await fetchPaginated(({ skip, take }) => prisma.postClick.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+    for (const c of clicks) if (c.post?.content) addInteraction(c.userId!, c.postId!, c.post.userId!, "click", 2.3, c.createdAt, c.post.content, c.post.createdAt);
+
+    // === 2. Replies + Quotes + Reposts (with toxicity-aware reply boost) ===
+    logger.info("2. Fetching replies, reposts, quotes + toxicity analysis...");
+    const childPosts = await fetchPaginated(({ skip, take }) => prisma.post.findMany({
+      where: {
+        createdAt: { gte: LAST_SYNC },
+        parentId: { not: null },
+        kind: { in: [PostKindEnum.REPLY, PostKindEnum.REPOST, PostKindEnum.QUOTE] },
+      },
+      skip, take,
+      orderBy: { createdAt: "asc" },
+      select: {
+        userId: true,
+        parentId: true,
+        kind: true,
+        content: true,
+        createdAt: true,
+        parent: { select: { content: true, createdAt: true, userId: true} },
+      },
+    }));
+
+    logger.info(`→ Found ${childPosts.length} child posts`);
+
+    for (const post of childPosts) {
+      if (!post.parent?.content) continue;
+
+      let type: string;
+      let weight = 0;
+
+      switch (post.kind) {
+        case PostKindEnum.QUOTE:
+          type = "quote";
+          weight = 9.5;
+          break;
+
+        case PostKindEnum.REPOST:
+          type = "repost";
+          weight = 7.6;
+          break;
+
+        case PostKindEnum.REPLY:
+          type = "reply";
+          weight = 8.5; // base
+
+          const text = cleanTextContent(post.content || "");
+          if (text.length >= 5) {
+            let toxicityScore = 0.5;
+            try {
+              const result = await commentClassifier(text);
+              toxicityScore = result.score; // 0.0 = clean, 1.0 = very toxic
+            } catch (err) {
+              logger.warn("Toxicity classifier failed", err);
+            }
+
+            const cleanliness = 1.0 - toxicityScore;
+            const lengthBonus = Math.min(text.length / 120, 1.0) * 4.0; // max +4.0
+            const cleanBonus = cleanliness * 4.0;                     // max +4.0
+
+            weight = 4.0 + lengthBonus + cleanBonus;
+
+            // Strong toxicity → penalty
+            if (toxicityScore > 0.7) {
+              weight -= (toxicityScore - 0.7) * 30; // max -9.0
+            }
+
+            weight = Math.max(-10.0, Math.min(12.0, weight)); // sane caps
+          } else {
+            weight = 1.5; // "k", "lol"
+          }
+          break;
+
+        default:
+          continue;
+      }
+
+      addInteraction(post.userId, post.parentId!, post.parent.userId!, type, weight, post.createdAt, post.parent.content, post.parent.createdAt);
+    }
+
+    // Long views
+    const longViews = await fetchPaginated(({ skip, take }) => prisma.postView.findMany({
+      where: { timestamp: { gte: LAST_SYNC }, duration: { gt: 30 } },
+      skip, take,
+      select: { userId: true, postId: true, duration: true, timestamp: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+    for (const v of longViews) {
+      if (!v.post?.content) continue;
+      const dwellBonus = Math.min(v.duration / 120, 1) * 2.0;
+      addInteraction(v.userId!, v.postId, v.post.userId!, "view", 1.5 + dwellBonus, v.timestamp, v.post.content, v.post.createdAt);
+    }
+
+    // === 3. Hard negatives ===
+    logger.info("3. Fetching hard negatives...");
+
+    const reports = await fetchPaginated(({ skip, take }) => prisma.postReport.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+    for (const r of reports) if (r.post?.content) addInteraction(r.userId, r.postId!, r.post.userId!, "report", -15.0, r.createdAt, r.post.content, r.post.createdAt);
+
+    const dislikes = await fetchPaginated(({ skip, take }) => prisma.postDisinterest.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+    for (const d of dislikes) if (d.post?.content) addInteraction(d.userId!, d.postId!, d.post.userId!, "dislike", -8.0, d.createdAt, d.post.content, d.post.createdAt);
+
+    // === 4. Impressions (weak positive) ===
+    logger.info("4. Adding impressions...");
+    const positiveIds = new Set(allInteractions.map(i => i.post_id));
+
+    const impressions = await fetchPaginated(({ skip, take }) => prisma.postImpression.findMany({
+      where: { createdAt: { gte: LAST_SYNC } },
+      skip, take,
+      select: { userId: true, postId: true, createdAt: true, post: { select: { content: true, createdAt: true, userId: true} } },
+    }));
+
+    let impCount = 0;
+    for (const i of impressions) {
+      if (positiveIds.has(i.postId)) continue;
+      if (!i.post?.content) continue;
+      addInteraction(i.userId!, i.postId, i.post.userId!, "impression", 0.1, i.createdAt, i.post.content, i.post.createdAt);
+      if (++impCount >= allInteractions.length * 4) break;
+    }
+
+    logger.info(`Total raw interactions: ${allInteractions.length}`);
+
+    // === 5. Smart Aggregation (final fix) ===
+    const aggregated = new Map<string, InteractionRow>();
+
+    for (const row of allInteractions) {
+      const key = `${row.user_id}-${row.post_id}`;
+      let e = aggregated.get(key);
+
+      if (!e) {
+        e = { ...row, weight: 0, interaction_count: 0 };
+        aggregated.set(key, e);
+      }
+
+      const w = {
+        tip: 13.5, quote: 9.5, repost: 7.6, share: 6.5, bookmark: 7.0,
+        reply: row.weight, // already computed with toxicity
+        like: 5.5, click: 2.3, view: 3.5, impression: 0.1,
+        report: -15, dislike: -8,
+      }[row.type] ?? row.weight;
+
+      // --- NEW LOGIC: Negative Weight Precedence ---
+      const negativeSignals = ["report", "dislike"];
+
+      if (negativeSignals.includes(row.type)) {
+        // If the current interaction is a negative signal,
+        // it immediately becomes the new aggregated weight if it's lower (more negative).
+        // This takes precedence over all other logic.
+        if (w < e.weight) {
+             e.weight = w;
+        }
+      } 
+      // --- END NEW LOGIC ---
+
+      // --- ORIGINAL LOGIC (for non-negative signals) ---
+      else if (["quote", "repost", "bookmark", "like", "reply", "tip", "share"].includes(row.type)) {
+        // One-time/High-value signals: strongest wins
+        // This logic is now only applied to positive/neutral one-time signals
+        if (w > e.weight) e.weight = w;
+      }
+      else { 
+        // Repeatable/Low-value signals: small boost (view, click, impression)
+        // Note: For repeatable signals like 'view', you might want straight summation instead of this min/max logic.
+        if (w > e.weight) e.weight = w;
+        else e.weight = Math.min(e.weight + w * 0.2, w * 1.5);
+      }
+      // --- END ORIGINAL LOGIC ---
+
+      e.interaction_count++;
+      if (row.timestamp > e.timestamp) e.timestamp = row.timestamp;
+    }
+
+    const finalInteractions = Array.from(aggregated.values());
+    logger.info(`After aggregation: ${finalInteractions.length} unique user-post pairs`);
+
+    if (finalInteractions.length === 0) {
+      await upsertSyncTimestamp("interactions");
+      return;
+    }
+
+    // === 6. Embedding + Insert (unchanged, but safe) ===
+    logger.info("Generating embeddings for each post>>>>>>")
+    const slicedArray = finalInteractions.slice(0,100)
+    const rowsForInsert = [];
+    for (let i = 0; i < slicedArray.length; i += EMBED_BATCH_SIZE) {
+      const batch = slicedArray.slice(i, i + EMBED_BATCH_SIZE);
+      const embedded = await Promise.all(
+        batch.map(async (row) => {
+          try {
+            const { post_content, ...rest } = row;
+            const embedding = await generateEmbedding(post_content);
+            return { ...rest, embedding, timestamp: new Date(rest.timestamp), post_created_at: new Date(rest.post_created_at) };
+          } catch (e) {
+            logger.error(`Embedding failed for post ${row.post_id}`, e);
+            return null;
+          }
+        })
+      );
+      rowsForInsert.push(...embedded.filter(Boolean));
+    }
+    logger.info(`Syncing data into clickhouse>>>>>> ${rowsForInsert.length}`)
+    // console.log(rowsForInsert[0])
+    if (rowsForInsert.length > 0) {
+      for (let i = 0; i < rowsForInsert.length; i += 5) {
+        await clickHouseClient.insert({
+          table: "interactions",
+          values: rowsForInsert.slice(i, i + 5),
+          format: "JSONEachRow",
+        });
+      }
+      // await upsertSyncTimestamp("interactions");
+      logger.info(`SUCCESS: Synced ${rowsForInsert.length} interactions`);
+    }
+  } catch (error: any) {
+    logger.error("Sync failed", error?.message);
+    throw error;
+  }
+}
+
+const getContentTopic = async() => {
+  try {
+    const labels = [ 'news', 'music', 'business', 'education', 'technology', 'entertainment',  'politics', 'arts & culture', 'inspiration', 'learning', 'gaming',
+      'movies', 'comedy', 'lifestyle', 'community', 'shopping', 'sports' ]
+    const text = `Your Timeline Is Yours Alone
+Maybe you took longer to heal.
+Maybe you failed and had to restart.
+Maybe you changed your mind.
+Maybe life hit you hard and paused everything.
+That doesn’t make you broken. That makes you human.
+Everyone’s story is uniquely messy, beautiful, unpredictable. That’s what makes it worth telling. The timeline you’re on? It’s not behind. It’s yours.
+Own it.`
+    console.log("Sending request...")
+    const start = performance.now()
+    const resp = await axios.post(`http://localhost:8003/classify`, { labels, text })
+    const result = resp.data
+    const end = performance.now()
+
+    console.log("Performance measure ", ((end - start) / 1000))
+    
+    console.log("API response ", result)
+    
+    // const result = await topicClassifier("Hello world this, what will be today's UCL outcome?")
+    // console.log(result)
+    // const posts = await prisma.post.findMany({})
+    // for (let index = 0; index < posts.length; index++) {
+    //   const post = posts[index];
+    //   const content = cleanTextContent(post.content)
+    //   if(content.length > 5){
+    //     const result = await contentTopicClassifier(`Lol Naija no dey carry last`)
+    //     await prisma.post.update({where: { id: post.id }, data: { topic: result.answer}})
+    //   }else{
+    //     await prisma.post.update({where: { id: post.id }, data: { topic: "generic"}})
+    //   }
+    // }
+  } catch (error: any) {
+    console.log(error?.message)
+  }
+}
+
+// getContentTopic()
+
+function tokenize(content: string) {
+  const text = content.toLowerCase();
+  const words = text.match(/[a-z0-9#']+/g) || [];
+
+  const unigrams = words;
+  const bigrams = words.slice(0, -1).map((w, i) => `${w} ${words[i + 1]}`);
+
+  const hashtags = words.filter(w => w.startsWith("#"));
+
+  return [...unigrams, ...bigrams, ...hashtags];
+}
+
+const text = `Your Timeline Is Yours Alone
+Maybe you took longer to heal.
+Maybe you failed and had to restart.
+Maybe you changed your mind.
+Maybe life hit you hard and paused everything.
+That doesn’t make you broken. That makes you human.
+Everyone’s story is uniquely messy, beautiful, unpredictable. That’s what makes it worth telling. The timeline you’re on? It’s not behind. It’s yours.
+Own it. As e dey hot, we hope peter obi becomes the the next president of nigeria`
+
+// console.log(tokenize(text))
+
+// const content = removeStopwords(text.split(" "))
+
+// console.log(content)
+
+
+const getContentKeywords = async() => {
+  try {
+
+  // const text = `Your Timeline Is Yours Alone
+  //       Maybe you took longer to heal.
+  //       Maybe you failed and had to restart.
+  //       Maybe you changed your mind.
+  //       Maybe life hit you hard and paused everything.
+  //       That doesn’t make you broken. That makes you human.
+  //       Everyone’s story is uniquely messy, beautiful, unpredictable. That’s what makes it worth telling. The timeline you’re on? It’s not behind. It’s yours.
+  //       Own it.`
+  const text = `Music has no borders, and artists like Davido, Eminem, and Nicki Minaj prove that impact isn’t limited by geography or genre. Davido represents the global rise of Afrobeats, blending African rhythm with mainstream appeal. Eminem remains one of the most technically gifted lyricists in hip-hop history, known for raw storytelling and unmatched wordplay. Nicki Minaj stands as a cultural icon, reshaping female rap with versatility, confidence, and chart-dominating records.Despite coming from different worlds, all three artists share one thing in common: influence. Their music travels across continents, shapes pop culture, and inspires millions of fans worldwide. #Davido #Wizkid #Eminem @codesermon`
+
+  const cleaned = cleanTextContentWithHashtag(text)
+
+  console.log(cleaned)
+
+    console.log("Sending request...")
+    // const start = performance.now()
+    // const resp = await axios.post(`http://localhost:8003/keywords`, { text })
+    // const result = resp.data
+    // const end = performance.now()
+
+    // console.log("Performance measure ", ((end - start) / 1000))
+    
+    // console.log("API response ", result)
+    
+  } catch (error: any) {
+    console.log(error?.message)
+  }
+}
+
+
+getContentKeywords()
+
+
+
+
+
+
+// generator client {
+//   provider        = "prisma-client-js"
+//   previewFeatures = ["fullTextSearchPostgres", "postgresqlExtensions"]
+// }
+
+// generator json {
+//   provider = "prisma-json-types-generator"
+// }
+
+// datasource db {
+//   provider   = "postgresql"
+//   url        = env("DATABASE_URL")
+//   extensions = [vector]
+// }
+
+// model User {
+//   id                    String             @id @default(cuid())
+//   name                  String
+//   username              String             @unique
+//   email                 String             @unique
+//   avatar                String?
+//   password              String?
+//   phone                 String?
+//   telId                 String?
+//   countryId             String?
+//   role                  UserRoleEnum       @default(USER)
+//   status                UserStatus         @default(ACTIVE)
+//   userType              UserTypeEnum       @default(PERSONAL)
+//   isVerified            Boolean            @default(false)
+//   identityVerified      Boolean            @default(false)
+//   accountVerified       Boolean            @default(false)
+//   accountVerifiedAt     DateTime?
+//   identityVerifiedAt    DateTime?
+//   verifiedAt            DateTime?
+//   /// [UserMeta]
+//   meta                  Json?              @default("{\"type\": \"LEGACY\", \"color\": \"blue\", \"status\": \"INACTIVE\"}")
+//   metadata              Json[]             @default([])
+//   createdAt             DateTime           @default(now())
+//   updatedAt             DateTime           @updatedAt
+//   bio                   String?
+//   deactivatedAt         DateTime?
+//   deletedAt             DateTime?
+//   isPrivate             Boolean            @default(false)
+//   blockerHistory        BlockHistory[]     @relation("HistoryBlocked")
+//   blockedHistory        BlockHistory[]     @relation("HistoryBlocker")
+//   blockedBy             BlockUser[]        @relation("Blocked")
+//   blockedUsers          BlockUser[]        @relation("Blocker")
+//   bookmarks             Bookmark[]
+//   creatorCoinPackages   CoinPackage[]
+//   convoDevices          ConvoDevice[]
+//   convoMemberships      ConvoMembership?
+//   convoMessages         ConvoMessage[]
+//   cryptoAddreses        CryptoAddress[]
+//   following             Follow[]           @relation("Follower")
+//   followers             Follow[]           @relation("Following")
+//   followingHistory      FollowHistory[]    @relation("HistoryFollower")
+//   followerHistory       FollowHistory[]    @relation("HistoryFollowing")
+//   creatorGames          Game[]
+//   gameAchievements      GameAchievement[]
+//   creatorCategories     GameCategory[]
+//   gameEnergies          GameEnergy[]
+//   creatorGameMilestones GameMilestone[]
+//   gameMonthStats        GameMonthStat[]
+//   creatorGameRooms      GameRoom[]
+//   gameYearStats         GameYearStat[]
+//   likedPosts            LikedPost[]
+//   muterHistory          MuteHistory[]      @relation("HistoryMuted")
+//   mutedHistory          MuteHistory[]      @relation("HistoryMuter")
+//   mutedBy               MuteUser[]         @relation("Muted")
+//   mutedUsers            MuteUser[]         @relation("Muter")
+//   notifications         Notification[]     @relation("NotificationsReceived")
+//   sentNotifications     Notification[]     @relation("NotificationsSent")
+//   postVotes             PollVoter[]
+//   posts                 Post[]             @relation("PostAuthor")
+//   clickPosts            PostClick[]
+//   disinterestPosts      PostDisinterest[]
+//   highlightPosts        PostHighlight[]
+//   historyPosts          PostHistory[]
+//   impressionPosts       PostImpression[]
+//   mediaPostLogs         PostMediaLog[]
+//   postMentions          PostMention[]
+//   pinPosts              PostPin[]
+//   postReports           PostReport[]
+//   sharePosts            PostShare[]
+//   postTipsReceived      PostTip[]          @relation("PostTipsReceived")
+//   postTipsSent          PostTip[]          @relation("PostTipsSent")
+//   postUserTags          PostUserTag[]
+//   viewPosts             PostView[]
+//   profileVisitors       ProfileVisit[]
+//   profileVisits         ProfileVisit[]     @relation("Visitor")
+//   pushNotifications     PushNotification[]
+//   participants          QuizParticipant[]
+//   winners               QuizReward?
+//   referralsReceived     Referral[]         @relation("ReferralsReceived")
+//   referralsSent         Referral[]         @relation("ReferralsSent")
+//   revenues              Revenue[]
+//   tips                  RewardTip[]
+//   stories               Story[]
+//   storyMention          StoryMention[]
+//   storyReactions        StoryReaction[]
+//   storyViewed           StoryViewer[]
+//   subscriptions         Subscription[]
+//   creatorTasks          Task[]
+//   creatorTipPackages    TipPackage[]
+//   transactionsReceived  Transaction[]      @relation("Recipient")
+//   transactionsSent      Transaction[]      @relation("Sender")
+//   transactions          Transaction[]
+//   transactionLogs       TransactionLogs[]
+//   country               Country?           @relation(fields: [countryId], references: [id])
+//   location              UserLocation?
+//   reportedBy            UserReport[]       @relation("Reported")
+//   reportedUsers         UserReport[]       @relation("Reporter")
+//   performedTasks        UserTask[]
+//   userTaskSettings      UserTaskSettings?
+//   wallet                Wallet?
+//   walletAddress         WalletAddress?
+
+//   @@index([name])
+//   @@index([email])
+//   @@index([phone])
+//   @@index([username])
+//   @@index([createdAt])
+// }
+
+// model ConvoDevice {
+//   id              String          @id @default(cuid())
+//   userId          String
+//   identityKeyPub  Bytes
+//   signedPrekeyPub Bytes
+//   meta            Json?
+//   createdAt       DateTime        @default(now())
+//   updatedAt       DateTime        @updatedAt
+//   user            User            @relation(fields: [userId], references: [id])
+//   oneTimePrekeys  OneTimePrekey[]
+// }
+
+// model OneTimePrekey {
+//   id        String      @id @default(cuid())
+//   deviceId  String
+//   keyPub    Bytes
+//   consumed  Boolean     @default(false)
+//   createdAt DateTime    @default(now())
+//   device    ConvoDevice @relation(fields: [deviceId], references: [id])
+// }
+
+// model Conversation {
+//   id          String            @id @default(cuid())
+//   createdAt   DateTime          @default(now())
+//   updatedAt   DateTime          @updatedAt
+//   callLogs    CallLog[]
+//   memberships ConvoMembership[]
+//   messages    ConvoMessage[]
+// }
+
+// model ConvoMembership {
+//   id             String       @id @default(cuid())
+//   conversationId String
+//   userId         String       @unique
+//   createdAt      DateTime     @default(now())
+//   updatedAt      DateTime     @updatedAt
+//   conversation   Conversation @relation(fields: [conversationId], references: [id])
+//   user           User         @relation(fields: [userId], references: [id])
+// }
+
+// model ConvoMessage {
+//   id             String       @id @default(cuid())
+//   cipherText     Bytes
+//   nonce          Bytes
+//   metaEnc        Bytes?
+//   conversationId String
+//   senderId       String
+//   createdAt      DateTime     @default(now())
+//   updatedAt      DateTime     @updatedAt
+//   attachments    Attachment[]
+//   conversation   Conversation @relation(fields: [conversationId], references: [id])
+//   sender         User         @relation(fields: [senderId], references: [id])
+// }
+
+// model Attachment {
+//   id         String       @id @default(cuid())
+//   messageId  String
+//   storageKey String
+//   cipherKey  Bytes
+//   mimeType   String
+//   size       Int
+//   createdAt  DateTime     @default(now())
+//   updatedAt  DateTime     @updatedAt
+//   message    ConvoMessage @relation(fields: [messageId], references: [id])
+// }
+
+// model CallLog {
+//   id             String       @id @default(cuid())
+//   callerId       String
+//   calleeId       String
+//   startedAt      DateTime     @default(now())
+//   endedAt        DateTime?
+//   status         CallStatus
+//   conversationId String
+//   createdAt      DateTime     @default(now())
+//   updatedAt      DateTime     @updatedAt
+//   conversation   Conversation @relation(fields: [conversationId], references: [id])
+// }
+
+// model ProfileVisit {
+//   id        String   @id @default(cuid())
+//   postId    String?
+//   userId    String?
+//   visitorId String?
+//   createdAt DateTime @default(now())
+//   sessionId String?
+//   device    Json?
+//   meta      Json?
+//   referer   String?
+//   Post      Post?    @relation(fields: [postId], references: [id])
+//   user      User?    @relation(fields: [userId], references: [id])
+//   visitor   User?    @relation("Visitor", fields: [visitorId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model UserReport {
+//   id           String       @id @default(cuid())
+//   reporterId   String
+//   reportedId   String
+//   reason       ReportReason
+//   message      String?
+//   meta         Json?
+//   status       ReportStatus @default(PENDING)
+//   createdAt    DateTime     @default(now())
+//   updatedAt    DateTime     @updatedAt
+//   reportedUser User         @relation("Reported", fields: [reportedId], references: [id])
+//   reporter     User         @relation("Reporter", fields: [reporterId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model Follow {
+//   id          String       @id @default(cuid())
+//   followerId  String
+//   followingId String
+//   createdAt   DateTime     @default(now())
+//   updatedAt   DateTime     @updatedAt
+//   status      FollowStatus @default(ACCEPTED)
+//   follower    User         @relation("Follower", fields: [followerId], references: [id])
+//   following   User         @relation("Following", fields: [followingId], references: [id])
+
+//   @@unique([followerId, followingId])
+//   @@index([createdAt])
+// }
+
+// model FollowHistory {
+//   id          String       @id @default(cuid())
+//   followerId  String
+//   followingId String
+//   action      FollowAction
+//   createdAt   DateTime     @default(now())
+//   updatedAt   DateTime     @updatedAt
+//   isPrivate   Boolean      @default(false)
+//   follower    User         @relation("HistoryFollower", fields: [followerId], references: [id])
+//   following   User         @relation("HistoryFollowing", fields: [followingId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model BlockUser {
+//   id        String   @id @default(cuid())
+//   blockerId String
+//   blockedId String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   blocked   User     @relation("Blocked", fields: [blockedId], references: [id])
+//   blocker   User     @relation("Blocker", fields: [blockerId], references: [id])
+
+//   @@unique([blockerId, blockedId])
+//   @@index([createdAt])
+// }
+
+// model BlockHistory {
+//   id        String      @id @default(cuid())
+//   blockerId String
+//   blockedId String
+//   action    BlockAction
+//   createdAt DateTime    @default(now())
+//   updatedAt DateTime    @updatedAt
+//   blocked   User        @relation("HistoryBlocked", fields: [blockedId], references: [id])
+//   blocker   User        @relation("HistoryBlocker", fields: [blockerId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model MuteUser {
+//   id        String   @id @default(cuid())
+//   muterId   String
+//   mutedId   String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   muted     User     @relation("Muted", fields: [mutedId], references: [id])
+//   muter     User     @relation("Muter", fields: [muterId], references: [id])
+
+//   @@unique([muterId, mutedId])
+//   @@index([createdAt])
+// }
+
+// model MuteHistory {
+//   id        String     @id @default(cuid())
+//   muterId   String
+//   mutedId   String
+//   createdAt DateTime   @default(now())
+//   updatedAt DateTime   @updatedAt
+//   action    MuteAction
+//   muted     User       @relation("HistoryMuted", fields: [mutedId], references: [id])
+//   muter     User       @relation("HistoryMuter", fields: [muterId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model UserLocation {
+//   id        String   @id @default(cuid())
+//   latitude  Float
+//   longitude Float
+//   updatedAt DateTime @updatedAt
+//   userId    String   @unique
+//   createdAt DateTime @default(now())
+//   meta      Json?
+//   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+//   @@index([createdAt])
+// }
+
+// model Story {
+//   id         String          @id @default(cuid())
+//   userId     String
+//   contentUrl String
+//   type       StoryType       @default(IMAGE)
+//   createdAt  DateTime        @default(now())
+//   expiresAt  DateTime
+//   user       User            @relation(fields: [userId], references: [id])
+//   mentions   StoryMention[]
+//   reactions  StoryReaction[]
+//   viewers    StoryViewer[]
+
+//   @@index([createdAt])
+// }
+
+// model StoryViewer {
+//   id        String   @id @default(cuid())
+//   storyId   String
+//   userId    String
+//   viewedAt  DateTime @default(now())
+//   createdAt DateTime @default(now())
+//   story     Story    @relation(fields: [storyId], references: [id])
+//   user      User     @relation(fields: [userId], references: [id])
+
+//   @@unique([storyId, userId])
+//   @@index([createdAt])
+//   @@index([viewedAt])
+// }
+
+// model StoryMention {
+//   id        String   @id @default(cuid())
+//   storyId   String
+//   userId    String
+//   viewedAt  DateTime @default(now())
+//   createdAt DateTime @default(now())
+//   story     Story    @relation(fields: [storyId], references: [id])
+//   user      User     @relation(fields: [userId], references: [id])
+
+//   @@unique([storyId, userId])
+//   @@index([createdAt])
+// }
+
+// model StoryReaction {
+//   id        String   @id @default(cuid())
+//   storyId   String
+//   userId    String
+//   viewedAt  DateTime @default(now())
+//   createdAt DateTime @default(now())
+//   story     Story    @relation(fields: [storyId], references: [id])
+//   user      User     @relation(fields: [userId], references: [id])
+
+//   @@unique([storyId, userId])
+//   @@index([createdAt])
+// }
+
+// model Post {
+//   id                             String               @id @default(cuid())
+//   content                        String?
+//   scheduleAt                     DateTime?
+//   location                       String?
+//   topic                          String?
+//   status                         PostStatus           @default(PUBLISHED)
+//   type                           PostTypeEnum
+//   kind                           PostKindEnum
+//   scope                          PostScopeEnum        @default(ANYONE)
+//   totalViews                     BigInt               @default(0)
+//   totalLikes                     BigInt               @default(0)
+//   totalReplies                   BigInt               @default(0)
+//   totalShares                    BigInt               @default(0)
+//   totalBookmarks                 BigInt               @default(0)
+//   totalReposts                   BigInt               @default(0)
+//   totalQuotes                    BigInt               @default(0)
+//   totalImpressions               BigInt               @default(0)
+//   parentId                       String?
+//   userId                         String
+//   countryId                      String?
+//   meta                           Json?
+//   createdAt                      DateTime             @default(now())
+//   updatedAt                      DateTime             @updatedAt
+//   rootId                         String?
+//   deletedAt                      DateTime?
+//   isHidden                       Boolean              @default(false)
+//   totalTips                      BigInt               @default(0)
+//   Bookmark                       Bookmark[]
+//   LikedPost                      LikedPost[]
+//   Notification                   Notification[]
+//   Poll                           Poll?
+//   country                        Country?             @relation(fields: [countryId], references: [id])
+
+//   // Correct self-relations
+//   parent   Post?  @relation("PostParent", fields: [parentId], references: [id])
+//   replies  Post[] @relation("PostParent")
+
+//   root     Post?  @relation("PostRoot", fields: [rootId], references: [id])
+//   thread   Post[] @relation("PostRoot")
+//   user                           User                 @relation("PostAuthor", fields: [userId], references: [id])
+//   PostClick                      PostClick[]
+//   PostDisinterest                PostDisinterest[]
+//   PostHashTag                    PostHashTag[]
+//   PostHighlight                  PostHighlight[]
+//   PostHistory                    PostHistory[]
+//   PostImpression                 PostImpression[]
+//   PostMedia                      PostMedia[]
+//   PostMediaLog                   PostMediaLog[]
+//   PostMention                    PostMention[]
+//   PostPin                        PostPin[]
+//   PostReplyContinent             PostReplyContinent[]
+//   PostReplyCountry               PostReplyCountry[]
+//   PostReport                     PostReport[]
+//   PostShare                      PostShare[]
+//   PostTip                        PostTip[]
+//   PostTopic                      PostTopic[]
+//   PostUserTag                    PostUserTag[]
+//   PostView                       PostView[]
+//   ProfileVisit                   ProfileVisit[]
+//   Quiz                           Quiz?
+//   Transaction                    Transaction[]
+
+//   @@index([userId, createdAt, kind, status])
+//   @@index([createdAt])
+// }
+
+// model PostTrendingEvent {
+//   postId     String
+//   authorId   String    // ← Required for unique users
+//   keyword    String
+//   createdAt  DateTime  @db.Timestamptz(6)
+//   countryId  String?
+//   isHashtag  Boolean   @default(false)
+
+//   @@id([postId, keyword, createdAt])
+//   @@index([createdAt])
+//   @@index([keyword, createdAt(sort: Desc)])
+//   @@index([authorId, createdAt(sort: Desc)])
+//   @@index([countryId, createdAt(sort: Desc)])
+// }
+
+// model PostReplyCountry {
+//   id        String   @id @default(cuid())
+//   postId    String
+//   countryId String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   country   Country  @relation(fields: [countryId], references: [id])
+//   Post      Post     @relation(fields: [postId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model PostReplyContinent {
+//   id          String    @id @default(cuid())
+//   postId      String
+//   continentId String
+//   createdAt   DateTime  @default(now())
+//   updatedAt   DateTime  @updatedAt
+//   continent   Continent @relation(fields: [continentId], references: [id])
+//   Post        Post      @relation(fields: [postId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model PostClick {
+//   id        String           @id @default(cuid())
+//   postId    String
+//   userId    String?
+//   sessionId String?
+//   source    PostMetricSource
+//   action    PostMetricAction
+//   timestamp DateTime
+//   referer   String?
+//   meta      Json?
+//   device    Json?
+//   createdAt DateTime         @default(now())
+//   Post      Post             @relation(fields: [postId], references: [id])
+//   user      User?            @relation(fields: [userId], references: [id])
+
+//   @@index([postId, userId])
+//   @@index([userId, postId])
+//   @@index([userId, createdAt])
+//   @@index([userId, timestamp])
+//   @@index([createdAt])
+// }
+
+// model PostImpression {
+//   id        String   @id @default(cuid())
+//   postId    String
+//   userId    String?
+//   sessionId String?
+//   createdAt DateTime @default(now())
+//   device    Json?
+//   timestamp DateTime
+//   meta      Json?
+//   referer   String?
+//   Post      Post     @relation(fields: [postId], references: [id])
+//   user      User?    @relation(fields: [userId], references: [id])
+
+//   @@index([postId, userId])
+//   @@index([userId, postId])
+//   @@index([userId, createdAt])
+//   @@index([postId, createdAt])
+//   @@index([userId, timestamp])
+//   @@index([postId, timestamp])
+//   @@index([createdAt])
+// }
+
+// model PostShare {
+//   id        String   @id @default(cuid())
+//   postId    String
+//   sessionId String?
+//   userId    String?
+//   meta      Json?
+//   device    Json?
+//   timestamp DateTime
+//   referer   String?
+//   createdAt DateTime @default(now())
+//   kind      String?
+//   Post      Post     @relation(fields: [postId], references: [id])
+//   user      User?    @relation(fields: [userId], references: [id])
+
+//   @@index([postId, userId])
+//   @@index([userId, postId])
+//   @@index([userId, createdAt])
+//   @@index([postId, createdAt])
+//   @@index([userId, timestamp])
+//   @@index([postId, timestamp])
+//   @@index([createdAt])
+// }
+
+// model PostView {
+//   id        String   @id @default(cuid())
+//   postId    String
+//   userId    String?
+//   sessionId String?
+//   createdAt DateTime @default(now())
+//   device    Json?
+//   timestamp DateTime
+//   meta      Json?
+//   duration  Int
+//   referer   String?
+//   Post      Post     @relation(fields: [postId], references: [id])
+//   user      User?    @relation(fields: [userId], references: [id])
+
+//   @@index([postId, userId])
+//   @@index([userId, postId])
+//   @@index([userId, createdAt])
+//   @@index([postId, createdAt])
+//   @@index([userId, timestamp])
+//   @@index([postId, timestamp])
+//   @@index([createdAt])
+// }
+
+// model PostHistory {
+//   id        String     @id @default(cuid())
+//   postId    String
+//   userId    String
+//   action    PostAction
+//   reason    String?
+//   createdAt DateTime   @default(now())
+//   Post      Post       @relation(fields: [postId], references: [id])
+//   user      User       @relation(fields: [userId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model PostPin {
+//   id          String      @id @default(cuid())
+//   postId      String
+//   userId      String
+//   contextId   String?
+//   createdAt   DateTime    @default(now())
+//   updatedAt   DateTime    @updatedAt
+//   contextType PostContext @default(PROFILE)
+//   Post        Post        @relation(fields: [postId], references: [id])
+//   user        User        @relation(fields: [userId], references: [id])
+
+//   @@index([postId, contextType, contextId])
+//   @@index([createdAt])
+// }
+
+// model PostHighlight {
+//   id          String      @id @default(cuid())
+//   postId      String
+//   userId      String
+//   contextType PostContext @default(PROFILE)
+//   contextId   String?
+//   createdAt   DateTime    @default(now())
+//   updatedAt   DateTime    @updatedAt
+//   Post        Post        @relation(fields: [postId], references: [id])
+//   user        User        @relation(fields: [userId], references: [id])
+
+//   @@index([postId, contextType, contextId])
+//   @@index([createdAt])
+// }
+
+// model PostDisinterest {
+//   id        String   @id @default(cuid())
+//   postId    String
+//   userId    String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   Post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+//   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+//   @@unique([postId, userId])
+//   @@index([createdAt])
+// }
+
+// model PostReport {
+//   id        String       @id @default(cuid())
+//   userId    String
+//   postId    String
+//   message   String?
+//   meta      Json?
+//   status    ReportStatus @default(PENDING)
+//   createdAt DateTime     @default(now())
+//   updatedAt DateTime     @updatedAt
+//   reason    ReportReason
+//   Post      Post         @relation(fields: [postId], references: [id])
+//   reporter  User         @relation(fields: [userId], references: [id])
+
+//   @@unique([userId, postId])
+//   @@index([createdAt])
+// }
+
+// model Quiz {
+//   id           String            @id @default(cuid())
+//   postId       String            @unique
+//   isPaid       Boolean           @default(false)
+//   rewardAmount Float
+//   expireAt     DateTime
+//   maxWinners   Int
+//   scope        ScopeEnum         @default(NONE)
+//   createdAt    DateTime          @default(now())
+//   updatedAt    DateTime          @updatedAt
+//   Post         Post              @relation(fields: [postId], references: [id])
+//   continents   QuizContinent[]
+//   countries    QuizCountry[]
+//   options      QuizOption[]
+//   participants QuizParticipant[]
+//   winners      QuizReward[]
+
+//   @@index([createdAt])
+// }
+
+// model QuizOption {
+//   id           String            @id @default(cuid())
+//   quizId       String
+//   text         String
+//   isCorrect    Boolean           @default(false)
+//   createdAt    DateTime          @default(now())
+//   updatedAt    DateTime          @updatedAt
+//   votes        Int               @default(0)
+//   quiz         Quiz              @relation(fields: [quizId], references: [id])
+//   participants QuizParticipant[]
+
+//   @@index([createdAt])
+// }
+
+// model QuizReward {
+//   id        String   @id @default(cuid())
+//   userId    String   @unique
+//   quizId    String
+//   amount    Float
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   quiz      Quiz     @relation(fields: [quizId], references: [id])
+//   user      User     @relation(fields: [userId], references: [id])
+
+//   @@unique([userId, quizId])
+//   @@index([createdAt])
+// }
+
+// model QuizParticipant {
+//   id        String     @id @default(cuid())
+//   userId    String
+//   quizId    String
+//   isCorrect Boolean
+//   optionId  String
+//   createdAt DateTime   @default(now())
+//   updatedAt DateTime   @updatedAt
+//   option    QuizOption @relation(fields: [optionId], references: [id])
+//   quiz      Quiz       @relation(fields: [quizId], references: [id])
+//   user      User       @relation(fields: [userId], references: [id])
+
+//   @@unique([userId, quizId])
+//   @@index([userId, createdAt])
+//   @@index([createdAt])
+// }
+
+// model QuizCountry {
+//   id        String   @id @default(cuid())
+//   quizId    String
+//   countryId String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   country   Country  @relation(fields: [countryId], references: [id])
+//   quiz      Quiz     @relation(fields: [quizId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model QuizContinent {
+//   id          String    @id @default(cuid())
+//   quizId      String
+//   continentId String
+//   createdAt   DateTime  @default(now())
+//   updatedAt   DateTime  @updatedAt
+//   continent   Continent @relation(fields: [continentId], references: [id])
+//   quiz        Quiz      @relation(fields: [quizId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model Topic {
+//   id        String      @id @default(cuid())
+//   word      String      @unique
+//   count     Int         @default(0)
+//   createdAt DateTime    @default(now())
+//   updatedAt DateTime    @updatedAt
+//   posts     PostTopic[]
+
+//   @@index([createdAt])
+// }
+
+// model PostTopic {
+//   id        String   @id @default(cuid())
+//   postId    String
+//   keywordId String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   keyword   Topic    @relation(fields: [keywordId], references: [id])
+//   Post      Post     @relation(fields: [postId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model PostMedia {
+//   id             String         @id @default(cuid())
+//   postId         String
+//   fileId         String
+//   name           String
+//   url            String
+//   height         Int
+//   width          Int
+//   size           Int
+//   thumbnailUrl   String?
+//   fileType       String
+//   filePath       String
+//   altText        String?
+//   flags          String[]       @default([])
+//   meta           Json?
+//   totalViews     BigInt         @default(0)
+//   totalDownloads BigInt         @default(0)
+//   createdAt      DateTime       @default(now())
+//   updatedAt      DateTime       @updatedAt
+//   Post           Post           @relation(fields: [postId], references: [id])
+//   analytics      PostMediaLog[]
+
+//   @@index([createdAt])
+// }
+
+// model PostMediaLog {
+//   id              String          @id @default(cuid())
+//   action          PostMediaAction @default(VIEW)
+//   kind            PostMediaKind
+//   duration        Float           @default(0)
+//   watchedPct      Float           @default(0)
+//   muted           Boolean         @default(true)
+//   playbackRate    Float           @default(0)
+//   sessionId       String?
+//   device          Json?
+//   meta            Json?
+//   timestamp       DateTime
+//   referer         String?
+//   mediaId         String
+//   postId          String?
+//   userId          String?
+//   createdAt       DateTime        @default(now())
+//   sessionDuration Float           @default(0)
+//   media           PostMedia       @relation(fields: [mediaId], references: [id])
+//   Post            Post?           @relation(fields: [postId], references: [id])
+//   user            User?           @relation(fields: [userId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model Poll {
+//   id          String          @id @default(cuid())
+//   isMultiVote Boolean         @default(false)
+//   expireAt    DateTime
+//   scope       ScopeEnum       @default(NONE)
+//   postId      String          @unique
+//   createdAt   DateTime        @default(now())
+//   updatedAt   DateTime        @updatedAt
+//   Post        Post            @relation(fields: [postId], references: [id])
+//   continents  PollContinent[]
+//   countries   PollCountry[]
+//   options     PollOption[]
+
+//   @@index([createdAt])
+// }
+
+// model PollOption {
+//   id        String      @id @default(cuid())
+//   pollId    String
+//   text      String
+//   votes     BigInt      @default(0)
+//   createdAt DateTime    @default(now())
+//   updatedAt DateTime    @updatedAt
+//   poll      Poll        @relation(fields: [pollId], references: [id])
+//   voters    PollVoter[]
+
+//   @@index([createdAt])
+// }
+
+// model PollVoter {
+//   id        String     @id @default(cuid())
+//   userId    String
+//   optionId  String
+//   votedAt   DateTime   @default(now())
+//   createdAt DateTime   @default(now())
+//   updatedAt DateTime   @updatedAt
+//   option    PollOption @relation(fields: [optionId], references: [id])
+//   user      User       @relation(fields: [userId], references: [id])
+
+//   @@index([userId, createdAt])
+//   @@index([createdAt])
+// }
+
+// model PollCountry {
+//   id        String   @id @default(cuid())
+//   pollId    String
+//   countryId String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   country   Country  @relation(fields: [countryId], references: [id])
+//   poll      Poll     @relation(fields: [pollId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model PollContinent {
+//   id          String    @id @default(cuid())
+//   pollId      String
+//   continentId String
+//   createdAt   DateTime  @default(now())
+//   updatedAt   DateTime  @updatedAt
+//   continent   Continent @relation(fields: [continentId], references: [id])
+//   poll        Poll      @relation(fields: [pollId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model PostMention {
+//   postId    String
+//   userId    String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   Post      Post     @relation(fields: [postId], references: [id])
+//   user      User     @relation(fields: [userId], references: [id])
+
+//   @@id([postId, userId])
+//   @@index([userId, createdAt])
+//   @@index([createdAt])
+// }
+
+// model PostUserTag {
+//   postId    String
+//   userId    String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   Post      Post     @relation(fields: [postId], references: [id])
+//   user      User     @relation(fields: [userId], references: [id])
+
+//   @@id([postId, userId])
+//   @@index([userId, createdAt])
+//   @@index([createdAt])
+// }
+
+// model PostTag {
+//   id        String        @id @default(cuid())
+//   name      String        @unique
+//   createdAt DateTime      @default(now())
+//   updatedAt DateTime      @updatedAt
+//   posts     PostHashTag[]
+
+//   @@index([createdAt])
+// }
+
+// model PostHashTag {
+//   id        String   @id @default(cuid())
+//   postId    String
+//   tagId     String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   Post      Post     @relation(fields: [postId], references: [id])
+//   tag       PostTag  @relation(fields: [tagId], references: [id])
+
+//   @@unique([postId, tagId])
+//   @@index([createdAt])
+// }
+
+// model LikedPost {
+//   id        String   @id @default(cuid())
+//   userId    String
+//   postId    String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   Post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+//   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+//   @@unique([userId, postId])
+//   @@index([userId, createdAt])
+//   @@index([createdAt])
+// }
+
+// model Bookmark {
+//   id        String   @id @default(cuid())
+//   userId    String
+//   postId    String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   Post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+//   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+//   @@unique([userId, postId])
+//   @@index([userId, createdAt])
+//   @@index([createdAt])
+// }
+
+// model Continent {
+//   id                  String               @id @default(cuid())
+//   code                String               @unique
+//   name                String               @unique
+//   createdAt           DateTime             @default(now())
+//   updatedAt           DateTime             @updatedAt
+//   countries           Country[]
+//   pollContinents      PollContinent[]
+//   postReplyContinents PostReplyContinent[]
+//   quizContinents      QuizContinent[]
+
+//   @@index([code])
+//   @@index([createdAt])
+// }
+
+// model Country {
+//   id                 String             @id @default(cuid())
+//   name               String             @unique
+//   iso2               String             @unique @db.Char(2)
+//   iso3               String             @unique @db.Char(3)
+//   emoji              String             @unique
+//   continentId        String
+//   createdAt          DateTime           @default(now())
+//   updatedAt          DateTime           @updatedAt
+//   continent          Continent          @relation(fields: [continentId], references: [id])
+//   pollCountries      PollCountry[]
+//   posts              Post[]
+//   postReplyCountries PostReplyCountry[]
+//   quizCountries      QuizCountry[]
+//   users              User[]
+
+//   @@index([iso2])
+//   @@index([iso3])
+//   @@index([continentId])
+//   @@index([createdAt])
+// }
+
+// model SubscriptionPlan {
+//   id            String         @id @default(cuid())
+//   name          String
+//   price         Float
+//   discount      Float
+//   accountType   UserTypeEnum
+//   metadata      Json?
+//   /// [PlanTier]
+//   tier          Json[]         @default([])
+//   createdAt     DateTime       @default(now())
+//   updatedAt     DateTime       @updatedAt
+//   ngnPrice      Float
+//   features      PlanFeature[]
+//   subscriptions Subscription[]
+//   transactions  Transaction[]
+
+//   @@index([createdAt])
+// }
+
+// model PlanFeature {
+//   id     String           @id @default(cuid())
+//   name   String
+//   /// [PlanFeature]        
+//   items  Json[]
+//   planId String
+//   plan   SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+// }
+
+// model Subscription {
+//   id           String           @id @default(cuid())
+//   userId       String
+//   planId       String
+//   isPrimary    Boolean          @default(false)
+//   isRecurring  Boolean          @default(false)
+//   startDate    DateTime
+//   endDate      DateTime
+//   billingCycle BillingCycleEnum @default(MONTHLY)
+//   status       SubStatusEnum    @default(ACTIVE)
+//   meta         Json?
+//   metadata     Json[]           @default([])
+//   createdAt    DateTime         @default(now())
+//   updatedAt    DateTime         @updatedAt
+//   plan         SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+//   user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+//   transactions Transaction[]
+
+//   @@index([createdAt])
+// }
+
+// model Notification {
+//   id          String        @id @default(cuid())
+//   title       String
+//   message     String
+//   meta        Json?
+//   isSeen      Boolean?      @default(false)
+//   isRead      Boolean?      @default(false)
+//   senderId    String?
+//   createdAt   DateTime?     @default(now())
+//   updatedAt   DateTime?     @updatedAt
+//   type        NotifTypeEnum @default(NONE)
+//   recipientId String?
+//   action      NotifAction   @default(NONE)
+//   postId      String?
+//   Post        Post?         @relation(fields: [postId], references: [id])
+//   recipient   User?         @relation("NotificationsReceived", fields: [recipientId], references: [id], onDelete: Cascade)
+//   sender      User?         @relation("NotificationsSent", fields: [senderId], references: [id], onDelete: Cascade)
+
+//   @@index([createdAt])
+// }
+
+// model PushNotification {
+//   id        String    @id @default(cuid())
+//   config    Json?
+//   userId    String?
+//   createdAt DateTime? @default(now())
+//   updatedAt DateTime? @updatedAt
+//   user      User?     @relation(fields: [userId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model Revenue {
+//   id        String   @id @default(cuid())
+//   userId    String   @map("user_id")
+//   amount    Float
+//   source    String
+//   isPaid    Boolean  @default(false)
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+//   @@index([createdAt])
+// }
+
+// model TipPackage {
+//   id              String            @id @default(cuid())
+//   name            String
+//   price           Float
+//   kind            TipKindEnum       @default(ALL)
+//   thumbnail       String?
+//   isActive        Boolean           @default(true)
+//   endDate         DateTime?
+//   createdAt       DateTime          @default(now())
+//   updatedAt       DateTime          @updatedAt
+//   userId          String?
+//   postTips        PostTip[]
+//   user            User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+//   transactions    Transaction[]
+//   transactionLogs TransactionLogs[]
+
+//   @@index([createdAt])
+// }
+
+// model PostTip {
+//   id          String     @id @default(cuid())
+//   senderId    String
+//   recipientId String
+//   postId      String?
+//   tipId       String
+//   createdAt   DateTime   @default(now())
+//   updatedAt   DateTime   @updatedAt
+//   isAnon      Boolean    @default(false)
+//   message     String?
+//   device      Json?
+//   meta        Json?
+//   referer     String?
+//   Post        Post?      @relation(fields: [postId], references: [id], onDelete: Cascade)
+//   recipient   User       @relation("PostTipsReceived", fields: [recipientId], references: [id], onDelete: Cascade)
+//   sender      User       @relation("PostTipsSent", fields: [senderId], references: [id], onDelete: Cascade)
+//   tip         TipPackage @relation(fields: [tipId], references: [id], onDelete: Cascade)
+//   rewardTip   RewardTip?
+// }
+
+// model RewardTip {
+//   id          String      @id @default(cuid())
+//   userId      String
+//   walletId    String
+//   amount      Float
+//   source      TipSource
+//   status      TipStatus   @default(PENDING)
+//   availableAt DateTime
+//   createdAt   DateTime    @default(now())
+//   updatedAt   DateTime    @updatedAt
+//   settledAt   DateTime?
+//   postTipId   String      @unique
+//   txnId       String      @unique
+//   postTip     PostTip     @relation(fields: [postTipId], references: [id], onDelete: Cascade)
+//   transaction Transaction @relation(fields: [txnId], references: [id])
+//   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+//   wallet      Wallet      @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+//   @@index([userId])
+//   @@index([availableAt])
+//   @@index([settledAt])
+// }
+
+// model CoinPackage {
+//   id              String            @id @default(cuid())
+//   name            String
+//   amount          Float
+//   price           Float
+//   bonus           Float
+//   isActive        Boolean           @default(true)
+//   endDate         DateTime?
+//   createdAt       DateTime          @default(now())
+//   updatedAt       DateTime          @updatedAt
+//   userId          String?
+//   ngnBonus        Float             @default(0)
+//   ngnPrice        Float             @default(0)
+//   user            User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+//   transactions    Transaction[]
+//   transactionLogs TransactionLogs[]
+
+//   @@index([createdAt])
+// }
+
+// model Wallet {
+//   id           String        @id @default(cuid())
+//   credit       Float         @default(0)
+//   bonus        Float         @default(0)
+//   userId       String        @unique @map("user_id")
+//   isLocked     Boolean?      @default(false)
+//   createdAt    DateTime      @default(now())
+//   updatedAt    DateTime      @updatedAt
+//   coins        Float         @default(0)
+//   tips         RewardTip[]
+//   transactions Transaction[]
+//   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+//   @@index([createdAt])
+// }
+
+// model Transaction {
+//   id             String            @id @default(cuid())
+//   txnRef         String
+//   exTxnRef       String?
+//   userId         String?           @map("user_id")
+//   senderId       String?
+//   recipientId    String?
+//   type           TxnTypeEnum
+//   amount         Float
+//   source         TxnSourceEnum
+//   description    String
+//   category       TxnCategoryEnum
+//   metadata       Json?
+//   gateway        TxnGatewayEnum
+//   currency       TxnCurrencyEnum
+//   status         TxnStatusEnum
+//   walletId       String?
+//   coinPackageId  String?
+//   achievementId  String?           @unique
+//   subscriptionId String?
+//   subPlanId      String?
+//   taskId         String?
+//   createdAt      DateTime          @default(now())
+//   updatedAt      DateTime          @updatedAt
+//   postId         String?
+//   tipPackageId   String?
+//   achievement    GameAchievement?
+//   rewardTip      RewardTip?
+//   package        CoinPackage?      @relation(fields: [coinPackageId], references: [id])
+//   Post           Post?             @relation(fields: [postId], references: [id])
+//   recipient      User?             @relation("Recipient", fields: [recipientId], references: [id])
+//   sender         User?             @relation("Sender", fields: [senderId], references: [id])
+//   subPlan        SubscriptionPlan? @relation(fields: [subPlanId], references: [id])
+//   subscription   Subscription?     @relation(fields: [subscriptionId], references: [id])
+//   task           Task?             @relation(fields: [taskId], references: [id])
+//   tip            TipPackage?       @relation(fields: [tipPackageId], references: [id])
+//   user           User?             @relation(fields: [userId], references: [id])
+//   wallet         Wallet?           @relation(fields: [walletId], references: [id])
+
+//   @@index([createdAt])
+// }
+
+// model TransactionLogs {
+//   id            String       @id @default(cuid())
+//   userId        String?      @map("user_id")
+//   coinPackageId String?
+//   meta          Json?
+//   createdAt     DateTime     @default(now())
+//   updatedAt     DateTime     @updatedAt
+//   tipPackageId  String?
+//   package       CoinPackage? @relation(fields: [coinPackageId], references: [id])
+//   tipPackage    TipPackage?  @relation(fields: [tipPackageId], references: [id])
+//   user          User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+//   @@index([createdAt])
+// }
+
+// model UserTaskSettings {
+//   id             String   @id @default(cuid())
+//   dailyBonusDate DateTime @default(now())
+//   adsBonusDate   DateTime @default(now())
+//   userId         String   @unique @map("user_id")
+//   createdAt      DateTime @default(now())
+//   updatedAt      DateTime @updatedAt
+//   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+//   @@index([createdAt])
+// }
+
+// model Game {
+//   id          String         @id @default(cuid())
+//   name        String
+//   description String
+//   thumbnail   String?
+//   userId      String?        @map("user_id")
+//   createdAt   DateTime       @default(now())
+//   updatedAt   DateTime       @updatedAt
+//   modes       GameMode[]
+//   user        User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+//   categories  GameCategory[]
+
+//   @@index([createdAt])
+// }
+
+// model GameCategory {
+//   id                   String                @id @default(cuid())
+//   name                 String
+//   description          String
+//   thumbnail            String?
+//   gameId               String
+//   userId               String?               @map("user_id")
+//   topics               String[]              @default([])
+//   createdAt            DateTime              @default(now())
+//   updatedAt            DateTime              @updatedAt
+//   gameAchievements     GameAchievement[]
+//   game                 Game                  @relation(fields: [gameId], references: [id], onDelete: Cascade)
+//   user                 User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+//   gameEnergy           GameEnergy[]
+//   gameMonthRewardStats GameMonthRewardStat[]
+//   gameMonthStats       GameMonthStat[]
+//   rooms                GameRoom[]
+//   gameYearStats        GameYearStat[]
+// }
+
+// model GameRoom {
+//   id          String       @id @default(cuid())
+//   name        String
+//   description String
+//   thumbnail   String?
+//   capacity    Int          @default(20)
+//   userId      String?      @map("user_id")
+//   catId       String       @map("cat_id")
+//   createdAt   DateTime     @default(now())
+//   updatedAt   DateTime     @updatedAt
+//   category    GameCategory @relation(fields: [catId], references: [id], onDelete: Cascade)
+//   user        User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+// }
+
+// model GameMonthStat {
+//   id               String            @id @default(cuid())
+//   catId            String
+//   year             Int
+//   month            Int
+//   playerId         String
+//   rank             Int               @default(0)
+//   score            Int               @default(0)
+//   numPlayed        Int               @default(0)
+//   createdAt        DateTime          @default(now())
+//   updatedAt        DateTime          @updatedAt
+//   mode             GameMode
+//   gameAchievements GameAchievement[]
+//   category         GameCategory      @relation(fields: [catId], references: [id], onDelete: Cascade)
+//   player           User              @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+//   @@unique([playerId, catId, year, month, mode])
+//   @@index([catId, year, month, mode])
+// }
+
+// model GameYearStat {
+//   id               String            @id @default(cuid())
+//   catId            String
+//   year             Int
+//   playerId         String
+//   rank             Int               @default(0)
+//   score            Int               @default(0)
+//   numPlayed        Int               @default(0)
+//   createdAt        DateTime          @default(now())
+//   updatedAt        DateTime          @updatedAt
+//   mode             GameMode
+//   gameAchievements GameAchievement[]
+//   category         GameCategory      @relation(fields: [catId], references: [id], onDelete: Cascade)
+//   player           User              @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+//   @@unique([playerId, catId, year, mode])
+//   @@index([catId, year, mode])
+// }
+
+// model GameMonthRewardStat {
+//   id                       String       @id @default(cuid())
+//   totalParticipants        Float
+//   rewardParticipants       Float
+//   coinsRewardParticipants  Float
+//   creditRewardParticipants Float
+//   bonusRewardParticipants  Float
+//   creditParticipantsScore  Float
+//   coinsParticipantsScore   Float
+//   bonusParticipantsScore   Float
+//   numPlayed                Float
+//   coinsSpent               Float
+//   bonusSpent               Float
+//   creditShareAmount        Float
+//   coinsShareAmount         Float
+//   bonusShareAmount         Float
+//   rewardParticipantsScore  Float
+//   totalScore               Float
+//   year                     Int
+//   month                    Int
+//   catId                    String
+//   createdAt                DateTime     @default(now())
+//   updatedAt                DateTime     @updatedAt
+//   mode                     GameMode
+//   category                 GameCategory @relation(fields: [catId], references: [id], onDelete: Cascade)
+// }
+
+// model GameMilestone {
+//   id           String            @id @default(cuid())
+//   name         MilestoneNameEnum
+//   reason       RewardReasonEnum
+//   thumbnail    String?
+//   milestone    Int
+//   reward       Int
+//   rewardType   RewardTypeEnum
+//   userId       String?           @map("user_id")
+//   createdAt    DateTime          @default(now())
+//   updatedAt    DateTime          @updatedAt
+//   achievements GameAchievement[]
+//   user         User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+// }
+
+// model GameAchievement {
+//   id          String           @id @default(cuid())
+//   reason      RewardReasonEnum
+//   description String
+//   thumbnail   String?
+//   metadata    Json?
+//   amount      Float
+//   rewardType  RewardTypeEnum
+//   txnId       String?          @unique
+//   catId       String?
+//   playerId    String
+//   monthStatId String?          @map("month_stat_id")
+//   yearStatId  String?          @map("year_stat_id")
+//   milestoneId String?
+//   createdAt   DateTime         @default(now())
+//   updatedAt   DateTime         @updatedAt
+//   mode        GameMode?
+//   category    GameCategory?    @relation(fields: [catId], references: [id], onDelete: Cascade)
+//   milestone   GameMilestone?   @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+//   monthStat   GameMonthStat?   @relation(fields: [monthStatId], references: [id])
+//   player      User             @relation(fields: [playerId], references: [id], onDelete: Cascade)
+//   transaction Transaction?     @relation(fields: [txnId], references: [id], onDelete: Cascade)
+//   yearStat    GameYearStat?    @relation(fields: [yearStatId], references: [id])
+// }
+
+// model GameEnergy {
+//   id        String       @id @default(cuid())
+//   amount    Int
+//   gauge     Int
+//   turbo     Int
+//   playerId  String
+//   catId     String       @map("cat_id")
+//   createdAt DateTime     @default(now())
+//   updatedAt DateTime     @updatedAt
+//   category  GameCategory @relation(fields: [catId], references: [id])
+//   player    User         @relation(fields: [playerId], references: [id], onDelete: Cascade)
+// }
+
+// model Task {
+//   id           String         @id @default(cuid())
+//   reward       Float
+//   rewardType   RewardTypeEnum
+//   title        String
+//   description  String
+//   url          String
+//   code         String?
+//   userId       String
+//   createdAt    DateTime       @default(now())
+//   updatedAt    DateTime       @updatedAt
+//   user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+//   transactions Transaction[]
+//   performedBy  UserTask[]
+// }
+
+// model UserTask {
+//   id        String     @id @default(cuid())
+//   userId    String
+//   taskId    String
+//   status    TaskStatus @default(COMPLETED)
+//   createdAt DateTime   @default(now())
+//   updatedAt DateTime   @updatedAt
+//   task      Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+//   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+// }
+
+// model CryptoAddress {
+//   id        String     @id @default(cuid())
+//   name      CryptoName
+//   rate      Float
+//   address   String
+//   userId    String?
+//   metadata  Json?
+//   createdAt DateTime   @default(now())
+//   updatedAt DateTime   @updatedAt
+//   user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+// }
+
+// model WalletAddress {
+//   id        String     @id @default(cuid())
+//   name      CryptoName
+//   address   String
+//   isPrimary Boolean    @default(false)
+//   userId    String     @unique
+//   metadata  Json[]     @default([])
+//   createdAt DateTime   @default(now())
+//   updatedAt DateTime   @updatedAt
+//   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+// }
+
+// model Referral {
+//   id         String   @id @default(cuid())
+//   referrerId String
+//   refereeId  String
+//   isRewarded Boolean  @default(false)
+//   createdAt  DateTime @default(now())
+//   updatedAt  DateTime @updatedAt
+//   amount     Float    @default(0)
+//   referee    User     @relation("ReferralsReceived", fields: [refereeId], references: [id], onDelete: Cascade)
+//   referrer   User     @relation("ReferralsSent", fields: [referrerId], references: [id], onDelete: Cascade)
+
+//   @@unique([referrerId, refereeId])
+// }
+
+// enum CallStatus {
+//   RINGING
+//   CONNECTED
+//   ENDED
+//   MISSED
+// }
+
+// enum StoryType {
+//   IMAGE
+//   VIDEO
+//   TEXT
+// }
+
+// enum UserStatus {
+//   ACTIVE
+//   BANNED
+//   SUSPENDED
+//   PRIVATE
+//   DEACTIVATED
+// }
+
+// enum UserTypeEnum {
+//   PERSONAL
+//   BUSINESS
+//   GOVERNMENT
+// }
+
+// enum BillingCycleEnum {
+//   MONTHLY
+//   YEARLY
+// }
+
+// enum SubStatusEnum {
+//   ACTIVE
+//   CANCELLED
+//   EXPIRED
+//   TRIAL
+//   PAYMENT_ERROR
+//   PAUSED
+//   REVIEW
+// }
+
+// enum CryptoName {
+//   TON
+// }
+
+// enum CoinStatus {
+//   FAILED
+//   PAID
+//   REFUNDED
+//   ERROR
+// }
+
+// enum TaskStatus {
+//   PENDING
+//   COMPLETED
+//   FAILED
+// }
+
+// enum GameMode {
+//   SINGLE
+//   MULTI
+// }
+
+// enum RewardReasonEnum {
+//   FIVE_WINNING_STREAK
+//   TEN_WINNING_STREAK
+//   TWENTY_WINNING_STREAK
+//   FIFTY_WINNING_STREAK
+//   HUNDRED_WINNING_STREAK
+//   TOP_OF_THE_WEEK
+//   FIRST_RUNNER_UP_OF_THE_WEEK
+//   SECOND_RUNNER_UP_OF_THE_WEEK
+//   TOP_OF_THE_MONTH
+//   FIRST_RUNNER_UP_OF_THE_MONTH
+//   SECOND_RUNNER_UP_OF_THE_MONTH
+//   THREE_MONTHS_WINNING_STREAK
+//   SIX_MONTHS_WINNING_STREAK
+//   NINE_MONTHS_WINNING_STREAK
+//   TWELVE_MONTHS_WINNING_STREAK
+//   TOP_OF_THE_YEAR
+//   FIRST_RUNNER_UP_OF_THE_YEAR
+//   SECOND_RUNNER_UP_OF_THE_YEAR
+//   CHAMP_OF_THE_YEAR
+//   GRAND_CHAMP_OF_THE_YEAR
+// }
+
+// enum RewardTypeEnum {
+//   COINS
+//   BONUS
+//   CREDIT
+// }
+
+// enum MilestoneNameEnum {
+//   ROOM_STREAK
+//   WEEK
+//   YEAR
+//   MONTH
+//   CHAMP
+//   GRAND_CHAMP
+//   MONTH_STREAK
+// }
+
+// enum RevenueSourceEnum {
+//   ADS_REVENUE
+//   GAME_REVENUE
+//   CONTEST_REVENUE
+// }
+
+// enum TxnCurrencyEnum {
+//   TZX
+//   TON
+//   XTR
+//   USDT
+//   USD
+//   NGN
+//   FIAT
+//   COINS
+// }
+
+// enum TxnTypeEnum {
+//   DEBIT
+//   CREDIT
+// }
+
+// enum TxnSourceEnum {
+//   COINS
+//   BONUS
+//   COINS_BONUS
+//   STARS
+//   CREDIT
+//   FIAT
+//   CRYPTO
+//   VIRTUAL
+// }
+
+// enum TxnCategoryEnum {
+//   GAME_DEDUCTION
+//   GAME_BONUS
+//   GAME_REVENUE
+//   COIN_PURCHASE
+//   COIN_TRANSFER
+//   COIN_RECEIVED
+//   COIN_WITHDRAWAL
+//   GIFT_PURCHASE
+//   GIFT_SENT
+//   GIFT_RECEIVED
+//   APP_SUBSCRIPTION
+//   GAME_SUBSCRIPTION
+//   GAME_WEEKLY_REWARD
+//   GAME_MONTHLY_REWARD
+//   GAME_YEARLY_REWARD
+//   DAILY_BONUS
+//   APP_TASK
+//   QUIZ_POST
+//   POST_TIP
+//   SPARK_TIP
+// }
+
+// enum TxnGatewayEnum {
+//   WALLET
+//   FLUTTERWAVE
+//   PAYSTACK
+//   CRYPTO
+//   VIRTUAL
+//   SMART_GLOCAL
+//   UNLIMINT
+//   STARS
+// }
+
+// enum TxnStatusEnum {
+//   COMPLETED
+//   PROCESSING
+//   FAILED
+//   REFUNDED
+//   PENDING
+// }
+
+// enum UserRoleEnum {
+//   SUPER
+//   ADMIN
+//   USER
+// }
+
+// enum PostScopeEnum {
+//   ANYONE
+//   VERIFIED
+//   FOLLOWED
+//   MENTIONS
+//   COUNTRY
+//   CONTINENT
+// }
+
+// enum ScopeEnum {
+//   NONE
+//   COUNTRY
+//   CONTINENT
+// }
+
+// enum PostKindEnum {
+//   ROOT
+//   THREAD
+//   REPLY
+//   REPOST
+//   QUOTE
+// }
+
+// enum PostTypeEnum {
+//   CONTENT
+//   POLL
+//   QUIZ
+// }
+
+// enum PostStatus {
+//   PUBLISHED
+//   DRAFT
+//   SCHEDULED
+//   REPORTED
+//   DELETED
+// }
+
+// enum NotifTypeEnum {
+//   USER
+//   POST
+//   NONE
+// }
+
+// enum NotifAction {
+//   NONE
+//   LIKE
+//   COMMENT
+//   QUOTE
+//   REPOST
+// }
+
+// enum FollowAction {
+//   FOLLOW
+//   UNFOLLOW
+// }
+
+// enum BlockAction {
+//   BLOCK
+//   UNBLOCK
+// }
+
+// enum MuteAction {
+//   MUTE
+//   UNMUTE
+// }
+
+// enum ReportReason {
+//   HATE
+//   ABUSE
+//   VIOLENCE
+//   CHILD_SAFETY
+//   PRIVACY
+//   SPAM
+//   SELF_HARM
+//   SENSITIVE_MEDIA
+//   IMPERSONATION
+//   VIOLENT_ENTITIES
+//   COPYRIGHT
+// }
+
+// enum ReportStatus {
+//   PENDING
+//   REVIEWED
+//   ACTIONED
+//   DISMISSED
+// }
+
+// enum PostContext {
+//   PROFILE
+//   COMMUNITY
+//   GLOBAL
+// }
+
+// enum FollowStatus {
+//   PENDING
+//   ACCEPTED
+//   REJECTED
+// }
+
+// enum PostAction {
+//   DELETE
+//   RESTORE
+//   HIDDEN
+//   UNHIDDEN
+// }
+
+// enum PostMediaAction {
+//   VIEW
+//   WATCH
+//   DOWNLOAD
+// }
+
+// enum PostMediaKind {
+//   IMAGE
+//   VIDEO
+// }
+
+// enum PostMetricSource {
+//   FORYOU
+//   FOLLOWING
+//   FRIENDS
+//   LATEST
+//   SEARCH
+//   TRENDING
+// }
+
+// enum PostMetricAction {
+//   CONTENT
+//   FOLLOW
+//   PROFILE
+//   OPTION
+//   REPOST
+//   REPLY
+//   TIP
+// }
+
+// enum TipKindEnum {
+//   ALL
+//   POST
+//   SPARK
+//   CHAT
+//   LIVE
+// }
+
+// enum TipSource {
+//   POST
+//   SPARK
+//   LIVE
+//   CHAT
+// }
+
+// enum TipStatus {
+//   PENDING
+//   SETTLED
+//   EXPIRED
+//   REFUNDED
+// }

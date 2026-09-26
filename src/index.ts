@@ -1,65 +1,81 @@
-import 'dotenv/config'
-import * as express from 'express';
+import "dotenv/config";
+import * as express from "express";
 import http from "http";
-import app from './app';
-import socketIo from './socketIo';
-import cors from "cors"
-import { startBreeJob } from './bree';
+import app from "./app";
+import socketIo from "./socketIo";
+import cors from "cors";
+import { startBreeJob } from "./bree";
 // import { telegramBotListener } from './services/telegram-bot';
-import helmet from 'helmet';
-import cookieParser from "cookie-parser"
-import v1Routes from './routes/v1';
-import { startMongodb } from './db/mongodb';
-import gameSocketIo from './socketIo/gameSocketIo';
-import convoSocketIo from './socketIo/convoSocketIo';
+import helmet from "helmet";
+import cookieParser from "cookie-parser";
+import v1Routes from "./routes/v1";
+import { startMongodb } from "./db/mongodb";
+import gameSocketIo from "./socketIo/gameSocketIo";
+import convoSocketIo from "./socketIo/convoSocketIo";
+import { bigintConverterMiddleware } from "./middleware";
+import { startCronJobs } from "./cron";
 
 const port = process.env.PORT || 8000;
 
 // cors
-app.use(cors({ origin: [
-  'http://localhost:3000', 
-  "https://v5wgzfbw-3000.uks1.devtunnels.ms"
-], credentials: true,  }));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000",
+      "https://v5wgzfbw-3000.uks1.devtunnels.ms",
+    ],
+    credentials: true,
+  })
+);
 // Middleware
 app.use(express.json());
-app.use(express.urlencoded({ extended: true, }));
+
+app.use(express.urlencoded({ extended: true }));
 
 const server = http.createServer(app);
 // ip lookup
-app.set('trust proxy', true);
+app.set("trust proxy", true);
 
+// app.use(bigintConverterMiddleware())
 // set proper headers
 app.use(helmet());
 
 // cookies
-app.use(cookieParser())
-
-// start mongo db
-
-startMongodb()
+app.use(cookieParser());
 
 // initialize socket.io
-const io = socketIo(server)
-// initialize game namespace 
-gameSocketIo(io)
+const io = socketIo(server);
+// initialize game namespace
+gameSocketIo(io);
 // initialize conversation(chat) namespace
-convoSocketIo(io)
+convoSocketIo(io);
 // telegramBotListener()
-// start breeJob
-startBreeJob()
 // Routes
-app.get('/', (req: express.Request, res: express.Response) => {
-  res.send('Hello, server is up & running!');
+app.get("/", (req: express.Request, res: express.Response) => {
+  res.send("Hello, server is up & running!");
 });
 
-app.use("/api/v1/", v1Routes)
+app.use("/api/v1/", bigintConverterMiddleware, v1Routes);
 
 server.listen(port, () => {
-    console.log(`listening on port: ${port}`);
+  console.log(`listening on port: ${port}`);
+  // start mongo db
+  startMongodb();
+  // start breeJob
+  // startBreeJob();
+  // start cron jobs
+  startCronJobs()
 });
 
+process.on("uncaughtException", (err) => {
+  console.log("UNCAUGHT EXCEPTION! 💥 Shutting down...");
+  console.log(err.name, err.message);
+});
 
-
+process.on("unhandledRejection", (err: any) => {
+  console.log("UNHANDLED REJECTION! 💥 Shutting down...");
+  console.log(err.name, err.message);
+});
 
 
 

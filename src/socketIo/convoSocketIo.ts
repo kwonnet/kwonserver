@@ -92,7 +92,8 @@ const convoSocketIo = (
      * These are sent when no session exists yet between two devices.
      */
     socket.on("session:init", async (payload) => {
-      // payload.envelopes: array of envelopes targeted per device
+      try {
+        // payload.envelopes: array of envelopes targeted per device
       const envelopes: SessionEvelope[] = payload.envelopes;
       for (const env of envelopes || []) {
         // Upsert session entry between devices
@@ -126,6 +127,9 @@ const convoSocketIo = (
         });
 
       }
+      } catch (error: any) {
+        logger.error(`init Conversation io error: ${error?.message}`)
+      }
     });
     /**
      * Acknowledge that the recipient consumed the bootstrap and established session.
@@ -138,7 +142,8 @@ const convoSocketIo = (
         toDeviceId,
         toUserId,
       }: SessionAckBody) => {
-        await SessionModel.updateOne(
+        try {
+          await SessionModel.updateOne(
           {
             fromUserId,
             fromDeviceId,
@@ -147,6 +152,9 @@ const convoSocketIo = (
           },
           { $set: { acknowledgedAt: new Date() } }
         );
+        } catch (error: any) {
+          logger.error(`ack Conversation io error: ${error?.message}`)
+        }
       }
     );
 
@@ -227,8 +235,8 @@ const convoSocketIo = (
               ok: true,
               messageId: msg._id?.toString(),
             });
-          } catch (err) {
-            console.error("message:send error", err);
+          } catch (error: any) {
+            console.error("message:send error", error?.message);
             socket.emit("message:sent", {
               ok: false,
               error: "Message send failed",
@@ -247,8 +255,8 @@ const convoSocketIo = (
         if(result){
           io.to(`convo:${args.convoId}`).emit("message:receipt", {...args, seen: result.seen, read: result.read})
         }
-      } catch (error) {
-        
+      } catch (error: any) {
+        console.error("message:send error", error?.message);
       }
     })
 

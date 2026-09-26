@@ -152,11 +152,11 @@ const syncMonthlyPlayersData = async () => {
 (async () => {
   try {
     await retryExecution(syncMonthlyPlayersData, 3);
-    logger.info("Syncing Redis To Prisma Mothly Game Category stats completed successfully.");
+    logger.info("Syncing Redis To Prisma Monthly Game Category stats completed successfully.");
     process.exit(0);
   } catch (error) {
-    logger.info("Error: Syncing Redis To Prisma Mothly Game Category stats failed after retries.");
-    process.exit(1);
+    logger.info("Error: Syncing Redis To Prisma Monthly Game Category stats failed after retries.");
+    process.exit(0);
   }
 })();
 

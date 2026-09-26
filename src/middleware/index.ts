@@ -1,11 +1,15 @@
 import { Request, Response, NextFunction } from "express";
 import { decryptString, jwtVerify } from "@/utils";
 import { encrytionKey } from "@/config";
-import { getAuthorizationToken, getReqInfo, removeProperty } from "@/utils/helpers";
+import {
+  getAuthorizationToken,
+  getReqInfo,
+  removeProperty,
+} from "@/utils/helpers";
 import v1Routes from "@/routes/v1";
 import logger from "@/logger";
 import { SessionUser } from "@/types/user";
-import { getAuthUser } from "@/services/v1/utils";
+import { serializeBigInts, getAuthUser } from "@/services/v1/utils";
 
 export const versionMiddleware = (
   req: Request,
@@ -20,10 +24,18 @@ export const versionMiddleware = (
 };
 
 export const authMiddleware =
-  (params?: { required?: boolean; checkPermission?: boolean, checkPermWithEmail?: boolean }) =>
+  (params?: {
+    required?: boolean;
+    checkPermission?: boolean;
+    checkPermWithEmail?: boolean;
+  }) =>
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { required = true, checkPermission = false, checkPermWithEmail = false } = params || {};
+      const {
+        required = true,
+        checkPermission = false,
+        checkPermWithEmail = false,
+      } = params || {};
 
       const authToken = getAuthorizationToken(req);
 
@@ -44,14 +56,16 @@ export const authMiddleware =
         return res.status(401).send("Invalid auth token, please try again");
       // decrypt the token
       const user = decryptString<SessionUser>(payload.data, encrytionKey);
-      logger.info(user, "Auth Middleware ");
+      // logger.info(user, "Auth Middleware ");
       if (checkPermission || checkPermWithEmail) {
         const result = await getAuthUser(user.id, { includeEmail: true });
 
         if (typeof result.data === "string" || result.status !== 200) {
           return res.status(result.status).send(result.data);
         }
-        const _user = !checkPermWithEmail ? removeProperty(result.data, "email") : result.data;
+        const _user = !checkPermWithEmail
+          ? removeProperty(result.data, "email")
+          : result.data;
         req.user = _user;
       } else {
         req.user = user;
@@ -72,6 +86,8 @@ export const detectBotMiddleware =
     try {
       const reqInfo = await getReqInfo(req);
 
+      // console.log("reqInfo: ", reqInfo);
+
       if (!required && reqInfo.isBot) return next();
 
       if (reqInfo.isBot) {
@@ -85,3 +101,18 @@ export const detectBotMiddleware =
         .send("Failed to process request, please try again");
     }
   };
+
+  export function bigintConverterMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const originalJson = res.json.bind(res);
+
+  res.json = (body: any) => {
+    const transformed = serializeBigInts(body);
+    return originalJson(transformed);
+  };
+
+  next();
+}

@@ -164,8 +164,8 @@ export const loginUser = async (body: { email: string; password: string }) => {
       data: user,
       status: 200,
     };
-  } catch (error) {
-    console.log(error)
+  } catch (error: any) {
+    console.log(error?.message)
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -175,7 +175,7 @@ export const handleReferral = async (params: {
   refereeId: string;
 }) => {
   try {
-    console.log("handle referral params", params);
+    // console.log("handle referral params", params);
     // Check if the user has a record in the Referral model
     const [referee, referrer] = await prisma.$transaction([
       prisma.referral.findFirst({

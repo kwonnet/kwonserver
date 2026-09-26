@@ -1,20 +1,37 @@
 import { FeedPost } from "@/types";
 import { UserPublic, AuthUser } from "@/types/user";
 import prisma from "@/db";
-import { PostScopeEnum, PostTypeEnum, ScopeEnum, SubStatusEnum, User, UserStatus } from "@prisma/client";
+import {
+  PostScopeEnum,
+  PostTypeEnum,
+  ScopeEnum,
+  SubStatusEnum,
+  User,
+  UserStatus,
+} from "@prisma/client";
 import { AppError } from "@/utils/helpers";
 
-
-export const getUserStatusMessage = (user: User, isPersonal: boolean = false) => {
+export const getUserStatusMessage = (
+  user: User,
+  isPersonal: boolean = false
+) => {
   const arr = user.metadata[user?.metadata?.length - 1] as {
     reason: string;
     createdAt: string;
   };
   if (user.status === UserStatus.SUSPENDED) {
-    return  `This account is temporarily suspended${arr?.reason ? ` for ${arr.reason}` : `${isPersonal ? ". You can appeal or contact support." : ""}`}`;
+    return `This account is temporarily suspended${
+      arr?.reason
+        ? ` for ${arr.reason}`
+        : `${isPersonal ? ". You can appeal or contact support." : ""}`
+    }`;
   }
   if (user.status === UserStatus.BANNED) {
-    return `This account is banned permanently${arr?.reason ? ` for ${arr.reason}` : `${isPersonal ? ". You can appeal or contact support." : ""}`}`
+    return `This account is banned permanently${
+      arr?.reason
+        ? ` for ${arr.reason}`
+        : `${isPersonal ? ". You can appeal or contact support." : ""}`
+    }`;
   }
   if (user.status === UserStatus.PRIVATE) {
     return `This account is private`;
@@ -22,40 +39,38 @@ export const getUserStatusMessage = (user: User, isPersonal: boolean = false) =>
   if (user.status === UserStatus.DEACTIVATED) {
     return `This account is deactivated`;
   }
-  return ""
-  
+  return "";
 };
-export const composeAuthUser = (user: any, includeEmail: boolean = false): AuthUser => {
-      const subscription = user?.subscriptions[0];
-      const statuses = [
-        UserStatus.ACTIVE,
-        UserStatus.PRIVATE,
-      ] as string[];
-      return {
-        id: user.id,
-        avatar: user.avatar,
-        username: user.username,
-        name: user.name,
-        role: user.role,
-        userType: user.userType,
-        bio: user?.bio,
-        createdAt: user.createdAt,
-        country: user?.country,
-        ...(includeEmail && { email: user?.email}),
-        meta: {
-          ...user.meta,
-          isPro: !!subscription,
-          isLegacy: user.accountVerified,
-          isActive: statuses.includes(String(user?.status)),
-          isPrivate: user?.status === UserStatus.PRIVATE,
-          message: getUserStatusMessage(user),
-          accountStatus: user?.status,
-          tier: 1,
-          level: 1
-        },
-
-      };
-}
+export const composeAuthUser = (
+  user: any,
+  includeEmail: boolean = false
+): AuthUser => {
+  const subscription = user?.subscriptions[0];
+  const statuses = [UserStatus.ACTIVE, UserStatus.PRIVATE] as string[];
+  return {
+    id: user.id,
+    avatar: user.avatar,
+    username: user.username,
+    name: user.name,
+    role: user.role,
+    userType: user.userType,
+    bio: user?.bio,
+    createdAt: user.createdAt,
+    country: user?.country,
+    ...(includeEmail && { email: user?.email }),
+    meta: {
+      ...user.meta,
+      isPro: !!subscription,
+      isLegacy: user.accountVerified,
+      isActive: statuses.includes(String(user?.status)),
+      isPrivate: user?.status === UserStatus.PRIVATE,
+      message: getUserStatusMessage(user),
+      accountStatus: user?.status,
+      tier: 1,
+      level: 1,
+    },
+  };
+};
 
 export const composeUserConnection = (user: any): UserPublic => {
   const _user = composeAuthUser(user);
@@ -72,8 +87,7 @@ export const composeUserConnection = (user: any): UserPublic => {
     },
     mutualFollowers: user.mutualFollowers || [],
   };
-}
-
+};
 
 export const composePostAuthor = (user: any): UserPublic => {
   const _user = composeAuthUser(user);
@@ -81,38 +95,81 @@ export const composePostAuthor = (user: any): UserPublic => {
     ..._user,
     conn: {
       // whether the current user follows the author
-      isFollowedByUser: user?.followers?.length > 0, 
+      isFollowedByUser: user?.followers?.length > 0,
 
       // whether the author is following the user
-      isFollowingUser: user?.following?.length > 0, 
+      isFollowingUser: user?.following?.length > 0,
 
       followerCount: user.followerCount || 0,
 
       followingCount: user.followingCount || 0,
 
       followingStatus: user?.following[0]?.status,
-      
+
       followedStatus: user?.followers[0]?.status,
 
-      mutualCount:  0,
+      mutualCount: 0,
     },
     mutualFollowers: [],
   };
-  
 };
 
-export function convertBigInts(obj: any) {
-  if (!obj || typeof obj !== "object") return obj;
-  for (const key in obj) {
-    if (typeof obj[key] === "bigint") {
-      obj[key] = Number(obj[key]);
-    } else if (typeof obj[key] === "object") {
-      obj[key] = convertBigInts(obj[key]);
-    }
+export function serializeBigInts<T>(value: T): T {
+  if (typeof value === "bigint") {
+    return Number(value) as T;
   }
-  return obj;
+
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(v => serializeBigInts(v)) as T;
+  }
+
+  const result: any = {};
+  for (const key of Object.getOwnPropertyNames(value)) {
+    result[key] = serializeBigInts((value as any)[key]);
+  }
+
+  return result as T;
 }
 
+
+
+// export function convertBigInts<T>(obj: T): T {
+//   if (obj === null || typeof obj !== "object") return obj;
+
+//   // We cast to any because we mutate the object, but return T
+//   const result: any = Array.isArray(obj) ? [...(obj as any)] : { ...(obj as any) };
+
+//   for (const key in result) {
+//     const value = result[key];
+//     if (typeof value === "bigint") {
+//       result[key] = Number(value);
+//     } else if (value !== null && typeof value === "object") {
+//       result[key] = convertBigInts(value);
+//     }
+//   }
+
+//   return result as T;
+// }
+
+// export function convertBigInts(obj: any) {
+//   if (!obj || typeof obj !== "object") return obj;
+//   for (const key in obj) {
+//     if (typeof obj[key] === "bigint") {
+//       obj[key] = Number(obj[key]);
+//     } else if (typeof obj[key] === "object") {
+//       obj[key] = convertBigInts(obj[key]);
+//     }
+//   }
+//   return obj;
+// }
 
 export function checkExpiryTime(targetDate: Date | string) {
   const now = new Date().getTime();
@@ -122,10 +179,12 @@ export function checkExpiryTime(targetDate: Date | string) {
   return difference <= 0 ? true : false;
 }
 
-
-export function checkPollPermissions(post: FeedPost, user?: AuthUser): FeedPost {
+export function checkPollPermissions(
+  post: FeedPost,
+  user?: AuthUser
+): FeedPost {
   const isPoll = post.type === PostTypeEnum.POLL;
-  
+
   const poll = post.poll;
 
   let updatedPost = { ...post };
@@ -179,7 +238,10 @@ export function checkPollPermissions(post: FeedPost, user?: AuthUser): FeedPost 
   };
 }
 
-export function checkQuizPermissions(post: FeedPost, user?: AuthUser): FeedPost {
+export function checkQuizPermissions(
+  post: FeedPost,
+  user?: AuthUser
+): FeedPost {
   const isQuiz = post.type === PostTypeEnum.QUIZ;
   const quiz = post.quiz;
 
@@ -230,20 +292,21 @@ export function checkReplyPermissions(
   post: FeedPost,
   user?: AuthUser
 ): FeedPost {
-
   const checkCanReply = (_post: FeedPost): FeedPost => {
-    
-    const rootPost = _post?.root
+    const rootPost = _post?.root;
 
-    const canHideReply = rootPost ? rootPost?.userId === user?.id : _post.userId === user?.id
+    const canHideReply = rootPost
+      ? rootPost?.userId === user?.id
+      : _post.userId === user?.id;
 
     const scope = rootPost?.scope || _post.scope;
 
     let canReply = false;
 
-    const countries = (rootPost?.replyCountries || _post.replyCountries) ?? []
+    const countries = (rootPost?.replyCountries || _post.replyCountries) ?? [];
 
-    const continents = (rootPost?.replyContinents || _post.replyContinents) ?? []
+    const continents =
+      (rootPost?.replyContinents || _post.replyContinents) ?? [];
 
     if (_post.userId === user?.id) {
       canReply = true;
@@ -259,7 +322,7 @@ export function checkReplyPermissions(
 
         case PostScopeEnum.FOLLOWED:
           // check this
-          canReply = _post?.author?.conn?.isFollowingUser
+          canReply = _post?.author?.conn?.isFollowingUser;
           break;
 
         case PostScopeEnum.MENTIONS:
@@ -270,29 +333,36 @@ export function checkReplyPermissions(
           break;
 
         case PostScopeEnum.COUNTRY:
-          console.log("countries ", countries)
+          // console.log("countries ", countries);
           const matchCountry = countries?.some(
             (c) => c.countryId === user?.country?.id
           );
-          canReply = matchCountry //!!matchCountry;
+          canReply = matchCountry; //!!matchCountry;
           break;
 
         case PostScopeEnum.CONTINENT:
           const matchContinent = continents?.some(
             (c) => c.continentId === user?.country?.continentId
           );
-          canReply = matchContinent //!!matchContinent
+          canReply = matchContinent; //!!matchContinent
           break;
-    
       }
     }
-    const actions = _post?.actions
-    
-    if(actions?.hasBlockedByRootUser || actions?.isRootBlockedByUser || actions?.hasBlockedUser || actions?.isBlockedByUser ){ 
-      canReply = false
-    } 
-    return { ..._post, scope, actions: { ..._post.actions, canReply, canHideReply } };
+    const actions = _post?.actions;
 
+    if (
+      actions?.hasBlockedByRootUser ||
+      actions?.isRootBlockedByUser ||
+      actions?.hasBlockedUser ||
+      actions?.isBlockedByUser
+    ) {
+      canReply = false;
+    }
+    return {
+      ..._post,
+      scope,
+      actions: { ..._post.actions, canReply, canHideReply },
+    };
   };
 
   return {
@@ -303,7 +373,7 @@ export function checkReplyPermissions(
   };
 }
 
-export const transformPrismaTagMentions = ( post: any ) => {
+export const transformPrismaTagMentions = (post: any) => {
   const {
     parentChain = [],
     thread = [],
@@ -317,8 +387,16 @@ export const transformPrismaTagMentions = ( post: any ) => {
   // First transform the core post
   let transformed = {
     ...rest,
-    tagUsers: post.tagUsers.map((u: any) => ({...u.user, followerCount: u.user._count.followers, followingCount: u.user._count.following})),
-    mentions: post.mentions.map((m: any) => ({...m.user, followerCount: m.user._count.followers, followingCount: m.user._count.following })),
+    tagUsers: post.tagUsers.map((u: any) => ({
+      ...u.user,
+      followerCount: u.user._count.followers,
+      followingCount: u.user._count.following,
+    })),
+    mentions: post.mentions.map((m: any) => ({
+      ...m.user,
+      followerCount: m.user._count.followers,
+      followingCount: m.user._count.following,
+    })),
   };
 
   if (transformed?.parent) {
@@ -332,9 +410,7 @@ export const transformPrismaTagMentions = ( post: any ) => {
   }
 
   if (thread.length > 0) {
-    transformed.thread = thread.map((p: any) =>
-      transformPrismaTagMentions(p)
-    );
+    transformed.thread = thread.map((p: any) => transformPrismaTagMentions(p));
   }
 
   if (replies.length > 0) {
@@ -345,10 +421,7 @@ export const transformPrismaTagMentions = ( post: any ) => {
   return transformed;
 };
 
-export const transformPost = (
-  post: any,
-  user?: AuthUser
-): FeedPost => {
+export const transformPost = (post: any, user?: AuthUser): FeedPost => {
   const {
     likes = [],
     bookmarks = [],
@@ -400,15 +473,11 @@ export const transformPost = (
   }
 
   if (thread.length > 0) {
-    transformed.thread = thread.map((p: any) =>
-      transformPost(p, user)
-    );
+    transformed.thread = thread.map((p: any) => transformPost(p, user));
   }
 
   if (replies.length > 0) {
-    transformed.replies = replies.map((p: any) =>
-      transformPost(p, user)
-    );
+    transformed.replies = replies.map((p: any) => transformPost(p, user));
   }
 
   // Apply permission checks to the whole transformed post
@@ -418,17 +487,23 @@ export const transformPost = (
 
   // return transformed;
   // return checkPollPermissions(checkQuizPermissions(transformed,user),user)
-  return checkReplyPermissions(checkQuizPermissions(checkPollPermissions(transformed,user),user),user)
+  return checkReplyPermissions(
+    checkQuizPermissions(checkPollPermissions(transformed, user), user),
+    user
+  );
 };
 
 /**
- * 
+ *
  * @param userId the user Id to find
- * @param params 
- * @returns 
+ * @param params
+ * @returns
  */
-export const getAuthUser = async (userId?: string, params?: { includeEmail?: boolean; includeAny?: boolean}) => {
-  const { includeAny, includeEmail } = params || {}
+export const getAuthUser = async (
+  userId?: string,
+  params?: { includeEmail?: boolean; includeAny?: boolean }
+) => {
+  const { includeAny, includeEmail } = params || {};
   try {
     const user = await prisma.user.findFirst({
       where: { id: userId },
@@ -458,8 +533,8 @@ export const getAuthUser = async (userId?: string, params?: { includeEmail?: boo
     });
     if (!user) return { data: "User not found", status: 404 };
     // check account status
-    if(!includeAny){
-      const statuses = [UserStatus.BANNED, UserStatus.SUSPENDED] as string[]
+    if (!includeAny) {
+      const statuses = [UserStatus.BANNED, UserStatus.SUSPENDED] as string[];
       if (statuses.includes(user.status)) {
         return { data: getUserStatusMessage(user), status: 401 };
       }
@@ -475,13 +550,16 @@ export const getAuthUser = async (userId?: string, params?: { includeEmail?: boo
 };
 
 /**
- * 
+ *
  * @param userId the user Id to find
- * @param params 
- * @returns 
+ * @param params
+ * @returns
  */
-export const getPublicUser = async (userId?: string, params?: { includeEmail?: boolean;}) => {
-  const { includeEmail } = params || {}
+export const getPublicUser = async (
+  userId?: string,
+  params?: { includeEmail?: boolean }
+) => {
+  const { includeEmail } = params || {};
   try {
     const user = await prisma.user.findFirst({
       where: { id: userId },
@@ -509,15 +587,13 @@ export const getPublicUser = async (userId?: string, params?: { includeEmail?: b
         },
       },
     });
-    if (!user) throw new AppError("User not found", 404)
+    if (!user) throw new AppError("User not found", 404);
     // response
-    return composeAuthUser(user, includeEmail)
+    return composeAuthUser(user, includeEmail);
   } catch (error) {
-    throw error
+    throw error;
   }
 };
-
-
 
 export const getAnalyticsDuration = (duration?: string) => {
   const date = new Date();

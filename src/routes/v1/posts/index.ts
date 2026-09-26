@@ -1,13 +1,17 @@
 
 import express from "express";
 import { authMiddleware } from "@/middleware";
-import { createPostClickController, createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostTipController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostAnalyticsController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, getTagUsersOrMentionsController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController } from "@/controllers/v1/posts";
+import { createPostClickController, createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostTipController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostAnalyticsController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, getTagUsersOrMentionsController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController, getRecommendationsController } from "@/controllers/v1/posts";
+import { cacheInterceptor } from "@/interceptors"
+
 
 const router = express.Router();
 
 router.post("/", authMiddleware({checkPermission: true}), createPostController)
 
-router.get("/feed/:feedType", authMiddleware({checkPermission: true}), getNewsfeedController)
+router.get("/feed/:feedType", authMiddleware({checkPermission: true}), cacheInterceptor({global: false}), getNewsfeedController)
+
+router.get("/recommendations",  getRecommendationsController)
 
 router.get("/:id", authMiddleware({checkPermission: true}), getPostDetailsController)
 
@@ -62,7 +66,6 @@ router.post("/:id/media", authMiddleware({checkPermission: true}), createPostMed
 router.post("/:id/tips", authMiddleware({checkPermission: true}), createPostTipController)
 
 router.get("/:id/post-analytics", authMiddleware({checkPermission: true}), getPostAnalyticsController)
-
 
 const postRoutes = router
 

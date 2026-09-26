@@ -1,7 +1,7 @@
 
 import express from "express";
 import { authMiddleware, detectBotMiddleware } from "@/middleware";
-import { blockUserController, followUserController, getConnectionsController, getUserAccountAnalyticsController, getUserBlockedUsersController, getUserBookmarksController, getUserFollowersController, getUserFollowingController, getUserFollowRequestsController, getUserFriendsController, getUserHighlightPostsController, getUserLikesController, getUserMediaPostsController, getUserMutedUsersController, getUserNotificationsController, getUserPostsController, getUserProfileOverviewController, getUserRepliesController, getUserScheduledPostsController, getUserVerifiedFollowersController, muteUserController, profileVisitorController, reportUserController, searchUserController, searchUsersController, updateAccountStatusController, updateUserNotifController, userAchievementsController, userActiveSubscriptionController, userLocationController, userStatsController, userUserTaskSettingsController } from "@/controllers/v1/users";
+import { blockUserController, followUserController, getConnectionsController, getUserAccountAnalyticsController, getUserBlockedUsersController, getUserBookmarksController, getUserFollowersController, getUserFollowingController, getUserFollowRequestsController, getUserFriendsController, getUserHighlightPostsController, getUserLikesController, getUserMediaPostsController, getUserMutedUsersController, getUserNotificationsController, getUserPostsController, getUserProfileOverviewController, getUserRepliesController, getUserScheduledPostsController, getUserVerifiedFollowersController, muteUserController, profileVisitorController, reportUserController, searchUserController, searchUsersController, updateAccountStatusController, updateUserNotifController, userAchievementsController, userActiveSubscriptionController, userLocationController, userStatsController, userUserTaskSettingsController, getUserInteractionHistoryController } from "@/controllers/v1/users";
 
 const router = express.Router();
 
@@ -68,6 +68,8 @@ router.get("/:id/media", authMiddleware({checkPermission: true}), getUserMediaPo
 router.post("/:id/update-account-status", authMiddleware({checkPermission: true}), updateAccountStatusController)
 
 router.get("/:id/account-analytics", authMiddleware({checkPermission: true}), getUserAccountAnalyticsController)
+
+router.get("/:id/history", getUserInteractionHistoryController)
 
 
 const userRoutes = router
