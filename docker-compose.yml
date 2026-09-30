@@ -1,0 +1,51 @@
+# Start kwonrec's Compose stack first; both services share its private network.
+x-kwonserver-image: &kwonserver-image
+  image: kwonserver:local
+  build:
+    context: .
+
+services:
+  db-prepare:
+    <<: *kwonserver-image
+    command: ["npm", "run", "db:deploy"]
+    environment:
+      NODE_ENV: production
+      # Optional direct URL for migrations/seeding when the app uses a pooler.
+      DATABASE_URL: ${DATABASE_MIGRATION_URL:-${DATABASE_URL:?Set DATABASE_URL in .env}}
+    restart: "no"
+    healthcheck:
+      disable: true
+
+  kwonserver:
+    <<: *kwonserver-image
+    init: true
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 8000
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in .env}
+      # Container-to-container address; localhost would point to kwonserver itself.
+      KWONREC_API: http://kwonrec:8001
+      KWONREC_API_KEY: ${KWONREC_API_KEY:?Set the same service key as kwonrec}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db-prepare:
+        condition: service_completed_successfully
+    networks:
+      - default
+      - recommendations
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+networks:
+  recommendations:
+    external: true
+    name: ${KWONREC_NETWORK:-kwonrec_default}

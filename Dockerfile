@@ -1,6 +1,10 @@
-FROM node:22-alpine AS builder
+# ONNX Runtime requires glibc; Alpine's musl cannot load its native bindings.
+FROM node:22-bookworm-slim AS base
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM base AS builder
 WORKDIR /app
-RUN apk add --no-cache openssl
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig*.json ./
@@ -11,9 +15,9 @@ COPY scripts ./scripts
 RUN npm run build
 RUN npm prune --omit=dev
 
-FROM node:22-alpine AS production
+FROM base AS production
 WORKDIR /app
-RUN apk add --no-cache openssl && addgroup -S kwonserver && adduser -S kwonserver -G kwonserver
+RUN groupadd --system kwonserver && useradd --system --gid kwonserver --create-home kwonserver
 ENV NODE_ENV=production PORT=8000
 COPY --from=builder --chown=kwonserver:kwonserver /app/node_modules ./node_modules
 COPY --from=builder --chown=kwonserver:kwonserver /app/dist ./dist

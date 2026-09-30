@@ -311,3 +311,31 @@ docker run --rm --env-file .env kwonserver:release npm run db:deploy
 Reference seeding covers packages, milestones, games, subscription plans, and geography. It preserves existing data and only initializes empty reference tables. The reference phase is transactional and serialized with a database lock, so failures roll it back and exit unsuccessfully. It does not reconcile old partial seed data or update existing pricing/catalog entries; those changes need explicit migrations. Demo data is opt-in and never part of `db:deploy`.
 
 After preparing a **new database**, run kwonrec's `docker compose run --rm setup` against it to install its separate outbox triggers and backfill the recommendation catalog, then start the recommendation worker. Prisma Client generation does not install those triggers.
+
+### Local Docker Compose
+
+`docker-compose.yml` uses the PostgreSQL, Redis, MongoDB, and other service settings already in `kwonserver/.env`. It joins the existing kwonrec Docker network, so its recommendation URL is `http://kwonrec:8001` inside Docker. Keep the same `KWONREC_API_KEY` in both projects. If kwonrec uses a custom Compose project name, set `KWONREC_NETWORK` to that project's network name (default: `kwonrec_default`).
+
+Start the prepared recommendation stack first, then kwonserver:
+
+```sh
+cd ../kwonrec
+docker compose --profile connected up -d kwonrec worker
+cd ../kwonserver
+docker compose up --build -d
+```
+
+Stop any host `npm run dev` process using port 8000 before starting the kwonserver container. The API is exposed at `http://127.0.0.1:8000`; kwonrec remains on port 8001. The `db-prepare` job applies committed Prisma migrations and seeds reference data; the API only starts after that job succeeds. For a fresh database, prepare the schema before running kwonrec's initial setup as described above.
+
+Optionally set `DATABASE_MIGRATION_URL` in `kwonserver/.env` to a direct database connection for the preparation job; the app continues using `DATABASE_URL`. External databases must be reachable from Docker; `localhost` in a connection URL refers to the container itself.
+
+```sh
+docker compose logs -f db-prepare kwonserver
+docker compose down
+```
+
+Stopping this Compose project leaves kwonrec and your external databases running.
+
+`db-prepare` is a one-time job: `Exited (0)` means migrations and seeding succeeded, and it is expected to stop. The PostgreSQL database runs separately. Check `docker compose ps -a` for job exit codes and `docker compose logs db-prepare` for details.
+
+The server image uses Debian because the native ONNX Runtime dependency requires glibc. Its runtime alias loader maps only `@/…` imports; bare names such as `redis` continue to resolve from `node_modules`.
