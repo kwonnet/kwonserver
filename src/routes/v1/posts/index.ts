@@ -2,16 +2,16 @@
 import express from "express";
 import { authMiddleware } from "@/middleware";
 import { createPostClickController, createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostTipController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostAnalyticsController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, getTagUsersOrMentionsController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController, getRecommendationsController } from "@/controllers/v1/posts";
-import { cacheInterceptor } from "@/interceptors"
+
 
 
 const router = express.Router();
 
 router.post("/", authMiddleware({checkPermission: true}), createPostController)
 
-router.get("/feed/:feedType", authMiddleware({checkPermission: true}), cacheInterceptor({global: false}), getNewsfeedController)
+router.get("/feed/:feedType", authMiddleware({checkPermission: true}), getNewsfeedController)
 
-router.get("/recommendations",  getRecommendationsController)
+router.get("/recommendations", authMiddleware({checkPermission: true}), getRecommendationsController)
 
 router.get("/:id", authMiddleware({checkPermission: true}), getPostDetailsController)
 

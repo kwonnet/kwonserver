@@ -1,81 +1,15 @@
-import {
-  CryptoName,
-  Prisma,
-  RewardTypeEnum,
-  TaskStatus,
-  Transaction,
-  TxnCategoryEnum,
-  TxnCurrencyEnum,
-  TxnGatewayEnum,
-  TxnSourceEnum,
-  TxnStatusEnum,
-  TxnTypeEnum,
-  Wallet,
-} from "@prisma/client";
+import { Prisma, RewardTypeEnum, TaskStatus, Transaction, TxnCategoryEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum, TxnStatusEnum, TxnTypeEnum, Wallet } from "@prisma/client";
 import { BonusTypeEnum, User } from "@/types";
 import prisma from "@/db";
 import redisClient from "@/redis";
 import { getRedisHashKey } from "../games";
-import {
-  generateUniqueRef,
-  getCurrent_ton_usd_rate,
-  getTONRate,
-  getWithrawalTxnFee,
-} from "@/utils";
+import { generateUniqueRef } from "@/utils";
 import {
   syncPrismaSenderRecipientWalletToRedis,
   syncPrismaUserWalletToRedis,
   syncRedisSenderRecipientWalletToPrisma,
   syncRedisUserWalletToPrisma,
 } from "../../helper";
-import { withdrawTestTonCoins, withdrawTonCoins } from "../../ton";
-
-export const saveUserWalletAddress = async (
-  { address, name }: { address: string; name: CryptoName },
-  user: User
-) => {
-  try {
-    console.log(`saveUserWalletAddress address`, address, name);
-    const count = await prisma.walletAddress.count({
-      where: { userId: user.id },
-    });
-    const isPrimary = count === 0;
-    console.log(
-      `saveUserWalletAddress user`,
-      user,
-      "count ",
-      count,
-      "isPrimary ",
-      isPrimary
-    );
-    const check = await prisma.walletAddress.findFirst({
-      where: { userId: user.id, name },
-    });
-    if (!check) {
-      const result = await prisma.walletAddress.create({
-        data: { address, userId: user.id, name, isPrimary },
-      });
-      return { data: result, status: 200 };
-    }
-    const { metadata, ...rest } = check;
-    const _metadata = [
-      ...metadata,
-      { ...rest, date: new Date().toISOString() },
-    ] as Prisma.JsonArray[];
-    const result = await prisma.walletAddress.update({
-      data: { address, metadata: _metadata },
-      where: { userId: user.id },
-    });
-
-    return { data: result, status: 200 };
-  } catch (error) {
-    console.log(error);
-    return {
-      data: "Error: Failed to save wallet address, please try again",
-      status: 500,
-    };
-  }
-};
 
 export const getUserCoinsWallet = async (id: string) => {
   try {
@@ -225,153 +159,6 @@ export const transferCoins = async ({
   } catch (error) {
     return {
       data: "Error: Failed to execute transfer, please try again",
-      status: 500,
-    };
-  }
-};
-
-export const withdrawCoins = async ({
-  userId,
-  amount,
-}: {
-  userId: string;
-  amount: number;
-}) => {
-  try {
-    const txnFee = getWithrawalTxnFee(amount);
-    const txnAmount = amount + txnFee;
-    // sync both the sender and the recipient wallet
-    const syncResult = await syncRedisUserWalletToPrisma(userId);
-    if (syncResult.isError) return { status: 500, data: syncResult.message };
-    // get from and to user
-    const user = await prisma.user.findFirst({
-      where: { id: userId },
-      include: { wallet: true },
-    });
-    // check if from user and wallet exists
-    if (!user || !user.wallet)
-      return { status: 404, data: "User does not exist " };
-    // check min transfer
-    if (amount < 100)
-      return { status: 400, data: "Minimun withdrawal amount is 100 TZX" };
-    // check from wallet balance
-    if (user?.wallet?.credit < amount)
-      return { status: 400, data: "Insufficient balance" };
-    // check the wallet balance will cover the transaction fee
-    if (user?.wallet?.credit < txnAmount)
-      return {
-        status: 400,
-        data: "Insufficient balance to cover transaction fees",
-      };
-    // get user crypto address
-    const walletAddress = await prisma.walletAddress.findFirst({
-      where: { userId },
-    });
-    if (!walletAddress)
-      return {
-        status: 400,
-        data: "Crypto wallet address not found, please link your TON wallet and try again",
-      };
-    const recipientAddress = walletAddress.address;
-    // get TON equivalent
-    const curr_ton_rate = await getCurrent_ton_usd_rate();
-    if (!curr_ton_rate)
-      return {
-        data: "Error getting TON current rate, please try again",
-        status: 402,
-      };
-    const tonTxnAmount = getTONRate(curr_ton_rate, amount, true);
-    // temporarily lock the sender and recipient wallet until this txn is processed
-    await prisma.wallet.update({ where: { userId }, data: { isLocked: true } });
-    // debit sender and credit recipient
-    const txnRef = generateUniqueRef();
-    const [userWallet, txn] = await prisma.$transaction([
-      // debit user
-      prisma.wallet.update({
-        where: { userId },
-        data: { credit: { decrement: txnAmount } },
-      }),
-      // save sender transaction
-      prisma.transaction.create({
-        data: {
-          amount: txnAmount,
-          currency: TxnCurrencyEnum.TZX,
-          category: TxnCategoryEnum.COIN_WITHDRAWAL,
-          description: `Withdrawal request of ${txnAmount} ${TxnCurrencyEnum.TZX} in ${tonTxnAmount} ${TxnCurrencyEnum.TON} initiated`,
-          gateway: TxnGatewayEnum.WALLET,
-          source: TxnSourceEnum.CREDIT,
-          type: TxnTypeEnum.DEBIT,
-          status: TxnStatusEnum.PROCESSING,
-          txnRef,
-          userId,
-          senderId: userId,
-          walletId: user?.wallet.id,
-          metadata: {
-            item: {
-              amount,
-              txnAmount,
-              txnFee,
-              address: recipientAddress,
-              curr_ton_rate,
-              tonTxnAmount,
-              userId,
-            },
-            currency: TxnCurrencyEnum.TZX,
-          },
-        },
-      }),
-    ]);
-    // initiate TON transaction
-    // const result = await withdrawTonCoins(recipientAddress, tonTxnAmount, txnRef)
-    const result = await withdrawTestTonCoins(
-      recipientAddress,
-      tonTxnAmount,
-      txnRef
-    );
-    // const result = await withdrawTestTonCoins("UQBBihRy2mEPpzWjxQi44_dKFga_Hzn-oWtC4SdRIRMEof1L", 0.01, txnRef )
-    // check if failed and refund transaction
-    if (result.isError) {
-      await prisma.$transaction([
-        // refund wallet transaction
-        prisma.wallet.update({
-          where: { userId },
-          data: { credit: { increment: txnAmount }, isLocked: false },
-        }),
-        // update transaction
-        prisma.transaction.update({
-          where: { id: txn.id },
-          data: {
-            status: TxnStatusEnum.REFUNDED,
-            description: txn.description.replace(
-              "initiated",
-              "failed & refunded"
-            ),
-          },
-        }),
-      ]);
-      return { status: 500, data: result.message };
-    }
-    // update wallet if success
-    await prisma.$transaction([
-      // refund wallet transaction
-      prisma.wallet.update({ where: { userId }, data: { isLocked: false } }),
-      // update transaction
-      prisma.transaction.update({
-        where: { id: txn.id },
-        data: {
-          status: TxnStatusEnum.COMPLETED,
-          description: txn.description.replace("initiated", "successful"),
-        },
-      }),
-    ]);
-    // sync user prisma wallet to redis
-    syncPrismaUserWalletToRedis(userId, userWallet);
-    // return result
-    return { data: "Withdrawal successful", status: 200 };
-  } catch (error) {
-    // await prisma.wallet.update({ where: { userId }, data: { isLocked: false}})
-    return {
-      data: "Error: Failed to execute transfer, please try again later",
       status: 500,
     };
   }
@@ -562,7 +349,6 @@ export const updateWalletBonus = async (arg: {
   }
 };
 
-
 export const rewardDailyTask = async ({
   id: taskId,
   code,
@@ -650,7 +436,4 @@ export const rewardDailyTask = async ({
 };
 
 // test app wallet
-// withdrawTestTonCoins("UQBBihRy2mEPpzWjxQi44_dKFga_Hzn-oWtC4SdRIRMEof1L", 1, generateUniqueRef() )
-// withdrawTestTonCoins("UQBBihRy2mEPpzWjxQi44_dKFga_Hzn-oWtC4SdRIRMEof1L", 0.5, generateUniqueRef() )
 // Live app wallet
-// withdrawTestTonCoins("UQDB7WxFFuZQ2LPMwoC7eSLWwLJ1pMZZ_sURxct8GAXEIuHt", 0.02, generateUniqueRef() )

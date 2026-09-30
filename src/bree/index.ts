@@ -158,17 +158,17 @@ const breeJob = new Bree({
     },
 
     // run this job after every 5 minutes
-    {
-        name: 'sync_users_interactions_clickhouse',
-        // path: typescript_worker,
-        // worker: { 
-        //   // argv: ['-r', 'ts-node/register'],
-        //   workerData: { 
-        //     // __filename: path.join(__dirname, './jobs/sync_redis_prisma_transactions.ts')
-        //     path: path.join(__dirname, './jobs/sync_redis_prisma_transactions')
-        // } } ,
-        cron: '*/2 * * * *'
-    },
+    // {
+    //     name: 'sync_users_interactions_clickhouse',
+    //     // path: typescript_worker,
+    //     // worker: { 
+    //     //   // argv: ['-r', 'ts-node/register'],
+    //     //   workerData: { 
+    //     //     // __filename: path.join(__dirname, './jobs/sync_redis_prisma_transactions.ts')
+    //     //     path: path.join(__dirname, './jobs/sync_redis_prisma_transactions')
+    //     // } } ,
+    //     cron: '*/2 * * * *'
+    // },
   ]
 });
 

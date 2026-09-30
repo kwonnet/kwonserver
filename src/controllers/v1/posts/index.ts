@@ -48,8 +48,8 @@ import { validateZodInput, generateUniqueRef } from "@/utils";
 import { getReqInfo } from "@/utils/helpers";
 import { Response, Request } from "express";
 import { SessionUser, AuthUser } from "@/types/user";
-import axios from "axios"
-import { storeDataInCacheMemory } from "@/interceptors"
+import { getRecommendationResponse } from "@/services/kwonrec";
+
 
 
 export const createPostController = async (
@@ -95,30 +95,15 @@ export const getNewsfeedController = async (
 
     const { limit } = zodData
 
-    console.log("Get Newsfeed recommendations", zodData)
-
-    const user_id = user?.id ?? generateUniqueRef()
-
-    console.log("Newsfeed recommendations User - ", user_id )
-    console.log("Newsfeed Req URL - ", req.url )
-
-    // 1. Get recs from redis? if not found then retrieve from recs api
-    // 2. Retrieve boosted posts from redis and inject into the recs - probably 5 posts
-
-    const resp = await axios.get(`http://localhost:8003/recommend/${user_id}?limit=${limit}`)
-
-    const rec = resp.data 
-
-    const recommendations = rec?.recommendations as {id: string, score: number}[]
-
-    const recs = recommendations?.map(item => item.id)
-
-    console.log("Actual Recommended Posts - ", recs.length )
+    const resp = await getRecommendationResponse(user.id, limit);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("X-Feed-Source", resp.data.degraded ? "fallback" : "kwonrec");
+    const recs = resp.data.recommendations.map((item: { id: string }) => item.id);
 
     const result = await getNewsfeed(recs, user, {feed:feedType, ...zodData });
 
     if(typeof result.data !== "string"){
-      storeDataInCacheMemory(req, result.data, {ttl: 120000, global: false})
+      // Personalized feed requests must observe new interactions and visibility changes.
       console.log("Filtered Recommended posts to the user - ", result.data.length)
     }
 
@@ -983,11 +968,12 @@ export const getPostAnalyticsController = async (
 export const getRecommendationsController = async(req: Request,
   res: Response) => {
   try {
-    const {user_id, limit } = req.query as { user_id: string, limit: string}
+    const user_id = (req.user as AuthUser).id;
+    const { limit } = req.query;
 
     console.log(req.query, "Get recommendations")
 
-    const resp = await axios.get(`http://localhost:8003/recommend/${user_id}?limit=${limit}`)
+    const resp = await getRecommendationResponse(user_id, limit)
 
     const rec = resp.data 
 
@@ -1007,11 +993,12 @@ export const getRecommendationsController = async(req: Request,
 export const getContentTopicController = async(req: Request,
   res: Response) => {
   try {
-    const {user_id, limit } = req.query as { user_id: string, limit: string}
+    const user_id = (req.user as AuthUser).id;
+    const { limit } = req.query;
 
     console.log(req.query, "Get recommendations")
 
-    const resp = await axios.get(`http://localhost:8003/recommend/${user_id}?limit=${limit}`)
+    const resp = await getRecommendationResponse(user_id, limit)
 
     const rec = resp.data 
 

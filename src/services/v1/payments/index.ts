@@ -62,7 +62,6 @@ const coinsResponse = (txnData: any) => {
     },
     meta: {
       userId: String(txnData?.meta?.userId),
-      telId: String(txnData?.meta?.telId),
       currency: String(txnData?.meta?.currency),
       gateway: txnData?.meta?.gateway as TxnGatewayEnum,
       source: txnData?.meta?.source as TxnSourceEnum,
@@ -99,7 +98,6 @@ const subscriptionResponse = (txnData: any) => {
       amount: Number(txnData?.meta?.amount),
       planType: String(txnData?.meta?.planType) as PlanTypeEnum,
       userId: String(txnData?.meta?.userId),
-      telId: String(txnData?.meta?.telId),
       currency: String(txnData?.meta?.currency),
       gateway: txnData?.meta?.gateway as TxnGatewayEnum,
       source: txnData?.meta?.source as TxnSourceEnum,

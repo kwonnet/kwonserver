@@ -506,31 +506,10 @@ export const getAuthTokenUser = (token?: string) => {
     return user as User
 }
 
-export const getCurrent_ton_usd_rate = async () => {
-  try {
-    // const res = { data: { "the-open-network": { usd: 6.3 } } }; //await axios.get("https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd")
-    const result = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd")
-    if(!result.ok) return null
-    const data = await result.json();
-    const tonUsdRate = data["the-open-network"]["usd"];
-    if (!tonUsdRate) return null;
-    return tonUsdRate as number;
-  } catch (error) {
-    return null;
-  }
-};
 
 
-export function getTONRate(
-  curr_ton_rate: number,
-  amount: number,
-  isWithrawal?: boolean
-): number {
-  const rate = !isWithrawal ? curr_ton_rate - 0.9 : curr_ton_rate + 0.1;
-  const coin_usd = amount * 0.013;
-  const tonRate = coin_usd / rate;
-  return parseFloat(tonRate.toFixed(2));
-}
+
+
 
 
 export function generateUniqueRef(size: number = 16): string {
@@ -553,13 +532,4 @@ export function extractId(input: string) {
 
 export function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-export function getWithrawalTxnFee(amount: number){
-  if(amount <= 500){
-    // fee should be $0.5
-    return parseFloat((0.5 / 0.013 ).toFixed(2))
-  }
-  // fee should be $1
-  return parseFloat((1 / 0.013 ).toFixed(2))
 }

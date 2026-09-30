@@ -1,88 +1,8 @@
 import { Request, Response } from "express";
-import {
-  decryptString,
-  encryptString,
-  jwtSign,
-  jwtVerify,
-  validateZodInput,
-} from "@/utils";
-import { encrytionKey } from "@/config";
-import {
-  DailyBonusZodSchema,
-  DailyTaskZodSchema,
-  FundCoinsZodSchema,
-  PaginateZodSchema,
-  TransferCoinsZodSchema,
-  UserWalletAddressZodSchema,
-  WithdrawCoinsZodSchema,
-} from "@/schema";
-import {
-  fundCoins,
-  getTxnHistory,
-  getUserCoinsWallet,
-  rewardDailyTask,
-  saveUserWalletAddress,
-  transferCoins,
-  updateWalletBonus,
-  withdrawCoins,
-} from "@/services/v1/wallets";
+import { validateZodInput } from "@/utils";
+import { DailyBonusZodSchema, DailyTaskZodSchema, FundCoinsZodSchema, PaginateZodSchema, TransferCoinsZodSchema } from "@/schema";
+import { fundCoins, getTxnHistory, getUserCoinsWallet, rewardDailyTask, transferCoins, updateWalletBonus } from "@/services/v1/wallets";
 import { AuthUser } from "@/types/user";
-
-
-export const getProofTokenController = async (
-  req: Request,
-  res: Response
-) => {
-  const user = req.user as AuthUser;
-  const token = encryptString(
-    JSON.stringify({}),
-    // JSON.stringify(`${user.id}_${user.telId}`),
-    encrytionKey
-  );
-  const jwtToken = jwtSign({ proof: token }, {expiresIn: "10m"});
-  return res.status(200).send(jwtToken);
-};
-
-export const saveUserWalletAddressController = async (
-  req: Request,
-  res: Response
-) => {
-  try {
-    const user = req.user as AuthUser;
-
-    const zodResult = validateZodInput(req.body, UserWalletAddressZodSchema);
-
-    if (!zodResult.data) return res.status(400).send(zodResult.message);
-
-    const { token, ...rest } = zodResult.data;
-
-    const jwtData = jwtVerify(token) as {
-      proof: string;
-      [key: string]: string;
-    };
-
-    const clientProof = decryptString(jwtData.proof, encrytionKey);
-
-    const serverProof = `${user.id}`; //`${user.id}_${user.telId}`;
-
-    if (clientProof !== serverProof)
-      return res
-        .status(400)
-        .send(
-          "Invalid proof token, please disconnect your wallet and reconnect again"
-        );
-    // save user wallet address
-    const result = await saveUserWalletAddress(rest, user);
-    return res.status(result.status).send(result.data);
-  } catch (error: any) {
-    console.log(error?.message);
-    return res
-      .status(500)
-      .send(
-        "Error: Please disconnect your wallet, close the app and try again"
-      );
-  }
-};
 
 export const getUserCoinsWalletController = async (
   req: Request,
@@ -106,26 +26,6 @@ export const transferCoinsController = async (
 
   try {
     const result = await transferCoins(zodResult.data);
-    return res.status(result.status).send(result.data);
-  } catch (error) {
-    return res
-      .status(500)
-      .send("Error: Failed to process request, please try again later");
-  }
-};
-
-export const withdrawCoinsController = async (
-  req: Request,
-  res: Response
-) => {
-  const zodResult = validateZodInput(
-    {...req.body, userId: req.user?.id},
-    WithdrawCoinsZodSchema
-  );
-  const zodData = zodResult.data
-  if (!zodData) return res.status(400).send(zodResult.message);
-  try {
-    const result = await withdrawCoins(zodData);
     return res.status(result.status).send(result.data);
   } catch (error) {
     return res
@@ -215,7 +115,6 @@ export const claimDailyBonusController = async (
       .send("Error: Failed to process request, please try again later");
   }
 };
-
 
 export const claimDailyTaskController = async (
   req: Request,

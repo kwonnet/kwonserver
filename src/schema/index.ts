@@ -1,104 +1,31 @@
+import { paymentCurrencySchema, paymentGatewaySchema, paymentSourceSchema, externalPaymentCurrencySchema } from "./payment";
 import { boolean, object, string } from "zod";
-import {
-  BillingCycleEnum,
-  CryptoName,
-  PostContext,
-  PostMediaAction,
-  PostMediaKind,
-  PostMetricAction,
-  PostMetricSource,
-  PostScopeEnum,
-  PostTypeEnum,
-  ReportReason,
-  RewardTypeEnum,
-  ScopeEnum,
-  TxnCurrencyEnum,
-  TxnGatewayEnum,
-  TxnSourceEnum,
-  UserStatus,
-} from "@prisma/client";
+import { BillingCycleEnum, PostContext, PostMediaAction, PostMediaKind, PostMetricAction, PostMetricSource, PostScopeEnum, PostTypeEnum, ReportReason, RewardTypeEnum, ScopeEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum, UserStatus } from "@prisma/client";
 import { z } from "zod";
-import { BonusTypeEnum, PlanTypeEnum, TmaPaymentGateway } from "@/types";
-
-export const authZodSchema = z
-  .object({
-    authDate: z.string().trim(),
-    chatInstance: z.string().trim().optional(),
-    chatType: z.string().trim().optional(),
-    hash: z.string().trim(),
-    user: z.object({
-      allowsWriteToPm: z.boolean(),
-      firstName: z.string().trim(),
-      id: z.number(),
-      languageCode: z.string().trim(),
-      lastName: z.string().trim().optional(),
-      photoUrl: z.string().trim(),
-      username: z.string().trim(),
-    }),
-  })
-  .passthrough();
+import { BonusTypeEnum, PlanTypeEnum } from "@/types";
 
 export const purchaseCoinsZodSchema = z
   .object({
     packageId: z.string().trim(),
-    currency: z.nativeEnum(TxnCurrencyEnum, {
-      required_error: "Txn currency is invalid",
-    }),
+    currency: paymentCurrencySchema,
     meta: z
       .object({
         isFlw: z.boolean().optional(), // check if it is flutterwave payment
         from: z.string().trim().optional(),
         to: z.string().trim().optional(),
         amount: z.number(),
-        gateway: z.nativeEnum(TxnGatewayEnum, {
-          required_error: "Txn gateway is invalid",
-        }),
-        source: z.nativeEnum(TxnSourceEnum, {
-          required_error: "Txn source is invalid",
-        }),
-        currency: z.nativeEnum(TxnCurrencyEnum, {
-          required_error: "Txn currency is invalid",
-        }),
+        gateway: paymentGatewaySchema,
+        source: paymentSourceSchema,
+        currency: paymentCurrencySchema,
         hash: z.string().trim().optional(),
         extHash: z.string().trim().optional(),
         status: z.string().trim().optional(),
-        botTxnRef: z.string().trim().optional(),
+        txnRef: z.string().trim().optional(),
       })
       .passthrough()
       .optional(),
   })
   .passthrough();
-
-export const TmaInvoiceZodSchema = z.object({
-  id: z
-    .string({ required_error: "ID of the coin package must be provided" })
-    .trim(),
-  botTxnRef: z.string({ required_error: "Bot txn ID is required" }).trim(),
-  gateway: z.nativeEnum(TxnGatewayEnum, {
-    required_error: "Gateway is invalid",
-  }),
-});
-
-export const TmaSubscriptionInvoiceZodSchema = z.object({
-  planId: z.string({ required_error: "Plan Id must be provided" }).trim(),
-  tierId: z
-    .string({ required_error: "Tier Id must be a string" })
-    .trim()
-    .optional(),
-  botTxnRef: z.string({ required_error: "Bot txn ID is required" }).trim(),
-  amount: z.number({ required_error: "Amount must be a number" }),
-  gateway: z.nativeEnum(TxnGatewayEnum, {
-    required_error: "Gateway is invalid",
-  }),
-  planType: z.nativeEnum(PlanTypeEnum, {
-    required_error: "Plan type is invalid",
-  }),
-  currency: z.nativeEnum(TxnCurrencyEnum, {
-    required_error: "Txn currency is invalid",
-  }),
-  isRecurring: z.boolean(),
-  planName: z.string().trim(),
-});
 
 export const purchasePremiumZodSchema = z
   .object({
@@ -109,15 +36,9 @@ export const purchasePremiumZodSchema = z
       required_error: "Plan type is invalid",
     }),
     isRecurring: z.boolean(),
-    currency: z.nativeEnum(TxnCurrencyEnum, {
-      required_error: "Currency is invalid",
-    }),
-    source: z.nativeEnum(TxnSourceEnum, {
-      required_error: "Source is invalid",
-    }),
-    gateway: z.nativeEnum(TxnGatewayEnum, {
-      required_error: "Gateway is invalid",
-    }),
+    currency: paymentCurrencySchema,
+    source: paymentSourceSchema,
+    gateway: paymentGatewaySchema,
     meta: z
       .object({
         from: z.string().trim().optional(),
@@ -134,12 +55,6 @@ export const purchasePremiumZodSchema = z
   })
   .passthrough();
 
-export const UserWalletAddressZodSchema = z.object({
-  address: z.string({ required_error: "address must be a string" }).trim(),
-  token: z.string({ required_error: "token must be a string" }).trim(),
-  name: z.nativeEnum(CryptoName, { required_error: "crypto name is invalid" }),
-});
-
 export const TransferCoinsZodSchema = z.object({
   senderId: z.string({ required_error: "senderId must be a string" }).trim(),
   recipientId: z
@@ -148,11 +63,6 @@ export const TransferCoinsZodSchema = z.object({
   amount: z
     .number({ required_error: "amount must be a number" })
     .min(100, { message: "Minimum transfer amount is 100 Coins" }),
-});
-
-export const WithdrawCoinsZodSchema = z.object({
-  userId: z.string({ required_error: "userId must be a string" }).trim(),
-  amount: z.number({ required_error: "amount must be a number" }),
 });
 
 export const FundCoinsZodSchema = z.object({
@@ -253,9 +163,7 @@ export const FlutterwaveConfigZodSchema = z
     amount: z.number({
       required_error: "amount is required & must be a string",
     }),
-    currency: z
-      .string({ required_error: "currency is required & must be a string" })
-      .trim(),
+    currency: externalPaymentCurrencySchema,
     payment_plan: z
       .string({ required_error: "Payment plan is must be atring or undefined" })
       .trim()
@@ -424,8 +332,6 @@ export const ReportCreateSchema = z.object({
   }),
 });
 
-
-
 export type ReportSchema = z.infer<typeof ReportCreateSchema>;
 
 export const CreatePostPinSchema = z.object({
@@ -536,7 +442,6 @@ export const SearchQuerySchema = z.object({
     z.number().default(50)
   ),
 });
-
 
 export const updateAccountStatusSchema = z.object({
   userId: z.string({message: "User ID must be a string"}),

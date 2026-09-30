@@ -2337,7 +2337,6 @@ export function createRandomUser() {
     email: uid + faker.internet.email(),
     avatar: faker.image.avatar(),
     password: faker.internet.password(),
-    telId: faker.string.uuid().slice(-12),
     wallet: { create: { bonus: 100 } },
   };
 }

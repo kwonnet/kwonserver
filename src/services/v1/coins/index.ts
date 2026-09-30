@@ -1,6 +1,7 @@
+import { paymentMethodSchema } from "@/schema/payment";
 import { FlutterwaveCoinPurchase, User } from "@/types";
 import prisma from "@/db";
-import { telegramBot } from "@/telegram-bot";
+
 import {
   TxnCategoryEnum,
   TxnCurrencyEnum,
@@ -14,23 +15,14 @@ import {
   syncRedisUserWalletToPrisma,
 } from "../../helper";
 import { generateUniqueRef } from "@/utils";
-import { get_tzx_usd_rate } from "@/utils/payment";
-import { AuthUser } from "@/types/user";
-
 
 export const getCoinPackages = async () => {
   try {
     const packages = await prisma.coinPackage.findMany();
-    const cryptoAddresses = await prisma.cryptoAddress.findMany();
     return {
       data: {
         packages,
-        addresses: cryptoAddresses.map((item) => ({
-          id: item.id,
-          address: item.address,
-          rate: item.rate,
-          name: item.name,
-        })),
+        addresses: [],
       },
       status: 200,
     };
@@ -38,61 +30,6 @@ export const getCoinPackages = async () => {
     return { data: "Error: Failed to fetch packages", status: 500 };
   }
 };
-
-export const getStarsCoinsInvoice = async (arg: {id: string, botTxnRef: string}, user: AuthUser) => {
-  try {
-    const item = await prisma.coinPackage.findFirst({ where: { id: arg.id } });
-    if (!item) return { status: 400, data: "Invalid coin package sent" };
-    const desc =
-      item.bonus > 0
-        ? `Buy ${item.amount} +${item.bonus} bonus coins for ${item.price} stars`
-        : `Buy ${item.amount} coins for ${item.price} stars`;
-    const invoiceLink = await telegramBot.createInvoiceLink({
-      title: item.name,
-      description: desc,
-      currency: TxnCurrencyEnum.XTR,
-      payload: `coin_${user.id}_tx_${arg.botTxnRef}`,
-      prices: [{ amount: item.price, label: item.name }],
-      provider_token: "",
-    });
-    return { data: invoiceLink, status: 200 };
-  } catch (error: any) {
-    return { data: `Error occurred: ${error?.message}`, status: 500 };
-  }
-};
-
-export const getTmaPaymentCoinsInvoice = async (arg: {id: string, providerToken: string; botTxnRef: string}, user: AuthUser) => {
-  try {
-
-    const item = await prisma.coinPackage.findFirst({ where: { id: arg.id } });
-
-    if (!item) return { status: 400, data: "Invalid coin package sent" };
-
-    const dollarAmount = get_tzx_usd_rate(item.price) 
-
-    const desc =
-      item.bonus > 0
-        ? `Buy ${item.amount} coins +${item.bonus} bonus for ${dollarAmount} USD`
-        : `Buy ${item.amount} coins for ${dollarAmount} USD`;
-    const invoiceLink = await telegramBot.createInvoiceLink({
-      title: item.name,
-      description: desc,
-      currency: TxnCurrencyEnum.USD,
-      payload: `coin_${user.id}_tx_${arg.botTxnRef}`,
-      prices: [{ amount: dollarAmount * 100, label: item.name }],
-      provider_token: arg.providerToken,
-      // need_phone_number: true,
-      // send_phone_number_to_provider: true,
-      need_email: true,
-      send_email_to_provider: true,
-      // is_flexible: true,
-    });
-    return { data: invoiceLink, status: 200 };
-  } catch (error: any) {
-    return { data: `Error occurred: ${error?.message}`, status: 500 };
-  }
-};
-
 
 export const saveTxnLog = async (item: {
   id: string;
@@ -215,10 +152,13 @@ export const purchaseCoinsWithToken = async (
     currency: TxnCurrencyEnum;
     gateway: TxnGatewayEnum;
     source: TxnSourceEnum;
-    meta: { botTxnRef?: string; from?: string; to?: string; hash?: string; amount: number, [key: string]: any };
+    meta: { txnRef?: string; from?: string; to?: string; hash?: string; amount: number, [key: string]: any };
   },
   user: User
 ) => {
+  if (!paymentMethodSchema.safeParse(item).success) {
+    return { data: "Unsupported payment method", status: 400 };
+  }
   try {
     // get coin package
     const coin = await prisma.coinPackage.findUnique({
@@ -265,7 +205,7 @@ export const purchaseCoinsWithToken = async (
           type: TxnTypeEnum.DEBIT,
           status: TxnStatusEnum.COMPLETED,
           txnRef,
-          exTxnRef: item?.meta?.botTxnRef,
+          exTxnRef: item?.meta?.txnRef,
           userId: user.id,
           senderId: user.id,
           walletId: wallet.id,
@@ -287,7 +227,7 @@ export const purchaseCoinsWithToken = async (
           type: TxnTypeEnum.CREDIT,
           status: TxnStatusEnum.COMPLETED,
           txnRef,
-          exTxnRef: item?.meta?.botTxnRef,
+          exTxnRef: item?.meta?.txnRef,
           userId: user.id,
           recipientId: user.id,
           walletId: wallet.id,
@@ -312,6 +252,9 @@ export const purchaseCoinsWithToken = async (
 };
 
 export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase,) => {
+  if (!paymentMethodSchema.safeParse(item).success) {
+    return { data: "Unsupported payment method", status: 400 };
+  }
   try {
     console.log("PurchaseCoinsWithFlutterwave ", item)
     const userId = item.userId

@@ -196,7 +196,6 @@ export interface Coin {
 }
 
 export enum CoinPayTypeEnum {
-    STARS = "STARS",
     FIAT = "FIAT",
     CRYPTO = "CRYPTO",
     CREDIT = "CREDIT",
@@ -444,7 +443,6 @@ export interface FlutterwaveCoinPurchase {
     };
     meta: {
         userId: string;
-        telId: string;
         currency: string;
         gateway: TxnGatewayEnum;
         source: TxnSourceEnum;
@@ -472,7 +470,6 @@ export interface FlutterwaveAppSubPurchase {
 
     meta: {
         userId: string;
-        telId: string;
         currency: string;
         gateway: TxnGatewayEnum;
         source: TxnSourceEnum;
@@ -513,11 +510,7 @@ export type SubPaymentPlan = {
     flw?: FlutterwavePaymentPlanResponse | null;
   };
 
-export enum TmaPaymentGateway {
-    STARS = "STARS",
-    SMART_GLOCAL = "SMART_GLOCAL",
-    UNLIMINT = "UNLIMINT",
-}
+
 
 export enum UserFollowAction {
     FOLLOW = "FOLLOW",

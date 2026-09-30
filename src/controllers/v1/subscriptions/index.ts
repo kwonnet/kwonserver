@@ -1,7 +1,7 @@
-import { smartGlocalApiKey, unlimintApiKey } from "@/config"
-import { IDZodSchema, purchasePremiumZodSchema, TmaSubscriptionInvoiceZodSchema } from "@/schema"
-import { cancelAppSubscription, genTmaSubscriptionInvoice, getPlans, purchaseAppSubscription, purchaseAppSubscriptionWithWallet } from "@/services/v1/subscriptions"
-import { TmaPaymentGateway, User } from "@/types"
+
+import { IDZodSchema, purchasePremiumZodSchema } from "@/schema"
+import { cancelAppSubscription, getPlans, purchaseAppSubscription, purchaseAppSubscriptionWithWallet } from "@/services/v1/subscriptions"
+import { User } from "@/types"
 import { validateZodInput } from "@/utils"
 import { SubStatusEnum, TxnCurrencyEnum } from "@prisma/client"
 import { Request, Response } from "express"
@@ -63,26 +63,3 @@ export const cancelSubscriptionController = async(req: Request, res: Response) =
         return res.status(500).send('Error: Unable to process request, please try again later')
     }
 }
-
-export const getSubTmaInvoiceController = async (
-  req: Request,
-  res: Response
-) => {
-  const user = req.user as AuthUser;
-
-  const zodResult = validateZodInput(req.body, TmaSubscriptionInvoiceZodSchema);
-
-  const zodData = zodResult.data
-
-  if (!zodData) return res.status(400).send(zodResult.message);
-
-  console.log("Tma Invoice: ", zodData)
-  // generate invoice
-  const providerToken = zodData.gateway === TmaPaymentGateway.SMART_GLOCAL ? smartGlocalApiKey : zodData.gateway === TmaPaymentGateway.UNLIMINT ? unlimintApiKey : ""
-  const result = await genTmaSubscriptionInvoice({
-    ...zodData,
-    providerToken
-  }, user)
-  return res.status(result.status).send(result.data);
-
-};

@@ -1,20 +1,13 @@
 
 import express from "express";
 import { authMiddleware } from "@/middleware";
-import { claimDailyBonusController, claimDailyTaskController, fundCoinsController, getProofTokenController, getTxnHistoryController, getUserCoinsWalletController, saveUserWalletAddressController, transferCoinsController, withdrawCoinsController } from "@/controllers/v1/wallets";
+import { claimDailyBonusController, claimDailyTaskController, fundCoinsController, getTxnHistoryController, getUserCoinsWalletController, transferCoinsController } from "@/controllers/v1/wallets";
 
 const router = express.Router();
 
-
 router.get("/", authMiddleware(), getUserCoinsWalletController)
 
-router.get("/proof", authMiddleware(), getProofTokenController)
-
-router.post("/addresses", authMiddleware(), saveUserWalletAddressController)
-
 router.post("/transfer", authMiddleware(), transferCoinsController)
-
-router.post("/withdraw", authMiddleware(), withdrawCoinsController)
 
 router.post("/fund", authMiddleware(), fundCoinsController)
 

@@ -4,6 +4,7 @@ import {
   PostKindEnum,
   PostTypeEnum,
   PrismaClient,
+  Prisma,
   RewardReasonEnum,
   RewardTypeEnum,
   SubscriptionPlan,
@@ -25181,8 +25182,7 @@ function getRandomElement<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
 }
 
-async function main() {
-  try {
+async function seedReferenceData(prisma: Prisma.TransactionClient) {
     // seed coin packages
     const totalPackages = await prisma.coinPackage.count();
     if (totalPackages === 0) {
@@ -25201,22 +25201,6 @@ async function main() {
       console.log("Seeding complete .... tip packages  already exists");
     }
 
-    // seed coin wallets
-    const totalWallets = await prisma.cryptoAddress.count();
-    if (totalWallets === 0) {
-      await prisma.cryptoAddress.createMany({
-        data: [
-          {
-            address: "UQDB7WxFFuZQ2LPMwoC7eSLWwLJ1pMZZ_sURxct8GAXEIuHt",
-            name: "TON",
-            rate: 0.013,
-          },
-        ],
-      });
-      console.log("seeding complete.... crypto wallets created successfully");
-    } else {
-      console.log("Seeding complete .... crypto wallets  already exists");
-    }
     // seed game milestones
     const totalMilestones = await prisma.gameMilestone.count();
     if (totalMilestones === 0) {
@@ -25288,6 +25272,19 @@ async function main() {
     } else {
       console.log("Seeding complete.... Continent & countries  already exists");
     }
+}
+
+export async function main() {
+  const demo = process.argv.includes("--demo");
+  if (demo && process.env.NODE_ENV === "production") {
+    throw new Error("Demo seeding is disabled in production");
+  }
+  // Serialize release seeds and roll back reference data together on failure.
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(73190241)`;
+    await seedReferenceData(tx);
+  }, { timeout: 300000, maxWait: 10000 });
+  if (!demo) return;
     // send users
     const userCount = await prisma.user.count();
     if (userCount < 10) {
@@ -25343,15 +25340,17 @@ async function main() {
     } else {
       console.log("Seeding complete.... posts already exists");
     }
-  } catch (error: any) {
-    console.log("Error Continent & countries", error.message);
-  }
 }
+
+if (require.main === module) {
 
 main()
   .catch((error: any) => {
-    console.log("Error seeding data", error?.message);
+    console.error("Error seeding data", error?.message);
+    process.exitCode = 1;
   })
   .finally(async () => {
     await prisma.$disconnect();
   });
+
+}

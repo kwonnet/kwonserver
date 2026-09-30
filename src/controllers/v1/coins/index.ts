@@ -1,44 +1,11 @@
 import { Request, Response } from "express";
-import { TmaPaymentGateway } from "@/types";
-import {
-  getCoinPackages,
-  getStarsCoinsInvoice,
-  getTmaPaymentCoinsInvoice,
-  purchaseCoinsWithToken,
-  purchaseCoinsWithWallet,
-} from "@/services/v1/coins";
+
+import { getCoinPackages, purchaseCoinsWithToken, purchaseCoinsWithWallet } from "@/services/v1/coins";
 import { validateZodInput } from "@/utils";
-import { purchaseCoinsZodSchema, TmaInvoiceZodSchema } from "@/schema";
+import { purchaseCoinsZodSchema } from "@/schema";
 import { TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum } from "@prisma/client";
-import { smartGlocalApiKey, unlimintApiKey } from "@/config";
+
 import { AuthUser } from "@/types/user";
-
-
-export const getTmaPaymentInvoiceController = async (
-  req: Request,
-  res: Response
-) => {
-  const user = req.user as AuthUser;
-
-  console.log(req.body)
-
-  const zodResult = validateZodInput(req.body, TmaInvoiceZodSchema);
-
-  const zodData = zodResult.data
-
-  console.log(zodData)
-
-  if (!zodData) return res.status(400).send(zodResult.message);
-  // handle telegram stars
-  if(zodData.gateway === TmaPaymentGateway.STARS){
-    const result = await getStarsCoinsInvoice(zodData, user);
-    return res.status(result.status).send(result.data);
-  }
-  // handle tma smart glocal & unlimint payment invoice generator
-  const result = await getTmaPaymentCoinsInvoice({...zodData, providerToken: zodData.gateway === "SMART_GLOCAL" ? smartGlocalApiKey : unlimintApiKey}, user);
-  return res.status(result.status).send(result.data);
-
-};
 
 export const getCoinsController = async (req: Request, res: Response) => {
   const result = await getCoinPackages();
@@ -75,7 +42,7 @@ export const purchaseCoinsController = async (
       );
       return res.status(result.status).send(result.data);
     }
-    // purchase with stars or TON or Fiat or USD or NGN
+    // Purchase through a supported external payment method.
     const result = await purchaseCoinsWithToken(
       {
         id: payload.packageId,

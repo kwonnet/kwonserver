@@ -2,7 +2,10 @@ import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import { APP_SUBSCRIPTION_REMINDER_QUEUE, POST_EMBEDDING_QUEUE, POST_KEYWORDS_QUEUE, POST_TOPIC_QUEUE } from '../helpers';
 
-const connection = new IORedis({ maxRetriesPerRequest: null });
+const connection = new IORedis(String(process.env.REDIS_URL), {
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false,
+});
 
 
 export const appSubscriptionQueue = new Queue(APP_SUBSCRIPTION_REMINDER_QUEUE, {

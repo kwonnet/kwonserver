@@ -1,3 +1,4 @@
+import { paymentMethodSchema } from "@/schema/payment";
 import prisma from "@/db";
 import { generateUniqueRef } from "@/utils";
 import {
@@ -13,12 +14,9 @@ import {
   UserTypeEnum,
 } from "@prisma/client";
 import { syncPrismaUserWalletToRedis } from "../../helper";
-import { PlanTypeEnum } from "@/types";
 import { syncUserRedisWalletToPrisma } from "../games";
-import { telegramBot } from "@/telegram-bot";
-import { addSubscriptionCronJob, removeSubscriptionCronJob } from "@/cron/utils";
-import { AuthUser } from "@/types/user";
 
+import { addSubscriptionCronJob, removeSubscriptionCronJob } from "@/cron/utils";
 
 export const getPlans = async () => {
   try {
@@ -31,80 +29,6 @@ export const getPlans = async () => {
     return { data: isFound ? data : "Not found", status: isFound ? 200 : 404 };
   } catch (error) {
     return { data: "Error occurred, please try again", status: 500 };
-  }
-};
-
-export const genTmaSubscriptionInvoice = async (
-  arg: {
-    amount: number;
-    planId: string;
-    gateway: TxnGatewayEnum;
-    planType: PlanTypeEnum;
-    isRecurring: boolean;
-    planName: string;
-    botTxnRef: string;
-    tierId?: string | undefined;
-    currency: TxnCurrencyEnum;
-    providerToken: string;
-  },
-  user: AuthUser
-) => {
-  try {
-    // check if subscription exists
-    const item = await prisma.subscriptionPlan.findFirst({
-      where: { id: arg.planId },
-    });
-    if (!item)
-      return { status: 400, data: "Invalid subscription plan provided" };
-    // get tier
-    const tier = item.tier.find((t) => t.id === arg.tierId);
-    if (arg.tierId && !tier)
-      return { status: 400, data: "Invalid subscription plan provided" };
-    // compose payload
-    // const planName = arg.tierId ? `${item.name} - ${tier?.name}` : item.name
-    const planType = arg.planType.toLowerCase();
-    const desc = `Pay ${arg.amount} ${
-      arg.currency === TxnCurrencyEnum.XTR ? "stars" : arg.currency
-    } for ${planType} ${arg.planName} plan subscription `;
-    const amount =
-      arg.currency === TxnCurrencyEnum.XTR ? arg.amount : arg.amount * 100;
-    // configure recurring payment or subscription
-    // month
-    const date = new Date();
-    const endMonthDate = new Date(date.setMonth(date.getUTCMonth() + 1));
-    // year
-    const date1 = new Date();
-    const endYearDate = new Date(
-      date1.setUTCFullYear(date.getUTCFullYear() + 1)
-    );
-    // Calculate the difference in seconds
-    // const subscription_period = arg.planType === PlanTypeEnum.MONTHLY ? Math.floor((endMonthDate.getTime() - Date.now()) / 1000) : Math.floor((endYearDate.getTime() - Date.now()) / 1000)
-    const subscription_period =
-      arg.planType === PlanTypeEnum.MONTHLY ? 2_592_000 : 31_104_000;
-    console.log("subscription_period ", amount, subscription_period);
-    console.log(arg.providerToken);
-    // create subscription invoice
-    const invoiceLink = await telegramBot.createInvoiceLink({
-      title: `${arg.planName} plan`,
-      description: desc,
-      currency: arg.currency,
-      payload: `appSub_${user.id}_tx_${arg.botTxnRef}`,
-      prices: [{ amount, label: arg.planName }],
-      provider_token: arg.providerToken,
-      ...(arg.isRecurring &&
-        arg.gateway === TxnGatewayEnum.STARS && { subscription_period }),
-      ...(arg.gateway === TxnGatewayEnum.UNLIMINT && {
-        need_email: true,
-        send_email_to_provider: true,
-      }),
-      ...(arg.isRecurring && arg.gateway === TxnGatewayEnum.SMART_GLOCAL && {
-        provider_data: { save_card: true, recurrent: true}
-      })
-    });
-    
-    return { data: invoiceLink, status: 200 };
-  } catch (error: any) {
-    return { data: `Error occurred: ${error?.message}`, status: 500 };
   }
 };
 
@@ -504,6 +428,9 @@ export const purchaseAppSubscription = async (
   },
   userId: string
 ) => {
+  if (!paymentMethodSchema.safeParse(item).success) {
+    return { data: "Unsupported payment method", status: 400 };
+  }
   try {
     // get user
     const user = await prisma.user.findFirst({ where: { id: userId } });
@@ -605,7 +532,7 @@ export const purchaseAppSubscription = async (
           source: item.source,
           type: TxnTypeEnum.DEBIT,
           status: TxnStatusEnum.COMPLETED,
-          exTxnRef: item?.meta?.botTxnRef ?? item?.meta?.txnRef,
+          exTxnRef: item?.meta?.txnRef,
           txnRef,
           userId: user.id,
           senderId: user.id,
@@ -685,127 +612,6 @@ export const cancelAppSubscription = async (arg: {
   } catch (error) {
     return {
       data: "Error: Failed to process request, please try again later",
-      status: 500,
-    };
-  }
-};
-
-export const renewTmaAppSubscription = async (
-  item: {
-    subId: string;
-    botTxnRef: string;
-    txnId: string;
-    meta?: { [key: string]: any };
-  },
-  userId: string
-) => {
-  try {
-    // get user
-    const user = await prisma.user.findFirst({ where: { id: userId } });
-
-    if (!user) return { data: "User not found", status: 400 };
-
-    const txnRef = generateUniqueRef();
-
-    await prisma.$transaction(async (tx) => {
-      // check if subscription exists
-      const currentSub = await prisma.subscription.findFirst({
-        where: { userId: user.id, id: item.subId },
-        include: { plan: true },
-      });
-      if (!currentSub) return;
-      // sub plan
-      const plan = currentSub.plan;
-      // disable current active subscription
-      await tx.subscription.updateMany({
-        where: { userId: user.id, status: "ACTIVE" },
-        data: { status: "PAUSED" },
-      });
-      // disable all primary
-      await tx.subscription.updateMany({
-        where: { userId: user.id },
-        data: { isPrimary: false },
-      });
-      // check if user has an active subscription and the plan is different
-      const startDate = new Date();
-      const date = new Date();
-      const endDate =
-        currentSub.billingCycle === BillingCycleEnum.MONTHLY
-          ? new Date(date.setMonth(date.getUTCMonth() + 1))
-          : new Date(date.setUTCFullYear(date.getUTCFullYear() + 1));
-      // update meta
-      const currentSubMeta = currentSub.meta as any;
-      const metadata = currentSub.metadata.concat([
-        {
-          id: currentSub.id,
-          billingCycle: currentSub.billingCycle,
-          planId: currentSub.planId,
-          startDate: currentSub.startDate,
-          endDate: currentSub.endDate,
-          status: currentSub.status,
-          isPrimary: currentSub.isPrimary,
-          tierId: currentSubMeta?.tierId,
-          meta: currentSub.meta,
-        },
-      ]);
-      // update existing subscription
-      const subscription = await tx.subscription.update({
-        where: { id: currentSub.id },
-        data: {
-          startDate,
-          endDate,
-          status: "ACTIVE",
-          isPrimary: true,
-          metadata,
-        },
-      });
-
-      // get the renewed subscription transaction
-      const renewedTxn = await tx.transaction.findFirst({
-        where: { id: item.txnId },
-      });
-      if (renewedTxn) {
-        const tier = plan.tier.find((t) => t.id === currentSubMeta?.tierId);
-        const planName = tier ? `${plan.name} ~ ${tier.name}` : plan.name;
-        // save debit transaction record
-        await tx.transaction.create({
-          data: {
-            amount: renewedTxn.amount,
-            currency: renewedTxn.currency,
-            subPlanId: renewedTxn.subPlanId,
-            subscriptionId: subscription?.id,
-            category: TxnCategoryEnum.APP_SUBSCRIPTION,
-            description: `Renewed ${currentSub.billingCycle} ${planName} subscription plan for ${renewedTxn.amount} ${renewedTxn.currency}.`,
-            gateway: renewedTxn.gateway,
-            source: renewedTxn.source,
-            type: TxnTypeEnum.DEBIT,
-            status: TxnStatusEnum.COMPLETED,
-            txnRef,
-            exTxnRef: item.botTxnRef,
-            userId: user.id,
-            senderId: user.id,
-            metadata: { item, ...item.meta },
-          },
-        });
-      }
-
-      // update user meta object if meta status is not active
-      if (user.meta?.status === "INACTIVE") {
-        await tx.user.update({
-          where: { id: user.id },
-          data: {
-            meta: {
-              ...user.meta,
-              status: "ACTIVE",
-            },
-          },
-        });
-      }
-    });
-    return { data: item, status: 200 };
-  } catch (error: any) {
-    return {
-      data: "Error: Failed to process transaction, please contact support",
       status: 500,
     };
   }

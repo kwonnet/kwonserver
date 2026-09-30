@@ -10,10 +10,14 @@ import logger from "@/logger";
 import { insertSubscriptionJob } from "../utils";
 import { APP_SUBSCRIPTION_QUEUE, APP_SUBSCRIPTION_REMINDER_QUEUE, POST_EMBEDDING_QUEUE, POST_KEYWORDS_QUEUE, POST_LABELS, POST_TOPIC_QUEUE } from "../helpers";
 import { cleanTextContent, generateEmbedding } from "@/utils/helpers";
-import axios from "axios";
-import { kwonrecAPI } from "@/config";
+import { kwonrecClient } from "@/services/kwonrec";
 
-const connection = new IORedis({ maxRetriesPerRequest: null });
+const redisUrl = process.env.REDIS_URL;
+if (!redisUrl) {
+  throw new Error("REDIS_URL environment variable is required");
+}
+
+const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
 
 export const appSubscriptionWorker = new Worker(
   APP_SUBSCRIPTION_QUEUE,
@@ -159,10 +163,10 @@ export const postTopicWorker = new Worker(
       const item = posts[index];
       const text = cleanTextContent(item.content);
       // get topic
-      const resp = await axios.post(`${kwonrecAPI}/classify`, { labels: POST_LABELS, text })
+      const resp = await kwonrecClient.post("/classify", { labels: POST_LABELS, text })
       const result = resp.data as { label: string, score: number}
 
-      topicPosts.push({id: item.id, topic: result.label })
+      if (result.score > 0) topicPosts.push({id: item.id, topic: result.label })
     }
     // update db
     await prisma.$transaction(
@@ -210,10 +214,10 @@ export const postKeywordsWorker = new Worker(
       const item = posts[index];
       const text = cleanTextContent(item.content);
       // get topic
-      const resp = await axios.post(`${kwonrecAPI}/classify`, { labels: POST_LABELS, text })
+      const resp = await kwonrecClient.post("/classify", { labels: POST_LABELS, text })
       const result = resp.data as { label: string, score: number}
 
-      processedPosts.push({id: item.id, topic: result.label })
+      if (result.score > 0) processedPosts.push({id: item.id, topic: result.label })
     }
     // update db
     // await prisma.$transaction(

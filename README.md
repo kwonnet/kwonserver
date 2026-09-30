@@ -241,3 +241,73 @@ CALL refresh_continuous_aggregate('trending_keywords_daily', NULL, NULL);
 
 ### To Query Your Live Trending Topics!
 
+
+
+## Removed payment integrations
+
+Telegram bot/mini-app payments and TON wallet operations have been removed from the server. Internal wallets, coin purchases, subscriptions, transaction history, and Flutterwave payment flows remain.
+
+The following routes are no longer registered (clients should remove these controls):
+
+- `/v1/telegram/*`
+- `/v1/crypto/addresses`
+- `/v1/coins/invoices`
+- `/v1/subscriptions/invoices`
+- `/v1/wallets/proof`
+- `/v1/wallets/addresses`
+- `/v1/wallets/withdraw` (the previous implementation only supported TON)
+
+New purchase requests reject retired currencies, payment gateways, and funding sources. Generic external transaction references use `meta.txnRef`. The coin-package response retains an empty `addresses` list for existing clients.
+
+No database data is deleted. Existing migration history and historical ledger enum values remain readable. The old account identifier and address tables are excluded from Prisma Client with `@ignore`/`@@ignore`; these changes require client regeneration but produce an empty SQL migration. Do not remove historical enum values from a populated ledger without a separate data migration.
+
+Remove obsolete `TELEGRAM_*`, `TON_*`, `TONKEEPER_*`, `SMART_GLOCAL_API_KEY`, and `UNLIMINT_API_KEY` secrets from deployment configuration. Local definitions were removed during this cleanup; no external secret store was changed. Deploy the regenerated Prisma Client and rebuilt JavaScript together, and restart running processes.
+
+Run the focused regression checks with `npm run test:integrations`. Type-check the complete repository with `npx tsc --noEmit --rootDir .` (the existing base configuration includes the Prisma seed outside its `src` root).
+
+### Recommendation newsfeed
+
+`GET /api/v1/posts/feed/:feedType?limit=21` requires the user's existing login token. It calls kwonrec using `KWONREC_API` (local default `http://localhost:8001`) and `KWONREC_API_KEY`, then loads the ranked posts with PostgreSQL visibility checks. Set the same service key in `../kwonrec/.env`. The browser continues to call kwonserver and never receives that key.
+
+From `../kwonrec`, run `docker compose build`, then `docker compose run --rm setup`, then `docker compose --profile connected up -d kwonrec worker`. Setup requires `KWONREC_DATABASE_URL` pointing to this application's database; use the direct endpoint for Neon. The worker continuously imports committed interactions and post changes. See `../kwonrec/README.md` for the retention and undo limitations.
+
+Restart this server after environment changes. The feed response header `X-Feed-Source` reports `kwonrec` or `fallback`, and personalized responses disable caching. The existing response body is unchanged.
+
+### Prisma build and database preparation
+
+The project uses Prisma 6. The commands live in `package.json`; Docker and the release script invoke them at the appropriate stage:
+
+| Command | Purpose |
+| --- | --- |
+| `npm run build` | Generate Prisma Client and compile the server and seed. Does not change the database. |
+| `npm run db:migrate -- --name describe_change` | Create/apply migrations against a development database. Commit the resulting `prisma/migrations` files. |
+| `npm run db:deploy` | Apply committed migrations with `prisma migrate deploy`, then seed reference data. Run once per release before starting new replicas. |
+| `npm run db:setup` | Build, migrate, and seed in sequence for a fresh checkout with dependencies installed. |
+| `npm run db:status` | Inspect migration status. |
+| `npm run db:seed` | Rerun the compiled reference seed after building. |
+| `npm run db:seed:demo` | Explicitly add demo users/posts for development; rejected when `NODE_ENV=production`. |
+
+For a non-Docker deployment:
+
+```sh
+npm ci
+npm run build
+# Supply DATABASE_URL for the target database through the deployment environment.
+npm run db:deploy
+npm start
+```
+
+The database must support the `vector` extension used by the existing migrations. For Neon, use a direct connection for the release job if your pooled connection rejects migration or transaction operations. Do not use `migrate dev`, `db push`, or `migrate reset` as a production release step. Existing databases created without Prisma migration history need an intentional baseline before deploying migrations; do not reset them.
+
+Docker generates Prisma Client for Linux during the build and includes the compiled seed, migration files, and Prisma CLI in the runtime image. Build the image, run a one-off release container, then deploy application replicas:
+
+```sh
+docker build -t kwonserver:release .
+docker run --rm --env-file .env kwonserver:release npm run db:deploy
+```
+
+`kwoninfra/scripts/deploy.sh` now performs that release command using the selected kwonserver image before `compose up`. A failed migration or seed stops deployment. The `gcp-build` hook only builds; configure `npm run db:deploy` as the release step in other hosting pipelines as well. Application startup does not run migrations independently in every replica.
+
+Reference seeding covers packages, milestones, games, subscription plans, and geography. It preserves existing data and only initializes empty reference tables. The reference phase is transactional and serialized with a database lock, so failures roll it back and exit unsuccessfully. It does not reconcile old partial seed data or update existing pricing/catalog entries; those changes need explicit migrations. Demo data is opt-in and never part of `db:deploy`.
+
+After preparing a **new database**, run kwonrec's `docker compose run --rm setup` against it to install its separate outbox triggers and backfill the recommendation catalog, then start the recommendation worker. Prisma Client generation does not install those triggers.

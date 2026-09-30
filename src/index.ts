@@ -5,7 +5,6 @@ import app from "./app";
 import socketIo from "./socketIo";
 import cors from "cors";
 import { startBreeJob } from "./bree";
-// import { telegramBotListener } from './services/telegram-bot';
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import v1Routes from "./routes/v1";
@@ -49,7 +48,6 @@ const io = socketIo(server);
 gameSocketIo(io);
 // initialize conversation(chat) namespace
 convoSocketIo(io);
-// telegramBotListener()
 // Routes
 app.get("/", (req: express.Request, res: express.Response) => {
   res.send("Hello, server is up & running!");

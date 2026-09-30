@@ -7,6 +7,7 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["fullTextSearch", "postgresqlExtensions"]
+  binaryTargets = ["native", "darwin-arm64"]
   // output   = "../src/generated/client"
 }
 
@@ -29,7 +30,8 @@ model User {
   avatar                String?
   password              String?
   phone                 String?
-  telId                 String?
+  /// Historical account identifier retained in storage only.
+  telId                 String? @ignore
   countryId             String? // References the Country model
   country               Country?           @relation(fields: [countryId], references: [id])
   role                  UserRoleEnum       @default(USER)
@@ -72,8 +74,8 @@ model User {
   sentNotifications     Notification[]     @relation("NotificationsSent")
   postTipsReceived      PostTip[]          @relation("PostTipsReceived")
   postTipsSent          PostTip[]          @relation("PostTipsSent")
-  walletAddress         WalletAddress[]
-  cryptoAddreses        CryptoAddress[]
+  walletAddress         WalletAddress[] @ignore
+  cryptoAddreses        CryptoAddress[] @ignore
   referralsSent         Referral[]         @relation("ReferralsSent") // Referrals this user initiated
   referralsReceived     Referral[]         @relation("ReferralsReceived") // Referrals this user received
   subscriptions         Subscription[]
@@ -1554,6 +1556,9 @@ model CryptoAddress {
   metadata  Json?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+
+  // Historical records only; no generated client or active integration.
+  @@ignore
 }
 
 // this will save users crypto addresses
@@ -1567,6 +1572,9 @@ model WalletAddress {
   metadata  Json[]     @default([])
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+
+  // Historical records only; no generated client or active integration.
+  @@ignore
 }
 
 // this model handles referral
@@ -1613,6 +1621,7 @@ enum SubStatusEnum {
   REVIEW
 }
 
+// Retained for historical address records only.
 enum CryptoName {
   TON
 }
@@ -1688,8 +1697,8 @@ enum RevenueSourceEnum {
 
 enum TxnCurrencyEnum {
   TZX
-  TON
-  XTR
+  TON // Historical ledger value; rejected for new payments.
+  XTR // Historical ledger value; rejected for new payments.
   USDT
   USD
   NGN
@@ -1706,7 +1715,7 @@ enum TxnSourceEnum {
   COINS
   BONUS
   COINS_BONUS
-  STARS
+  STARS // Historical ledger value; rejected for new payments.
   CREDIT
   FIAT
   CRYPTO
@@ -1742,9 +1751,9 @@ enum TxnGatewayEnum {
   PAYSTACK
   CRYPTO
   VIRTUAL
-  SMART_GLOCAL
-  UNLIMINT
-  STARS
+  SMART_GLOCAL // Historical ledger value; rejected for new payments.
+  UNLIMINT // Historical ledger value; rejected for new payments.
+  STARS // Historical ledger value; rejected for new payments.
 }
 
 enum TxnStatusEnum {
