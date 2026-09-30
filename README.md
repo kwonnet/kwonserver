@@ -339,3 +339,12 @@ Stopping this Compose project leaves kwonrec and your external databases running
 `db-prepare` is a one-time job: `Exited (0)` means migrations and seeding succeeded, and it is expected to stop. The PostgreSQL database runs separately. Check `docker compose ps -a` for job exit codes and `docker compose logs db-prepare` for details.
 
 The server image uses Debian because the native ONNX Runtime dependency requires glibc. Its runtime alias loader maps only `@/…` imports; bare names such as `redis` continue to resolve from `node_modules`.
+
+For standalone `docker run`, generate a Docker CLI env file first:
+
+```sh
+node scripts/export-docker-env.cjs
+docker run --rm --env-file .env.docker kwonserver:latest npm run db:deploy
+```
+
+Use `--env-file .env.docker` for the application container too. Regenerate it after changing `.env`. Docker CLI preserves surrounding quote characters, whereas Compose and dotenv interpret them; passing a quoted database URL directly through `docker run --env-file .env` causes Prisma P1012. The generated file contains secrets, has owner-only permissions, and is excluded from Git and Docker builds. Compose continues using `.env`.

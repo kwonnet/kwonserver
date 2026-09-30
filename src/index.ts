@@ -21,7 +21,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000",
-      "https://v5wgzfbw-3000.uks1.devtunnels.ms",
+      String(process.env.REMOTE_APP_URL)
     ],
     credentials: true,
   })
