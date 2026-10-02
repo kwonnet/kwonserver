@@ -472,8 +472,8 @@ export const generateAcademiaQuestion = async (room: TempGameRoom) => {
 // };
 
 export const generateOpenAiQuestion =
-  async (): Promise<GeneratedTriviaQuestion> => {
-    const input = getRandomPrompt();
+  async (room?: TempGameRoom): Promise<GeneratedTriviaQuestion> => {
+    const input = getRandomPrompt(room);
 
     logger.info("Generating OpenAI question with input:", input);
 
@@ -502,7 +502,7 @@ export const generateOpenAiQuestion =
   };
 
 
-export const generateDeepSeekAiQuestion = async () => {
+export const generateDeepSeekAiQuestion = async (room?: TempGameRoom) => {
   try {
     const result = await deepSeekAi.chat.completions.create({
       messages: [
@@ -544,12 +544,12 @@ export const generateDeepSeekAiQuestion = async () => {
       //   },
       // },
     });
+    logger.info("DeepSeek AI question generated:", result);
     if (!result) throw new Error("No response from openai server");
     // const question = convertToJSON(result?.data?.choices[0]?.message?.content)
-    console.log(result);
     return result;
   } catch (error) {
-    console.log(error)
+    logger.error("Failed to generate DeepSeek AI question:", error);
   }
 };
 
@@ -577,13 +577,13 @@ export function generateRandomAcronyms(count = 3) {
   ).join(".");
 }
 
-export async function generateTriviaQuestion(): Promise<ThemedGameQuestion> {
+export async function generateTriviaQuestion(room?: TempGameRoom): Promise<ThemedGameQuestion> {
   try {
     const result = await generateOpenAiQuestion();
-    // const result = await generateXAiQuestion();
+    // const result = await generateXAiQuestion(room);
     return {...result, id: generateID(), type: GameType.TRIVIA};
   } catch (error) {
-    console.error("Failed to generate trivia question:", error);
+    logger.error("Failed to generate trivia question:", error);
     throw error;
   }
 
