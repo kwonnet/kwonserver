@@ -204,7 +204,7 @@ export const handleReferral = async (params: {
     }
     // check if the referrer account is old enough for instant reward(at least 10 days old)
     const time = new Date(referrer.createdAt).getTime();
-    const seconds = Math.round(time / 1000);
+    const seconds = (Date.now() - time) / 1000;
     const isOldEnough = seconds >= 10 * 24 * 60 * 60; // at least 10 days old
     logger.info(
       { isOldEnough, ...referrer._count },
@@ -252,5 +252,4 @@ export const handleReferral = async (params: {
     return "Sorry an error ocurred, try again";
   }
 };
-
 

@@ -54,7 +54,7 @@ export const cancelSubscriptionController = async(req: Request, res: Response) =
 
         const user = req.user as User; 
         
-        const result = await cancelAppSubscription({status: SubStatusEnum.CANCELLED, subId: payload.id})
+        const result = await cancelAppSubscription({status: SubStatusEnum.CANCELLED, subId: payload.id, userId: user.id})
 
         return res.status(result.status).send(result.data)
 

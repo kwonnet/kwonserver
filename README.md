@@ -1,3 +1,9 @@
+# Tests
+
+Run `npm test` for unit and existing regression tests, or
+`npm run test:unit:coverage` for the full source coverage report.
+See [tests/README.md](tests/README.md) for setup, scope and remaining integration/E2E work.
+
 # Postgresql Extensions
 Please enable these postgresql extensions
 ### 1. Pgvector

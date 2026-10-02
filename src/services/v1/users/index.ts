@@ -397,7 +397,7 @@ export const followUser = async (
 
       let status: FollowStatus = FollowStatus.REJECTED;
 
-      if (UserFollowAction.FOLLOW && !statuses.includes(recipient?.status)) {
+      if (action === UserFollowAction.FOLLOW && !statuses.includes(recipient?.status)) {
         throw new Error(getUserStatusMessage(recipient));
       }
       if (
@@ -412,9 +412,9 @@ export const followUser = async (
             },
           },
         });
-        if (UserFollowAction.UNFOLLOW) {
+        if (action === UserFollowAction.UNFOLLOW) {
           // insert unfollow history
-          await prisma.followHistory.create({
+          await tx.followHistory.create({
             data: {
               followerId: senderId,
               followingId: recipientId,
@@ -453,7 +453,7 @@ export const followUser = async (
             },
           });
         // insert history
-        await prisma.followHistory.create({
+        await tx.followHistory.create({
           data: {
             followerId: senderId,
             followingId: recipientId,
@@ -504,7 +504,7 @@ export const blockUser = async (blockedId: string, user: SessionUser) => {
       if (result) {
         await tx.blockUser.delete({ where: { id: result.id } });
         // insert history
-        await prisma.blockHistory.create({
+        await tx.blockHistory.create({
           data: {
             blockerId: user.id,
             blockedId,
@@ -518,7 +518,7 @@ export const blockUser = async (blockedId: string, user: SessionUser) => {
         data: { blockerId: user.id, blockedId },
       });
       // insert history
-      await prisma.blockHistory.create({
+      await tx.blockHistory.create({
         data: {
           blockerId: user.id,
           blockedId,
@@ -532,7 +532,7 @@ export const blockUser = async (blockedId: string, user: SessionUser) => {
       if (result3) {
         await tx.follow.delete({ where: { id: result3.id } });
         // insert history
-        await prisma.followHistory.create({
+        await tx.followHistory.create({
           data: {
             followerId: user.id,
             followingId: blockedId,
@@ -558,7 +558,7 @@ export const muteUser = async (mutedId: string, user: SessionUser) => {
       if (result) {
         await tx.muteUser.delete({ where: { id: result.id } });
         // insert history
-        await prisma.muteHistory.create({
+        await tx.muteHistory.create({
           data: {
             muterId: user.id,
             mutedId,
@@ -572,7 +572,7 @@ export const muteUser = async (mutedId: string, user: SessionUser) => {
         data: { muterId: user.id, mutedId },
       });
       // insert history
-      await prisma.muteHistory.create({
+      await tx.muteHistory.create({
         data: {
           muterId: user.id,
           mutedId,
@@ -641,10 +641,9 @@ export const updateAccountStatus = async (
       UserStatus.SUSPENDED,
     ] as string[];
 
+    const isModerator = user.role === UserRoleEnum.ADMIN || user.role === UserRoleEnum.SUPER;
     if (
-      isOwner &&
-      user.role === UserRoleEnum.USER &&
-      adminEnabledStatuses.includes(account?.status)
+      !isModerator && (!isOwner || adminEnabledStatuses.includes(account.status) || adminEnabledStatuses.includes(body.status))
     ) {
       return {
         data: "You're not authorised to perform this action, please contact support",

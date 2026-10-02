@@ -12,6 +12,22 @@ import wordlist from "wordlist-english"; // ES Modules
 
 // import { generate, count } from "random-words";
 
+import { z } from "zod";
+import { zodTextFormat } from "openai/helpers/zod";
+
+
+const TriviaQuestionSchema = z.object({
+  question: z.string(),
+  answer: z.string(),
+  options: z.array(z.string()),
+});
+
+export type GeneratedTriviaQuestion = z.infer<typeof TriviaQuestionSchema>;
+
+
+
+
+
 /**
  * Shuffles an array in place using the Fisher-Yates algorithm.
  * @param array - The array to shuffle.
@@ -398,53 +414,84 @@ export const generateAcademiaQuestion = async (room: TempGameRoom) => {
   // }
 };
 
-export const generateOpenAiQuestion = async () => {
-  try {
-    const result = await openai.chat.completions.create({
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Generate a random question on any topic and return the response in json format with question, answer and options as an array",
-            },
-          ],
+// export const generateOpenAiQuestion = async () => {
+//   try {
+//     const result = await openai.chat.completions.create({
+//       messages: [
+//         {
+//           role: "user",
+//           content: [
+//             {
+//               type: "text",
+//               text: "Generate a random question on any topic and return the response in json format with question, answer and options as an array",
+//             },
+//           ],
+//         },
+//       ],
+//       model: "gpt-6-astra",
+//       stream: false,
+//       response_format: {
+//         // See /docs/guides/structured-outputs
+//         type: "json_schema",
+//         json_schema: {
+//           name: "question_schema",
+//           schema: {
+//             type: "object",
+//             properties: {
+//               question: {
+//                 description: "The question generated",
+//                 type: "string",
+//               },
+//               answer: {
+//                 description: "The answer to the question generated",
+//                 type: "string",
+//               },
+//               options: {
+//                 description: "The question options generated",
+//                 type: "array",
+//               },
+//             },
+//             additionalProperties: false,
+//           },
+//         },
+//       },
+//     });
+//     if (!result) throw new Error("No response from openai server");
+//     // const question = convertToJSON(result?.data?.choices[0]?.message?.content);
+//     // return question;
+//     // const question = convertToJSON(result?.data?.choices[0]?.message?.content)
+//     return result;
+//   } catch (error) {}
+// };
+
+export const generateOpenAiQuestion =
+  async (): Promise<GeneratedTriviaQuestion> => {
+    const input = getRandomPrompt();
+
+    try {
+      const result = await openai.responses.parse({
+        model: "gpt-6-astra",
+        input,
+
+        text: {
+          format: zodTextFormat(
+            TriviaQuestionSchema,
+            "question_schema",
+          ),
         },
-      ],
-      model: "gpt-4o-mini",
-      stream: false,
-      response_format: {
-        // See /docs/guides/structured-outputs
-        type: "json_schema",
-        json_schema: {
-          name: "question_schema",
-          schema: {
-            type: "object",
-            properties: {
-              question: {
-                description: "The question generated",
-                type: "string",
-              },
-              answer: {
-                description: "The answer to the question generated",
-                type: "string",
-              },
-              options: {
-                description: "The question options generated",
-                type: "array",
-              },
-            },
-            additionalProperties: false,
-          },
-        },
-      },
-    });
-    if (!result) throw new Error("No response from openai server");
-    // const question = convertToJSON(result?.data?.choices[0]?.message?.content)
-    return result;
-  } catch (error) {}
-};
+      });
+
+      if (!result.output_parsed) {
+        throw new Error("No question returned from OpenAI");
+      }
+
+      return result.output_parsed;
+    } catch (error) {
+      console.error("Failed to generate OpenAI question:", error);
+      throw error;
+    }
+  };
+
 
 export const generateDeepSeekAiQuestion = async () => {
   try {
@@ -519,6 +566,18 @@ export function generateRandomAcronyms(count = 3) {
     { length: count },
     () => alphabet[Math.floor(Math.random() * alphabet.length)]
   ).join(".");
+}
+
+export async function generateTriviaQuestion(): Promise<ThemedGameQuestion> {
+  try {
+    const result = await generateOpenAiQuestion();
+    // const result = await generateXAiQuestion();
+    return {...result, id: generateID(), type: GameType.TRIVIA};
+  } catch (error) {
+    console.error("Failed to generate trivia question:", error);
+    throw error;
+  }
+
 }
 
 export function generateAcronymQuestion() {
@@ -842,7 +901,7 @@ export const generateRoomQuestion = async (room: TempGameRoom) => {
   try {
     const name = room.gameName.toLowerCase();
     if (name.includes("trivia")) {
-      return await generateXAiQuestion();
+      return await generateTriviaQuestion();
     } else if (name.includes("acronym")) {
       return generateAcronymQuestion();
     } else if (name.includes("academia")) {

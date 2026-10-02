@@ -166,8 +166,11 @@ export const transferCoins = async ({
 
 export const fundCoins = async (
   { userId, amount, bonus }: { userId: string; amount: number; bonus: number },
-  currUser: User
+  currUser: User & { role?: string }
 ) => {
+  if (currUser.role !== 'ADMIN' && currUser.role !== 'SUPER') {
+    return { status: 403, data: 'Only administrators can fund wallets' };
+  }
   try {
     // sync both the sender and the recipient wallet
     const syncResult = await syncRedisUserWalletToPrisma(userId);
@@ -285,7 +288,9 @@ export const updateWalletBonus = async (arg: {
     const now = Date.now()
     const result = await prisma.userTaskSettings.findFirst({
         where: { userId: arg.userId,  }})
-    if(result && result.dailyBonusDate?.getTime() > now){
+    const nextBonusDate = arg.type === BonusTypeEnum.BONUS
+      ? result?.dailyBonusDate : result?.adsBonusDate;
+    if(nextBonusDate && nextBonusDate.getTime() > now){
       return { status: 400, message: "User already rewarded today"}
     }
     // execute transaction
@@ -390,7 +395,7 @@ export const rewardDailyTask = async ({
       result.rewardType === RewardTypeEnum.CREDIT
         ? { credit: { increment: result.reward } }
         : result.rewardType === RewardTypeEnum.COINS
-        ? { amount: { increment: result.reward } }
+        ? { coins: { increment: result.reward } }
         : { bonus: { increment: result.reward } };
     const txnRef = generateUniqueRef();
     const [userWallet] = await prisma.$transaction([

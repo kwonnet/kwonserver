@@ -211,7 +211,7 @@ export async function addPostTopicCronJob(id: string) {
 
 export async function removePostTopicCronJob(id: string) {
   try {
-    await postEmbeddingQueue.remove(id, { removeChildren: true});
+    await postTopicQueue.remove(id, { removeChildren: true});
     logger.info(`Removed Scheduled post topic cron ${id}`);
   } catch (error) {
     logger.error(`Error Removing post topic cron job ${id}`);

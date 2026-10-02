@@ -7,3 +7,5 @@ dist-seed/
 
 # Generated local Docker CLI environment (contains secrets)
 .env.docker
+
+coverage/

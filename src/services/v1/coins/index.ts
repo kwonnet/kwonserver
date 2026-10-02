@@ -15,6 +15,15 @@ import {
   syncRedisUserWalletToPrisma,
 } from "../../helper";
 import { generateUniqueRef } from "@/utils";
+import logger from "@/logger";
+
+async function releasePurchaseLock(userId: string) {
+  try {
+    await prisma.wallet.update({ where: { userId }, data: { isLocked: false } });
+  } catch {
+    logger.error({ userId }, "Failed to release coin purchase wallet lock");
+  }
+}
 
 export const getCoinPackages = async () => {
   try {
@@ -49,6 +58,7 @@ export const purchaseCoinsWithWallet = async (
   item: { id: string; currency: TxnCurrencyEnum, meta?: { [key:string]: any } },
   user: User
 ) => {
+  let acquiredLock = false;
   try {
     // get coin package
     const coin = await prisma.coinPackage.findUnique({
@@ -57,7 +67,8 @@ export const purchaseCoinsWithWallet = async (
 
     if (!coin) return { data: "Error: Invalid coin package", status: 400 };
     // sync user redis wallet to prisma
-    await syncRedisUserWalletToPrisma(user.id);
+    const syncResult = await syncRedisUserWalletToPrisma(user.id);
+    if (syncResult.isError) return { status: 500, data: "Unable to reconcile wallet balance" };
     // get user wallet
     const wallet = await prisma.wallet.findFirst({
       where: { userId: user.id },
@@ -78,6 +89,7 @@ export const purchaseCoinsWithWallet = async (
       where: { userId: user.id },
       data: { isLocked: true },
     });
+    acquiredLock = true;
     // debit user wallet credit and credit user wallet amount and save transaction records
     const txnRef = generateUniqueRef();
     const [updatedWallet] = await prisma.$transaction([
@@ -134,11 +146,13 @@ export const purchaseCoinsWithWallet = async (
         },
       }),
     ]);
+    acquiredLock = false;
     // update redis user wallet
     // sync redis user wallet
     syncPrismaUserWalletToRedis(user.id, updatedWallet);
     return { data: updatedWallet, status: 200 };
   } catch (error: any) {
+    if (acquiredLock) await releasePurchaseLock(user.id);
     return {
       data: "Error: Failed to process transaction, please contact support",
       status: 500,
@@ -159,6 +173,7 @@ export const purchaseCoinsWithToken = async (
   if (!paymentMethodSchema.safeParse(item).success) {
     return { data: "Unsupported payment method", status: 400 };
   }
+  let acquiredLock = false;
   try {
     // get coin package
     const coin = await prisma.coinPackage.findUnique({
@@ -171,13 +186,16 @@ export const purchaseCoinsWithToken = async (
       where: { userId: user.id },
     });
     if (!wallet) return { data: "Cannot retrieve user wallet", status: 400 };
+    if (wallet.isLocked) return { data: "User wallet not available at the moment", status: 400 };
     // sync user redis wallet to prisma
-    await syncRedisUserWalletToPrisma(user.id);
+    const syncResult = await syncRedisUserWalletToPrisma(user.id);
+    if (syncResult.isError) return { status: 500, data: "Unable to reconcile wallet balance" };
     // temporarily lock user wallet until this txn is processed
     await prisma.wallet.update({
       where: { userId: user.id },
       data: { isLocked: true },
     });
+    acquiredLock = true;
     // credit user wallet amount and save transaction records
     const txnRef =  generateUniqueRef();
     const [updatedWallet] = await prisma.$transaction([
@@ -235,15 +253,12 @@ export const purchaseCoinsWithToken = async (
         },
       }),
     ]);
+    acquiredLock = false;
     // sync redis user wallet
     syncPrismaUserWalletToRedis(user.id, updatedWallet);
     return { data: updatedWallet, status: 200 };
   } catch (error: any) {
-    // unlock wallet
-    await prisma.wallet.update({
-      where: { userId: user.id },
-      data: { isLocked: true },
-    });
+    if (acquiredLock) await releasePurchaseLock(user.id);
     return {
       data: "Error: Failed to process transaction, please contact support",
       status: 500,
@@ -255,6 +270,7 @@ export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase
   if (!paymentMethodSchema.safeParse(item).success) {
     return { data: "Unsupported payment method", status: 400 };
   }
+  let acquiredLock = false;
   try {
     console.log("PurchaseCoinsWithFlutterwave ", item)
     const userId = item.userId
@@ -272,13 +288,16 @@ export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase
       where: { userId },
     });
     if (!wallet) return { data: "Cannot retrieve user wallet", status: 400 };
+    if (wallet.isLocked) return { data: "User wallet not available at the moment", status: 400 };
     // sync user redis wallet to prisma
-    await syncRedisUserWalletToPrisma(userId);
+    const syncResult = await syncRedisUserWalletToPrisma(userId);
+    if (syncResult.isError) return { status: 500, data: "Unable to reconcile wallet balance" };
     // temporarily lock user wallet until this txn is processed
     await prisma.wallet.update({
       where: { userId },
       data: { isLocked: true },
     });
+    acquiredLock = true;
     // credit user wallet amount and save transaction records
     const txnRef = generateUniqueRef()
     const [updatedWallet] = await prisma.$transaction([
@@ -336,15 +355,12 @@ export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase
         },
       }),
     ]);
+    acquiredLock = false;
     // sync redis user wallet
     syncPrismaUserWalletToRedis(userId, updatedWallet);
     return { data: updatedWallet, status: 200 };
   } catch (error: any) {
-       // unlock user wallet
-       await prisma.wallet.update({
-        where: { userId: item.userId },
-        data: { isLocked: false },
-      });
+    if (acquiredLock) await releasePurchaseLock(item.userId);
     return {
       data: "Error: Failed to process transaction, please contact support",
       status: 500,

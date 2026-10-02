@@ -20,13 +20,13 @@ export const transferCoinsController = async (
   req: Request,
   res: Response
 ) => {
-  const zodResult = validateZodInput(req.body, TransferCoinsZodSchema);
+  const zodResult = validateZodInput({ ...req.body, senderId: req.user?.id }, TransferCoinsZodSchema);
 
   if (!zodResult.data) return res.status(400).send(zodResult.message);
 
   try {
     const result = await transferCoins(zodResult.data);
-    return res.status(result.status).send(result.data);
+    return res.status(result.status).send(result.data ?? result.message);
   } catch (error) {
     return res
       .status(500)
@@ -94,7 +94,7 @@ export const claimDailyBonusController = async (
   console.log(req.body)
 
   const zodResult = validateZodInput(
-    { userId: user.id, ...req.body },
+    { ...req.body, userId: user.id },
     DailyBonusZodSchema
   );
 

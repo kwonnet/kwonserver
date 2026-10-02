@@ -12,7 +12,7 @@
     "deploy-app": "gcloud app deploy app.yaml",
     "deploy": "gcloud app deploy app.flexible.yaml",
     "gcp-build": "npm run build",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npm run test:unit && npm run test:regression",
     "test:integrations": "node --test tests/retired-integrations.test.cjs",
     "build:seed": "tsc -p tsconfig.seed.json",
     "db:generate": "prisma generate",
@@ -23,7 +23,16 @@
     "db:seed:demo": "npm run build:seed && prisma db seed -- --demo",
     "db:deploy": "npm run db:migrate:deploy && npm run db:seed",
     "db:setup": "npm run build && npm run db:deploy",
-    "test:prisma": "node --test tests/prisma-seed.test.cjs"
+    "test:prisma": "node --test tests/prisma-seed.test.cjs",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:unit:coverage": "vitest run --coverage",
+    "test:regression": "node --test tests/*.test.cjs",
+    "test:typecheck": "tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test:integration": "node scripts/test-infrastructure.cjs tests/integration",
+    "test:e2e": "node scripts/test-infrastructure.cjs tests/e2e",
+    "test:infrastructure": "node scripts/test-infrastructure.cjs",
+    "test:all": "npm run test:typecheck && npm run test:unit:coverage && npm run test:regression && npm run test:infrastructure"
   },
   "prisma": {
     "seed": "node dist-seed/seed.js"
@@ -39,16 +48,19 @@
     "@types/node": "^22.10.1",
     "@types/stopword": "^2.0.3",
     "@types/web-push": "^3.6.4",
+    "@vitest/coverage-v8": "^5.0.3",
     "faker": "^6.6.6",
     "nodemon": "^3.1.7",
     "prisma-json-types-generator": "^3.6.2",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.3"
   },
   "dependencies": {
     "@breejs/ts-worker": "^2.0.0",
     "@clickhouse/client": "^1.14.0",
+    "@faker-js/faker": "^9.3.0",
     "@genkit-ai/google-genai": "^1.27.0",
     "@huggingface/transformers": "^3.8.0",
     "@keyv/redis": "^5.1.5",
@@ -83,13 +95,14 @@
     "nanoid": "^5.0.8",
     "node-device-detector": "^2.2.1",
     "node-rake-v2": "^0.0.3",
-    "openai": "^4.71.1",
+    "openai": "^7.27.0",
     "pg": "^8.16.3",
     "pg-hstore": "^2.3.4",
     "pgvector": "^0.2.1",
     "pino": "^9.5.0",
     "pino-http": "^10.3.0",
     "pino-pretty": "^13.0.0",
+    "prisma": "^6.19.0",
     "random-words": "^2.0.1",
     "redis": "^4.7.0",
     "sequelize": "^6.37.7",
@@ -101,8 +114,6 @@
     "uuid": "^11.0.3",
     "web-push": "^3.6.7",
     "wordlist-english": "^1.2.1",
-    "zod": "^3.23.8",
-    "prisma": "^6.19.0",
-    "@faker-js/faker": "^9.3.0"
+    "zod": "^3.25.76"
   }
 }

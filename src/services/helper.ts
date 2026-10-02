@@ -258,8 +258,8 @@ export const getRewardTopRankingPlayers = async (
       // provided "limit" will remain constant
       return {
         ...player,
-        score: parseInt(stat.score) ?? 0,
-        numPlayed: parseInt(stat.numPlayed) ?? 0,
+        score: parseInt(stat.score, 10) || 0,
+        numPlayed: parseInt(stat.numPlayed, 10) || 0,
         rank: playerRank !== null ? playerRank + 1 : 0,
       };
     })
@@ -313,8 +313,8 @@ export const getCategoryRankingPlayerData = async (
       // provided "limit" will remain constant
       return {
         ...player,
-        score: parseInt(stat.score) ?? 0,
-        numPlayed: parseInt(stat.numPlayed) ?? 0,
+        score: parseInt(stat.score, 10) || 0,
+        numPlayed: parseInt(stat.numPlayed, 10) || 0,
         rank: playerRank !== null ? playerRank + 1 : 0,
       };
     })
@@ -432,7 +432,6 @@ export const calculateWordMakerPlayerScore = (baseWord:string,entries: {
     return {score, answer: validEnglishWords.map(i => i.text).join(",")};
 
 }
-
 
 
 

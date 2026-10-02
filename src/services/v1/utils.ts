@@ -387,12 +387,13 @@ export const transformPrismaTagMentions = (post: any) => {
   // First transform the core post
   let transformed = {
     ...rest,
-    tagUsers: post.tagUsers.map((u: any) => ({
+    reposts,
+    tagUsers: tagUsers.map((u: any) => ({
       ...u.user,
       followerCount: u.user._count.followers,
       followingCount: u.user._count.following,
     })),
-    mentions: post.mentions.map((m: any) => ({
+    mentions: mentions.map((m: any) => ({
       ...m.user,
       followerCount: m.user._count.followers,
       followingCount: m.user._count.following,

@@ -571,10 +571,12 @@ export const purchaseAppSubscription = async (
 export const cancelAppSubscription = async (arg: {
   subId: string;
   status: SubStatusEnum;
+  // HTTP callers must provide the authenticated owner; background expiry jobs omit it.
+  userId?: string;
 }) => {
   try {
     const sub = await prisma.subscription.findFirst({
-      where: { id: arg.subId },
+      where: { id: arg.subId, ...(arg.userId !== undefined && { userId: arg.userId }) },
       include: { user: true },
     });
 

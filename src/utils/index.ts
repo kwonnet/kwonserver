@@ -329,6 +329,7 @@ export const getRewardDateInfo = () => {
   previousDay.setUTCDate(utcDate.getUTCDate() - 1);
 
   const previousMonth = new Date(utcDate);
+  previousMonth.setUTCDate(1);
   previousMonth.setUTCMonth(utcDate.getUTCMonth() - 1);
 
   // Current week info
@@ -433,7 +434,7 @@ export function getSpentCoinsKey({gameId, catId, mode, dateInfo}:{gameId: string
 
 export const getGameRandomTimer = () => {
   const timerArray = [18, 19, 12, 17, 14, 16, 20, 13, 15, 10];
-  const count = timerArray.length - 1;
+  const count = timerArray.length;
   const random = Math.floor(Math.random() * count);
   const timer = timerArray[random];
   return timer;

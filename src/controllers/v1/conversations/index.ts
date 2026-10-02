@@ -183,7 +183,7 @@ export const revokeUserChatDeviceController = async (
   try {
     const user = req.user as SessionUser;
 
-    const deviceId = req.params.id
+    const deviceId = req.params.deviceId
 
     if (!deviceId) return res.status(400).send("Invalid user specified");
 
@@ -207,7 +207,7 @@ export const getConvoMessagesController = async (
 
     if (!id) return res.status(400).send("Invalid convo ID specified");
 
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit as string) || 20, 100));
 
     const cursor = req.query.cursor as string | undefined;
 
@@ -215,7 +215,7 @@ export const getConvoMessagesController = async (
 
     if (cursor) query._id = { $lt: cursor };
     // get user chat devices
-    const result = await getConvoMessages(query, limit);
+    const result = await getConvoMessages(query, limit, user.id);
 
     return res.status(result.status).send(result.data);
 

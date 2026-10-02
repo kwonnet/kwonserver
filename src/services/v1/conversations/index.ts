@@ -14,13 +14,13 @@ export const createConversation = async (body: {
     const convo = await ConversationModel.findOne({
       $or: [
         {
-          initiator: { id: body.senderId },
-          responder: { id: body.recipientId },
+          "initiator.id": body.senderId,
+          "responder.id": body.recipientId,
           kind: body.kind,
         },
         {
-          initiator: { id: body.recipientId },
-          responder: { id: body.senderId },
+          "initiator.id": body.recipientId,
+          "responder.id": body.senderId,
           kind: body.kind,
         },
       ],
@@ -88,7 +88,7 @@ export const registerUserChatDevice = async (body: {
 
 export const getUserChatDevices = async (userId: string) => {
   try {
-    const devices = await DeviceModel.find({ userId });
+    const devices = await DeviceModel.find({ userId, revokedAt: null });
 
     const outputs = [];
 
@@ -102,12 +102,13 @@ export const getUserChatDevices = async (userId: string) => {
         const result = await DeviceModel.updateOne(
           {
             _id: d._id,
-            "oneTimePreKeys.keyId": available.keyId,
-            "oneTimePreKeys.consumedAt": { $exists: false },
+            oneTimePreKeys: { $elemMatch: {
+              keyId: available.keyId, consumedAt: { $exists: false },
+            } },
           },
           { $set: { "oneTimePreKeys.$.consumedAt": new Date() } }
         );
-        if (result.matchedCount || result.modifiedCount) {
+        if (result.modifiedCount === 1) {
           oneTime = { keyId: available.keyId, pubX25519: available.pubX25519 };
         }
       }
@@ -215,6 +216,9 @@ export const getUserConversations = async (args: {
         // $limit: limit,
         // $skip: (page - 1) * limit
       },
+      // Apply pagination after sorting, before profile hydration.
+      { $skip: Math.max(0, page - 1) * limit },
+      { $limit: limit },
       // step 5: Clean up the final output
       {
         $project: {
@@ -379,7 +383,7 @@ export const getUserAndRecipientMessages = async (
 
     const recipient = await getPublicUser(recipientId);
 
-    const recipientDevices = await DeviceModel.find({ userId: recipientId });
+    const recipientDevices = await DeviceModel.find({ userId: recipientId, revokedAt: null });
 
     if (convos.length === 0) {
       return {
@@ -421,10 +425,20 @@ export const getUserAndRecipientMessages = async (
 
 export const getConvoMessages = async (
   query: { [key: string]: any },
-  limit: number
+  limit: number,
+  userId: string
 ) => {
   try {
-    const msgs = await MessageModel.find(query)
+    const convo = await ConversationModel.findOne({
+      _id: query.conversationId,
+      $or: [{ "initiator.id": userId }, { "responder.id": userId }],
+    });
+    if (!convo) return { data: "Conversation not found", status: 404 };
+    const messageQuery = {
+      conversation: query.conversationId,
+      ...(query._id && { _id: query._id }),
+    };
+    const msgs = await MessageModel.find(messageQuery)
       .sort({ _id: -1 })
       .limit(limit + 1);
 
@@ -432,7 +446,7 @@ export const getConvoMessages = async (
 
     const results = hasMore ? msgs.slice(0, -1) : msgs;
 
-    const messages = results.reverse();
+    const messages = [...results].reverse();
 
     const nextCursor = hasMore ? results[results.length - 1]._id : null;
 
@@ -482,6 +496,7 @@ export const updateUserConversations = async (args: {
     const date = new Date();
     let filter: { [key: string]: any } = {
       toUserId: args.recipientId,
+      ...(args.convoId && { conversation: args.convoId }),
       "seen.userId": { $ne: args.recipientId },
     };
     let query: { [key: string]: any } = {
@@ -489,21 +504,16 @@ export const updateUserConversations = async (args: {
     };
 
     if (args.convoId && args.isRead && args.isSeen) {
+      // Match each missing receipt separately; a message may already be seen
+      // but unread (or vice versa). Pushing both duplicates the existing receipt.
+      await MessageModel.updateMany(
+        { toUserId: args.recipientId, conversation: args.convoId, "read.userId": { $ne: args.recipientId } },
+        { $push: { read: { userId: args.recipientId, readAt: date } } }
+      );
       filter = {
         toUserId: args.recipientId,
         conversation: args.convoId,
-        $or: [
-          {
-            "read.userId": { $ne: args.recipientId },
-          },
-          { "seen.userId": { $ne: args.recipientId } },
-        ],
-      };
-      query = {
-        $push: {
-          read: { userId: args.recipientId, readAt: date },
-          seen: { userId: args.recipientId, seenAt: date },
-        },
+        "seen.userId": { $ne: args.recipientId },
       };
     } else if (args.convoId && args.isRead) {
       filter = {

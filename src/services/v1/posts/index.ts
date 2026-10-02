@@ -6156,7 +6156,7 @@ export const deletePost = async (postId: string, user: SessionUser) => {
         include: { user: { select: { id: true, role: true } } },
       });
       if (
-        check?.user?.role === UserRoleEnum.USER &&
+        user.role !== UserRoleEnum.ADMIN && user.role !== UserRoleEnum.SUPER &&
         check.user.id !== user.id
       ) {
         throw new Error("Invalid permission");
@@ -6196,7 +6196,7 @@ export const restorePost = async (postId: string, user: SessionUser) => {
         include: { user: { select: { id: true, role: true } } },
       });
       if (
-        check?.user?.role === UserRoleEnum.USER &&
+        user.role !== UserRoleEnum.ADMIN && user.role !== UserRoleEnum.SUPER &&
         check.user.id !== user.id
       ) {
         throw new Error("Invalid permission");

@@ -66,7 +66,7 @@ export function formatNumberWithCommas(num: number): string {
 }
 
 export const getAuthorizationToken = (req: Request) => {
-  const cookieToken = req.cookies.x_a_t;
+  const cookieToken = req.cookies?.tx_a_t || req.cookies?.x_a_t;
 
   if (cookieToken) return cookieToken as string;
 

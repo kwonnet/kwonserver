@@ -15,6 +15,7 @@ export interface IDevice extends Document {
   signedPreKeyPubX25519: string; // base64
   signedPreKeySignature: string; // base64
   oneTimePreKeys: IOneTimePreKey[];
+  revokedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -36,6 +37,7 @@ const DeviceSchema = new Schema<IDevice>(
     identityPubX25519: String,
     signedPreKeyPubX25519: String,
     signedPreKeySignature: String,
+    revokedAt: { type: Date, default: null },
     oneTimePreKeys: { type: [OneTimePreKeySchema], default: [] },
   },
   {
