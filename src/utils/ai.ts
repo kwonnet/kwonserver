@@ -169,7 +169,7 @@ export const generateOpenAiQuestion =
 
     try {
       const result = await openai.responses.parse({
-        model: "gpt-6-astra",
+        model: "gpt-6-luna",
         input: prompt,
         text: {
           format: zodTextFormat(
