@@ -857,17 +857,27 @@ function generateLuckyFlipQuestion() {
 export const generateRoomQuestion = async (room: TempGameRoom) => {
   try {
     const name = room.gameName.toLowerCase();
-    if (name.includes("trivia")) {
-      return await generateTriviaQuestion(room);
-    } else if (name.includes("acronym")) {
-      return generateAcronymQuestion();
-    } else if (name.includes("academia")) {
-      return await generateAcademiaQuestion(room);
-    } else if (name.includes("sports")) {
-      return await generateSportsQuestion(room);
-    } else if (name.includes("country")) {
-      return await generateCountryQuestion(room);
-    } else if (name.includes("mindmash")) {
+    const topics = room?.topics ? room.topics : `${room.catName} current affairs`;
+    const quizzes = ["trivia", "acronym", "academia", "sports", "country"];
+    const isQuiz = quizzes.some((item) =>
+      topics.toLowerCase().includes(item.toLowerCase())
+    );
+
+    // if (name.includes("trivia")) {
+    //   return await generateTriviaQuestion(room);
+    // } else if (name.includes("acronym")) {
+    //   return generateAcronymQuestion();
+    // } else if (name.includes("academia")) {
+    //   return await generateAcademiaQuestion(room);
+    // } else if (name.includes("sports")) {
+    //   return await generateSportsQuestion(room);
+    // } else if (name.includes("country")) {
+    //   return await generateCountryQuestion(room);
+
+    if(isQuiz){
+      return await generateTriviaQuestion({...room, topics});
+    }
+    else if (name.includes("mindmash")) {
       const catType = getGameCatType(room.catName);
       if (catType === GameCatType.TYPEMANIA) {
         return generateTypingManiaQuestion();

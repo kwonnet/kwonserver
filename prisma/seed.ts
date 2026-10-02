@@ -25182,6 +25182,45 @@ function getRandomElement<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
 }
 
+/** Add seed topics to existing categories without recreating games or rooms. */
+export async function syncGameCategoryTopics(
+  tx: Prisma.TransactionClient,
+  seedGames: { name: string; categories: { name: string; topics: string[] }[] }[] = games
+) {
+  const definitions = new Map<string, string[]>();
+  for (const game of seedGames) {
+    for (const category of game.categories) {
+      const key = JSON.stringify([game.name, category.name]);
+      const topics = [...new Set(category.topics.map(topic => topic.trim()).filter(Boolean))];
+      if (topics.length) definitions.set(key, [...new Set([...(definitions.get(key) ?? []), ...topics])]);
+    }
+  }
+  const categories = await tx.gameCategory.findMany({
+    where: { game: { name: { in: seedGames.map(game => game.name) } } },
+    select: { id: true, name: true, topics: true, game: { select: { name: true } } },
+  });
+  let updated = 0;
+  let added = 0;
+  const matched = new Set<string>();
+  for (const category of categories) {
+    const key = JSON.stringify([category.game.name, category.name]);
+    const seedTopics = definitions.get(key);
+    if (!seedTopics) continue;
+    matched.add(key);
+    const missing = seedTopics.filter(topic => !category.topics.includes(topic));
+    if (!missing.length) continue;
+    await tx.gameCategory.update({
+      where: { id: category.id },
+      data: { topics: [...category.topics, ...missing] },
+    });
+    updated++;
+    added += missing.length;
+  }
+  const missingCategories = definitions.size - matched.size;
+  console.log(`Game topics: updated ${updated} categories, added ${added} topics; ${missingCategories} seed categories not found in database.`);
+  return { updated, added, missingCategories };
+}
+
 async function seedReferenceData(prisma: Prisma.TransactionClient) {
     // seed coin packages
     const totalPackages = await prisma.coinPackage.count();
@@ -25227,6 +25266,7 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
               create: el.categories.map((item) => ({
                 name: item.name,
                 description: item.description,
+                topics: item.topics,
                 rooms: { create: item.rooms },
               })),
             },
@@ -25237,6 +25277,7 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
     } else {
       console.log("Seeding complete.... games  already exists");
     }
+    await syncGameCategoryTopics(prisma);
     // seed app subscriptions
     const plans = await prisma.subscriptionPlan.count();
     if (plans === 0) {
@@ -25276,13 +25317,16 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
 
 export async function main() {
   const demo = process.argv.includes("--demo");
+  const topicsOnly = process.argv.includes("--game-topics");
+  if (demo && topicsOnly) throw new Error("Choose either --demo or --game-topics");
   if (demo && process.env.NODE_ENV === "production") {
     throw new Error("Demo seeding is disabled in production");
   }
   // Serialize release seeds and roll back reference data together on failure.
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(73190241)`;
-    await seedReferenceData(tx);
+    if (topicsOnly) await syncGameCategoryTopics(tx);
+    else await seedReferenceData(tx);
   }, { timeout: 300000, maxWait: 10000 });
   if (!demo) return;
     // send users

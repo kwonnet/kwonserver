@@ -32,7 +32,8 @@
     "test:integration": "node scripts/test-infrastructure.cjs tests/integration",
     "test:e2e": "node scripts/test-infrastructure.cjs tests/e2e",
     "test:infrastructure": "node scripts/test-infrastructure.cjs",
-    "test:all": "npm run test:typecheck && npm run test:unit:coverage && npm run test:regression && npm run test:infrastructure"
+    "test:all": "npm run test:typecheck && npm run test:unit:coverage && npm run test:regression && npm run test:infrastructure",
+    "db:seed:topics": "prisma db seed -- --game-topics"
   },
   "prisma": {
     "seed": "node dist-seed/seed.js"

@@ -291,6 +291,7 @@ The project uses Prisma 6. The commands live in `package.json`; Docker and the r
 | `npm run db:setup` | Build, migrate, and seed in sequence for a fresh checkout with dependencies installed. |
 | `npm run db:status` | Inspect migration status. |
 | `npm run db:seed` | Rerun the compiled reference seed after building. |
+| `npm run db:seed:topics` | Add missing seed topics to existing game categories only, after building the seed. |
 | `npm run db:seed:demo` | Explicitly add demo users/posts for development; rejected when `NODE_ENV=production`. |
 
 For a non-Docker deployment:
@@ -314,7 +315,28 @@ docker run --rm --env-file .env kwonserver:release npm run db:deploy
 
 `kwoninfra/scripts/deploy.sh` now performs that release command using the selected kwonserver image before `compose up`. A failed migration or seed stops deployment. The `gcp-build` hook only builds; configure `npm run db:deploy` as the release step in other hosting pipelines as well. Application startup does not run migrations independently in every replica.
 
-Reference seeding covers packages, milestones, games, subscription plans, and geography. It preserves existing data and only initializes empty reference tables. The reference phase is transactional and serialized with a database lock, so failures roll it back and exit unsuccessfully. It does not reconcile old partial seed data or update existing pricing/catalog entries; those changes need explicit migrations. Demo data is opt-in and never part of `db:deploy`.
+Reference seeding covers packages, milestones, games, subscription plans, and geography. It preserves existing data and only initializes empty reference tables. The reference phase is transactional and serialized with a database lock, so failures roll it back and exit unsuccessfully. Game category topics are an exception: each run adds missing seed topics to existing categories matched by game name and category name. Existing topics and empty topic definitions are preserved. Other partial seed data and existing pricing/catalog entries are not reconciled automatically. Demo data is opt-in and never part of `db:deploy`.
+
+To backfill topics after editing `prisma/seed.ts`, from `kwonserver` run:
+
+```sh
+npm run build:seed
+npm run db:seed:topics
+```
+
+This uses the configured `DATABASE_URL`, updates only existing category topic
+arrays, and logs how many categories/topics were added and how many named seed
+categories could not be found. It is additive and safe to rerun: it does not
+remove old topics, recreate categories/rooms, or duplicate existing topics.
+No schema migration is needed when only the topic values change. Matching uses
+both game and category names, so renamed database categories need matching seed
+names. Normal `db:seed`/`db:deploy` also perform this sync.
+
+For Docker or a Cloud Run Job, rebuild/deploy an image containing the updated
+seed first, then execute `npm run db:seed:topics` once with the target database
+configuration. The Docker build already compiles the seed; do not run
+`build:seed` inside the production image, which omits development dependencies.
+
 
 After preparing a **new database**, run kwonrec's `docker compose run --rm setup` against it to install its separate outbox triggers and backfill the recommendation catalog, then start the recommendation worker. Prisma Client generation does not install those triggers.
 
