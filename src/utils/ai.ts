@@ -14,6 +14,7 @@ import wordlist from "wordlist-english"; // ES Modules
 
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
+import logger from "@/logger";
 
 
 const TriviaQuestionSchema = z.object({
@@ -94,14 +95,18 @@ const themes = [
 ];
 
 // Function to randomly return a trivia prompt from available themes
-function getRandomPrompt() {
+function getRandomPrompt(room?: TempGameRoom): string {
   // Randomly select a question prompt and a theme
   const randomQuestionPrompt =
     questionPrompts[Math.floor(Math.random() * questionPrompts.length)];
   const randomTheme = themes[Math.floor(Math.random() * themes.length)];
 
+  const themeTopic = room?.topics ? room.topics : randomTheme;
+
   // Compose and return the full, more natural prompt
-  const question = `${randomQuestionPrompt} on ${randomTheme}`;
+  const question = `${randomQuestionPrompt} on any of ${themeTopic}`;
+
+  
   // Compose and return the full prompt
   return `
     ${question}
@@ -119,6 +124,8 @@ function getRandomPrompt() {
     3. "answer" is the correct answer from the options array.
     Return only the JSON object. Do not add any extra text.
   `;
+
+
 }
 const generateID = (count: number = 10): string => {
   return uuid4()?.replace("-", "").slice(0, count);
@@ -133,8 +140,8 @@ const convertToJSON = (str: string) => {
   } as ThemedGameQuestion;
 };
 
-export const generateXAiQuestion = async () => {
-  const content = getRandomPrompt();
+export const generateXAiQuestion = async (room?: TempGameRoom) => {
+  const content = getRandomPrompt(room);
   try {
     const result = await axiosXAI.post("/chat/completions", {
       messages: [
@@ -468,6 +475,8 @@ export const generateOpenAiQuestion =
   async (): Promise<GeneratedTriviaQuestion> => {
     const input = getRandomPrompt();
 
+    logger.info("Generating OpenAI question with input:", input);
+
     try {
       const result = await openai.responses.parse({
         model: "gpt-6-astra",
@@ -487,7 +496,7 @@ export const generateOpenAiQuestion =
 
       return result.output_parsed;
     } catch (error) {
-      console.error("Failed to generate OpenAI question:", error);
+      logger.error("Failed to generate OpenAI question:", error);
       throw error;
     }
   };
@@ -901,7 +910,7 @@ export const generateRoomQuestion = async (room: TempGameRoom) => {
   try {
     const name = room.gameName.toLowerCase();
     if (name.includes("trivia")) {
-      return await generateTriviaQuestion();
+      return await generateTriviaQuestion(room);
     } else if (name.includes("acronym")) {
       return generateAcronymQuestion();
     } else if (name.includes("academia")) {
