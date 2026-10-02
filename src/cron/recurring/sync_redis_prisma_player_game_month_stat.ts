@@ -1,10 +1,10 @@
 // Resolve path aliases
-import 'tsconfig-paths/register';
+
 import prisma from '@/db';
 import redisClient from '@/redis';
 import { PromisePool } from "@supercharge/promise-pool"
 import { getCurrentDataInfo, getExpiryAtUTC, getGameMode, getMonthlyExpiration, getPlayerRedisKeys, getRankingKeys, getRemainingDaysInMonth } from '@/utils';
-import { retryExecution } from '@/utils/helpers';
+
 import logger from '@/logger';
 import { GameMode } from '@prisma/client';
 
@@ -111,14 +111,6 @@ async function syncPlayerMonthStatToRedis(item: PlayerMonthStat) {
   }
   
 
-(async () => {
-  try {
-    logger.info("Executing Prisma Player Month Stats to Redis Job....")
-    await retryExecution(syncUserTxns, 3)
-    logger.info('Syncing Prisma Player Month Stats to Redis completed.');
-    process.exit(0);
-  } catch (error) {
-    logger.info('Error: Syncing Prisma Player Month Stats to Redis failed after retries.');
-    process.exit(0);
-  }
-} )();
+export async function run() {
+  await syncUserTxns();
+}

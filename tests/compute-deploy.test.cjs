@@ -1,0 +1,69 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync, execFileSync } = require('node:child_process');
+const python = execFileSync('which', ['python3'], { encoding: 'utf8' }).trim();
+const source = fs.readFileSync(path.join(__dirname, '../deploy/compute/deploy.sh'), 'utf8');
+const image = 'region-docker.pkg.dev/test-project/kwonnet/kwonserver@sha256:'+'a'.repeat(64);
+function fixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kwon-deploy-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'bin'));
+  fs.writeFileSync(path.join(root, 'registry-token'), 'test-token');
+  fs.writeFileSync(path.join(root, 'app.env'), 'DATABASE_URL=test\nREDIS_URL=test\nJWT_SECRET=test\nMONGO_URL=test\nAPI_DOMAIN=api.example.com\nACME_EMAIL=admin@example.com\n');
+  fs.writeFileSync(path.join(root, 'deploy.sh'), source.replace('[[ $EUID -eq 0 ]]', 'true').replace('ROOT=/opt/kwonnet', `ROOT='${root}/runtime'`));
+  for (const name of ['flock','systemctl']) fs.writeFileSync(path.join(root,'bin',name), '#!/bin/sh\nexit 0\n',{mode:0o755});
+  fs.writeFileSync(path.join(root, 'bin/docker'), `#!${python}\n`+String.raw`
+import json,os,sys
+args=sys.argv[1:]
+with open(os.environ['CALL_LOG'],'a') as log: log.write(json.dumps(args)+'\n')
+if args[0]=='login': sys.stdin.read()
+if args[:2]==['container','inspect']: sys.exit(1)
+if args[0]=='inspect':
+    print('healthy' if 'Health.Status' in args[2] else ('true' if 'Running' in args[2] else '0'))
+if args[0]=='run' and args[-1].endswith('exec npm run db:deploy') and os.environ.get('FAIL_MIGRATION'): sys.exit(42)
+if args[0]=='exec' and os.environ.get('FAIL_HANDSHAKE'): sys.exit(43)
+`,{mode:0o755});
+  const run=(extra={},ref=image)=>spawnSync('bash',[path.join(root,'deploy.sh'),ref],{encoding:'utf8',env:{...process.env,PATH:`${root}/bin:${process.env.PATH}`,CALL_LOG:path.join(root,'calls'),...extra}});
+  const calls=()=>fs.existsSync(path.join(root,'calls'))?fs.readFileSync(path.join(root,'calls'),'utf8').trim().split('\n').map(JSON.parse):[];
+  return {root,run,calls};
+}
+test('automatic deployment migrates before starting API and worker, and records image',t=>{
+  const f=fixture(t),r=f.run();assert.equal(r.status,0,r.stderr);
+  const c=f.calls();assert.ok(c.findIndex(a=>a.some(v=>v.includes('exec npm run db:deploy')))<c.findIndex(a=>a.includes('--name')));
+  assert.ok(c.some(a=>a.includes('kwonserver-worker')&&a.includes('start:worker')));
+  assert.equal(fs.readFileSync(path.join(f.root,'runtime/image'),'utf8'),image+'\n');
+  assert.equal(fs.existsSync(path.join(f.root,'registry-token')),false);
+  assert.equal(fs.existsSync(path.join(f.root,'app.env')),false);
+});
+test('migration failure prevents replacement',t=>{
+  const f=fixture(t);assert.equal(f.run({FAIL_MIGRATION:'1'}).status,42);
+  assert.ok(!f.calls().some(a=>a.includes('--name')||a[0]==='stop'));
+  assert.equal(fs.existsSync(path.join(f.root,'runtime/image')),false);
+});
+test('handshake failure is not recorded as a successful release',t=>{
+  const f=fixture(t);assert.equal(f.run({FAIL_HANDSHAKE:'1'}).status,43);
+  assert.equal(fs.existsSync(path.join(f.root,'runtime/image')),false);
+});
+test('requires app settings when no existing VM environment is available',t=>{
+  const f=fixture(t);fs.writeFileSync(path.join(f.root,'app.env'),'');
+  const r=f.run();assert.notEqual(r.status,0);assert.match(r.stderr,/KWONSERVER_ENV/);
+  assert.equal(f.calls().length,0);
+});
+test('rejects mutable image tags before Docker operations',t=>{
+  const f=fixture(t);assert.equal(f.run({},'example.com/server:main').status,2);assert.equal(f.calls().length,0);
+});
+test('reuses an existing VM environment when no new secret is supplied',t=>{
+  const f=fixture(t);
+  fs.mkdirSync(path.join(f.root,'runtime/env'),{recursive:true});
+  fs.renameSync(path.join(f.root,'app.env'),path.join(f.root,'runtime/env/kwonserver.env'));
+  const r=f.run();assert.equal(r.status,0,r.stderr);
+  assert.match(fs.readFileSync(path.join(f.root,'runtime/env/kwonserver.env'),'utf8'),/JWT_SECRET=test/);
+});
+test('rejects quoted Docker environment values before migrations',t=>{
+  const f=fixture(t);fs.appendFileSync(path.join(f.root,'app.env'),'OTHER="quoted"\n');
+  const r=f.run();assert.notEqual(r.status,0);assert.match(r.stderr,/surrounding quotes/);
+  assert.equal(f.calls().length,0);
+});

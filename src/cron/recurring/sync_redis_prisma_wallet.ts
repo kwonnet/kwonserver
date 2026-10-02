@@ -1,6 +1,6 @@
 // Resolve path aliases
-import 'tsconfig-paths/register';
-import { retryExecution } from '@/utils/helpers';
+
+
 import redisClient from '@/redis';
 import { PromisePool } from "@supercharge/promise-pool"
 import prisma from '@/db';
@@ -18,7 +18,7 @@ async function syncUserRedisWalletToPrisma(playerId: string) {
     // update object
     const wallet = {
       bonus: parseFloat(result.bonus || "0"),
-      coins: parseFloat(result.coins || "0"),
+      coins: parseFloat(result.amount ?? result.coins ?? "0"),
       credit: parseFloat(result.credit || "0"),
     };
     // perform prisma update
@@ -60,13 +60,6 @@ async function syncUserRedisWalletToPrisma(playerId: string) {
       }
   }
 
-(async () => {
-  try {
-    await retryExecution(syncUserTxns, 3)
-    logger.info('Syncing Redis Wallet to Prisma completed successfully.');
-    process.exit(0);
-  } catch (error) {
-    logger.info('Error: Syncing Wallet txns to Prisma failed after retries.');
-    process.exit(0);
-  }
-} )();
+export async function run() {
+  await syncUserTxns();
+}

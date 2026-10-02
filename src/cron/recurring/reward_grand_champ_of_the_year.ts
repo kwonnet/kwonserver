@@ -1,6 +1,6 @@
 // Resolve path aliases
-import "tsconfig-paths/register";
-import { retryExecution } from "@/utils/helpers";
+
+
 import prisma from "@/db";
 import { generateUniqueRef, getRewardDateInfo } from "@/utils";
 import {
@@ -132,7 +132,7 @@ const rewardYearlyGrandChampion = async () => {
           gms."year",
           SUM(gms."score")::numeric AS "totalScore"
         FROM "GameMonthStat" gms
-        WHERE gms."year" = ${2024}
+        WHERE gms."year" = ${dateInfo.yearlyRewardYear}
         GROUP BY gms."playerId", gms."year"
         ORDER BY "totalScore" DESC
         LIMIT 1;
@@ -148,16 +148,10 @@ const rewardYearlyGrandChampion = async () => {
     logger.info(`Rewarded grand champ of the game ${dateInfo.yearlyRewardYear}`);
   } catch (error: any) {
     logger.error(error?.message);
+    throw error;
   }
 };
 
-(async () => {
-  try {
-    await retryExecution(rewardYearlyGrandChampion, 3);
-    logger.info("Reward champ of the game year completed successfully.");
-    process.exit(0);
-  } catch (error) {
-    logger.info("Error: Reward champ of the game year failed after retries.");
-    process.exit(0);
-  }
-})();
+export async function run() {
+  await rewardYearlyGrandChampion();
+}

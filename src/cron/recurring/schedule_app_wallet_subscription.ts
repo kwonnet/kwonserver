@@ -3,7 +3,7 @@ import prisma from "@/db";
 import logger from "@/logger";
 import { SubStatusEnum, TxnCurrencyEnum } from "@prisma/client";
 
-(async () => {
+export async function run() {
   try {
     const lastScheduledJobDate = (await getLastScheduledJob()) || new Date(0); // Fallback to epoch if Redis is empty
     // Fetch subscriptions to schedule
@@ -30,9 +30,10 @@ import { SubStatusEnum, TxnCurrencyEnum } from "@prisma/client";
       const lastJobDate = subscriptions[subscriptions.length - 1].createdAt;
       await updateLastScheduledJob(lastJobDate);
     }
-    process.exit(0);
+
   } catch (error: any) {
     logger.error(`Error scheduling app sub jobs ~ ${error.message}`);
-    process.exit(0);
+    throw error;
+
   }
-})();
+}

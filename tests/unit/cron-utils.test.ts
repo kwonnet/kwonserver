@@ -41,7 +41,7 @@ it.each([true, false])('replaces subscription jobs and updates watermark=%s', as
 });
 it('does not advance the watermark after a reminder enqueue failure', async () => {
   deps.queues.appSubReminderQueue.add.mockRejectedValue(new Error('redis unavailable'));
-  await jobs.insertSubscriptionJob(sub); expect(deps.redis.set).not.toHaveBeenCalled(); expect(logger.error).toHaveBeenCalled();
+  await expect(jobs.insertSubscriptionJob(sub)).rejects.toThrow('redis unavailable'); expect(deps.redis.set).not.toHaveBeenCalled(); expect(logger.error).toHaveBeenCalled();
 });
 it('loads only active recurring subscriptions before scheduling', async () => {
   deps.db.subscription.findUnique.mockResolvedValue(sub); await jobs.addSubscriptionCronJob(sub.id);

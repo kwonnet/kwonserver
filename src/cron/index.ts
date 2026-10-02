@@ -1,21 +1,34 @@
-import logger from "@/logger";
-import { appSubReminderWorker, appSubscriptionWorker, postEmbeddingWorker } from "./jobs/workers";
+import logger from '@/logger';
+import * as workers from './jobs/workers';
+import * as queues from './jobs/queue';
+import { startRecurringJobs } from './recurring';
 
-export const startCronJobs = async () => {
-    try {
-      if(!appSubscriptionWorker.isRunning()){
-        await appSubscriptionWorker.run();
-        logger.info('App Subscription Cron Job Worker Started');
-      }
-      if(!appSubReminderWorker.isRunning()){
-        await appSubReminderWorker.run();
-        logger.info('App Subscription Reminder Cron Job Worker Started');
-      }
-      if(!postEmbeddingWorker.isRunning()){
-        await postEmbeddingWorker.run();
-        logger.info('Post Embedding Cron Job Worker Started');
-      }
-    } catch (error: any) {
-      logger.error(`Starting cron jobs error - ${error?.message}`);
+const activeWorkers = [workers.appSubscriptionWorker, workers.appSubReminderWorker,
+  workers.postEmbeddingWorker, workers.postTopicWorker, workers.postKeywordsWorker];
+let started = false;
+let recurring: Awaited<ReturnType<typeof startRecurringJobs>> | undefined;
+export async function startCronJobs() {
+  if (started || process.env.RUN_BACKGROUND_JOBS === 'false') return;
+  started = true;
+  try {
+    for (const worker of activeWorkers) {
+      worker.on('error', error => logger.error(error, 'BullMQ worker error'));
+      worker.on('failed', (job, error) => logger.error({ job: job?.name, error: error.message }, 'BullMQ job failed'));
+      // run() lasts for the worker lifetime; never await workers sequentially.
+      if (!worker.isRunning()) void worker.run().catch(error => logger.error(error, 'BullMQ worker stopped'));
     }
-  }
+    recurring = await startRecurringJobs();
+  } catch (error) { await stopCronJobs(); throw error; }
+}
+let closing: Promise<void> | undefined;
+export function stopCronJobs() {
+  return closing ??= closeCronJobs();
+}
+async function closeCronJobs() {
+  await Promise.all(activeWorkers.map(worker => worker.close()));
+  if (recurring) await recurring.close();
+  await Promise.all([queues.appSubscriptionQueue, queues.appSubReminderQueue,
+    queues.postEmbeddingQueue, queues.postTopicQueue, queues.postKeywordsQueue].map(queue => queue.close()));
+  await Promise.all([workers.workerConnection.quit(), queues.queueConnection.quit()]);
+  started = false;
+}

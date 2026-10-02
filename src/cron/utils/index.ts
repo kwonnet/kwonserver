@@ -89,6 +89,7 @@ export async function insertSubscriptionJob(sub: {
     logger.info(`Inserted Scheduled job for subscription ${sub.id}`);
   } catch (error) {
     logger.error(`Error inserting subscription job ${sub.id}`);
+    throw error;
   }
 }
 export async function addSubscriptionCronJob(subscriptionId: string) {

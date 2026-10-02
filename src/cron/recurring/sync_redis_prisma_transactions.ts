@@ -1,8 +1,8 @@
 // Resolve path aliases
-import 'tsconfig-paths/register';
+
 import prisma from '@/db';
 import pino from 'pino'
-import { retryExecution } from '@/utils/helpers';
+
 import redisClient from '@/redis';
 import { Prisma, Transaction } from '@prisma/client';
 import { PromisePool } from "@supercharge/promise-pool"
@@ -47,6 +47,7 @@ async function syncRedisTxnsToPrisma(playerId: string) {
     try {
       // Sync records to Prisma
       await prisma.transaction.createMany({
+        skipDuplicates: true,
         data: txns.map(({item}) => ({...item, createdAt: new Date(item.createdAt), metadata: item.metadata as Prisma.JsonObject})),
       });
       // If Prisma operation succeeds, execute Redis transaction
@@ -86,13 +87,6 @@ async function syncRedisTxnsToPrisma(playerId: string) {
       }
   }
 
-(async () => {
-  try {
-    await retryExecution(syncUserTxns, 3)
-    logger.info('Syncing Redis txns to Prisma completed successfully.');
-    process.exit(0);
-  } catch (error) {
-    logger.info('Error: Syncing Redis txns to Prisma failed after retries.');
-    process.exit(0);
-  }
-} )();
+export async function run() {
+  await syncUserTxns();
+}

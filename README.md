@@ -313,7 +313,7 @@ docker build -t kwonserver:release .
 docker run --rm --env-file .env kwonserver:release npm run db:deploy
 ```
 
-`kwoninfra/scripts/deploy.sh` now performs that release command using the selected kwonserver image before `compose up`. A failed migration or seed stops deployment. The `gcp-build` hook only builds; configure `npm run db:deploy` as the release step in other hosting pipelines as well. Application startup does not run migrations independently in every replica.
+The GitHub Actions Compute Engine workflow performs that release command using the selected kwonserver image before replacing the API and worker. A failed migration or seed stops deployment. The `gcp-build` hook only builds; configure `npm run db:deploy` as the release step in other hosting pipelines as well. Application startup does not run migrations independently in every replica.
 
 Reference seeding covers packages, milestones, games, subscription plans, and geography. It preserves existing data and only initializes empty reference tables. The reference phase is transactional and serialized with a database lock, so failures roll it back and exit unsuccessfully. Game category topics are an exception: each run adds missing seed topics to existing categories matched by game name and category name. Existing topics and empty topic definitions are preserved. Other partial seed data and existing pricing/catalog entries are not reconciled automatically. Demo data is opt-in and never part of `db:deploy`.
 
@@ -376,3 +376,56 @@ docker run --rm --env-file .env.docker kwonserver:latest npm run db:deploy
 ```
 
 Use `--env-file .env.docker` for the application container too. Regenerate it after changing `.env`. Docker CLI preserves surrounding quote characters, whereas Compose and dotenv interpret them; passing a quoted database URL directly through `docker run --env-file .env` causes Prisma P1012. The generated file contains secrets, has owner-only permissions, and is excluded from Git and Docker builds. Compose continues using `.env`.
+
+### BullMQ background jobs
+
+All 11 former Bree handlers now live in `src/cron/recurring`. Redis persists
+schedules in the `kwonserverBackgroundJobs` queue. Starting multiple workers
+upserts the same scheduler IDs, and global concurrency is one for this queue.
+Existing subscription, reminder and post-processing queues remain separate.
+
+| Job | Schedule (UTC by default) |
+| --- | --- |
+| Transactions sync | Every 30 minutes |
+| Wallet sync | Minute 0 and 45 of each hour |
+| Weekly rewards | Monday at 00:00 |
+| Monthly rewards | First day of the month at 02:00 |
+| Monthly game statistics sync | First day of the month at 12:00 |
+| Three annual reward jobs | January 2 at 12:00 |
+| Subscription scheduling | Every 2 minutes |
+| ClickHouse sync | Disabled; opt in with `ENABLE_CLICKHOUSE_SYNC=true` |
+| Player monthly statistics sync | Manual only, as before |
+
+Set `JOBS_TIMEZONE=Africa/Lagos` if schedules should use Nigerian local time.
+Annual reward schedules now run in January only. Changing a schedule does not
+backfill missed reward periods.
+
+For production Compute Engine hosting, use the automatic GitHub Actions
+[deployment guide](deploy/compute/README.md). The workflow deploys a separate
+BullMQ worker with the API; no manual worker Compose command is needed.
+
+For local development, `npm run dev` starts the API and workers together by
+default. Alternatively use `RUN_BACKGROUND_JOBS=false npm run dev` and
+`RUN_BACKGROUND_JOBS=true npm run dev:worker` in separate terminals. Disable
+background processing on developer machines connected to production Redis.
+
+Use persistent Redis with a `noeviction` policy. Job completion and failure are
+logged, and the latest 1,000 completed and failed recurring jobs are retained.
+Recurring jobs get one attempt; stalled jobs fail instead of automatically
+replaying payouts. BullMQ does not make the existing financial operations
+exactly-once: inspect partial database/wallet updates before manually retrying a
+failed reward job. Existing event-driven queues retain their retry policies.
+SIGTERM/SIGINT allow up to 30 seconds for graceful shutdown.
+
+When upgrading, stop any old Bree processes first. The subscription renewal
+queue name has also been corrected: existing renewal jobs accidentally written
+to the reminder queue are not automatically moved or charged. Review and
+reschedule affected subscriptions before retiring those old jobs. No database
+schema migration is required for the BullMQ conversion itself.
+
+### Automatic Compute Engine deployment (kwonserver only)
+
+See [the GitHub Actions setup guide](deploy/compute/README.md) for the active
+server-only push-to-deploy workflow. It keeps kwonweb and kwonrec on their
+existing hosts, deploys the API and BullMQ worker together, and uses GitHub
+environment secrets plus Google Workload Identity Federation.

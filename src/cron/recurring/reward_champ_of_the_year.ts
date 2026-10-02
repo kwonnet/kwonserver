@@ -1,6 +1,6 @@
 // Resolve path aliases
-import "tsconfig-paths/register";
-import { retryExecution } from "@/utils/helpers";
+
+
 import { PromisePool } from "@supercharge/promise-pool";
 import prisma from "@/db";
 import { generateUniqueRef, getGameMode, getRewardDateInfo } from "@/utils";
@@ -166,6 +166,7 @@ const rewardYearlyChampion = async (gameId: string, mode: GameMode) => {
     
   } catch (error: any) {
     logger.error(error?.message);
+    throw error;
   }
 };
 
@@ -204,13 +205,6 @@ const rewardPlayers = async () => {
   }
 };
 
-(async () => {
-  try {
-    await retryExecution(rewardPlayers, 3);
-    logger.info("Reward champ of the game year completed successfully.");
-    process.exit(0);
-  } catch (error) {
-    logger.info("Error: Reward champ of the game year failed after retries.");
-    process.exit(1);
-  }
-})();
+export async function run() {
+  await rewardPlayers();
+}

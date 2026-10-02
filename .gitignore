@@ -9,3 +9,10 @@ dist-seed/
 .env.docker
 
 coverage/
+
+# GitHub Google authentication action credentials
+gha-creds-*.json
+
+# Temporary deployment credentials
+deploy/compute/app.env
+deploy/compute/registry-token

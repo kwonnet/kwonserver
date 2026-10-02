@@ -1,6 +1,6 @@
 // Resolve path aliases
-import "tsconfig-paths/register";
-import { formatNumberWithCommas, retryExecution } from "@/utils/helpers";
+
+import { formatNumberWithCommas } from "@/utils/helpers";
 import redisClient from "@/redis";
 import { PromisePool } from "@supercharge/promise-pool";
 import prisma from "@/db";
@@ -149,14 +149,6 @@ const syncMonthlyPlayersData = async () => {
   }
 };
 
-(async () => {
-  try {
-    await retryExecution(syncMonthlyPlayersData, 3);
-    logger.info("Syncing Redis To Prisma Monthly Game Category stats completed successfully.");
-    process.exit(0);
-  } catch (error) {
-    logger.info("Error: Syncing Redis To Prisma Monthly Game Category stats failed after retries.");
-    process.exit(0);
-  }
-})();
-
+export async function run() {
+  await syncMonthlyPlayersData();
+}

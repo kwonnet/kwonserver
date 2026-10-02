@@ -1,6 +1,6 @@
 // Resolve path aliases
-import "tsconfig-paths/register";
-import { formatNumberWithCommas, retryExecution } from "@/utils/helpers";
+
+import { formatNumberWithCommas } from "@/utils/helpers";
 import redisClient from "@/redis";
 import { PromisePool } from "@supercharge/promise-pool";
 import prisma from "@/db";
@@ -392,13 +392,6 @@ const rewardPlayers = async () => {
   }
 };
 
-(async () => {
-  try {
-    await retryExecution(rewardPlayers, 3);
-    logger.info("Syncing Redis Wallet to Prisma completed successfully.");
-    process.exit(0);
-  } catch (error) {
-    logger.info("Error: Syncing Wallet txns to Prisma failed after retries.");
-    process.exit(0);
-  }
-})();
+export async function run() {
+  await rewardPlayers();
+}

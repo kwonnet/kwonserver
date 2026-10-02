@@ -4,7 +4,6 @@ import http from "http";
 import app from "./app";
 import socketIo from "./socketIo";
 import cors from "cors";
-import { startBreeJob } from "./bree";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import v1Routes from "./routes/v1";
@@ -12,7 +11,7 @@ import { startMongodb } from "./db/mongodb";
 import gameSocketIo from "./socketIo/gameSocketIo";
 import convoSocketIo from "./socketIo/convoSocketIo";
 import { bigintConverterMiddleware } from "./middleware";
-import { startCronJobs } from "./cron";
+import { startCronJobs, stopCronJobs } from "./cron";
 
 const port = process.env.PORT || 8000;
 
@@ -59,10 +58,12 @@ server.listen(port, () => {
   console.log(`listening on port: ${port}`);
   // start mongo db
   startMongodb();
-  // start breeJob
-  // startBreeJob();
   // start cron jobs
-  startCronJobs()
+  void startCronJobs().catch(error => {
+    console.error("Background job startup failed", error);
+    server.close();
+    process.exit(1);
+  });
 });
 
 process.on("uncaughtException", (err) => {
@@ -77,3 +78,16 @@ process.on("unhandledRejection", (err: any) => {
 
 
 
+
+// Let BullMQ finish active jobs before a deployment replaces this process.
+let stopping = false;
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    const timeout = setTimeout(() => process.exit(1), 30000);
+    timeout.unref();
+    server.close();
+    void stopCronJobs().then(() => process.exit(0), () => process.exit(1));
+  });
+}

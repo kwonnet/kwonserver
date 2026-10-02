@@ -1,0 +1,87 @@
+name: Deploy kwonserver to Compute Engine
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compute-production
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    uses: ./.github/workflows/unit-tests.yml
+
+  release:
+    needs: tests
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_COMPUTE_ENGINE_PROJECT: ${{ secrets.GCP_COMPUTE_ENGINE_PROJECT }}
+      GAR_LOCATION: ${{ secrets.GAR_LOCATION }}
+      GCP_COMPUTE_ENGINE_NAME: ${{ secrets.GCP_COMPUTE_ENGINE_NAME }}
+      GCP_COMPUTE_ENGINE_ZONE: ${{ secrets.GCP_COMPUTE_ENGINE_ZONE }}
+      GCP_COMPUTE_ENGINE_EXTERNAL_IP: ${{ secrets.GCP_COMPUTE_ENGINE_EXTERNAL_IP }}
+      GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check GitHub configuration
+        shell: bash
+        run: |
+          for name in GCP_COMPUTE_ENGINE_PROJECT GAR_LOCATION GCP_COMPUTE_ENGINE_NAME GCP_COMPUTE_ENGINE_ZONE GCP_WIF_PROVIDER GCP_DEPLOY_SERVICE_ACCOUNT; do
+            if [[ -z "${!name}" ]]; then echo "::error::Set production environment secret $name"; exit 1; fi
+          done
+          [[ "$GCP_COMPUTE_ENGINE_PROJECT" =~ ^[a-z][a-z0-9-]+$ ]]
+          [[ "$GAR_LOCATION" =~ ^[a-z0-9-]+$ ]]
+          [[ "$GCP_COMPUTE_ENGINE_NAME" =~ ^[a-z][a-z0-9-]+$ ]]
+          [[ "$GCP_COMPUTE_ENGINE_ZONE" =~ ^[a-z0-9-]+$ ]]
+          echo "IMAGE=$GAR_LOCATION-docker.pkg.dev/$GCP_COMPUTE_ENGINE_PROJECT/kwonnet/kwonserver" >> "$GITHUB_ENV"
+      - name: Build image without production secrets
+        run: docker build -t "$IMAGE:$GITHUB_SHA" .
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Publish tested image
+        shell: bash
+        run: |
+          gcloud auth configure-docker "$GAR_LOCATION-docker.pkg.dev" --quiet
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:main"
+          docker push "$IMAGE:main"
+          DIGEST=$(gcloud artifacts docker images describe "$IMAGE:$GITHUB_SHA" --format='value(image_summary.digest)')
+          [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "DEPLOY_IMAGE=$IMAGE@$DIGEST" >> "$GITHUB_ENV"
+      - name: Prepare runtime configuration
+        env:
+          KWONSERVER_ENV: ${{ secrets.KWONSERVER_ENV }}
+        run: |
+          umask 077
+          printf '%s' "$KWONSERVER_ENV" > deploy/compute/app.env
+          gcloud auth print-access-token > deploy/compute/registry-token
+      - name: Upload deployment over IAP
+        run: |
+          gcloud compute scp --recurse deploy/compute "$GCP_COMPUTE_ENGINE_NAME:kwonserver-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --project="$GCP_COMPUTE_ENGINE_PROJECT" --zone="$GCP_COMPUTE_ENGINE_ZONE" --tunnel-through-iap --quiet
+      - name: Install and deploy API and worker
+        run: |
+          gcloud compute ssh "$GCP_COMPUTE_ENGINE_NAME" --project="$GCP_COMPUTE_ENGINE_PROJECT" --zone="$GCP_COMPUTE_ENGINE_ZONE" \
+            --tunnel-through-iap --quiet \
+            --command="chmod -R go-rwx \"\$HOME/kwonserver-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT\" && sudo bash \"\$HOME/kwonserver-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/deploy.sh\" '$DEPLOY_IMAGE'"
+      - name: Remove temporary deployment files
+        if: always()
+        run: |
+          rm -f deploy/compute/app.env deploy/compute/registry-token
+          gcloud compute ssh "$GCP_COMPUTE_ENGINE_NAME" --project="$GCP_COMPUTE_ENGINE_PROJECT" --zone="$GCP_COMPUTE_ENGINE_ZONE" \
+            --tunnel-through-iap --quiet \
+            --command="rm -rf \"\$HOME/kwonserver-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT\"" || true

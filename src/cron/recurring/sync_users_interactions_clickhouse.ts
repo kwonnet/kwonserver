@@ -1,10 +1,10 @@
 // scripts/sync_interactions_to_clickhouse.ts
-import "tsconfig-paths/register";
+
 import {
   cleanTextContent,
   commentClassifier,
   generateEmbedding,
-  retryExecution,
+  
 } from "@/utils/helpers";
 import prisma from "@/db";
 import logger from "@/logger";
@@ -389,14 +389,6 @@ async function syncUsersInteractionsToClickHouse() {
 }
 
 // Run
-(async () => {
-  try {
-    await syncUsersInteractionsToClickHouse();
-    logger.info("Sync finished");
-    process.exit(0);
-  } catch (err: any) {
-    logger.error(`FATAL: ${err?.message}`);
-    process.exit(0);
-  }
-})();
-
+export async function run() {
+  await syncUsersInteractionsToClickHouse();
+}

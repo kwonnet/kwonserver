@@ -33,7 +33,9 @@
     "test:e2e": "node scripts/test-infrastructure.cjs tests/e2e",
     "test:infrastructure": "node scripts/test-infrastructure.cjs",
     "test:all": "npm run test:typecheck && npm run test:unit:coverage && npm run test:regression && npm run test:infrastructure",
-    "db:seed:topics": "prisma db seed -- --game-topics"
+    "db:seed:topics": "prisma db seed -- --game-topics",
+    "start:worker": "node -r ./scripts/register-paths.cjs dist/cron/worker.js",
+    "dev:worker": "ts-node -r tsconfig-paths/register src/cron/worker.ts"
   },
   "prisma": {
     "seed": "node dist-seed/seed.js"
@@ -59,13 +61,11 @@
     "vitest": "^5.0.3"
   },
   "dependencies": {
-    "@breejs/ts-worker": "^2.0.0",
     "@clickhouse/client": "^1.14.0",
     "@faker-js/faker": "^9.3.0",
     "@genkit-ai/google-genai": "^1.27.0",
     "@huggingface/transformers": "^3.8.0",
     "@keyv/redis": "^5.1.5",
-    "@ladjs/graceful": "^4.0.1",
     "@prisma/client": "^6.19.0",
     "@supercharge/promise-pool": "^3.2.0",
     "@types/crypto-js": "^4.2.2",
@@ -75,7 +75,6 @@
     "axios": "^1.7.7",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
-    "bree": "^9.2.4",
     "bullmq": "^5.34.6",
     "cache-manager": "^7.2.7",
     "cookie-parser": "^1.4.7",

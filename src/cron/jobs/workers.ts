@@ -17,7 +17,7 @@ if (!redisUrl) {
   throw new Error("REDIS_URL environment variable is required");
 }
 
-const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+export const workerConnection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
 
 export const appSubscriptionWorker = new Worker(
   APP_SUBSCRIPTION_QUEUE,
@@ -63,9 +63,12 @@ export const appSubscriptionWorker = new Worker(
       throw new Error(result.message);
     }
     // Reschedule subscription job again based on the new params and don't set it as the last scheduled job
-    insertSubscriptionJob(currentSub, false);
+    // Do not retry an already successful charge if scheduling the next job fails.
+    void insertSubscriptionJob(currentSub, false).catch(error => {
+      logger.error({ subscriptionId: id, error: error.message }, 'Next subscription job needs rescheduling');
+    });
   },
-  { connection }
+  { connection: workerConnection, autorun: false }
 );
 
 export const appSubReminderWorker = new Worker(
@@ -92,7 +95,7 @@ export const appSubReminderWorker = new Worker(
     });
     logger.info(`Reminder sent for subscription ${id}`);
   },
-  { connection }
+  { connection: workerConnection, autorun: false }
 );
 
 export const postEmbeddingWorker = new Worker(
@@ -130,7 +133,7 @@ export const postEmbeddingWorker = new Worker(
     }
     logger.info(`Post embedding job executed - ${id}`);
   },
-  { connection }
+  { connection: workerConnection, autorun: false }
 );
 
 export const postTopicWorker = new Worker(
@@ -181,7 +184,7 @@ export const postTopicWorker = new Worker(
     )
     logger.info(`Post topic job executed - ${id}`);
   },
-  { connection }
+  { connection: workerConnection, autorun: false }
 );
 
 export const postKeywordsWorker = new Worker(
@@ -232,5 +235,5 @@ export const postKeywordsWorker = new Worker(
     // )
     logger.info(`Post topic job executed - ${id}`);
   },
-  { connection }
+  { connection: workerConnection, autorun: false }
 );

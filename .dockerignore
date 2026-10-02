@@ -16,3 +16,10 @@ docker-compose*.yml
 
 README.md
 dist-seed/
+
+# Short-lived GitHub OIDC credentials must never enter an image.
+gha-creds-*.json
+
+# Temporary deployment credentials
+deploy/compute/app.env
+deploy/compute/registry-token
