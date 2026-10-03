@@ -60,6 +60,8 @@ export DOCKER_CONFIG="$WORK/docker"
 mkdir -p "$DOCKER_CONFIG"
 docker login "${IMAGE%%/*}" --username oauth2accesstoken --password-stdin < "$BUNDLE/registry-token" >/dev/null
 rm -f "$BUNDLE/registry-token"
+# Verify the VM identity (not the GitHub identity) before replacing containers.
+python3 "$BUNDLE/check-cloud-logging.py"
 docker pull "$IMAGE"
 docker pull caddy:2-alpine
 # Validation and migrations precede replacement of the running application.
@@ -69,7 +71,10 @@ docker network inspect kwonserver-production >/dev/null 2>&1 || docker network c
 if [[ -f "$ENV_FILE" ]]; then install -m 600 "$ENV_FILE" "$ROOT/history/$(date -u +%Y%m%dT%H%M%S)-runtime.env"; fi
 install -m 600 "$WORK/app.env" "$ENV_FILE"
 install -m 600 "$WORK/Caddyfile" "$ROOT/Caddyfile"
-COMMON=(--detach --init --restart unless-stopped --network kwonserver-production --log-driver local --log-opt max-size=10m --log-opt max-file=3 --stop-timeout 30)
+COMMON=(--detach --init --restart unless-stopped --network kwonserver-production
+  --log-driver gcplogs --log-opt mode=non-blocking --log-opt max-buffer-size=4m
+  --log-opt cache-disabled=false --log-opt cache-max-size=10m --log-opt cache-max-file=3
+  --stop-timeout 30)
 for container in kwonserver kwonserver-worker; do
   if docker container inspect "$container" >/dev/null 2>&1; then docker stop --time 30 "$container" >/dev/null; docker rm "$container" >/dev/null; fi
 done

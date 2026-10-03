@@ -11,6 +11,7 @@ function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kwon-deploy-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(path.join(root, 'bin'));
+  fs.writeFileSync(path.join(root, 'check-cloud-logging.py'), 'import os, sys\nsys.exit(1 if os.environ.get("FAIL_LOGGING") else 0)\n');
   fs.copyFileSync(path.join(__dirname, '../deploy/compute/diagnostics.py'), path.join(root, 'diagnostics.py'));
   fs.writeFileSync(path.join(root, 'registry-token'), 'test-token');
   fs.writeFileSync(path.join(root, 'app.env'), 'DATABASE_URL=test\nREDIS_URL=test\nJWT_SECRET=test\nMONGO_URL=test\nAPI_DOMAIN=api.example.com\nACME_EMAIL=admin@example.com\n');
@@ -84,4 +85,19 @@ test('health failure reports startup logs, redacts runtime secrets and does not 
   assert.ok(!r.stderr.includes(secret));
   assert.equal(fs.existsSync(path.join(f.root,'runtime/image')),false);
   assert.equal(fs.existsSync(path.join(f.root,'app.env')),false);
+});
+
+test('all persistent containers forward logs with bounded nonblocking local caching',t=>{
+  const f=fixture(t);const r=f.run();assert.equal(r.status,0,r.stderr);
+  const containers=f.calls().filter(a=>a[0]==='run'&&a.includes('--name'));
+  assert.equal(containers.length,3);
+  for(const args of containers){
+    assert.equal(args[args.indexOf('--log-driver')+1],'gcplogs');
+    for(const option of ['mode=non-blocking','max-buffer-size=4m','cache-disabled=false','cache-max-size=10m','cache-max-file=3']) assert.ok(args.includes(option));
+    assert.ok(!args.some(a=>a.startsWith('env=')||a==='gcp-log-cmd=true'));
+  }
+});
+test('logging permission failure leaves existing containers untouched',t=>{
+  const f=fixture(t);assert.equal(f.run({FAIL_LOGGING:'1'}).status,1);
+  assert.ok(!f.calls().some(a=>['stop','rm','run'].includes(a[0])));
 });

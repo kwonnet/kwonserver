@@ -124,3 +124,53 @@ region. Push the workflow change before retrying; rerunning an older failed run
 still uses the old workflow revision.
 
 If the API health check or worker status check fails, deployment prints container state and the last 80 log lines for both containers. Configured environment values and URL passwords are redacted before output. Review the `Startup diagnostics` sections in GitHub Actions; a failed check never records the release as successful.
+
+## View container logs in Google Cloud
+
+After pushing this change, the API, worker and Caddy proxy use Docker's `gcplogs`
+driver. No additional GitHub secret or Ops Agent configuration is needed. The
+Docker daemon uses the VM's attached service account through instance metadata.
+Enable the Cloud Logging API in that project and grant that account **Logs Writer**
+(`roles/logging.logWriter`). Its VM access scopes must include
+`https://www.googleapis.com/auth/logging.write` or `cloud-platform`.
+The deployment checks an actual Logging API write before migrations or container
+replacement. A failed check leaves existing services running and reports the
+required IAM/scope/network settings; it does not change IAM automatically.
+
+Open Google Cloud Console → Logging → Logs Explorer, select the VM's project,
+and use:
+
+```text
+resource.type="gce_instance"
+log_id("gcplogs-docker-driver")
+jsonPayload.container.name=~"^/?kwonserver(-worker|-proxy)?$"
+```
+
+Click **Run query**, or **Stream logs** to follow new entries. To narrow to one
+container, replace the last line with one of these (Docker may prefix names with `/`):
+
+```text
+jsonPayload.container.name=~"^/?kwonserver$"
+jsonPayload.container.name=~"^/?kwonserver-worker$"
+jsonPayload.container.name=~"^/?kwonserver-proxy$"
+```
+
+Use only one of those three lines at a time. Log text is in `jsonPayload.message`;
+JSON application messages may be nested as strings. Do not assume that an ERROR
+severity filter finds every application error. Add a VM instance filter if more
+than one VM runs containers with these names. Preflight entries have log ID
+`kwonserver-deployment`.
+
+Only new logs from recreated containers are forwarded; historical local logs are
+not imported. The API/worker/proxy stdout and stderr are collected, not arbitrary
+application files or Caddy HTTP access logs (access logging is not enabled).
+`docker logs` and deployment diagnostics still use Docker's bounded local cache
+(three 10 MB files per container). Nonblocking delivery uses a 4 MB buffer so
+logging delays do not stall application output; logs can be dropped when buffers
+fill or delivery fails. This is not an audit-log delivery guarantee.
+Environment variables and startup commands are not attached as log metadata;
+application-emitted content itself is forwarded unchanged. Cloud Logging storage
+and retention follow the project's settings and may incur usage charges.
+
+References: [Docker gcplogs](https://docs.docker.com/engine/logging/drivers/gcplogs/)
+and [local log cache](https://docs.docker.com/engine/logging/dual-logging/).
