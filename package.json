@@ -35,7 +35,8 @@
     "test:all": "npm run test:typecheck && npm run test:unit:coverage && npm run test:regression && npm run test:infrastructure",
     "db:seed:topics": "prisma db seed -- --game-topics",
     "start:worker": "node -r ./scripts/register-paths.cjs dist/cron/worker.js",
-    "dev:worker": "ts-node -r tsconfig-paths/register src/cron/worker.ts"
+    "dev:worker": "ts-node -r tsconfig-paths/register src/cron/worker.ts",
+    "quiz:inventory": "node -r ./scripts/register-paths.cjs dist/services/questionInventory/cli.js"
   },
   "prisma": {
     "seed": "node dist-seed/seed.js"

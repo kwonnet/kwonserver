@@ -1,3 +1,5 @@
+import { questionHistoryKey } from './questionInventory';
+import { InventoryEmptyError } from '@/services/questionInventory/service';
 import { DefaultEventsMap, Namespace, Server, Socket } from "socket.io";
 import redisClient from "@/redis";
 import {
@@ -1058,6 +1060,7 @@ export async function cleanUpGameRoom(roomId: string) {
   try {
     logger.info("cleaning up game room ", roomId);
     const keys = [
+      questionHistoryKey(roomId),
       `room:${roomId}`,
       `room:${roomId}:players`,
       `room:${roomId}:answers`,
@@ -1552,8 +1555,16 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
     gameChatTime(room.roomId, io);
     return;
   }
-  // generate a random themed question using Ai
-  const gameQuestion = await generateRoomQuestion(room);
+  // Persistent quiz inventory; existing local word/luck generators are unchanged.
+  let gameQuestion: ThemedGameQuestion | undefined;
+  try { gameQuestion = await generateRoomQuestion(room); }
+  catch (error) {
+    if (error instanceof InventoryEmptyError) {
+      logger.info({ categoryId: room.catId, roomId: room.roomId, code: error.code }, 'Quiz inventory warming or room exhausted');
+    } else {
+      logger.error({ categoryId: room.catId, roomId: room.roomId }, 'Question selection failed');
+    }
+  }
   const gameType = getGameType(room.gameName);
   const catType = getGameCatType(room.catName);
   if (!gameQuestion) {

@@ -1363,7 +1363,22 @@ model Game {
 }
 
 
+model QuizQuestion {
+  id             String       @id @default(cuid())
+  categoryId     String
+  category       GameCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  question       String
+  answer         String
+  options        String[]
+  normalizedHash String
+  createdAt      DateTime     @default(now())
+
+  @@unique([categoryId, normalizedHash])
+  @@index([categoryId, id])
+}
+
 model GameCategory {
+  questions            QuizQuestion[]
   id                   String                @id @default(cuid())
   name                 String
   description          String

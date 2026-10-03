@@ -174,3 +174,73 @@ and retention follow the project's settings and may incur usage charges.
 
 References: [Docker gcplogs](https://docs.docker.com/engine/logging/drivers/gcplogs/)
 and [local log cache](https://docs.docker.com/engine/logging/dual-logging/).
+
+## Persistent quiz inventory
+
+Deployment applies the new `QuizQuestion` migration through the existing
+`db:deploy` step. The existing worker container starts the `quiz-generation`
+BullMQ worker; no additional container or manual setup command is required.
+Keep the existing OpenAI credentials available to the worker. No live deployment
+or real model request is performed by the automated tests.
+
+Quiz rounds now select permanent PostgreSQL questions, using Redis sets of IDs
+as a cache. The first request for an empty category queues generation and uses
+the game's existing chat/wait fallback. The background worker generates batches,
+validates them, skips duplicates and persists valid questions. Other categories
+are not generated until requested. Existing procedural word/luck games are unchanged.
+
+Each room keeps a Redis set of seen question IDs until room cleanup. Atomic ID
+claims prevent repeats across concurrent selectors. Other rooms can reuse those
+questions: delivery never removes anything from the global bank. Redis loss can
+lose room history, like other existing room state, but permanent questions survive
+and category caches rebuild from PostgreSQL without calling the model.
+
+Optional settings can be added to the existing `KWONSERVER_ENV` GitHub secret
+(the same runtime environment used by the API and worker):
+
+```dotenv
+QUIZ_INITIAL_TARGET=100
+QUIZ_DEFAULT_TARGET=200
+QUIZ_LOW_THRESHOLD=50
+QUIZ_CRITICAL_THRESHOLD=20
+QUIZ_GENERATION_BATCH_SIZE=50
+QUIZ_WORKER_CONCURRENCY=3
+QUIZ_MAX_TARGET=2000
+QUIZ_MAX_BATCHES_PER_JOB=20
+QUIZ_GENERATION_ATTEMPTS=3
+QUIZ_GENERATION_TIMEOUT_MS=90000
+QUIZ_FAILURE_COOLDOWN_SECONDS=900
+QUIZ_DEMAND_WINDOW_SECONDS=3600
+QUIZ_CACHE_SECONDS=3600
+QUIZ_BATCH_INTERVAL_MS=1000
+QUIZ_GENERATION_MODEL=gpt-6-luna
+```
+
+Concurrency is enforced globally across worker replicas, not just per process.
+Batch spacing and concurrency bound provider traffic; increase spacing or lower
+concurrency for smaller provider quotas. Transient failures use exponential
+backoff. Three consecutive batches with no valid new questions stop that job;
+failed jobs have a cooldown before demand can enqueue another attempt.
+
+Targets grow with recent peak room consumption plus a diversity buffer, capped
+by `QUIZ_MAX_TARGET`. Active-room and request counters are also recorded for
+future tuning; request counts do not decrement global inventory. A room that
+exhausts the configured cap waits rather than repeating questions. Set a larger
+cap if your room lifecycle needs more unique questions.
+
+On the VM, inspect or warm a specific category using its database ID:
+
+```bash
+sudo docker exec kwonserver npm run quiz:inventory -- status CATEGORY_ID
+sudo docker exec kwonserver npm run quiz:inventory -- ensure CATEGORY_ID
+sudo docker exec kwonserver npm run quiz:inventory -- rebuild CATEGORY_ID
+```
+
+`ensure` applies the same thresholds as gameplay; it does not synchronously call
+the generator. `rebuild` repopulates only Redis IDs. In Logs Explorer, filter the
+worker's logs for `Quiz inventory batch persisted` to see requested, generated,
+invalid, duplicate and inserted counts, durations, target, priority and attempt.
+For failed job details, inspect the BullMQ `quiz-generation` queue; generation
+failure logs include its job ID. Validation guarantees structure and normalized
+deduplication, not factual correctness or semantic uniqueness; those still need
+content-quality review.
