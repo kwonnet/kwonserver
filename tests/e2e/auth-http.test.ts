@@ -3,7 +3,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import http from 'node:http';
 vi.mock('@/routes/v1', () => ({ default: express.Router() }));
-vi.mock('ip-location-api', () => ({ lookup: async () => null }));
+vi.mock('@/utils/ipLocation', () => ({ lookup: async () => null }));
 import routes from '@/routes/v1/auth';
 import prisma from '@/db';
 let server: http.Server;

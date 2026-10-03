@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { generateToken, getAuthTokenUser } from "@/utils";
 import { createUser, loginUser } from "@/services/v1/auth";
-import { lookup, LookupResult } from 'ip-location-api'
+import type { LookupResult } from 'ip-location-api';
+import { lookup } from '@/utils/ipLocation';
 import { SignInSchema, SignUpSchema } from "@/schema/auth";
 import { ZodError } from "zod";
 import logger from "@/logger";

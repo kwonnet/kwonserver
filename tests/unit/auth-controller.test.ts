@@ -4,7 +4,7 @@ const deps = vi.hoisted(() => ({ create: vi.fn(), login: vi.fn(), generate: vi.f
 vi.mock('@/services/v1/auth', () => ({ createUser: deps.create, loginUser: deps.login }));
 vi.mock('@/services/v1/utils', () => ({ getAuthUser: deps.getUser }));
 vi.mock('@/utils', () => ({ generateToken: deps.generate, getAuthTokenUser: deps.decode }));
-vi.mock('ip-location-api', () => ({ lookup: deps.lookup }));
+vi.mock('@/utils/ipLocation', () => ({ lookup: deps.lookup }));
 import { signInController, signUpController, refreshTokenController, getMeController } from '@/controllers/v1/auth';
 const body = { name: 'Ada', email: 'ADA@example.test', password: 'password123' };
 beforeEach(() => {

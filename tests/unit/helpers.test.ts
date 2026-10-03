@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const deps = vi.hoisted(() => ({ lookup: vi.fn(), detect: vi.fn(), parseBot: vi.fn(), hints: vi.fn(), pipeline: vi.fn() }));
-vi.mock('ip-location-api', () => ({ lookup: deps.lookup }));
+vi.mock('@/utils/ipLocation', () => ({ lookup: deps.lookup }));
 vi.mock('node-device-detector', () => ({ default: class { detect = deps.detect; parseBot = deps.parseBot; } }));
 vi.mock('node-device-detector/client-hints', () => ({ default: class { parse = deps.hints; } }));
 vi.mock('@huggingface/transformers', () => ({ pipeline: deps.pipeline }));

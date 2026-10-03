@@ -1,5 +1,5 @@
 import { Request } from "express";
-import { lookup } from "ip-location-api";
+import { lookup } from "./ipLocation";
 import DeviceDetector from "node-device-detector";
 import ClientHints from "node-device-detector/client-hints";
 import { DocumentQuestionAnsweringPipeline, FeatureExtractionPipeline, pipeline, QuestionAnsweringPipeline, SummarizationPipeline, TextClassificationPipeline, TranslationPipeline, ZeroShotClassificationPipeline } from "@huggingface/transformers";
