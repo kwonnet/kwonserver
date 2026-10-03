@@ -11,16 +11,20 @@ function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kwon-deploy-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(path.join(root, 'bin'));
+  fs.copyFileSync(path.join(__dirname, '../deploy/compute/diagnostics.py'), path.join(root, 'diagnostics.py'));
   fs.writeFileSync(path.join(root, 'registry-token'), 'test-token');
   fs.writeFileSync(path.join(root, 'app.env'), 'DATABASE_URL=test\nREDIS_URL=test\nJWT_SECRET=test\nMONGO_URL=test\nAPI_DOMAIN=api.example.com\nACME_EMAIL=admin@example.com\n');
   fs.writeFileSync(path.join(root, 'deploy.sh'), source.replace('[[ $EUID -eq 0 ]]', 'true').replace('ROOT=/opt/kwonnet', `ROOT='${root}/runtime'`));
-  for (const name of ['flock','systemctl']) fs.writeFileSync(path.join(root,'bin',name), '#!/bin/sh\nexit 0\n',{mode:0o755});
+  for (const name of ['flock','systemctl','sleep']) fs.writeFileSync(path.join(root,'bin',name), '#!/bin/sh\nexit 0\n',{mode:0o755});
   fs.writeFileSync(path.join(root, 'bin/docker'), `#!${python}\n`+String.raw`
 import json,os,sys
 args=sys.argv[1:]
 with open(os.environ['CALL_LOG'],'a') as log: log.write(json.dumps(args)+'\n')
 if args[0]=='login': sys.stdin.read()
 if args[:2]==['container','inspect']: sys.exit(1)
+if args[0]=='logs': print('Startup error: missing configuration; '+os.environ.get('LOG_SECRET',''))
+if args[0]=='inspect' and os.environ.get('FAIL_HEALTH'):
+    print('unhealthy'); sys.exit(0)
 if args[0]=='inspect':
     print('healthy' if 'Health.Status' in args[2] else ('true' if 'Running' in args[2] else '0'))
 if args[0]=='run' and args[-1].endswith('exec npm run db:deploy') and os.environ.get('FAIL_MIGRATION'): sys.exit(42)
@@ -66,4 +70,18 @@ test('rejects quoted Docker environment values before migrations',t=>{
   const f=fixture(t);fs.appendFileSync(path.join(f.root,'app.env'),'OTHER="quoted"\n');
   const r=f.run();assert.notEqual(r.status,0);assert.match(r.stderr,/surrounding quotes/);
   assert.equal(f.calls().length,0);
+});
+
+test('health failure reports startup logs, redacts runtime secrets and does not record success',t=>{
+  const f=fixture(t);
+  const secret='private-token-123456';
+  fs.appendFileSync(path.join(f.root,'app.env'),'OPENAI_API_KEY='+secret+'\n');
+  const r=f.run({FAIL_HEALTH:'1',LOG_SECRET:secret});
+  assert.equal(r.status,1);
+  assert.match(r.stderr,/API health check failed/);
+  assert.match(r.stderr,/Startup error: missing configuration/);
+  assert.match(r.stderr,/\[REDACTED\]/);
+  assert.ok(!r.stderr.includes(secret));
+  assert.equal(fs.existsSync(path.join(f.root,'runtime/image')),false);
+  assert.equal(fs.existsSync(path.join(f.root,'app.env')),false);
 });

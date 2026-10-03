@@ -75,15 +75,20 @@ for container in kwonserver kwonserver-worker; do
 done
 docker run "${COMMON[@]}" --name kwonserver --env-file "$ENV_FILE" -e NODE_ENV=production -e PORT=8000 -e RUN_BACKGROUND_JOBS=false "$IMAGE" >/dev/null
 docker run "${COMMON[@]}" --name kwonserver-worker --env-file "$ENV_FILE" -e NODE_ENV=production -e RUN_BACKGROUND_JOBS=true --no-healthcheck "$IMAGE" npm run start:worker >/dev/null
+deployment_failure() {
+  echo "$1" >&2
+  python3 "$BUNDLE/diagnostics.py" "$ENV_FILE" >&2 || echo 'Could not collect startup diagnostics.' >&2
+  exit 1
+}
 healthy=false
 for attempt in $(seq 1 60); do
   if [[ "$(docker inspect --format '{{.State.Health.Status}}' kwonserver)" == healthy ]]; then healthy=true; break; fi
   sleep 3
 done
-[[ "$healthy" == true ]] || { echo 'API health check failed; inspect docker logs kwonserver.' >&2; exit 1; }
+[[ "$healthy" == true ]] || deployment_failure 'API health check failed.'
 docker exec kwonserver node -e 'fetch("http://127.0.0.1:8000/socket.io/?EIO=4&transport=polling").then(async r=>{if(!r.ok||!(await r.text()).startsWith("0{"))process.exit(1)}).catch(()=>process.exit(1))'
-[[ "$(docker inspect --format '{{.State.Running}}' kwonserver-worker)" == true ]] || { echo 'Worker is not running.' >&2; exit 1; }
-[[ "$(docker inspect --format '{{.RestartCount}}' kwonserver-worker)" == 0 ]] || { echo 'Worker restarted during deployment; inspect its logs.' >&2; exit 1; }
+[[ "$(docker inspect --format '{{.State.Running}}' kwonserver-worker)" == true ]] || deployment_failure 'Worker is not running.'
+[[ "$(docker inspect --format '{{.RestartCount}}' kwonserver-worker)" == 0 ]] || deployment_failure 'Worker restarted during deployment.'
 if docker container inspect kwonserver-proxy >/dev/null 2>&1; then docker stop --time 30 kwonserver-proxy >/dev/null; docker rm kwonserver-proxy >/dev/null; fi
 docker run "${COMMON[@]}" --name kwonserver-proxy -p 80:80 -p 443:443 -v "$ROOT/Caddyfile:/etc/caddy/Caddyfile:ro" -v kwonserver_caddy_data:/data -v kwonserver_caddy_config:/config caddy:2-alpine >/dev/null
 docker exec kwonserver-proxy caddy validate --config /etc/caddy/Caddyfile

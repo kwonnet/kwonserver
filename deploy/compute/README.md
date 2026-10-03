@@ -107,3 +107,20 @@ sudo docker logs --tail=100 kwonserver-proxy
 After the first release, verify public HTTPS, login, chat, games and recommendations
 before retiring Cloud Run. Update the existing frontend's NEXT_PUBLIC_API_URL if
 the public API hostname changes. This workflow does not deploy the frontend.
+
+## Artifact Registry upload errors
+
+If publishing fails with `Unauthenticated request`, check the workflow's named
+Google authentication and Docker authentication steps. Docker now logs in with
+an explicit short-lived service-account token in an isolated credential directory.
+The repository check runs before publishing and verifies Docker format.
+
+In Google Cloud Console, select the project in GCP_COMPUTE_ENGINE_PROJECT, open
+Artifact Registry → Repositories, and verify `kwonnet` exists in GAR_LOCATION.
+Grant the exact email in GCP_DEPLOY_SERVICE_ACCOUNT the **Artifact Registry Writer**
+role on that repository. WIF authentication alone does not grant registry writes.
+If the repository is missing, create a Docker repository named `kwonnet` in that
+region. Push the workflow change before retrying; rerunning an older failed run
+still uses the old workflow revision.
+
+If the API health check or worker status check fails, deployment prints container state and the last 80 log lines for both containers. Configured environment values and URL passwords are redacted before output. Review the `Startup diagnostics` sections in GitHub Actions; a failed check never records the release as successful.
