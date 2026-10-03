@@ -2,6 +2,7 @@ import { FeedPost } from "@/types";
 import { UserPublic, AuthUser } from "@/types/user";
 import prisma from "@/db";
 import {
+  Prisma,
   PostScopeEnum,
   PostTypeEnum,
   ScopeEnum,
@@ -115,6 +116,7 @@ export const composePostAuthor = (user: any): UserPublic => {
 };
 
 export function serializeBigInts<T>(value: T): T {
+  if (Prisma.Decimal.isDecimal(value)) return value.toNumber() as T;
   if (typeof value === "bigint") {
     return Number(value) as T;
   }

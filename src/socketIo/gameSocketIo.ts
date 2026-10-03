@@ -1,7 +1,11 @@
+import { createHash } from 'crypto';
+import { moneyJson, requestKey } from '@/services/walletLedger';
+import redisClient from '@/redis';
 import {
   addGameRoomPlayer,
   checkGameRoom,
   deductGameCoins,
+  retrieveGameRoomQuestion,
   disconnectGameRoomPlayer,
   gameChatTime,
   getCountGamePlayers,
@@ -9,11 +13,7 @@ import {
   getGameRoomPlayersWithRank,
   getTotalRoomParticipants,
   getTotalRoomPlayers,
-  insertAcronymGameRoomAnswer,
-  insertGameRoomVote,
-  insertWordMakerGameRoomAnswer,
   notifyGameRoomPlayers,
-  saveGameRoomPlayerAnswer,
   updateGameRoom,
   updatePlayerGameEnergy,
   updatePlayerSession,
@@ -65,7 +65,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         const mode = args.mode.toUpperCase() as GameMode
         let roomId = args.roomId
         // let roomId = mode === GameMode.MULTI_PLAYER ? args.roomId : `${args.roomId}:${shortPlayerId}`
-        // perform checks 
+        // perform checks
         // check if the room exists
         const room = await checkGameRoom(args.roomId);
         if (!room) {
@@ -82,7 +82,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           socket.leave(prevUser.roomId)
           // io.to(prevUser.socketId).socketsLeave(prevUser.roomId);
         }
-        
+
         // add player to the room
         const result = await addGameRoomPlayer({
           roomId,
@@ -105,6 +105,8 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         roomId = result?.data?.room?.id
         // attach room to socket
         socket.data.room = { id: roomId, catId: room.catId, name: room.name, gameId: room.category.gameId, mode }
+        socket.data.gameType = getGameType(room.category.game.name);
+        socket.data.catType = getGameCatType(room.category.name);
         // join a socket to a room
         // socket.join(`${roomId}:${mode}`)
         socket.join(roomId);
@@ -124,26 +126,26 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         // emit room data
         const timeout = setTimeout(async () => {
           //  emit player wallet and game energy
-          socket.emit(GameEventEnum.GAME_PLAYER_DATA, result.data );
+          socket.emit(GameEventEnum.GAME_PLAYER_DATA, moneyJson(result.data) );
           // emit room info
-          socket.emit(GameEventEnum.GAME_ROOM_INFO, { 
+          socket.emit(GameEventEnum.GAME_ROOM_INFO, {
             gameId: room.category.gameId,
             gameName: room.category.game.name,
             gameType: getGameType(room.category.game.name),
             catType: getGameCatType(room.category.name),
             catName: room.category.name,
-            catId: room.catId, 
-            roomId, 
+            catId: room.catId,
+            roomId,
           })
           // check if only just the joined player
           if (totalPlayers === 1) {
-            await updateGameRoom({ 
-              gameId: room.category.gameId, 
+            await updateGameRoom({
+              gameId: room.category.gameId,
               gameName: room.category.game.name,
               catName: room.category.name,
-              catId: room.catId, 
+              catId: room.catId,
               topics: room.category.topics.join(","),
-              roomId, 
+              roomId,
               mode,
               status: GameStatusEnum.CHAT });
             gameChatTime(roomId, io, true);
@@ -183,111 +185,108 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           notifyGameRoomPlayers({roomId, totalPlayers, mode, io} )
           clearTimeout(timeout)
         }, 500);
-        
+
       }
     );
-    // listen to emitted messages and forward
-    socket.on(GameEventEnum.MESSAGE, async(arg) => {
-        try {
-          const user: User = socket.data.user
-          const room: SocketGameRoom = socket.data.room
-          const result = await deductGameCoins({
-            action: GameActionEnum.CHAT, 
-            playerId: user.id, 
-            gameId: room.gameId,
-            roomId: room.id, 
-            mode: room.mode,
-            catId: room.catId  })
-          if(result.isError || !result.data){
-            socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, result.message );
-            return
-          }
-           // emit to update user wallet
-          socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data );
-        // save transaction record
-          io.in(socket.data.room.id).emit(GameEventEnum.MESSAGE, arg);
-          // update player session for the category
-          updatePlayerSession({playerId: user.id, catId: room.catId, mode: room.mode})
-        } catch (error: any) {
-          console.log(error?.message);
-        }
+    // Paid messages are stored durably and replayed from Redis; IDs deduplicate retries.
+    socket.on(GameEventEnum.GAME_ROOM_CHAT, async () => {
+      const room: SocketGameRoom = socket.data.room;
+      if (!room) return;
+      try {
+        const messages = await redisClient.lRange(`room:${room.id}:paid-messages`, -100, -1);
+        socket.emit(GameEventEnum.GAME_ROOM_CHAT, messages.map(message => JSON.parse(message)));
+      } catch { /* A later poll recovers delivery. */ }
+    });
+    socket.on(GameEventEnum.MESSAGE, async (arg, ack?: Function) => {
+      try {
+        const user: User = socket.data.user, room: SocketGameRoom = socket.data.room;
+        if (!room || typeof arg?.content !== 'string' || !arg.content.trim() || arg.content.length > 4000) return;
+        const key = requestKey(arg.id);
+        const payload = {id:key,playerId:user.id,playerName:user.name,content:arg.content.trim(),createdAt:new Date().toISOString()};
+        const result = await deductGameCoins({action:GameActionEnum.CHAT,playerId:user.id,gameId:room.gameId,roomId:room.id,mode:room.mode,catId:room.catId,
+          operationId:`chat:${key}`,content:payload.content}, {kind:'CHAT',roomId:room.id,payload});
+        ack?.({isError:result.isError,message:result.message});
+        if (result.data) socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE,result.data);
+        if (result.isError || !result.data) { socket.emit(GameEventEnum.GAME_ERROR_NOTIFY,result.message); return; }
+        // Clients poll the durable history too, covering a crash before this broadcast.
+        if (!('pending' in result.data)) io.in(room.id).emit(GameEventEnum.MESSAGE,payload);
+        void updatePlayerSession({playerId:user.id,catId:room.catId,mode:room.mode});
+      } catch { socket.emit(GameEventEnum.GAME_ERROR_NOTIFY,'Unable to accept this message'); }
     });
 
     // listen to emitted answers
     socket.on(GameEventEnum.GAME_ROOM_ANSWER, async(args:GameRoomAnswer) => {
       try {
         console.log("answer args ", args)
-        const user:User = socket.data.user 
+        const user:User = socket.data.user
         const room:SocketGameRoom = socket.data.room
+        if (!room || !socket.data.gameType || typeof args?.answer !== 'string' || !args.answer.trim()) return;
+        // Pricing and answer handling come from the joined catalog, never client labels.
+        args = { ...args, gameType: socket.data.gameType, catType: socket.data.catType };
+        const question = await retrieveGameRoomQuestion(room.id);
+        if (!question?.roundId || args.roundId !== question.roundId || String(question.id) !== String(args.qId)) {
+          socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This question is no longer active');
+          return;
+        }
+        const operationId = createHash('sha256').update(JSON.stringify(['answer', room.id, question.roundId ?? question.id, args.answer.trim()])).digest('hex');
         const isEntries = args.catType === GameCatType.WORDMAKER
+        args = {...args, answer:args.answer.trim(), timer:Math.max(0,Math.ceil(((question.answerUntil ?? Date.now())-Date.now())/1000))};
+        const body = composeGameAnswer({params:args,room,user});
         const result = await deductGameCoins({
-          action: isEntries ? GameActionEnum.ENTRIES : GameActionEnum.ANSWER, 
-          playerId: user.id, 
-          roomId: room.id, 
+          action: isEntries ? GameActionEnum.ENTRIES : GameActionEnum.ANSWER,
+          playerId: user.id,
+          roomId: room.id,
           mode: room.mode,
           gameId: room.gameId,
-          catId: room.catId, 
-          qId: args.qId  
-        })
+          catId: room.catId,
+          qId: question.id, operationId
+        }, {kind:isEntries?'WORDMAKER':args.gameType===GameType.ACRONYM?'ACRONYM':'ANSWER',roomId:room.id,roundId:question.roundId,payload:body})
+        if(result.data) socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data);
         if(result.isError || !result.data){
           socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, result.message );
           return
         }
-        // emit to update user wallet
-        socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data );
-        // save transaction record
-        const body = composeGameAnswer({params: args, room, user })
-        if(args.gameType === GameType.ACRONYM){
-          const result = await insertAcronymGameRoomAnswer(body as AcronymGameAnswer)
-          if(result.isError){
-            socket.emit(GameEventEnum.NOTIFY_MESSAGE, result.message );
-            return
-          }
-        }
-        else if(args.gameType === GameType.MINDMASH && args.catType === GameCatType.WORDMAKER){
-          const result = await insertWordMakerGameRoomAnswer(body)
-          if(result.isError){
-            socket.emit(GameEventEnum.NOTIFY_MESSAGE, result.message );
-            return
-          }
-        }
-        else{
-          saveGameRoomPlayerAnswer(body)
-        }
+
         // update player session for the category
         updatePlayerSession({playerId: body.playerId, catId: body.catId, mode: room.mode})
       } catch (error: any) {
         console.log(error?.message);
       }
-       
+
     });
 
     // listen to emitted votes
-    socket.on(GameEventEnum.GAME_ROOM_VOTE, async(args:{ votedUserId: string; answerId: string, roomId: string}) => {
+    socket.on(GameEventEnum.GAME_ROOM_VOTE, async(args:{ votedUserId: string; answerId: string, roomId: string; roundId?: string}) => {
       try {
-        const user:User = socket.data.user 
+        const user:User = socket.data.user
         const room:SocketGameRoom = socket.data.room
+        if (!room || args.roomId !== room.id) return;
+        const question = await retrieveGameRoomQuestion(room.id);
+        const answer = await redisClient.hGet(`room:${room.id}:answers`, args.votedUserId);
+        if (!question?.roundId || args.roundId !== question.roundId || !answer || JSON.parse(answer).answerId !== args.answerId) return;
+        const operationId = createHash('sha256').update(JSON.stringify(['vote', room.id, question.roundId ?? question.id, args.answerId])).digest('hex');
         const result = await deductGameCoins({
-          action: GameActionEnum.VOTE, 
-          playerId: user.id, 
-          roomId: room.id, 
+          operationId,
+          action: GameActionEnum.VOTE,
+          playerId: user.id,
+          roomId: room.id,
           mode: room.mode,
           gameId: room.gameId,
-          catId: room.catId, 
-        })
+          catId: room.catId,
+        }, {kind:'VOTE',roomId:room.id,roundId:question.roundId,payload:{answerId:args.answerId,votedUserId:args.votedUserId}})
+        if(result.data) socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data);
         if(result.isError || !result.data){
           socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, result.message );
           return
         }
-        // emit to update user wallet
-        socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data );
+
         // save transaction record
-        await insertGameRoomVote({...args, playerId: user.id})
+        // Vote projection and acknowledgement were applied atomically by the delivery script.
         // update player session for the category
       } catch (error: any) {
         console.log(error?.message);
       }
-       
+
     });
 
     // listen to game energy events

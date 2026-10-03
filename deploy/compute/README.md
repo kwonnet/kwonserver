@@ -288,3 +288,10 @@ demand, not all at startup; account for each process if it shares this Redis
 service. Cluster pools apply limits per node. Its production Compose normally
 uses its own Redis container, in which case it does not consume this managed
 Redis database's allowance. Verify the deployed endpoints before adding budgets.
+
+### Wallet source-of-truth migration
+
+Before deploying the wallet integrity release, follow the maintenance/reconciliation
+steps in [wallet-integrity.md](../../docs/wallet-integrity.md). Old Redis wallet
+snapshots must be reviewed before enabling PostgreSQL-authoritative game charges;
+this release does not automatically repair historical balances.

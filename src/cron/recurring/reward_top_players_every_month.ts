@@ -1,3 +1,5 @@
+import { walletOperation, cents } from '@/services/walletLedger';
+import { monthlyGameSpend } from '@/services/walletLedger/game';
 // Resolve path aliases
 
 import { formatNumberWithCommas } from "@/utils/helpers";
@@ -95,6 +97,8 @@ const distributeReward = async ({
   mode: GameMode;
   dateInfo: { year: number, month: number};
 }) => {
+  if (rewardAmount === 0) return;
+  cents(rewardAmount);
   const txnRef = generateUniqueRef();
   // Fetch category and milestone data
   const [category, milestones] = await prisma.$transaction([
@@ -109,12 +113,12 @@ const distributeReward = async ({
     rewardType === "CREDIT"
       ? { credit: { increment: rewardAmount } }
       : rewardType === "COINS"
-      ? { amount: { increment: rewardAmount } }
+      ? { coins: { increment: rewardAmount } }
       : { bonus: { increment: rewardAmount } };
   // sync redis user wallet to prisma
   await syncRedisUserWalletToPrisma(player.id);
   // perform transaction
-  await prisma.$transaction(async (tx) => {
+  await walletOperation('monthly-reward', `${catId}:${mode}:${dateInfo.year}:${dateInfo.month}:${player.id}:${rewardType}`, { playerId: player.id }, [player.id], async (tx) => {
     // Create `gameAchievement` record if a milestone exists
     let achievement;
     if (milestone) {
@@ -176,8 +180,7 @@ const distributeReward = async ({
       });
     }
 
-    // Sync the wallet back to Redis
-    await syncPrismaUserWalletToRedis(player.id, wallet);
+    return { walletId: wallet.id, transactionId: txn.id };
   });
 };
 
@@ -215,10 +218,7 @@ const rewardMonthlyPlayers = async (item: {
     logger.info(rewardTiers, "Reward participants tiers")
     // fetch spent coins stats  for this category
     const spentKey = getSpentCoinsKey({ catId, gameId, mode: item.mode });
-    const spentAmount = await getRedisHashKey<{
-      coins: number;
-      bonus: number;
-    }>(spentKey);
+    const spentAmount = await monthlyGameSpend(catId, item.mode, keys.dateInfo.year, keys.dateInfo.month);
 
     if (!spentAmount) return;
 
@@ -251,7 +251,7 @@ const rewardMonthlyPlayers = async (item: {
       sumParticipantScores(keys.rewardMonth, rankRange.credit, rewardTiers.coins),
       sumParticipantScores(keys.rewardMonth, rankRange.coins, rewardTiers.bonus)
     ])
-    if (!creditParticipantsScore || !coinsParticipantsScore || !bonusParticipantsScore) return;
+    if ((rewardTiers.credit && !creditParticipantsScore) || (rewardTiers.coins && !coinsParticipantsScore) || (rewardTiers.bonus && !bonusParticipantsScore)) return;
     logger.info({
       creditParticipantsScore,
       coinsParticipantsScore,
@@ -320,7 +320,7 @@ const rewardMonthlyPlayers = async (item: {
     // get game month stats
     const monthStat = await getRedisHashKey<{score: number, numPlayed: number}>(keys.rewardMonthStat)
     // update game reward stats
-    await prisma.gameMonthRewardStat.create({
+    await walletOperation('monthly-reward-stat', `${catId}:${item.mode}:${keys.dateInfo.year}:${keys.dateInfo.month}`, {}, [], async tx => tx.gameMonthRewardStat.create({
       data: {
         catId,
         ...rewardAmounts,
@@ -342,9 +342,9 @@ const rewardMonthlyPlayers = async (item: {
         year: keys.dateInfo.year,
         mode: item.mode
       }
-    })
+    }))
     // remove spent coins record
-    await redisClient.del(spentKey)
+    // Preserve legacy counters for reconciliation; new spending comes from the ledger.
     // log
     logger.info(`${catId} Reward distributted and redis prisma data synced`)
   } catch (error: any) {
@@ -385,6 +385,7 @@ const rewardPlayers = async () => {
       );
     }
 
+    if (errors.length) throw new Error(errors.map(e => e.message).join(", "));
     return results;
   } catch (error: any) {
     logger.error(`Error rewarding players: ${error.message}`);

@@ -10,7 +10,7 @@ vi.mock('@/services/v1/subscriptions', () => ({ getPlans: services.plans, purcha
 import * as w from '@/controllers/v1/wallets';
 import * as c from '@/controllers/v1/coins';
 import * as s from '@/controllers/v1/subscriptions';
-const req = (body: any = {}, query: any = {}): any => ({ body, query, user: { id: 'owner', name: 'Ada' } });
+const req = (body: any = {}, query: any = {}): any => ({ get: () => undefined, body, query, user: { id: 'owner', name: 'Ada' } });
 beforeEach(() => { resetMocks(services); Object.values(services).forEach(fn => fn.mockResolvedValue({ status: 200, data: 'ok' })); vi.spyOn(console, 'log').mockImplementation(() => {}); });
 it('scopes wallet lookup to the authenticated user', async () => {
   const res = response(); await w.getUserCoinsWalletController(req({ userId: 'other' }), res);
@@ -25,7 +25,7 @@ it('rejects invalid transfers before calling the service', async () => {
   expect(res.statusCode).toBe(400); expect(services.transfer).not.toHaveBeenCalled();
 });
 it('keeps failed service messages in the transfer response', async () => {
-  services.transfer.mockResolvedValue({ status: 400, message: 'Insufficient balance' }); const res = response();
+  services.transfer.mockResolvedValue({ status: 400, data: 'Insufficient balance' }); const res = response();
   await w.transferCoinsController(req({ recipientId: 'r', senderId: 'owner', amount: 100 }), res);
   expect(res.statusCode).toBe(400); expect(res.body).toBe('Insufficient balance');
 });

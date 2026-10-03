@@ -1,3 +1,5 @@
+import { cents, requestKey, WalletError, walletFailure, walletOperation } from '@/services/walletLedger';
+import { verifiedPaymentId } from '@/services/walletLedger/verifiedPayment';
 import { paymentMethodSchema } from "@/schema/payment";
 import { FlutterwaveCoinPurchase, User } from "@/types";
 import prisma from "@/db";
@@ -16,14 +18,6 @@ import {
 } from "../../helper";
 import { generateUniqueRef } from "@/utils";
 import logger from "@/logger";
-
-async function releasePurchaseLock(userId: string) {
-  try {
-    await prisma.wallet.update({ where: { userId }, data: { isLocked: false } });
-  } catch {
-    logger.error({ userId }, "Failed to release coin purchase wallet lock");
-  }
-}
 
 export const getCoinPackages = async () => {
   try {
@@ -55,315 +49,60 @@ user: User) => {
 };
 
 export const purchaseCoinsWithWallet = async (
-  item: { id: string; currency: TxnCurrencyEnum, meta?: { [key:string]: any } },
-  user: User
+  item: { id: string; currency: TxnCurrencyEnum; meta?: { [key: string]: any }; idempotencyKey?: string }, user: User
 ) => {
-  let acquiredLock = false;
   try {
-    // get coin package
-    const coin = await prisma.coinPackage.findUnique({
-      where: { id: item.id },
-    });
-
-    if (!coin) return { data: "Error: Invalid coin package", status: 400 };
-    // sync user redis wallet to prisma
-    const syncResult = await syncRedisUserWalletToPrisma(user.id);
-    if (syncResult.isError) return { status: 500, data: "Unable to reconcile wallet balance" };
-    // get user wallet
-    const wallet = await prisma.wallet.findFirst({
-      where: { userId: user.id },
-    });
-
-    if (!wallet) return { data: "Cannot retrieve user wallet", status: 400 };
-
-    if (wallet.isLocked)
-      return { data: "User wallet not available at the moment", status: 400 };
-
-    if (wallet.credit < coin.price)
-      return {
-        data: "Insufficient balance to pay for this package, please try another one!",
-        status: 400,
-      };
-    // temporarily lock user wallet until this txn is processed
-    await prisma.wallet.update({
-      where: { userId: user.id },
-      data: { isLocked: true },
-    });
-    acquiredLock = true;
-    // debit user wallet credit and credit user wallet amount and save transaction records
-    const txnRef = generateUniqueRef();
-    const [updatedWallet] = await prisma.$transaction([
-      // debit wallet credit & credit wallet amount
-      prisma.wallet.update({
-        where: { userId: user.id },
-        data: {
-          isLocked: false,
-          credit: { decrement: coin.price },
-          coins: { increment: coin.amount },
-          bonus: { increment: coin.bonus },
-        },
-      }),
-      // save debit transaction record
-      prisma.transaction.create({
-        data: {
-          amount: coin.price,
-          currency: item.currency,
-          coinPackageId: coin.id,
-          category: TxnCategoryEnum.COIN_PURCHASE,
-          description: `Charged ${coin.price} ${item.currency} from your wallet credit for the purchase of ${coin.name} coin package ~ ${coin.amount} coins ${
-            coin.bonus > 0 ? `+ ${coin.bonus} bonus` : ""
-          }.`,
-          gateway: TxnGatewayEnum.WALLET,
-          source: TxnSourceEnum.CREDIT,
-          type: TxnTypeEnum.DEBIT,
-          status: TxnStatusEnum.COMPLETED,
-          txnRef,
-          userId: user.id,
-          senderId: user.id,
-          walletId: wallet.id,
-          metadata: { item: coin, meta: item.meta },
-        },
-      }),
-      // save credit transaction
-      prisma.transaction.create({
-        data: {
-          amount: coin.amount,
-          currency: TxnCurrencyEnum.COINS,
-          coinPackageId: coin.id,
-          category: TxnCategoryEnum.COIN_PURCHASE,
-          description: `Purchased ${coin.name} coin package ~ ${coin.amount} coins ${
-            coin.bonus > 0 ? `+ ${coin.bonus} bonus` : ""
-          } for ${coin.price} ${item.currency } using your wallet credit.`,
-          gateway: TxnGatewayEnum.VIRTUAL,
-          source: TxnSourceEnum.CREDIT,
-          type: TxnTypeEnum.CREDIT,
-          status: TxnStatusEnum.COMPLETED,
-          txnRef,
-          userId: user.id,
-          recipientId: user.id,
-          walletId: wallet.id,
-          metadata: { item: coin, meta: { currency: item.currency } },
-        },
-      }),
-    ]);
-    acquiredLock = false;
-    // update redis user wallet
-    // sync redis user wallet
-    syncPrismaUserWalletToRedis(user.id, updatedWallet);
-    return { data: updatedWallet, status: 200 };
-  } catch (error: any) {
-    if (acquiredLock) await releasePurchaseLock(user.id);
-    return {
-      data: "Error: Failed to process transaction, please contact support",
-      status: 500,
-    };
-  }
+    if (item.currency !== TxnCurrencyEnum.TZX) throw new WalletError('Unsupported wallet currency');
+    return await walletOperation(`coin-purchase:${user.id}`, requestKey(item.idempotencyKey),
+      { packageId: item.id }, [user.id], async tx => {
+        const coin = await tx.coinPackage.findUnique({ where: { id: item.id } });
+        if (!coin || !coin.isActive || (coin.endDate && coin.endDate < new Date())) throw new WalletError('Coin package unavailable');
+        const price = cents(coin.price), amount = cents(coin.amount), bonus = cents(coin.bonus, true);
+        const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: user.id } });
+        if (wallet.isLocked) throw new WalletError('Wallet is locked');
+        if (cents(wallet.credit, true) < price) throw new WalletError('Insufficient balance');
+        const updated = await tx.wallet.update({ where: { id: wallet.id }, data: {
+          credit: (cents(wallet.credit, true) - price) / 100,
+          coins: { increment: amount / 100 }, bonus: { increment: bonus / 100 },
+        } });
+        const txnRef = generateUniqueRef();
+        const common = { userId: user.id, walletId: wallet.id, coinPackageId: coin.id, txnRef,
+          category: TxnCategoryEnum.COIN_PURCHASE, gateway: TxnGatewayEnum.WALLET,
+          source: TxnSourceEnum.CREDIT, status: TxnStatusEnum.COMPLETED, metadata: { coins: amount / 100, bonus: bonus / 100 } };
+        await tx.transaction.create({ data: { ...common, amount: price / 100, currency: TxnCurrencyEnum.TZX,
+          type: TxnTypeEnum.DEBIT, description: 'Coin package purchase' } });
+        await tx.transaction.create({ data: { ...common, amount: (amount + bonus) / 100, currency: TxnCurrencyEnum.COINS,
+          source: bonus ? TxnSourceEnum.COINS_BONUS : TxnSourceEnum.COINS, type: TxnTypeEnum.CREDIT, description: 'Coin package and bonus credited' } });
+        return { status: 200, data: updated };
+      });
+  } catch (error) { return walletFailure(error); }
 };
 
-export const purchaseCoinsWithToken = async (
-  item: {
-    id: string;
-    currency: TxnCurrencyEnum;
-    gateway: TxnGatewayEnum;
-    source: TxnSourceEnum;
-    meta: { txnRef?: string; from?: string; to?: string; hash?: string; amount: number, [key: string]: any };
-  },
-  user: User
-) => {
-  if (!paymentMethodSchema.safeParse(item).success) {
-    return { data: "Unsupported payment method", status: 400 };
-  }
-  let acquiredLock = false;
-  try {
-    // get coin package
-    const coin = await prisma.coinPackage.findUnique({
-      where: { id: item.id },
-    });
-    // return error if not found
-    if (!coin) return { data: "Error: Invalid coin package", status: 400 };
-    // get user wallet
-    const wallet = await prisma.wallet.findFirst({
-      where: { userId: user.id },
-    });
-    if (!wallet) return { data: "Cannot retrieve user wallet", status: 400 };
-    if (wallet.isLocked) return { data: "User wallet not available at the moment", status: 400 };
-    // sync user redis wallet to prisma
-    const syncResult = await syncRedisUserWalletToPrisma(user.id);
-    if (syncResult.isError) return { status: 500, data: "Unable to reconcile wallet balance" };
-    // temporarily lock user wallet until this txn is processed
-    await prisma.wallet.update({
-      where: { userId: user.id },
-      data: { isLocked: true },
-    });
-    acquiredLock = true;
-    // credit user wallet amount and save transaction records
-    const txnRef =  generateUniqueRef();
-    const [updatedWallet] = await prisma.$transaction([
-      // debit wallet credit & credit wallet amount
-      prisma.wallet.update({
-        where: { userId: user.id },
-        data: {
-          isLocked: false,
-          coins: { increment: coin.amount },
-          bonus: { increment: coin.bonus },
-        },
-      }),
-      // save debit transaction record
-      prisma.transaction.create({
-        data: {
-          amount: item.meta.amount,
-          currency: item.currency,
-          coinPackageId: coin.id,
-          category: TxnCategoryEnum.COIN_PURCHASE,
-          description: `Charged ${ item.meta.amount } ${item.currency} for the purchase of ${coin.name} coin package ~ ${coin.amount} coins ${
-            coin.bonus > 0 ? `+ ${coin.bonus} bonus` : ""
-          }.`,
-          gateway: item.gateway,
-          source: item.source,
-          type: TxnTypeEnum.DEBIT,
-          status: TxnStatusEnum.COMPLETED,
-          txnRef,
-          exTxnRef: item?.meta?.txnRef,
-          userId: user.id,
-          senderId: user.id,
-          walletId: wallet.id,
-          metadata: { item: coin, meta: item.meta },
-        },
-      }),
-      // save credit transaction
-      prisma.transaction.create({
-        data: {
-          amount: coin.amount,
-          currency: TxnCurrencyEnum.COINS,
-          coinPackageId: coin.id,
-          category: TxnCategoryEnum.COIN_PURCHASE,
-          description: `Purchased ${coin.name} coin package ~ ${coin.amount} coins ${
-            coin.bonus > 0 ? `+ ${coin.bonus} bonus` : ""
-          } for ${ item.meta.amount } ${item.currency}.`,
-          gateway: item.gateway,
-          source: item.source,
-          type: TxnTypeEnum.CREDIT,
-          status: TxnStatusEnum.COMPLETED,
-          txnRef,
-          exTxnRef: item?.meta?.txnRef,
-          userId: user.id,
-          recipientId: user.id,
-          walletId: wallet.id,
-          metadata: { item: coin, meta: item.meta },
-        },
-      }),
-    ]);
-    acquiredLock = false;
-    // sync redis user wallet
-    syncPrismaUserWalletToRedis(user.id, updatedWallet);
-    return { data: updatedWallet, status: 200 };
-  } catch (error: any) {
-    if (acquiredLock) await releasePurchaseLock(user.id);
-    return {
-      data: "Error: Failed to process transaction, please contact support",
-      status: 500,
-    };
-  }
-};
+// A gateway/source enum and client-supplied transaction reference are not proof of payment.
+export const purchaseCoinsWithToken = async (_item: any, _user: User) => ({
+  status: 400, data: 'Use the server-verified payment callback to settle external purchases',
+});
 
-export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase,) => {
-  if (!paymentMethodSchema.safeParse(item).success) {
-    return { data: "Unsupported payment method", status: 400 };
-  }
-  let acquiredLock = false;
+export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase) => {
+  if (![TxnCurrencyEnum.USD, TxnCurrencyEnum.NGN].includes(item.currency as any)) return { status: 400, data: 'Unsupported payment currency' };
   try {
-    console.log("PurchaseCoinsWithFlutterwave ", item)
-    const userId = item.userId
-    // check if user exists
-    const userExists = await prisma.user.findFirst({where: { id: userId}})
-    if(!userExists) return { data: "User not found", status: 404}
-    // check coin package exists
-    const coinExists = await prisma.coinPackage.findUnique({
-      where: { id: item.id },
+    const providerId = verifiedPaymentId(item);
+    if (!providerId) throw new WalletError('Payment has not been verified');
+    return await walletOperation('flutterwave', providerId, { userId: item.userId, packageId: item.id }, [item.userId], async tx => {
+      // Preserve replay protection for transactions settled before operation receipts existed.
+      const prior = await tx.transaction.findFirst({ where: { exTxnRef: item.txnRef, gateway: TxnGatewayEnum.FLUTTERWAVE, status: TxnStatusEnum.COMPLETED } });
+      if (prior) return { status: 200, data: 'Payment already settled' };
+      const coin = await tx.coinPackage.findUniqueOrThrow({ where: { id: item.id } });
+      const amount = cents(coin.amount), bonus = cents(item.currency === TxnCurrencyEnum.NGN ? coin.ngnBonus : coin.bonus, true);
+      const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: item.userId } });
+      if (wallet.isLocked) throw new WalletError('Wallet is locked');
+      const updated = await tx.wallet.update({ where: { id: wallet.id }, data: { coins: { increment: amount / 100 }, bonus: { increment: bonus / 100 } } });
+      const common = { userId: item.userId, walletId: wallet.id, coinPackageId: coin.id, txnRef: generateUniqueRef(), exTxnRef: item.txnRef,
+        category: TxnCategoryEnum.COIN_PURCHASE, gateway: TxnGatewayEnum.FLUTTERWAVE, source: TxnSourceEnum.FIAT,
+        status: TxnStatusEnum.COMPLETED, metadata: { providerId, coins: amount / 100, bonus: bonus / 100 } };
+      await tx.transaction.create({ data: { ...common, amount: item.meta.txn.amount, currency: item.currency, type: TxnTypeEnum.DEBIT, description: 'Verified external payment' } });
+      await tx.transaction.create({ data: { ...common, amount: (amount + bonus) / 100, currency: TxnCurrencyEnum.COINS, source: bonus ? TxnSourceEnum.COINS_BONUS : TxnSourceEnum.COINS, type: TxnTypeEnum.CREDIT, description: 'Verified coin package credited' } });
+      return { status: 200, data: updated };
     });
-    // return error if not found
-    if (!coinExists) return { data: "Error: Invalid coin package", status: 400 };
-    // get user wallet
-    const wallet = await prisma.wallet.findFirst({
-      where: { userId },
-    });
-    if (!wallet) return { data: "Cannot retrieve user wallet", status: 400 };
-    if (wallet.isLocked) return { data: "User wallet not available at the moment", status: 400 };
-    // sync user redis wallet to prisma
-    const syncResult = await syncRedisUserWalletToPrisma(userId);
-    if (syncResult.isError) return { status: 500, data: "Unable to reconcile wallet balance" };
-    // temporarily lock user wallet until this txn is processed
-    await prisma.wallet.update({
-      where: { userId },
-      data: { isLocked: true },
-    });
-    acquiredLock = true;
-    // credit user wallet amount and save transaction records
-    const txnRef = generateUniqueRef()
-    const [updatedWallet] = await prisma.$transaction([
-      // debit wallet credit & credit wallet amount
-      prisma.wallet.update({
-        where: { userId },
-        data: {
-          isLocked: false,
-          coins: { increment: item.coin.amount },
-          bonus: { increment: item.coin.bonus },
-        },
-      }),
-      // save DEBIT transaction
-      prisma.transaction.create({
-        data: {
-          amount: item.meta.txn.amount ,
-          currency: item.meta.currency as TxnCurrencyEnum,
-          coinPackageId: item.id,
-          category: TxnCategoryEnum.COIN_PURCHASE,
-          description: `Charged ${ item.meta.txn.amount } ${item.meta.currency} for the purchase of ${item.coin.name} coin package ~ ${item.coin.amount} coins ${
-            item.coin.bonus > 0 ? `+ ${item.coin.bonus} bonus` : ""
-          }.`,
-          gateway: item.gateway,
-          source: item.source,
-          type: TxnTypeEnum.DEBIT,
-          status: TxnStatusEnum.COMPLETED,
-          txnRef,
-          exTxnRef: item.txnRef,
-          userId,
-          recipientId: userId,
-          walletId: wallet.id,
-          metadata: { item: item.coin, meta: item.meta },
-        },
-      }),
-      // save credit transaction
-      prisma.transaction.create({
-        data: {
-          amount: item.coin.amount,
-          currency: TxnCurrencyEnum.COINS,
-          coinPackageId: item.coin.id,
-          category: TxnCategoryEnum.COIN_PURCHASE,
-          description: `Purchased ${item.coin.name} coin package ~ ${item.coin.amount} coins ${
-            item.coin.bonus > 0 ? `+ ${item.coin.bonus} bonus` : ""
-          } for ${ item.meta.txn.amount } ${item.currency}.`,
-          gateway: item.gateway,
-          source: item.source,
-          type: TxnTypeEnum.CREDIT,
-          status: TxnStatusEnum.COMPLETED,
-          txnRef,
-          exTxnRef: item?.txnRef,
-          userId: item.userId,
-          recipientId: item.userId,
-          walletId: wallet.id,
-          metadata: { item: item.coin, meta: item.meta },
-        },
-      }),
-    ]);
-    acquiredLock = false;
-    // sync redis user wallet
-    syncPrismaUserWalletToRedis(userId, updatedWallet);
-    return { data: updatedWallet, status: 200 };
-  } catch (error: any) {
-    if (acquiredLock) await releasePurchaseLock(item.userId);
-    return {
-      data: "Error: Failed to process transaction, please contact support",
-      status: 500,
-    };
-  }
+  } catch (error) { return walletFailure(error); }
 };

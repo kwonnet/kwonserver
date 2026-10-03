@@ -728,7 +728,7 @@ model Quiz {
   postId       String            @unique
   post         Post              @relation(fields: [postId], references: [id])
   isPaid       Boolean           @default(false)
-  rewardAmount Float // total reward coins to be split
+  rewardAmount Decimal @db.Decimal(20, 2) // total reward coins to be split
   expireAt     DateTime // quiz deadline
   maxWinners   Int
   scope        ScopeEnum         @default(NONE)
@@ -766,7 +766,7 @@ model QuizReward {
   user      User     @relation(fields: [userId], references: [id])
   quizId    String
   quiz      Quiz     @relation(fields: [quizId], references: [id])
-  amount    Float
+  amount    Decimal @db.Decimal(20, 2)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1086,8 +1086,8 @@ model Country {
 model SubscriptionPlan {
   id            String         @id @default(cuid()) // Unique subscription plan ID
   name          String
-  ngnPrice      Float // Price in Nigerian Naira (NGN)
-  price         Float // Monthly base price
+  ngnPrice      Decimal @db.Decimal(20, 2) // Price in Nigerian Naira (NGN)
+  price         Decimal @db.Decimal(20, 2) // Monthly base price
   discount      Float // Discount for yearly plans (e.g., 0.1 for 10% off)
   accountType   UserTypeEnum
   metadata      Json?
@@ -1168,7 +1168,7 @@ model PushNotification {
 model Revenue {
   id        String   @id @default(cuid())
   userId    String   @map("user_id") // Relates to the User
-  amount    Float // Revenue earned by the user
+  amount    Decimal @db.Decimal(20, 2) // Revenue earned by the user
   source    String // Source of revenue (e.g., 'ads', 'content creation')
   isPaid    Boolean  @default(false) // Indicates if the payout has been made
   createdAt DateTime @default(now())
@@ -1181,7 +1181,7 @@ model Revenue {
 model TipPackage {
   id              String            @id @default(cuid())
   name            String
-  price           Float             // Amount in coins to send this tip
+  price           Decimal @db.Decimal(20, 2)             // Amount in coins to send this tip
   kind            TipKindEnum       @default(ALL)
   thumbnail       String?
   isActive        Boolean           @default(true)
@@ -1226,7 +1226,7 @@ model RewardTip {
   postTip         PostTip      @relation(fields: [postTipId], references: [id], onDelete: Cascade)
   txnId           String       @unique
   transaction     Transaction  @relation(fields: [txnId], references: [id])
-  amount          Float
+  amount          Decimal @db.Decimal(20, 2)
   source          TipSource
   status          TipStatus    @default(PENDING)
   settledAt       DateTime?
@@ -1243,11 +1243,11 @@ model RewardTip {
 model CoinPackage {
   id              String            @id @default(cuid())
   name            String
-  amount          Float
-  price           Float
-  bonus           Float
-  ngnPrice        Float             @default(0)
-  ngnBonus        Float             @default(0)
+  amount          Decimal @db.Decimal(20, 2)
+  price           Decimal @db.Decimal(20, 2)
+  bonus           Decimal @db.Decimal(20, 2)
+  ngnPrice        Decimal @db.Decimal(20, 2)             @default(0)
+  ngnBonus        Decimal @db.Decimal(20, 2)             @default(0)
   isActive        Boolean           @default(true)
   endDate         DateTime?
   createdAt       DateTime          @default(now())
@@ -1262,9 +1262,9 @@ model CoinPackage {
 
 model Wallet {
   id           String        @id @default(cuid())
-  credit       Float         @default(0) // Credit that can be withrawn by the user 
-  coins        Float         @default(0) // Coins purchased by the user
-  bonus        Float         @default(0) // Interaction-based rewards
+  credit       Decimal @db.Decimal(20, 2)         @default(0) // Credit that can be withrawn by the user
+  coins        Decimal @db.Decimal(20, 2)         @default(0) // Coins purchased by the user
+  bonus        Decimal @db.Decimal(20, 2)         @default(0) // Interaction-based rewards
   userId       String        @unique @map("user_id")
   isLocked     Boolean?      @default(false)
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1287,7 +1287,7 @@ model Transaction {
   recipientId    String? // Nullable for transactions without a recipient (e.g., fee deductions)
   recipient      User?             @relation("Recipient", fields: [recipientId], references: [id])
   type           TxnTypeEnum
-  amount         Float // The amount involved in the transaction (coins, credits, etc.)
+  amount         Decimal @db.Decimal(20, 2) // The amount involved in the transaction (coins, credits, etc.)
   source         TxnSourceEnum // Type of balance used (e.g., 'bonus', 'amount', 'credit', etc.)
   description    String
   category       TxnCategoryEnum // The category of the transaction (e.g., 'game-deduction', 'purchase', 'gift', 'subscription')
@@ -1463,11 +1463,11 @@ model GameMonthRewardStat {
   coinsParticipantsScore   Float // Total score by the coins participants
   bonusParticipantsScore   Float // Total score by the bonus participants
   numPlayed                Float // Number of times played
-  coinsSpent               Float // Amount of coins spent in the game
-  bonusSpent               Float // Amount of bonus spent in the game
-  creditShareAmount        Float // Amount of credit shared to the credit reward participant
-  coinsShareAmount         Float // Amount of coins shared to the coins reward participant
-  bonusShareAmount         Float // Amount of credit shared to the bonus reward participant
+  coinsSpent               Decimal @db.Decimal(20, 2) // Amount of coins spent in the game
+  bonusSpent               Decimal @db.Decimal(20, 2) // Amount of bonus spent in the game
+  creditShareAmount        Decimal @db.Decimal(20, 2) // Amount of credit shared to the credit reward participant
+  coinsShareAmount         Decimal @db.Decimal(20, 2) // Amount of coins shared to the coins reward participant
+  bonusShareAmount         Decimal @db.Decimal(20, 2) // Amount of credit shared to the bonus reward participant
   rewardParticipantsScore  Float // Total score of rewarded participants
   totalScore               Float // Total score of the participants under the game category
   year                     Int // Year of the game category
@@ -1500,7 +1500,7 @@ model GameAchievement {
   description String
   thumbnail   String?
   metadata    Json?
-  amount      Float
+  amount      Decimal @db.Decimal(20, 2)
   rewardType  RewardTypeEnum
   mode        GameMode?
   txnId       String?          @unique
@@ -1535,7 +1535,7 @@ model GameEnergy {
 
 model Task {
   id           String         @id @default(cuid())
-  reward       Float
+  reward       Decimal @db.Decimal(20, 2)
   rewardType   RewardTypeEnum
   title        String
   description  String
@@ -1600,7 +1600,7 @@ model Referral {
   isRewarded   Boolean  @default(false) // issued for this referral
   referrer     User     @relation("ReferralsSent", fields: [referrerId], references: [id], onDelete: Cascade)
   referee      User     @relation("ReferralsReceived", fields: [refereeId], references: [id], onDelete: Cascade)
-  amount       Float    @default(0)
+  amount       Decimal @db.Decimal(20, 2)    @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -1941,4 +1941,30 @@ enum TipStatus {
   SETTLED
   EXPIRED
   REFUNDED
+}
+
+// Durable operation receipts. Never expire while requests can be replayed.
+model WalletOperation {
+  id          String   @id
+  scope       String
+  fingerprint String
+  result      Json
+  createdAt   DateTime @default(now())
+}
+
+// A charge and its pending game action commit together. Redis delivery is retryable.
+model GameWalletAction {
+  id             String   @id
+  userId         String
+  roomId         String
+  roundId        String?
+  kind           String
+  payload        Json
+  deductedCoins  Decimal  @db.Decimal(20, 2)
+  deductedBonus  Decimal  @db.Decimal(20, 2)
+  status         String   @default("PENDING")
+  reason         String?
+  createdAt      DateTime @default(now())
+  settledAt      DateTime?
+  @@index([status, createdAt])
 }

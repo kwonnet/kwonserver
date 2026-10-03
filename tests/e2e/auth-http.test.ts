@@ -1,3 +1,4 @@
+import {moneyJson} from '@/services/walletLedger';
 import { beforeAll, afterAll, expect, it, vi } from 'vitest';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -20,7 +21,7 @@ it('signs up, signs in, resolves bearer and cookie sessions, and blocks suspende
   const signup = await post('signup', body); expect(signup.status).toBe(200);
   const created: any = await signup.json(); expect(created.user).not.toHaveProperty('password');
   const stored = await prisma.user.findUniqueOrThrow({ where: { id: created.user.id }, include: { wallet: true } });
-  expect(stored.password).not.toBe(body.password); expect(stored.wallet?.bonus).toBeGreaterThanOrEqual(10);
+  expect(moneyJson(stored.password)).not.toBe(body.password); expect(moneyJson(stored.wallet?.bonus)).toBeGreaterThanOrEqual(10);
   const duplicate = await post('signup', body); expect(duplicate.status).toBe(422);
   const badLogin = await post('signin', { email: body.email, password: 'Wrong-password' }); expect(badLogin.status).toBe(401);
   const login = await post('signin', body); expect(login.status).toBe(200);

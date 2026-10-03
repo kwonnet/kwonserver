@@ -7,7 +7,6 @@ import {
   Prisma,
   RewardReasonEnum,
   RewardTypeEnum,
-  SubscriptionPlan,
   UserTypeEnum,
 } from "@prisma/client";
 import { faker } from "@faker-js/faker";
@@ -23887,7 +23886,7 @@ const games: Game[] = [
 // premium subscription plans
 const subPlans: {
   plan: Pick<
-    SubscriptionPlan,
+    Prisma.SubscriptionPlanCreateManyInput,
     "name" | "accountType" | "discount" | "price" | "ngnPrice" | "tier"
   >;
   feature: {

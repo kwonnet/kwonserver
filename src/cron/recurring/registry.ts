@@ -1,4 +1,6 @@
 export const recurringJobs = [
+  { name: 'recover_game_wallet_actions', pattern: '* * * * *', load: () => import('./recover_game_wallet_actions') },
+  { name: 'settle_pending_tips', pattern: '*/5 * * * *', load: () => import('./settle_pending_tips') },
   { name: 'sync_redis_prisma_transactions', pattern: '*/30 * * * *', load: () => import('./sync_redis_prisma_transactions') },
   { name: 'sync_redis_prisma_wallet', pattern: '*/45 * * * *', load: () => import('./sync_redis_prisma_wallet') },
   { name: 'reward_top_players_every_week', pattern: '0 0 * * 1', load: () => import('./reward_top_players_every_week') },

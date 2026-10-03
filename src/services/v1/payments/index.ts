@@ -1,3 +1,6 @@
+import { markVerifiedPayment } from '@/services/walletLedger/verifiedPayment';
+import { subscriptionPrice } from '@/services/walletLedger/pricing';
+import { cents, moneyNumber } from '@/services/walletLedger';
 import { appName, flutterwaveApiUrl, flutterwaveSecretKey } from "@/config";
 import prisma from "@/db";
 import {
@@ -85,7 +88,7 @@ const subscriptionResponse = (txnData: any) => {
     gateway: txnData?.meta?.gateway as TxnGatewayEnum,
     source: txnData?.meta?.source as TxnSourceEnum,
     currency: String(txnData?.meta?.currency) as TxnCurrencyEnum,
-    isRecurring: Boolean(txnData?.meta?.isRecurring),
+    isRecurring: txnData?.meta?.isRecurring === true || txnData?.meta?.isRecurring === 'true',
     planType: String(txnData?.meta?.planType) as PlanTypeEnum,
     planName: String(txnData?.meta?.planName),
 
@@ -119,7 +122,7 @@ export const verifyFlutterwavePayment = async (arg: {
     const txn = await flwAPI.Transaction.verify({ id: arg.transaction_id });
     const txnData = txn.data;
     const isSuccess =
-      txnData.status === arg.status && txnData.tx_ref === arg.tx_ref;
+      txnData.status === "successful" && String(txnData.tx_ref) === String(arg.tx_ref) && String(txnData.id) === String(arg.transaction_id);
     if (!isSuccess)
       return {
         status: 400,
@@ -127,21 +130,25 @@ export const verifyFlutterwavePayment = async (arg: {
           "Verification failed as this transaction wasn't successful. But if you think this is a mistake, please contact support!",
         data: null,
       };
-    // check if transaction is already settled
-    const tnxExists = await prisma.transaction.findFirst({
-      where: { exTxnRef: String(arg.tx_ref) },
-    });
-    if (tnxExists)
-      return { message: "Transaction already settled", status: 400 };
-    // compose the respective type
-    if (txnData?.meta?.type === FlutterwaveTxnType.COIN_PACKAGE) {
-      return { status: 200, message: "success", data: coinsResponse(txnData) };
-    }
-    return {
-      status: 200,
-      message: "success",
-      data: subscriptionResponse(txnData),
-    };
+    const currency = String(txnData.currency);
+    if (!['USD', 'NGN'].includes(currency) || !txnData.meta?.userId) throw new Error('Invalid payment currency or recipient');
+    let expected: number;
+    let payload: FlutterwaveCoinPurchase | FlutterwaveAppSubPurchase;
+    if (txnData.meta.type === FlutterwaveTxnType.COIN_PACKAGE) {
+      const coin = await prisma.coinPackage.findUniqueOrThrow({ where: { id: String(txnData.meta.id) } });
+      expected = moneyNumber(currency === 'NGN' ? coin.ngnPrice : coin.price);
+      txnData.meta = { ...txnData.meta, ...coin, userId: txnData.meta.userId, currency, type: FlutterwaveTxnType.COIN_PACKAGE };
+      payload = coinsResponse(txnData);
+    } else if (txnData.meta.type === FlutterwaveTxnType.APP_SUBSCRIPTION) {
+      const plan = await prisma.subscriptionPlan.findUniqueOrThrow({ where: { id: String(txnData.meta.planId) } });
+      expected = subscriptionPrice(plan, txnData.meta.planType, currency, txnData.meta.tierId);
+      txnData.meta = { ...txnData.meta, amount: expected, price: expected, planName: plan.name, currency,
+        gateway: TxnGatewayEnum.FLUTTERWAVE, source: TxnSourceEnum.FIAT };
+      payload = subscriptionResponse(txnData);
+    } else throw new Error('Unsupported payment purpose');
+    if (cents(Number(txnData.amount)) < cents(expected)) throw new Error('Payment amount is insufficient');
+    return { status: 200, message: 'success', data: markVerifiedPayment(payload, String(txnData.id)) };
+
   } catch (error: any) {
     const status = error?.status ?? 500;
     let message: string = error?.message;
@@ -168,7 +175,7 @@ const getSubscriptionsPlan = async () => {
           name: `${appName} Monthly ${plan.name}${
             tier.name ? ` ${tier.name}` : ""
           } Plan`,
-          amount: tier.price,
+          amount: moneyNumber(tier.price),
           interval: "Monthly",
           duration: 120, // 120 months or 10 years
           currency: TxnCurrencyEnum.USD,
@@ -182,7 +189,7 @@ const getSubscriptionsPlan = async () => {
             tier.name ? ` ${tier.name}` : ""
           } Plan`,
           amount: parseFloat(
-            (tier.price * 12 * (1 - plan.discount)).toFixed(2)
+            (moneyNumber(tier.price) * 12 * (1 - plan.discount)).toFixed(2)
           ),
           interval: "Yearly",
           duration: 10, // 10 years

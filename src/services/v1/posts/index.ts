@@ -1,3 +1,4 @@
+import { lockWallets, cents, WalletError, walletOperation, requestKey } from '@/services/walletLedger';
 import { recommendationVisibility, kwonrecClient } from "@/services/kwonrec";
 import prisma from "@/db";
 import logger from "@/logger";
@@ -81,10 +82,10 @@ export const createPost = async (body: PostCreate, userId: string) => {
     // }
     // check rewarded quiz and check if user has enough coins
     const rewardedQuiz = body.thread.filter(
-      (item) => item.type === PostTypeEnum.QUIZ || item.quiz?.isPaid
+      (item) => item.type === PostTypeEnum.QUIZ && item.quiz?.isPaid
     );
     const totalRewardAmount = rewardedQuiz.reduce(
-      (prev, curr) => prev + (curr.quiz?.rewardAmount ?? 0),
+      (prev, curr) => prev + cents(curr.quiz?.rewardAmount ?? 0) / 100,
       0
     );
     //  check user wallet balance
@@ -92,7 +93,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
       const userWallet = await prisma.wallet.findUniqueOrThrow({
         where: { userId },
       });
-      if (userWallet.coins < totalRewardAmount) {
+      if (cents(userWallet.coins, true) < cents(totalRewardAmount)) {
         return {
           data: "Insufficient balance to create reward quiz",
           status: 400,
@@ -105,12 +106,11 @@ export const createPost = async (body: PostCreate, userId: string) => {
     const result = await prisma.$transaction(async (tx) => {
       // locked user wallet temporary
       if (rewardedQuiz.length > 0) {
-        await tx.wallet.update({
-          where: { userId },
-          data: {
-            isLocked: true,
-          },
-        });
+        await lockWallets(tx, [userId]);
+        const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId } });
+        if (wallet.isLocked || cents(wallet.coins, true) < cents(totalRewardAmount)) {
+          throw new WalletError('Wallet locked or insufficient quiz funds');
+        }
       }
       // check if scheduled
       const schedule = body.scheduleAt
@@ -546,7 +546,6 @@ export const createPost = async (body: PostCreate, userId: string) => {
             const wallet = await tx.wallet.update({
               where: { userId },
               data: {
-                isLocked: false,
                 coins: {
                   decrement: quiz.rewardAmount,
                 },
@@ -1364,6 +1363,7 @@ export async function createPostMediaLog(args: {
 
 export async function createPostTip(
   args: {
+    idempotencyKey?: string;
     device: DetectResult;
     meta: LookupResult | null;
     referer?: string | null;
@@ -1377,7 +1377,12 @@ export async function createPostTip(
   user: SessionUser
 ) {
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    if (args.senderId !== user.id || args.senderId === args.recipientId) throw new WalletError('Invalid tip sender or recipient');
+    const result = await walletOperation(`tip:${user.id}`, requestKey(args.idempotencyKey),
+      { postId: args.postId, recipientId: args.recipientId, tipId: args.tipId }, [args.senderId, args.recipientId], async (tx) => {
+      const post = await tx.post.findUniqueOrThrow({ where: { id: args.postId } });
+      if (post.userId !== args.recipientId) throw new WalletError('Tip recipient must own the post');
+      const txnRef = generateUniqueRef();
       // check recipient
       const recipient = await tx.user.findUniqueOrThrow({
         where: { id: args.recipientId },
@@ -1394,13 +1399,17 @@ export async function createPostTip(
       const wallet = await tx.wallet.findUniqueOrThrow({
         where: { userId: args.senderId },
       });
-      let info = { isCredit: false, amount: tip.price };
-      if (wallet.coins < tip.price) {
-        if (wallet.credit * 2.2 < tip.price) {
+      if (!tip.isActive || (tip.endDate && tip.endDate < new Date())) throw new WalletError('Tip package unavailable');
+      cents(tip.price);
+      if (wallet.isLocked) throw new WalletError('Wallet is locked');
+      let info = { isCredit: false, amount: cents(tip.price) / 100 };
+      if (cents(wallet.coins, true) < cents(tip.price)) {
+        if (cents(wallet.credit, true) < Math.ceil(cents(tip.price) * 10 / 22)) {
           throw new AppError("Insufficient balance, please purchase coins");
         }
-        info = { amount: Number((tip.price / 2.2).toFixed(2)), isCredit: true };
+        info = { amount: Math.ceil(cents(tip.price) * 10 / 22) / 100, isCredit: true };
       }
+      if (info.isCredit && cents(wallet.credit, true) < cents(info.amount)) throw new WalletError('Insufficient balance');
       // deduct sender wallet - package price(coins) from wallet amount(coins)
       await tx.wallet.update({
         where: { id: wallet.id },
@@ -1413,6 +1422,7 @@ export async function createPostTip(
       // log sender transaction
       await tx.transaction.create({
         data: {
+          userId: args.senderId,
           amount: info.amount,
           currency: info.isCredit ? TxnCurrencyEnum.TZX : TxnCurrencyEnum.COINS,
           type: TxnTypeEnum.DEBIT,
@@ -1421,21 +1431,22 @@ export async function createPostTip(
           category: TxnCategoryEnum.POST_TIP,
           postId: args.postId,
           senderId: args.senderId,
-          recipientId: args.senderId,
+          recipientId: args.recipientId,
           status: TxnStatusEnum.COMPLETED,
           source: info.isCredit ? TxnSourceEnum.CREDIT : TxnSourceEnum.COINS,
           gateway: TxnGatewayEnum.WALLET,
-          txnRef: generateUniqueRef(),
+          txnRef,
           description: `Post tip sent to ${recipient.name}`,
         },
       });
       // credit recipient wallet - package price(coins) from wallet amount(coins)
       // we sell 2.2 coins for 1TZX but buy back at 3 coins --- tip.price is in coins
       // The system takes 45% of all tips and the recipient takes 55%
-      const creditAmount = Number(((tip.price * 0.55) / 3).toFixed(2));
+      const creditAmount = Math.round(cents(tip.price) * 55 / 300) / 100;
       // log recipient transaction
       const txn = await tx.transaction.create({
         data: {
+          userId: args.recipientId,
           amount: creditAmount,
           currency: TxnCurrencyEnum.TZX,
           type: TxnTypeEnum.CREDIT,
@@ -1446,9 +1457,10 @@ export async function createPostTip(
           senderId: args.senderId,
           recipientId: args.recipientId,
           status: TxnStatusEnum.PENDING,
+          metadata: { settlementVersion: 1 },
           source: TxnSourceEnum.CREDIT,
           gateway: TxnGatewayEnum.WALLET,
-          txnRef: generateUniqueRef(),
+          txnRef,
           description: `Tip reward from ${
             args.isAnon ? "anonymous" : user.name
           } on your post`,
@@ -1496,6 +1508,7 @@ export async function createPostTip(
     });
     return result;
   } catch (error) {
+    if (error instanceof WalletError) return { data: error.message, status: error.status };
     if (error instanceof AppError) {
       return { data: error.message, status: error.statusCode };
     }

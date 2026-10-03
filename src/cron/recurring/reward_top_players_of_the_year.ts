@@ -1,3 +1,4 @@
+import { walletOperation, cents } from '@/services/walletLedger';
 // Resolve path aliases
 
 import { formatNumberWithCommas } from "@/utils/helpers";
@@ -53,7 +54,8 @@ const rewardPlayer = async (player: {
       // generate txn ref
       const txnRef = generateUniqueRef();
       // implement transaction
-      const result = await prisma.$transaction(async (tx) => {
+      cents(milestone.reward);
+      const result = await walletOperation('reward_top_players_of_the_year', `${player.catId}:${player.mode}:${player.year}:${player.id}`, { recipient: player.id }, [player.id], async (tx) => {
         // insert achievement
         const achievement = await tx.gameAchievement.create({
           data: {
@@ -81,7 +83,7 @@ const rewardPlayer = async (player: {
               }
             : milestone.rewardType === "COINS"
             ? {
-                amount: { increment: milestone.reward },
+                coins: { increment: milestone.reward },
               }
             : {
                 bonus: { increment: milestone.reward },
@@ -151,7 +153,7 @@ const rewardYearlyPlayers = async(catId: string, _mode: GameMode ) => {
           gms."playerId",
           SUM(gms."score") AS totalScore
         FROM "GameMonthStat" gms
-        WHERE gms."year" = ${keys.dateInfo.year} AND gms."catId" = ${catId}
+        WHERE gms."year" = ${keys.dateInfo.year} AND gms."catId" = ${catId} AND gms."mode" = ${_mode}
         GROUP BY gms."catId", gms."playerId"
       ),
       RankedPlayers AS (
@@ -219,6 +221,7 @@ const rewardPlayers = async () => {
       );
     }
 
+    if (errors.length) throw new Error(errors.map(e => e.message).join(", "));
     return results;
   } catch (error: any) {
     logger.error(`Error rewarding players: ${error.message}`);

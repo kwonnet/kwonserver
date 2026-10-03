@@ -25,8 +25,8 @@ export const transferCoinsController = async (
   if (!zodResult.data) return res.status(400).send(zodResult.message);
 
   try {
-    const result = await transferCoins(zodResult.data);
-    return res.status(result.status).send(result.data ?? result.message);
+    const result = await transferCoins({ ...zodResult.data, idempotencyKey: req.get("Idempotency-Key") });
+    return res.status(result.status).send(result.data);
   } catch (error) {
     return res
       .status(500)
@@ -50,7 +50,7 @@ export const fundCoinsController = async (
     return res.status(400).send("Amount or bonus must be greater than zero");
 
   try {
-    const result = await fundCoins(zodData, user);
+    const result = await fundCoins({ ...zodData, idempotencyKey: req.get("Idempotency-Key") }, user);
     return res.status(result.status).send(result.data);
   } catch (error) {
     return res

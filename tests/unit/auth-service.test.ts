@@ -2,7 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { user, resetMocks } from './fixtures';
 const db = vi.hoisted(() => ({ user: { findFirst: vi.fn(), create: vi.fn() },
   country: { findFirst: vi.fn() }, referral: { findFirst: vi.fn(), create: vi.fn() },
-  wallet: { update: vi.fn() }, $transaction: vi.fn() }));
+  wallet: { findUniqueOrThrow: vi.fn(), update: vi.fn() }, transaction: { create: vi.fn() }, $transaction: vi.fn() }));
 const passwords = vi.hoisted(() => ({ hash: vi.fn(), compare: vi.fn() }));
 vi.mock('@/db', () => ({ default: db }));
 vi.mock('bcrypt', () => ({ default: passwords }));
@@ -14,7 +14,9 @@ beforeEach(() => {
   resetMocks(db); resetMocks(passwords);
   passwords.hash.mockResolvedValue('salted-hash');
   passwords.compare.mockResolvedValue(true);
-  db.$transaction.mockImplementation((queries: Promise<unknown>[]) => Promise.all(queries));
+  db.$transaction.mockImplementation((work: any) => typeof work === "function" ? work(db) : Promise.all(work));
+  db.wallet.update.mockResolvedValue({id: "wallet"});
+  db.wallet.findUniqueOrThrow.mockResolvedValue({id:"wallet"});
   vi.spyOn(console, 'log').mockImplementation(() => {});
 });
 afterEach(() => vi.useRealTimers());

@@ -1,8 +1,9 @@
+import { setupWalletTransaction } from './wallet-fixture';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { resetMocks } from './fixtures';
-const db = vi.hoisted(() => ({ user: { findFirst: vi.fn() }, wallet: { update: vi.fn() },
-  transaction: { findMany: vi.fn(), create: vi.fn() }, task: { findFirst: vi.fn() },
-  userTask: { create: vi.fn() }, userTaskSettings: { findFirst: vi.fn(), upsert: vi.fn() }, $transaction: vi.fn() }));
+const db = vi.hoisted(() => ({ user: { findFirst: vi.fn() }, wallet: { findUniqueOrThrow: vi.fn(), update: vi.fn() },
+  transaction: { findMany: vi.fn(), create: vi.fn() }, task: { findUnique: vi.fn() },
+  userTask: { create: vi.fn() }, userTaskSettings: { findUnique: vi.fn(), upsert: vi.fn() }, $transaction: vi.fn() }));
 const sync = vi.hoisted(() => ({ from: vi.fn(), to: vi.fn() }));
 vi.mock('@/db', () => ({ default: db }));
 vi.mock('@/services/v1/games', () => ({ getRedisHashKey: vi.fn() }));
@@ -14,32 +15,32 @@ const task = () => ({ id: 't', code: 'secret-code', reward: 10, rewardType: 'BON
 beforeEach(() => {
   resetMocks(db); resetMocks(sync); vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
   sync.from.mockResolvedValue({ isError: false }); db.user.findFirst.mockResolvedValue({ id: 'u', wallet });
-  db.wallet.update.mockResolvedValue(wallet); db.task.findFirst.mockResolvedValue(task());
-  db.$transaction.mockImplementation((queries: any[]) => Promise.all(queries));
+  db.wallet.update.mockResolvedValue(wallet); db.task.findUnique.mockResolvedValue(task());
+  setupWalletTransaction(db); db.wallet.findUniqueOrThrow.mockResolvedValue(wallet);
 });
 afterEach(() => vi.useRealTimers());
 it.each([[5, 0], [0, 5], [5, 5]])('funds coins=%s bonus=%s with an attributed ledger entry', async (amount, extra) => {
-  expect(await fundCoins({ userId: 'u', amount, bonus: extra }, { id: 'admin', name: 'Admin', role: 'ADMIN' } as any)).toEqual({ status: 200, data: 'Funding successful' });
-  expect(db.wallet.update).toHaveBeenCalledWith({ where: { userId: 'u' }, data: { coins: { increment: amount }, bonus: { increment: extra } } });
-  expect(db.transaction.create).toHaveBeenCalledWith({ data: expect.objectContaining({ amount, senderId: 'admin', recipientId: 'u', type: 'CREDIT', status: 'COMPLETED' }) });
-  expect(sync.to).toHaveBeenCalledWith('u', wallet);
+  expect(await fundCoins({idempotencyKey:"fund-test-1", userId: 'u', amount, bonus: extra }, { id: 'admin', name: 'Admin', role: 'ADMIN' } as any)).toEqual({ status: 200, data: 'Funding successful' });
+  expect(db.wallet.update).toHaveBeenCalledWith({ where: { id: 'w' }, data: { coins: { increment: amount }, bonus: { increment: extra } } });
+  expect(db.transaction.create).toHaveBeenCalledWith({ data: expect.objectContaining({ amount: amount + extra, senderId: 'admin', recipientId: 'u', type: 'CREDIT', status: 'COMPLETED' }) });
+  expect(sync.to).not.toHaveBeenCalled();
 });
-it.each(['fund', 'bonus', 'task'])('%s stops on cache synchronization failure', async kind => {
+it.each(['fund', 'bonus', 'task'])('%s does not depend on cache availability', async kind => {
   sync.from.mockResolvedValue({ isError: true, message: 'cache unavailable' });
-  const result = await (kind === 'fund' ? fundCoins({ userId: 'u', amount: 1, bonus: 0 }, { role: 'ADMIN' } as any)
+  const result = await (kind === 'fund' ? fundCoins({idempotencyKey:"fund-test-1", userId: 'u', amount: 1, bonus: 0 }, { role: 'ADMIN' } as any)
     : kind === 'bonus' ? updateWalletBonus(bonus()) : rewardDailyTask({ id: 't', code: 'secret-code', userId: 'u' }));
-  expect(result.status).toBe(500); expect(db.wallet.update).not.toHaveBeenCalled();
+  expect(result.status).toBe(200); expect(db.wallet.update).toHaveBeenCalled();
 });
 it.each(['fund', 'bonus', 'task'])('%s rejects missing wallets before any transaction', async kind => {
-  db.user.findFirst.mockResolvedValue({ id: 'u', wallet: null });
-  const result = await (kind === 'fund' ? fundCoins({ userId: 'u', amount: 1, bonus: 0 }, { role: 'ADMIN' } as any)
+  (db as any).$queryRaw.mockResolvedValue([]);
+  const result = await (kind === 'fund' ? fundCoins({idempotencyKey:"fund-test-1", userId: 'u', amount: 1, bonus: 0 }, { role: 'ADMIN' } as any)
     : kind === 'bonus' ? updateWalletBonus(bonus()) : rewardDailyTask({ id: 't', code: 'secret-code', userId: 'u' }));
-  expect(result.status).toBe(404); expect(db.$transaction).not.toHaveBeenCalled();
+  expect(result.status).toBe(404); expect(db.wallet.update).not.toHaveBeenCalled();
 });
 it('paginates history within the authenticated user account', async () => {
   db.transaction.findMany.mockResolvedValue([{ id: 'txn' }]);
   expect(await getTxnHistory({ userId: 'u', page: 3, limit: 10 })).toEqual({ status: 200, data: [{ id: 'txn' }] });
-  expect(db.transaction.findMany).toHaveBeenCalledWith({ where: { userId: 'u' }, skip: 20, take: 10, orderBy: [{ createdAt: 'desc' }] });
+  expect(db.transaction.findMany).toHaveBeenCalledWith({ where: { userId: 'u' }, skip: 20, take: 10, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
 });
 it('handles empty and failed transaction history lookups', async () => {
   db.transaction.findMany.mockResolvedValue([]); expect((await getTxnHistory({ userId: 'u', page: 1, limit: 10 })).status).toBe(404);
@@ -47,47 +48,69 @@ it('handles empty and failed transaction history lookups', async () => {
 });
 it.each(['BONUS', 'ADS'])('enforces the %s reward cooldown independently', async type => {
   const field = type === 'BONUS' ? 'dailyBonusDate' : 'adsBonusDate';
-  db.userTaskSettings.findFirst.mockResolvedValue({ [field]: new Date(Date.now() + 1) });
+  db.userTaskSettings.findUnique.mockResolvedValue({ [field]: new Date(Date.now() + 1) });
   expect((await updateWalletBonus({ ...bonus(), type: type as any })).status).toBe(400);
   expect(db.wallet.update).not.toHaveBeenCalled();
 });
 it.each(['BONUS', 'ADS'])('allows %s at the exact expiry and updates its own timer', async type => {
   const field = type === 'BONUS' ? 'dailyBonusDate' : 'adsBonusDate';
   const otherField = type === 'BONUS' ? 'adsBonusDate' : 'dailyBonusDate';
-  db.userTaskSettings.findFirst.mockResolvedValue({ [field]: new Date(), [otherField]: new Date(Date.now() + 10000) });
+  db.userTaskSettings.findUnique.mockResolvedValue({ [field]: new Date(), [otherField]: new Date(Date.now() + 10000) });
   expect((await updateWalletBonus({ ...bonus(), type: type as any })).status).toBe(200);
   expect(db.userTaskSettings.upsert).toHaveBeenCalledWith({ where: { userId: 'u' },
     update: { [field]: new Date(bonus().date) }, create: { userId: 'u', [field]: new Date(bonus().date) } });
 });
-it('records task metadata for a bonus reward', async () => {
-  await updateWalletBonus({ ...bonus(), isTask: true, meta: { taskId: 't' } });
-  expect(db.transaction.create).toHaveBeenCalledWith({ data: expect.objectContaining({ category: 'APP_TASK',
-    metadata: { currency: 'COINS', item: { amount: 0, bonus: 5, recipient: 'u', item: { taskId: 't' } } } }) });
+it('rejects client-authorized task payouts through the bonus endpoint', async () => {
+ expect((await updateWalletBonus({ ...bonus(), isTask: true, meta: { taskId: 't' } })).status).toBe(400);
+ expect(db.wallet.update).not.toHaveBeenCalled();
 });
 it.each([['missing', null, 404], ['completed', { ...task(), performedBy: [{ id: 'done' }] }, 422],
   ['wrong code', task(), 422]] as const)('rejects a %s task claim without rewarding it', async (_name, row, status) => {
-  db.task.findFirst.mockResolvedValue(row); expect((await rewardDailyTask({ id: 't', userId: 'u', code: 'wrong' })).status).toBe(status);
+  db.task.findUnique.mockResolvedValue(row); expect((await rewardDailyTask({ id: 't', userId: 'u', code: 'wrong' })).status).toBe(status);
   expect(sync.from).not.toHaveBeenCalled(); expect(db.wallet.update).not.toHaveBeenCalled();
 });
 it.each([['CREDIT', 'credit', 'TZX'], ['COINS', 'coins', 'COINS'], ['BONUS', 'bonus', 'COINS']])('credits %s rewards to the correct wallet field', async (type, field, currency) => {
-  db.task.findFirst.mockResolvedValue({ ...task(), rewardType: type });
+  db.task.findUnique.mockResolvedValue({ ...task(), rewardType: type });
   expect((await rewardDailyTask({ id: 't', userId: 'u', code: 'secret-code' })).status).toBe(200);
-  expect(db.wallet.update).toHaveBeenCalledWith({ where: { userId: 'u' }, data: { [field]: { increment: 10 } } });
+  expect(db.wallet.update).toHaveBeenCalledWith({ where: { id: 'w' }, data: { [field]: { increment: 10 } } });
   expect(db.userTask.create).toHaveBeenCalledWith({ data: { taskId: 't', userId: 'u', status: 'COMPLETED' } });
   expect(db.transaction.create).toHaveBeenCalledWith({ data: expect.objectContaining({ currency, taskId: 't', amount: 10 }) });
-  expect(sync.to).toHaveBeenCalledWith('u', wallet);
+  expect(sync.to).not.toHaveBeenCalled();
 });
 it('allows tasks that do not require a code', async () => {
-  db.task.findFirst.mockResolvedValue({ ...task(), code: null }); expect((await rewardDailyTask({ id: 't', userId: 'u' })).status).toBe(200);
+  db.task.findUnique.mockResolvedValue({ ...task(), code: null }); expect((await rewardDailyTask({ id: 't', userId: 'u' })).status).toBe(200);
 });
 it.each(['fund', 'bonus', 'task'])('%s does not publish updated balances on transaction failure', async kind => {
   db.$transaction.mockRejectedValue(new Error('private db error'));
-  const result = await (kind === 'fund' ? fundCoins({ userId: 'u', amount: 1, bonus: 0 }, { role: 'ADMIN' } as any)
+  const result = await (kind === 'fund' ? fundCoins({idempotencyKey:"fund-test-1", userId: 'u', amount: 1, bonus: 0 }, { role: 'ADMIN' } as any)
     : kind === 'bonus' ? updateWalletBonus(bonus()) : rewardDailyTask({ id: 't', code: 'secret-code', userId: 'u' }));
   expect(result.status).toBe(500); expect(sync.to).not.toHaveBeenCalled();
 });
 
 it.each(['USER', undefined])('refuses wallet minting by role %s before cache or database access', async role => {
-  expect((await fundCoins({ userId: 'u', amount: 100, bonus: 100 }, { role } as any)).status).toBe(403);
+  expect((await fundCoins({idempotencyKey:"fund-test-1", userId: 'u', amount: 100, bonus: 100 }, { role } as any)).status).toBe(403);
   expect(sync.from).not.toHaveBeenCalled(); expect(db.wallet.update).not.toHaveBeenCalled();
+});
+
+it.each([-1, Infinity, NaN, 0.001])('refuses invalid funding amounts %s', async amount => {
+ expect((await fundCoins({idempotencyKey:"fund-test-1",userId:'u',amount,bonus:0},{id:'admin',role:'ADMIN'} as any)).status).toBe(400);
+ expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it('ignores a client-supplied past eligibility date', async () => {
+ await updateWalletBonus({...bonus(),date:'2000-01-01'});
+ expect(db.userTaskSettings.upsert).toHaveBeenCalledWith(expect.objectContaining({update:{dailyBonusDate:new Date('2026-10-02')}}));
+});
+
+it('rejects zero funding and excessive bonus claims',async()=>{
+ expect((await fundCoins({idempotencyKey:"fund-test-1",userId:'u',amount:0,bonus:0},{id:'a',role:'ADMIN'} as any)).status).toBe(400);
+ expect((await updateWalletBonus({...bonus(),amount:10.01})).status).toBe(400);
+ expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it.each(['fund','bonus','task'])('%s respects wallet locks',async kind=>{
+ db.wallet.findUniqueOrThrow.mockResolvedValue({...wallet,isLocked:true});
+ const result=await (kind==='fund'?fundCoins({idempotencyKey:"fund-test-1",userId:'u',amount:1,bonus:0},{id:'a',role:'ADMIN'} as any):kind==='bonus'?updateWalletBonus(bonus()):rewardDailyTask({id:'t',userId:'u',code:'secret-code'}));
+ expect(result.status).toBe(400);expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it.each([{page:0,limit:10},{page:1,limit:101},{page:1.5,limit:10}])('rejects invalid history pagination %j',async params=>{
+ expect((await getTxnHistory({userId:'u',...params})).status).toBe(400);expect(db.transaction.findMany).not.toHaveBeenCalled();
 });

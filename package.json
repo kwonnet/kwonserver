@@ -37,7 +37,8 @@
     "start:worker": "node -r ./scripts/register-paths.cjs dist/cron/worker.js",
     "dev:worker": "ts-node -r tsconfig-paths/register src/cron/worker.ts",
     "quiz:inventory": "node -r ./scripts/register-paths.cjs dist/services/questionInventory/cli.js",
-    "redis:connections": "node scripts/redis-connections.cjs"
+    "redis:connections": "node scripts/redis-connections.cjs",
+    "wallet:audit": "node scripts/wallet-audit.cjs"
   },
   "prisma": {
     "seed": "node dist-seed/seed.js"

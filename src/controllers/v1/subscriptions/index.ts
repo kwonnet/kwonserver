@@ -31,7 +31,7 @@ export const subscriptionPremiumController = async(req: Request, res: Response) 
         const user = req.user as AuthUser; 
         
         if(payload.currency === TxnCurrencyEnum.TZX){
-            const result = await purchaseAppSubscriptionWithWallet(payload, user.id,)
+            const result = await purchaseAppSubscriptionWithWallet({ ...payload, idempotencyKey: req.get("Idempotency-Key") }, user.id)
             return res.status(result.status).send(result.data)
         }
         const result = await purchaseAppSubscription(payload, user.id)

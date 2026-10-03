@@ -1,3 +1,4 @@
+import { walletOperation, cents } from '@/services/walletLedger';
 // Resolve path aliases
 
 
@@ -36,7 +37,8 @@ const rewardPlayer = async (player: RewardGamePlayer) => {
     // generate txn ref
     const txnRef = generateUniqueRef();
     // implement transaction
-    const result = await prisma.$transaction(async (tx) => {
+    cents(milestone.reward);
+      const result = await walletOperation('reward_grand_champ_of_the_year', `${player.year}:${player.playerId}`, { recipient: player.playerId }, [player.playerId], async (tx) => {
       // insert achievement
       const achievement = await tx.gameAchievement.create({
         data: {
@@ -62,7 +64,7 @@ const rewardPlayer = async (player: RewardGamePlayer) => {
             }
           : milestone.rewardType === "COINS"
           ? {
-              amount: { increment: milestone.reward },
+              coins: { increment: milestone.reward },
             }
           : {
               bonus: { increment: milestone.reward },

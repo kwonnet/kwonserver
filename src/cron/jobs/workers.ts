@@ -26,14 +26,15 @@ export const appSubscriptionWorker = new Worker(
     const { subscriptionId: id } = job.data;
     logger.info(`Processing subscription job: ${id}`);
     // check if the subscription exists
-    const currentSub = await prisma.subscription.findFirst({ 
+    const currentSub = await prisma.subscription.findFirst({
       where: { id, status: { notIn: [SubStatusEnum.CANCELLED, SubStatusEnum.EXPIRED] } },
-      select: { id: true,  userId: true, endDate: true, createdAt: true }, 
+      select: { id: true, userId: true, endDate: true, createdAt: true, isRecurring: true, isPrimary: true, status: true },
     });
     if (!currentSub) {
       logger.error(`Subscription not found: ${id}`);
       throw new Error(`Subscription not found: ${id}`);
     }
+    if (!currentSub.isRecurring || !currentSub.isPrimary || currentSub.status === SubStatusEnum.PAUSED) return;
     // try to renew the subscription
     const result = await renewAppSubscriptionWithWallet(id);
     logger.info(
@@ -65,7 +66,8 @@ export const appSubscriptionWorker = new Worker(
     }
     // Reschedule subscription job again based on the new params and don't set it as the last scheduled job
     // Do not retry an already successful charge if scheduling the next job fails.
-    void insertSubscriptionJob(currentSub, false).catch(error => {
+    const next = await prisma.subscription.findUnique({ where: { id }, select: { id: true, userId: true, endDate: true, createdAt: true } });
+    if (next) await insertSubscriptionJob(next, false).catch(error => {
       logger.error({ subscriptionId: id, error: error.message }, 'Next subscription job needs rescheduling');
     });
   },

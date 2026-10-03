@@ -6,9 +6,9 @@ it('upserts recurring schedules without duplicating them on replica startup', as
   try {
     await queue.setGlobalConcurrency(1);
     await registerRecurringJobs(queue, {}); await registerRecurringJobs(queue, {});
-    expect(await queue.getJobSchedulersCount()).toBe(9);
+    expect(await queue.getJobSchedulersCount()).toBe(11);
     await registerRecurringJobs(queue, { ENABLE_CLICKHOUSE_SYNC: 'true' });
-    expect(await queue.getJobSchedulersCount()).toBe(10);
-    await registerRecurringJobs(queue, {}); expect(await queue.getJobSchedulersCount()).toBe(9);
+    expect(await queue.getJobSchedulersCount()).toBe(12);
+    await registerRecurringJobs(queue, {}); expect(await queue.getJobSchedulersCount()).toBe(11);
   } finally { await queue.obliterate({ force: true }); await queue.close(); }
 });

@@ -1,65 +1,6 @@
-// Resolve path aliases
-
-
-import redisClient from '@/redis';
-import { PromisePool } from "@supercharge/promise-pool"
-import prisma from '@/db';
-import { isDateMinuteElapsed } from '@/utils';
 import logger from '@/logger';
-
-
-async function syncUserRedisWalletToPrisma(playerId: string) {
-  try {
-    const walletKey = `user:${playerId}:wallet`;
-    // get user wallet
-    const result = await redisClient.hGetAll(walletKey);
-    // check if wallet is null
-    if(Object.keys(result).length === 0) return
-    // update object
-    const wallet = {
-      bonus: parseFloat(result.bonus || "0"),
-      coins: parseFloat(result.amount ?? result.coins ?? "0"),
-      credit: parseFloat(result.credit || "0"),
-    };
-    // perform prisma update
-    await prisma.wallet.update({ where: { id: result.id, userId: result.userId}, data: wallet})
-    // check if user session is inactive for more than 4 minutes and remove this wallet
-    const sessionKey = `user:${playerId}:session`;
-    const date = await redisClient.get(sessionKey)
-    if(!date) return 
-    const isExpired = isDateMinuteElapsed(date, 4)
-    if(isExpired){
-      await Promise.all([redisClient.del(sessionKey), redisClient.del(walletKey)])
-    }
-  } catch (error: any) {
-    console.log("Error 1: ",error?.message)
-    throw error
-  }
-
-}
-
-
- const syncUserTxns = async() =>{
-      try {
-        const playerKeys = await redisClient.keys("user:*:wallet");
-        const { results, errors } = await PromisePool.for(playerKeys)
-          .withConcurrency(1000)
-          .useCorrespondingResults()
-          .process(async (key:string) => {
-            const playerId = key.split(":")[1];
-            return await syncUserRedisWalletToPrisma(playerId);
-          });
-          // check errors and dispatch
-        if (errors.length > 0) {
-          throw new Error("Error: " + errors?.map(i => i.message).join(", "))
-        }
-        return results
-      } catch (error:any) {
-        console.log("Error 2: ",error?.message)
-        throw error
-      }
-  }
-
 export async function run() {
-  await syncUserTxns();
+  // Retain the scheduler name for old queued jobs. Snapshot writeback is unsafe.
+  // Legacy balances must be reconciled during the documented maintenance cutover.
+  logger.info('Wallet snapshot writeback disabled; PostgreSQL is authoritative');
 }

@@ -52,45 +52,55 @@ export const createUser = async (
       username = `${username}${randomUUID().slice(-5)}`
     }
     const amount = getRandomNumber(10, 15, true);
-    const newUser = await prisma.user.create({
-      data: {
-        email: body.email,
-        name: body.name,
-        username,
-        password: hash,
-        wallet: { create: { bonus: amount } },
-        location: {
-          create: {
-            latitude: location?.latitude ?? 0,
-            longitude: location?.longitude ?? 0,
-            meta: location,
+    const newUser = await prisma.$transaction(async tx => {
+      const created = await tx.user.create({
+        data: {
+          email: body.email,
+          name: body.name,
+          username,
+          password: hash,
+          wallet: { create: { bonus: amount } },
+          location: {
+            create: {
+              latitude: location?.latitude ?? 0,
+              longitude: location?.longitude ?? 0,
+              meta: location,
+            },
           },
+          ...(userCountry && { country: { connect: { id: userCountry?.id } } }),
         },
-        ...(userCountry && { country: { connect: { id: userCountry?.id } } }),
-      },
-      include: {
-        subscriptions: {
-          where: {
-            status: {
-              in: [
-                SubStatusEnum.ACTIVE,
-                SubStatusEnum.TRIAL,
-                SubStatusEnum.PAYMENT_ERROR,
-              ],
+        include: {
+          subscriptions: {
+            where: {
+              status: {
+                in: [
+                  SubStatusEnum.ACTIVE,
+                  SubStatusEnum.TRIAL,
+                  SubStatusEnum.PAYMENT_ERROR,
+                ],
+              },
+            },
+          },
+          country: {
+            select: {
+              id: true,
+              name: true,
+              iso2: true,
+              iso3: true,
+              emoji: true,
+              continentId: true,
             },
           },
         },
-        country: {
-          select: {
-            id: true,
-            name: true,
-            iso2: true,
-            iso3: true,
-            emoji: true,
-            continentId: true,
-          },
-        },
-      },
+      });
+      const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: created.id } });
+      await tx.transaction.create({ data: {
+        userId: created.id, recipientId: created.id, walletId: wallet.id, amount,
+        currency: 'COINS', source: 'BONUS', gateway: 'VIRTUAL', type: 'CREDIT', status: 'COMPLETED',
+        category: 'COIN_RECEIVED', txnRef: randomUUID(), description: 'Registration bonus',
+        metadata: { reason: 'REGISTRATION', bonus: amount },
+      } });
+      return created;
     });
 
     if (body.refId && !newUser.id.endsWith(body.refId)) {
@@ -220,20 +230,19 @@ export const handleReferral = async (params: {
     logger.info({ isInstantReward, amount }, "Check account instant reward");
     // reward user if account is qualified for instant reward
     if (isInstantReward) {
-      const [result] = await prisma.$transaction([
-        prisma.referral.create({
-          data: {
-            referrerId: referrer?.id,
-            refereeId: params?.refereeId,
-            amount,
-            isRewarded: true,
-          },
-        }),
-        prisma.wallet.update({
-          where: { userId: referrer.id },
-          data: { bonus: { increment: amount } },
-        }),
-      ]);
+      const result = await prisma.$transaction(async tx => {
+        const referral = await tx.referral.create({ data: {
+          referrerId: referrer.id, refereeId: params.refereeId, amount, isRewarded: true,
+        } });
+        const wallet = await tx.wallet.update({ where: { userId: referrer.id }, data: { bonus: { increment: amount } } });
+        await tx.transaction.create({ data: {
+          userId: referrer.id, recipientId: referrer.id, walletId: wallet.id, amount,
+          currency: 'COINS', source: 'BONUS', gateway: 'VIRTUAL', type: 'CREDIT', status: 'COMPLETED',
+          category: 'COIN_RECEIVED', txnRef: randomUUID(), description: 'Referral bonus',
+          metadata: { referralId: referral.id, refereeId: params.refereeId },
+        } });
+        return referral;
+      });
       logger.info(result, `${referrer.name} is rewarded ${amount}`);
       return result;
     } else {

@@ -878,15 +878,6 @@ export const generateRoomQuestion = async (room: TempGameRoom) => {
       topics.toLowerCase().includes(item.toLowerCase())
     );
 
-    // if (name.includes("trivia")) {
-    //   return await generateTriviaQuestion(room);
-    // else if (name.includes("academia")) {
-    //   return await generateAcademiaQuestion(room);
-    // } else if (name.includes("sports")) {
-    //   return await generateSportsQuestion(room);
-    // } else if (name.includes("country")) {
-    //   return await generateCountryQuestion(room);
-
     if(isQuiz){
       return await generateTriviaQuestion({...room, topics});
     }

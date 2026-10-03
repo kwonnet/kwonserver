@@ -1,39 +1,20 @@
-import { getLastScheduledJob, insertSubscriptionJob, updateLastScheduledJob } from "@/cron/utils";
-import prisma from "@/db";
-import logger from "@/logger";
-import { SubStatusEnum, TxnCurrencyEnum } from "@prisma/client";
+import prisma from '@/db';
+import { insertSubscriptionJob } from '@/cron/utils';
 
+// Reconcile upcoming and overdue subscriptions from PostgreSQL. A creation-time
+// cursor misses updated subscriptions and jobs lost during a Redis outage.
 export async function run() {
-  try {
-    const lastScheduledJobDate = (await getLastScheduledJob()) || new Date(0); // Fallback to epoch if Redis is empty
-    // Fetch subscriptions to schedule
+  let cursor: string | undefined;
+  for (;;) {
     const subscriptions = await prisma.subscription.findMany({
-      where: {
-        status: SubStatusEnum.ACTIVE,
-        isRecurring: true,
-        isPrimary: true,
-        transactions: { some: { currency: TxnCurrencyEnum.TZX} },
-        createdAt: { gt: lastScheduledJobDate },
-      },
-      select: { id: true,  userId: true, endDate: true, createdAt: true },
-      orderBy: [{ createdAt: "asc" }],
+      where: { status: { in: ['ACTIVE', 'PAYMENT_ERROR'] }, isRecurring: true, isPrimary: true,
+        endDate: { lte: new Date(Date.now() + 48 * 60 * 60 * 1000) },
+        transactions: { some: { currency: 'TZX', gateway: 'WALLET', status: 'COMPLETED' } } },
+      select: { id: true, userId: true, endDate: true, createdAt: true },
+      orderBy: { id: 'asc' }, take: 100, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
-
-    logger.info(subscriptions?.length, "subscriptions: ")
-
-    for (const sub of subscriptions) {
-      await insertSubscriptionJob(sub)
-      logger.info(`Scheduled jobs for sub ${sub.id}`);
-    }
-    // Update the last scheduled job time
-    if (subscriptions.length > 0) {
-      const lastJobDate = subscriptions[subscriptions.length - 1].createdAt;
-      await updateLastScheduledJob(lastJobDate);
-    }
-
-  } catch (error: any) {
-    logger.error(`Error scheduling app sub jobs ~ ${error.message}`);
-    throw error;
-
+    if (!subscriptions.length) return;
+    for (const sub of subscriptions) await insertSubscriptionJob(sub, false);
+    cursor = subscriptions[subscriptions.length - 1].id;
   }
 }

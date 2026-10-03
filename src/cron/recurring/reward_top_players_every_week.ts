@@ -1,3 +1,4 @@
+import { walletOperation, cents } from '@/services/walletLedger';
 // Resolve path aliases
 
 
@@ -43,7 +44,7 @@ const rewardCategoryWeeklyPlayers = async (catId: string, _mode: GameMode) => {
     ]);
     if (milestones.length === 0 || !category) return;
     // loop through the players and reward them
-    players.forEach(async (player, index) => {
+    await Promise.all(players.map(async (player, index) => {
       const milestone = milestones.find((item) => item.milestone === player.rank);
       // Check for milestone
       if (!milestone) return;
@@ -52,7 +53,8 @@ const rewardCategoryWeeklyPlayers = async (catId: string, _mode: GameMode) => {
       // generate txn ref
       const txnRef = generateUniqueRef();
       // implement transaction
-      const result = await prisma.$transaction(async (tx) => {
+      cents(milestone.reward);
+      const result = await walletOperation('reward_top_players_every_week', `${keys.rewardWeek}:${player.id}`, { recipient: player.id }, [player.id], async (tx) => {
         // insert achievement
         const achievement = await tx.gameAchievement.create({
           data: {
@@ -80,7 +82,7 @@ const rewardCategoryWeeklyPlayers = async (catId: string, _mode: GameMode) => {
               }
             : milestone.rewardType === "COINS"
             ? {
-                amount: { increment: milestone.reward },
+                coins: { increment: milestone.reward },
               }
             : {
                 bonus: { increment: milestone.reward },
@@ -127,7 +129,7 @@ const rewardCategoryWeeklyPlayers = async (catId: string, _mode: GameMode) => {
       });
       // sync prisma wallet to redis
       await syncPrismaUserWalletToRedis(player.id, result.wallet);
-    });
+    }));
   } catch (error) {
     throw error;
   }
@@ -158,6 +160,7 @@ const rewardPlayers = async () => {
     if (errors.length > 0) {
       throw new Error("Error: " + errors?.map((i) => i.message).join(", "));
     }
+    if (errors.length) throw new Error(errors.map(e => e.message).join(", "));
     return results;
   } catch (error: any) {
     throw error;

@@ -281,6 +281,9 @@ export enum GameCatType {
 }
 
 export interface ThemedGameQuestion {
+    roundId?: string;
+  answerUntil?: number;
+  voteUntil?: number;
     id: string | number;
     question: string;
     options: string[];
@@ -321,6 +324,7 @@ export interface AcronymGameAnswer {
 }
 
 export interface GameRoomAnswer {
+    roundId?: string;
     timer:number; 
     answer: string, 
     qId: string | number;

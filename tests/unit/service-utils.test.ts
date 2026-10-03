@@ -1,3 +1,4 @@
+import {Prisma} from '@prisma/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { post, user } from './fixtures';
 const find = vi.hoisted(() => vi.fn());
@@ -137,3 +138,8 @@ it.each([['30d', 1], ['1M', 1], ['3M', 3], ['6M', 6], ['9M', 9], ['12M', 12], ['
 it('unknown analytics duration uses now', () => expect(u.getAnalyticsDuration()).toEqual(new Date()));
 it.each([[10, 0, '+100%'], [0, 0, '0%'], [15, 10, '+50.0%'], [5, 10, '-50.0%'], [10, 10, '+0.0%']])(
   'percentage change %s versus %s', (now, before, output) => expect(u.analyticsPercentageChange(Number(now), Number(before))).toBe(output));
+
+it('serializes nested Decimal amounts as the existing numeric API shape',()=>{
+ expect(u.serializeBigInts({wallet:{coins:new Prisma.Decimal('0.30')},ledger:[{amount:new Prisma.Decimal('13.64')}]}))
+ .toEqual({wallet:{coins:0.3},ledger:[{amount:13.64}]});
+});

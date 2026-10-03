@@ -1,3 +1,7 @@
+import logger from '@/logger';
+import { lockWallets, walletOperation, WalletError, cents, requestKey } from '@/services/walletLedger';
+import { subscriptionPrice, nextBillingDate } from '@/services/walletLedger/pricing';
+import { verifiedPaymentId } from '@/services/walletLedger/verifiedPayment';
 import { paymentMethodSchema } from "@/schema/payment";
 import prisma from "@/db";
 import { generateUniqueRef } from "@/utils";
@@ -40,10 +44,12 @@ export const purchaseAppSubscriptionWithWallet = async (
     planType: BillingCycleEnum;
     isRecurring: boolean;
     meta?: { [key: string]: any };
+    idempotencyKey?: string;
   },
   userId: string
 ) => {
   try {
+    if (item.currency !== 'TZX') throw new WalletError('Wallet subscriptions require TZX');
     // get user
     const user = await prisma.user.findFirst({ where: { id: userId } });
     if (!user) return { data: "User not found", status: 400 };
@@ -53,30 +59,14 @@ export const purchaseAppSubscriptionWithWallet = async (
     });
 
     if (!plan) return { data: "Error: Invalid subscription plan", status: 400 };
-    // sync user redis and prisma wallet
-    await syncUserRedisWalletToPrisma(user.id);
-    // get user wallet
-    const wallet = await prisma.wallet.findFirst({
-      where: { userId: user.id },
-    });
+    item = { ...item, amount: subscriptionPrice(plan, item.planType, 'TZX', item.meta?.tierId) };
 
-    if (!wallet) return { data: "Cannot retrieve user wallet", status: 400 };
-
-    if (wallet.isLocked)
-      return {
-        data: "User wallet is temporary locked at the moment",
-        status: 400,
-      };
-
-    if (wallet.credit < item.amount)
-      return {
-        data: "Insufficient balance to pay for this subscription plan, please try another one!",
-        status: 400,
-      };
     // debit user wallet credit and credit user wallet amount and save transaction records
     const txnRef = generateUniqueRef();
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await walletOperation(`subscription:${user.id}`, requestKey(item.idempotencyKey), { planId: item.planId, cycle: item.planType, tierId: item.meta?.tierId ?? null, isRecurring: item.isRecurring }, [user.id], async (tx) => {
+      const fresh = await tx.wallet.findUniqueOrThrow({ where: { userId: user.id } });
+      if (fresh.isLocked || cents(fresh.credit, true) < cents(item.amount)) throw new WalletError('Wallet locked or insufficient balance');
       // debit user wallet credit
       const userWallet = await tx.wallet.update({
         where: { userId: user.id },
@@ -96,7 +86,7 @@ export const purchaseAppSubscriptionWithWallet = async (
         data: { isPrimary: false },
       });
       // get subscription
-      const currentSub = await prisma.subscription.findFirst({
+      const currentSub = await tx.subscription.findFirst({
         where: { userId: user.id, planId: item.planId },
       });
       let subscription: Subscription | undefined = undefined;
@@ -105,10 +95,7 @@ export const purchaseAppSubscriptionWithWallet = async (
         // create new subscription
         const startDate = new Date();
         const date = new Date();
-        const endDate =
-          item.planType === BillingCycleEnum.MONTHLY
-            ? new Date(date.setUTCMonth(date.getUTCMonth() + 1))
-            : new Date(date.setUTCFullYear(date.getUTCFullYear() + 1));
+        const endDate = nextBillingDate(date, item.planType);
         subscription = await tx.subscription.create({
           data: {
             userId: user.id,
@@ -126,10 +113,7 @@ export const purchaseAppSubscriptionWithWallet = async (
         // update existing subscription
         const startDate = new Date();
         const date = new Date();
-        const endDate =
-          item.planType === BillingCycleEnum.MONTHLY
-            ? new Date(date.setMonth(date.getUTCMonth() + 1))
-            : new Date(date.setUTCFullYear(date.getUTCFullYear() + 1));
+        const endDate = nextBillingDate(date, item.planType);
         // metadata
         const metadata = currentSub.metadata.concat([
           {
@@ -176,7 +160,7 @@ export const purchaseAppSubscriptionWithWallet = async (
           txnRef,
           userId: user.id,
           senderId: user.id,
-          walletId: wallet.id,
+          walletId: fresh.id,
           metadata: { ...item.meta },
         },
       });
@@ -206,16 +190,17 @@ export const purchaseAppSubscriptionWithWallet = async (
     });
     // add subscription to cron job
     if (result.subscription.isRecurring) {
-      addSubscriptionCronJob(result.subscription.id);
+      await addSubscriptionCronJob(result.subscription.id).catch(() => logger.error('Subscription scheduling failed; recurring sweep will retry'));
     }
     else{
-      removeSubscriptionCronJob({userId: user.id, subId: result.subscription.id})
+      await removeSubscriptionCronJob({userId: user.id, subId: result.subscription.id}).catch(() => logger.error('Subscription job cleanup failed'))
     }
     
     // sync prisma wallet to redis
-    syncPrismaUserWalletToRedis(user.id, result.wallet);
+    await syncPrismaUserWalletToRedis(user.id, result.wallet);
     return { data: item, status: 200 };
   } catch (error: any) {
+    if (error instanceof WalletError) return { data: error.message, status: error.status };
     return {
       data: "Error: Failed to process transaction, please contact support",
       status: 500,
@@ -243,6 +228,7 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
             subscriptionId: subId,
             category: TxnCategoryEnum.APP_SUBSCRIPTION,
             currency: TxnCurrencyEnum.TZX,
+            gateway: TxnGatewayEnum.WALLET, status: TxnStatusEnum.COMPLETED,
           },
           orderBy: [{ createdAt: "desc" }],
         },
@@ -255,6 +241,9 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
           "App subscription renewal error, subscription record not found",
         status: 404,
       };
+    }
+    if (!currentSub.isRecurring || !currentSub.isPrimary || !['ACTIVE', 'PAYMENT_ERROR'].includes(currentSub.status) || currentSub.endDate > new Date()) {
+      return { isError: false, status: 200, message: 'Subscription is not due for renewal' };
     }
     // get the latest transaction detail
     const subTxn = currentSub.transactions[0];
@@ -270,8 +259,7 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
     const plan = currentSub.plan;
     // get user
     const user = currentSub.user;
-    // sync user redis and prisma wallet
-    await syncUserRedisWalletToPrisma(user.id);
+
     // get user wallet
     const wallet = await prisma.wallet.findFirst({
       where: { userId: user.id },
@@ -285,7 +273,7 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
       };
     }
 
-    if (wallet.credit < subTxn.amount)
+    if (cents(wallet.credit, true) < cents(subTxn.amount))
       return {
         message: "App subscription renewal error, insufficient balance!",
         status: 400,
@@ -294,7 +282,11 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
     // debit user wallet credit and credit user wallet amount and save transaction records
     const txnRef = generateUniqueRef();
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await walletOperation(`renewal:${subId}`, currentSub.endDate.toISOString(), { subId }, [user.id], async (tx) => {
+      const fresh = await tx.wallet.findUniqueOrThrow({ where: { userId: user.id } });
+      if (fresh.isLocked || cents(fresh.credit, true) < cents(subTxn.amount)) throw new WalletError('Wallet locked or insufficient balance');
+      const due = await tx.subscription.findUniqueOrThrow({ where: { id: subId } });
+      if (!due.isRecurring || !due.isPrimary || !['ACTIVE', 'PAYMENT_ERROR'].includes(due.status) || due.endDate.getTime() !== currentSub.endDate.getTime()) throw new WalletError('Subscription changed during renewal');
       // debit user wallet credit
       const userWallet = await tx.wallet.update({
         where: { userId: user.id },
@@ -317,10 +309,7 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
       // update existing subscription
       const startDate = new Date();
       const date = new Date();
-      const endDate =
-        currentSub.billingCycle === BillingCycleEnum.MONTHLY
-          ? new Date(date.setMonth(date.getUTCMonth() + 1))
-          : new Date(date.setUTCFullYear(date.getUTCFullYear() + 1));
+      const endDate = nextBillingDate(date, currentSub.billingCycle);
       // metadata
       const currentSubMeta = currentSub?.meta as { [key: string]: any };
       const metadata = currentSub.metadata.concat([
@@ -398,7 +387,7 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
       return { wallet: userWallet, sub: updatedSub };
     });
     // sync prisma wallet to redis
-    syncPrismaUserWalletToRedis(user.id, result.wallet);
+    await syncPrismaUserWalletToRedis(user.id, result.wallet);
     return {
       message: "App subscription renewed successfully",
       status: 200,
@@ -431,6 +420,8 @@ export const purchaseAppSubscription = async (
   if (!paymentMethodSchema.safeParse(item).success) {
     return { data: "Unsupported payment method", status: 400 };
   }
+  const providerId = verifiedPaymentId(item);
+  if (!providerId || item.meta?.userId !== userId) return { data: 'Payment has not been verified', status: 400 };
   try {
     // get user
     const user = await prisma.user.findFirst({ where: { id: userId } });
@@ -443,7 +434,13 @@ export const purchaseAppSubscription = async (
     if (!plan) return { data: "Error: Invalid subscription plan", status: 400 };
     // debit user wallet credit and credit user wallet amount and save transaction records
     const txnRef = generateUniqueRef();
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await walletOperation('flutterwave', providerId, { userId, planId: item.planId }, [user.id], async (tx) => {
+      const previous = await tx.transaction.findFirst({ where: { exTxnRef: item.meta?.txnRef, gateway: TxnGatewayEnum.FLUTTERWAVE } });
+      if (previous) {
+        const subscription = previous.subscriptionId ? await tx.subscription.findUnique({ where: { id: previous.subscriptionId } }) : null;
+        if (!subscription) throw new WalletError('Payment already settled for another purchase');
+        return { subscription };
+      }
       // disable current active subscription
       await tx.subscription.updateMany({
         where: { userId: user.id, status: "ACTIVE" },
@@ -455,7 +452,7 @@ export const purchaseAppSubscription = async (
         data: { isPrimary: false },
       });
       // get subscription
-      const currentSub = await prisma.subscription.findFirst({
+      const currentSub = await tx.subscription.findFirst({
         where: { userId: user.id, planId: item.planId },
       });
       let subscription: Subscription | undefined = undefined;
@@ -464,10 +461,7 @@ export const purchaseAppSubscription = async (
         // create new subscription
         const startDate = new Date();
         const date = new Date();
-        const endDate =
-          item.planType === BillingCycleEnum.MONTHLY
-            ? new Date(date.setMonth(date.getUTCMonth() + 1))
-            : new Date(date.setUTCFullYear(date.getUTCFullYear() + 1));
+        const endDate = nextBillingDate(date, item.planType);
         // create new subscription
         subscription = await tx.subscription.create({
           data: {
@@ -485,10 +479,7 @@ export const purchaseAppSubscription = async (
       } else {
         const startDate = new Date();
         const date = new Date();
-        const endDate =
-          item.planType === BillingCycleEnum.MONTHLY
-            ? new Date(date.setMonth(date.getUTCMonth() + 1))
-            : new Date(date.setUTCFullYear(date.getUTCFullYear() + 1));
+        const endDate = nextBillingDate(date, item.planType);
         // update meta
         const metadata = currentSub.metadata.concat([
           {
@@ -558,9 +549,10 @@ export const purchaseAppSubscription = async (
       return { subscription}
     });
     // remove subscription cron job if payment method has changed
-    removeSubscriptionCronJob({userId: user.id, subId: result.subscription.id})
+    await removeSubscriptionCronJob({userId: user.id, subId: result.subscription.id}).catch(() => logger.error('Subscription job cleanup failed'))
     return { data: item, status: 200 };
   } catch (error: any) {
+    if (error instanceof WalletError) return { data: error.message, status: error.status };
     return {
       data: "Error: Failed to process transaction, please contact support",
       status: 500,
@@ -592,24 +584,16 @@ export const cancelAppSubscription = async (arg: {
         ? "gold"
         : "blue";
 
-    const result = await prisma.$transaction([
-      prisma.subscription.update({
-        where: { id: arg.subId, userId: user.id },
-        data: { status: arg.status },
-      }),
-      prisma.user.update({
-        where: { id: user.id },
-        data: {
-          meta: {
-            color,
-            status: user.accountVerified ? "ACTIVE" : "INACTIVE",
-            type: "LEGACY",
-          },
-        },
-      }),
-    ]);
+    const result = await prisma.$transaction(async tx => {
+      await lockWallets(tx, [user.id]);
+      const updated = await tx.subscription.update({ where: { id: arg.subId, userId: user.id }, data: { status: arg.status, isRecurring: false } });
+      await tx.user.update({ where: { id: user.id }, data: { meta: {
+        color, status: user.accountVerified ? 'ACTIVE' : 'INACTIVE', type: 'LEGACY',
+      } } });
+      return updated;
+    });
     // remove subscription cron job if subscription is cancelled
-    removeSubscriptionCronJob({userId: user.id, subId: arg.subId})
+    await removeSubscriptionCronJob({userId: user.id, subId: arg.subId}).catch(() => logger.error('Subscription cleanup failed'))
     return { data: result, status: 200 };
   } catch (error) {
     return {

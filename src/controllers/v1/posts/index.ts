@@ -917,7 +917,7 @@ export const createPostTipController = async (
     };
     // save tip in redis queue?
     // const result = await createPostTip(payload)
-    const result = await createPostTip(payload, user);
+    const result = await createPostTip({ ...payload, idempotencyKey: req.get('Idempotency-Key') }, user);
     // emit sse event
     const data = result.data;
     if (typeof data !== "string") {

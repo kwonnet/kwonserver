@@ -36,7 +36,8 @@ export const purchaseCoinsController = async (
         {
           id: payload.packageId,
           currency: payload.currency,
-          meta: payload.meta
+          meta: payload.meta,
+          idempotencyKey: req.get("Idempotency-Key")
         },
         user
       );

@@ -1,3 +1,7 @@
+import { GameDelivery, dispatchGameAction } from '@/services/walletLedger/gameDelivery';
+import { randomUUID } from 'crypto';
+import { walletOperation, cents } from '@/services/walletLedger';
+import { chargeGameAction } from '@/services/walletLedger/game';
 import { questionHistoryKey } from './questionInventory';
 import { InventoryEmptyError } from '@/services/questionInventory/service';
 import { DefaultEventsMap, Namespace, Server, Socket } from "socket.io";
@@ -84,7 +88,7 @@ export async function deductGameCoins(params: {
   mode: GameMode;
   action: GameActionEnum;
   [key: string]: any;
-}) {
+}, delivery?: GameDelivery) {
   const actionStat = {
     [GameActionEnum.CHAT]: { min: 0.35, max: 0.64 },
     [GameActionEnum.VOTE]: { min: 0.65, max: 0.99 },
@@ -93,133 +97,23 @@ export async function deductGameCoins(params: {
   };
 
   try {
-    // Generate a random deduction between 0.99 and 2.5
-    const highDeduction = getRandomNumber(0.99, 2.2);
-    // Determine if bonus can handle the high deduction
     const rate = actionStat[params.action];
-    const deduction = highDeduction; // Assume high deduction is attempted
-    const defaultDeduction = getRandomNumber(rate.min, rate.max); // Fallback to default range
-
-    const useKeys = getUserRedisKeys(params.playerId);
-
-    // Fetch player balance from Redis
-    const wallet = await getRedisHashKey<{
-      bonus: number;
-      amount: number;
-      id: string;
-    }>(useKeys.wallet);
-
-    console.log("deduction wallet: ", wallet);
-
-    if (!wallet) {
-      return {
-        message: "Player wallet not found in Redis",
-        isError: true,
-      };
-    }
-
-    console.log(deduction, "deduction");
-    console.log(wallet, "Player wallet");
-
-    let { amount, bonus } = wallet;
-
-    const balance = parseFloat((bonus + amount).toFixed(2));
-
-    console.log("coin balance", balance);
-
-    // Check if deduction exceeds balance
-    if (deduction > balance) {
-      throw new Error(
-        "Insufficient balance, please buy new coins to continue playing!"
-      );
-    }
-
-    // Determine final deduction amount
-    const finalDeduction =
-      bonus >= highDeduction ? highDeduction : defaultDeduction;
-
-    let remainingDeduction = finalDeduction;
-
-    let deductedBonus = 0;
-    let deductedCoins = 0;
-
-    // Deduct from bonus first
-    if (bonus > 0) {
-      const bonusDeduction = Math.min(bonus, remainingDeduction);
-      deductedBonus = bonusDeduction;
-      bonus -= bonusDeduction;
-      remainingDeduction -= bonusDeduction;
-    }
-
-    // Deduct from amount if bonus is insufficient
-    if (remainingDeduction > 0) {
-      if (amount < remainingDeduction) {
-        throw new Error("Insufficient balance");
+    if (!rate) throw new Error('Invalid game action');
+    const data = await chargeGameAction(params, getRandomNumber(0.99, 2.2), getRandomNumber(rate.min, rate.max), delivery);
+    if (data.actionId) {
+      try {
+        const action = await dispatchGameAction(data.actionId);
+        if (action.status === 'REFUNDED') {
+          const wallet=await prisma.wallet.findUniqueOrThrow({where:{userId:params.playerId}});
+          return {message:action.reason || 'Action refunded',isError:true,data:{amount:cents(wallet.coins,true)/100,bonus:cents(wallet.bonus,true)/100}};
+        }
+      } catch {
+        return {message:'Action saved; delivery is pending recovery',isError:false,data:{...data,pending:true}};
       }
-      deductedCoins = remainingDeduction;
-      amount -= remainingDeduction;
     }
-
-    // Transaction log
-
-    const timestamp = Date.now();
-    const record: Partial<
-      Omit<Transaction, "createdAt"> & { createdAt: string }
-    > = {
-      userId: params.playerId,
-      amount: finalDeduction,
-      source: !wallet.bonus
-        ? TxnSourceEnum.COINS
-        : remainingDeduction > 0
-        ? TxnSourceEnum.COINS_BONUS
-        : TxnSourceEnum.BONUS,
-      metadata: params,
-      createdAt: new Date().toISOString(),
-      type: TxnTypeEnum.DEBIT,
-      description:
-        params.action === GameActionEnum.CHAT
-          ? "Deducted for in-game chat"
-          : "Deducted for game play",
-      category: TxnCategoryEnum.GAME_DEDUCTION,
-      gateway: TxnGatewayEnum.WALLET,
-      senderId: params.playerId,
-      currency: TxnCurrencyEnum.COINS,
-      status: TxnStatusEnum.COMPLETED,
-      txnRef: generateUniqueRef(),
-      walletId: wallet.id,
-    };
-
-    // Update Redis
-    await Promise.all([
-      redisClient.hSet(useKeys.wallet, "bonus", bonus.toFixed(2)),
-      redisClient.hSet(useKeys.wallet, "amount", amount.toFixed(2)),
-      redisClient.zAdd(useKeys.txn, {
-        score: timestamp,
-        value: JSON.stringify(record),
-      }),
-    ]);
-
-    // update monthly spent - track monthly spent coins
-    updateMonthlySpentCoins({
-      gameId: params.gameId,
-      catId: params.catId,
-      mode: params.mode,
-      bonus: parseFloat(deductedBonus.toFixed(2)),
-      coins: parseFloat(deductedCoins.toFixed(2)),
-    });
-
-    return {
-      message: "success",
-      isError: false,
-      data: {
-        amount: parseFloat(amount.toFixed(2)),
-        bonus: parseFloat(bonus.toFixed(2)),
-        deductedBonus: parseFloat(deductedBonus.toFixed(2)),
-        deductedCoins: parseFloat(deductedCoins.toFixed(2)),
-      },
-    };
+    return { message: "success", isError: false, data };
   } catch (error: any) {
-    return { message: `Error: ${error?.message} `, isError: true, data: null };
+    return { message: error?.message || 'Game charge failed', isError: true, data: null };
   }
 }
 
@@ -276,46 +170,10 @@ export const checkUserGameEnergy = async (userId: string, catId: string) => {
 
 export const checkUserGameWallet = async (userId: string) => {
   try {
-    const userKeys = getUserRedisKeys(userId);
-
-    const wallet = await getRedisHashKey<Wallet>(userKeys.wallet);
-
-    if (wallet) {
-      // check balance
-      const balance = wallet.coins + wallet.bonus;
-      console.log("Join room - player wallet - redis ", wallet);
-      const isError = balance < 10;
-      return {
-        message: isError
-          ? "Insufficient coins, please buy coins to continue playing!"
-          : "success",
-        isError,
-        data: isError ? null : wallet,
-      };
-    }
-    // try prisma wallet
-    const result2 = await getUserWallet(userId);
-    if (!result2) {
-      return { message: "User wallet not found", isError: true, data: null };
-    }
-    console.log("Join room - player wallet - prisma ", result2);
-    // check balance
-    const balance = result2.coins + result2.bonus;
-    const isError = balance < 10;
-    return {
-      message: isError
-        ? "Insufficient coins, please buy coins to continue playing!"
-        : "success",
-      isError,
-      data: result2,
-    };
-  } catch (error) {
-    return {
-      message: "Unknown error occurred, please try again later",
-      isError: true,
-      data: null,
-    };
-  }
+    const wallet = await getUserWallet(userId);
+    const isError = !wallet || !!wallet.isLocked || cents(wallet.coins, true) + cents(wallet.bonus, true) < 1000;
+    return { message: isError ? "Wallet unavailable or insufficient coins" : "success", isError, data: isError ? null : wallet };
+  } catch { return { message: "Wallet unavailable", isError: true, data: null }; }
 };
 
 async function syncUserRedisGameEnergyToPrisma(
@@ -346,34 +204,8 @@ async function syncUserRedisGameEnergyToPrisma(
 }
 
 export async function syncUserRedisWalletToPrisma(userId: string) {
-  try {
-    const userKeys = getUserRedisKeys(userId);
-    const result = await getRedisHashKey<Wallet>(userKeys.wallet);
-    if (!result) return;
-    // perform prisma update
-    await prisma.wallet.update({
-      where: { id: result.id },
-      data: {
-        coins: result.coins,
-        bonus: result.bonus,
-        credit: result.credit,
-      },
-    });
-    // check if user session is inactive for more than four minutes and remove this wallet
-    const date = await redisClient.get(userKeys.session);
-    if (!date) return;
-    // const isExpired = isDateHourElapsed(date, 1)
-    const isExpired = isDateMinuteElapsed(date, 4);
-    if (isExpired) {
-      await Promise.all([
-        redisClient.del(userKeys.session),
-        redisClient.del(userKeys.wallet),
-      ]);
-    }
-    console.log("User redis wallet synced to prisma successfully >>>");
-  } catch (error) {
-    throw error;
-  }
+  // Compatibility hook: game debits now commit directly to PostgreSQL.
+  return syncRedisUserWalletToPrisma(userId);
 }
 
 export const storeGameRoomQuestion = async (
@@ -382,8 +214,9 @@ export const storeGameRoomQuestion = async (
 ) => {
   try {
     const uniqueKey = `room:${roomId}:question`;
-    await redisClient.set(uniqueKey, JSON.stringify(params));
-    return params as unknown as ThemedGameQuestion;
+    const stored = { ...params, roundId: params.roundId ?? randomUUID() };
+    await redisClient.set(uniqueKey, JSON.stringify(stored));
+    return stored as unknown as ThemedGameQuestion;
   } catch (error) {
     return null;
   }
@@ -454,7 +287,7 @@ export async function insertAcronymGameRoomAnswer(params: AcronymGameAnswer) {
       console.log("prevRecord ", prevRecord);
       // as AcronymGameAnswer | null
       const record = JSON.parse(prevRecord) as AcronymGameAnswer;
-      await redisClient.sRem(answersKey, record.answer);
+      await redisClient.sRem(uAnswersKey, record.answer);
     }
     // Add the answer to the set to ensure uniqueness
     await redisClient.sAdd(uAnswersKey, params.answer);
@@ -804,17 +637,6 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
         // update parent room total participants
         redisClient.incr(`room:${parentRoomId}:participants`),
       ]);
-    }
-    // check user wallet
-    const isWalletExists = await redisClient.exists(userKeys.wallet);
-    if (!isWalletExists) {
-      redisClient.hSet(userKeys.wallet, {
-        id: wallet.id,
-        amount: wallet.coins,
-        credit: wallet.credit,
-        bonus: wallet.bonus,
-        userId: wallet.userId,
-      });
     }
     // check user energy
     const isEnergyExists = await redisClient.exists(playerKeys.energy);
@@ -1180,33 +1002,6 @@ function convertKeysToJSONKeys(
   });
 }
 
-async function updateMonthlySpentCoins(params: {
-  gameId: string;
-  catId: string;
-  coins: number;
-  bonus: number;
-  mode: GameMode
-}) {
-  try {
-    const spentKey = getSpentCoinsKey(params);
-    // check exists
-    const exists = await redisClient.exists(spentKey);
-    if (exists === 0) {
-      await redisClient.hSet(spentKey, {
-        coins: params.coins,
-        bonus: params.bonus,
-        gameId: params.gameId,
-        catId: params.catId,
-      });
-    } else {
-      await Promise.all([
-        redisClient.hIncrByFloat(spentKey, "coins", params.coins),
-        redisClient.hIncrByFloat(spentKey, "bonus", params.bonus),
-      ]);
-    }
-  } catch (error) {}
-}
-
 async function updateWinningStreak(
   {
     catId,
@@ -1259,7 +1054,8 @@ async function updateWinningStreak(
           // generate txn ref
           const txnRef = generateUniqueRef();
           // implement transaction
-          const result = await prisma.$transaction(async (tx) => {
+          cents(milestone.reward);
+          const result = await walletOperation('room-streak', `${playerId}:${catId}:${milestone.id}`, { playerId, catId, milestoneId: milestone.id }, [playerId], async (tx) => {
             // insert achievement
             const achievement = await tx.gameAchievement.create({
               data: {
@@ -1298,7 +1094,7 @@ async function updateWinningStreak(
                   ?.replace(/_/g, " ")
                   .toLowerCase()} under ${category.name}`,
                 gateway: TxnGatewayEnum.WALLET,
-                source: TxnSourceEnum.COINS,
+                source: TxnSourceEnum.BONUS,
                 type: TxnTypeEnum.CREDIT,
                 status: TxnStatusEnum.COMPLETED,
                 achievementId: achievement.id,
@@ -1577,7 +1373,7 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
     return;
   }
   //   store in redis based on the game room
-  await storeGameRoomQuestion(room.roomId, gameQuestion);
+
   // mode
   const mode = getGameMode(room.mode)
   const timerKey = (`${mode}_${room.catName}`).toLowerCase()
@@ -1613,6 +1409,9 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
 
   const timer = timers[timerKey] ?? 15 //gameType === GameType.ACRONYM ? 25 : initTimer
 
+  const storedQuestion = await storeGameRoomQuestion(room.roomId, {...gameQuestion,
+    answerUntil:Date.now()+timer*1000, voteUntil:Date.now()+(timer+12)*1000});
+  if (!storedQuestion) return;
   await updateGameRoom({
     ...room,
     status: GameStatusEnum.PLAY,
@@ -1623,7 +1422,7 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
     GameEventEnum.NOTIFY_MESSAGE,
     "Swen says, get ready!"
   );
-  await gamePlayTime(room.roomId, io, gameQuestion);
+  await gamePlayTime(room.roomId, io, storedQuestion);
 };
 
 // this function signifies time for voting
@@ -1704,7 +1503,7 @@ export const gamePlayTime = async (
       clearInterval(interval);
       const gameType = getGameType(room.gameName);
       if (gameType === GameType.ACRONYM) {
-        updateGameRoom({
+        await updateGameRoom({
           ...room,
           status: GameStatusEnum.VOTE,
           roomId,
@@ -1712,7 +1511,7 @@ export const gamePlayTime = async (
         });
         gameVoteTime({ ...room, status: GameStatusEnum.VOTE }, io);
       } else {
-        updateGameRoom({
+        await updateGameRoom({
           ...room,
           status: GameStatusEnum.CHAT,
           roomId,
@@ -1800,7 +1599,7 @@ const gameVoteTime = async (room: TempGameRoom, io: GameIoNamespace) => {
     });
     if (countdown < 1) {
       clearInterval(interval);
-      updateGameRoom({
+      await updateGameRoom({
         ...room,
         status: GameStatusEnum.CHAT,
       });

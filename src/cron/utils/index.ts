@@ -33,13 +33,9 @@ export async function insertSubscriptionJob(sub: {
     logger.info(sub, "Inserting subscription");
     const subscriptionJobName = `sub-${sub.id}`;
     const reminderJobName = `reminder-${sub.id}`;
-    const jobId = `${sub.userId.slice(-10)}-${sub.id.slice(-10)}`;
-    // remove any old sub & reminder jobs with the same id
-    const subRemoved = await appSubscriptionQueue.remove(jobId, { removeChildren: true});
-    const reminderRemoved = await appSubReminderQueue.remove(jobId, { removeChildren: true});
-    logger.info(
-      `Deleting old jobs for subscription ${sub.id}, sub: ${subRemoved}, reminder: ${reminderRemoved}`
-    );
+    // A separate job per billing period avoids removing the active renewal job.
+    // BullMQ deduplicates repeated scheduling of this same period.
+    const jobId = `subscription-${sub.id}-${new Date(sub.endDate).getTime()}`;
     // calculate date delay
     const now = new Date();
     const nextPaymentDelay = new Date(sub.endDate).getTime() - now.getTime();
@@ -58,7 +54,7 @@ export async function insertSubscriptionJob(sub: {
       subscriptionJobName,
       { subscriptionId: sub.id },
       {
-        delay: nextPaymentDelay,
+        delay: Math.max(0, nextPaymentDelay),
         attempts: 2,
         jobId,
         backoff: { type: "fixed", delay: backoffDelay },
@@ -73,9 +69,9 @@ export async function insertSubscriptionJob(sub: {
       reminderJobName,
       { subscriptionId: sub.id },
       {
-        delay: reminderDelay,
+        delay: Math.max(0, reminderDelay),
         jobId,
-        removeOnComplete: true,
+        removeOnComplete: { age: 366 * 24 * 3600 },
         removeOnFail: {
           age: 24 * 3600, // keep up to 24 hours
         },

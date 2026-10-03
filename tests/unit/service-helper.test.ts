@@ -1,8 +1,8 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { resetMocks } from './fixtures';
-const deps = vi.hoisted(() => ({ exists: vi.fn(), hash: vi.fn(), set: vi.fn(), update: vi.fn(), ranking: vi.fn(), rank: vi.fn() }));
+const deps = vi.hoisted(() => ({ del: vi.fn(), exists: vi.fn(), hash: vi.fn(), set: vi.fn(), update: vi.fn(), ranking: vi.fn(), rank: vi.fn() }));
 vi.mock('@/db', () => ({ default: { wallet: { update: deps.update } } }));
-vi.mock('@/redis', () => ({ default: { exists: deps.exists, hGetAll: deps.hash, hSet: deps.set, zRangeWithScores: deps.ranking, zRevRank: deps.rank } }));
+vi.mock('@/redis', () => ({ default: { del: deps.del, exists: deps.exists, hGetAll: deps.hash, hSet: deps.set, zRangeWithScores: deps.ranking, zRevRank: deps.rank } }));
 vi.mock('wordlist-english', () => ({ default: { english: ['cat', 'act', 'tact', 'dog'] } }));
 import * as h from '@/services/helper';
 import { GameType, GameCatType } from '@/types';
@@ -12,41 +12,19 @@ it('returns null for empty Redis hashes and parses numeric balances', async () =
   deps.hash.mockResolvedValue({}); expect(await h.getRedisHashKey('key')).toBeNull();
   deps.hash.mockResolvedValue({ amount: '12.5', id: 'w' }); expect(await h.getRedisHashKey('key')).toEqual({ amount: 12.5, id: 'w' });
 });
-it('syncs cached wallet values into Prisma only when present', async () => {
-  deps.exists.mockResolvedValue(0); expect((await h.syncRedisUserWalletToPrisma('u')).isError).toBe(false); expect(deps.update).not.toHaveBeenCalled();
-  deps.exists.mockResolvedValue(1); deps.hash.mockResolvedValue({ id: 'w', userId: 'u', amount: '10', bonus: '2', credit: '3' });
-  await h.syncRedisUserWalletToPrisma('u');
-  expect(deps.update).toHaveBeenCalledWith({ where: { id: 'w', userId: 'u' }, data: { coins: 10, bonus: 2, credit: 3 } });
+it('never overwrites PostgreSQL from stale Redis snapshots', async () => {
+ deps.hash.mockResolvedValue({ id: 'w', amount: '99999' });
+ await h.syncRedisUserWalletToPrisma('u'); await h.syncRedisSenderRecipientWalletToPrisma('s','r');
+ expect(deps.update).not.toHaveBeenCalled(); expect(deps.hash).not.toHaveBeenCalled();
 });
-it('does not overwrite database balances from an empty cache hash', async () => {
-  deps.exists.mockResolvedValue(1); deps.hash.mockResolvedValue({}); await h.syncRedisUserWalletToPrisma('u'); expect(deps.update).not.toHaveBeenCalled();
+it('invalidates old cache entries without publishing stale balances', async () => {
+ await h.syncPrismaUserWalletToRedis('u', {} as any);
+ expect(deps.del).toHaveBeenCalledWith('user:u:wallet'); expect(deps.set).not.toHaveBeenCalled();
 });
-it('formats cached balances to two decimals and skips absent caches', async () => {
-  const wallet: any = { userId: 'u', credit: 1.234, coins: 10, bonus: 2.5 };
-  deps.exists.mockResolvedValue(0); await h.syncPrismaUserWalletToRedis('u', wallet); expect(deps.set).not.toHaveBeenCalled();
-  deps.exists.mockResolvedValue(1); await h.syncPrismaUserWalletToRedis('u', wallet);
-  expect(deps.set.mock.calls).toEqual([['user:u:wallet', 'credit', '1.23'], ['user:u:wallet', 'amount', '10.00'], ['user:u:wallet', 'bonus', '2.50']]);
-});
-it.each(['syncRedisUserWalletToPrisma', 'syncPrismaUserWalletToRedis'] as const)('%s reports cache failures', async name => {
-  deps.exists.mockRejectedValue(new Error('cache unavailable'));
-  expect(await (h[name] as any)('u', {})).toEqual({ isError: true, message: 'cache unavailable' });
-});
-it('syncs both parties and reports which cached wallets existed', async () => {
-  deps.exists.mockResolvedValue(1);
-  deps.hash.mockResolvedValueOnce({ id: 's-wallet', userId: 's', amount: '10', bonus: '2', credit: '3' })
-    .mockResolvedValueOnce({ id: 'r-wallet', userId: 'r', amount: '5', bonus: '0', credit: '0' });
-  expect(await h.syncRedisSenderRecipientWalletToPrisma('s', 'r')).toMatchObject({ isError: false, data: { isSenderExists: true, isRecipientExists: true } });
-  expect(deps.update).toHaveBeenCalledTimes(2);
-  expect(deps.update.mock.calls[1][0]).toEqual({ where: { id: 'r-wallet', userId: 'r' }, data: { coins: 5, bonus: 0, credit: 0 } });
-});
-it('skips uncached parties and reports multi-wallet sync errors', async () => {
-  deps.exists.mockResolvedValue(0); await h.syncRedisSenderRecipientWalletToPrisma('s', 'r'); expect(deps.update).not.toHaveBeenCalled();
-  deps.exists.mockRejectedValue(new Error('cache')); expect((await h.syncRedisSenderRecipientWalletToPrisma('s', 'r')).isError).toBe(true);
-});
-it.each([[true, true, 6], [true, false, 3], [false, false, 0]])('updates only existing caches: sender=%s recipient=%s', async (sender, recipient, calls) => {
-  await h.syncPrismaSenderRecipientWalletToRedis({ isSenderExists: Boolean(sender), isRecipientExists: Boolean(recipient),
-    senderWallet: { userId: 's', credit: 0, coins: 10, bonus: 0 } as any, recipientWallet: { userId: 'r', credit: 0, coins: 5, bonus: 0 } as any });
-  expect(deps.set).toHaveBeenCalledTimes(Number(calls));
+it('reports invalidation failure without writing balances', async () => {
+ deps.del.mockRejectedValue(new Error('cache unavailable'));
+ expect((await h.syncPrismaUserWalletToRedis('u', {} as any)).isError).toBe(true);
+ expect((await h.syncRedisUserWalletToPrisma('u')).isError).toBe(false);
 });
 it.each(['MONTH', 'WEEK', 'DAY'] as const)('returns %s reward leaderboard with one-based ranks and parsed stats', async period => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
@@ -76,4 +54,9 @@ it('scores only dictionary words that fit the base letter counts and exceed two 
     { text: 'tact', timer: 100 }, { text: 'dog', timer: 100 }, { text: 'tac', timer: 100 },
   ])).toEqual({ score: 37, answer: 'cat,act' });
   expect(h.calculateWordMakerPlayerScore('cat', []).score).toBe(0);
+});
+
+it('invalidates both transfer participants without copying balances',async()=>{
+ await h.syncPrismaSenderRecipientWalletToRedis({isSenderExists:true,isRecipientExists:true,senderWallet:{userId:'sender'} as any,recipientWallet:{userId:'recipient'} as any});
+ expect(deps.del).toHaveBeenCalledWith('user:sender:wallet');expect(deps.del).toHaveBeenCalledWith('user:recipient:wallet');expect(deps.update).not.toHaveBeenCalled();
 });

@@ -24,18 +24,18 @@ it('stores an ISO scheduling watermark', async () => {
   await jobs.updateLastScheduledJob(sub.createdAt);
   expect(deps.redis.set).toHaveBeenCalledWith('appSubLastScheduledJob', sub.createdAt.toISOString());
 });
-it.each([true, false])('replaces subscription jobs and updates watermark=%s', async watermark => {
+it.each([true, false])('deduplicates subscription periods without removing active jobs; watermark=%s', async watermark => {
   await jobs.insertSubscriptionJob(sub, watermark);
   const q = deps.queues;
+  const jobId = `subscription-${sub.id}-${sub.endDate.getTime()}`;
   for (const queue of [q.appSubscriptionQueue, q.appSubReminderQueue]) {
-    expect(queue.remove).toHaveBeenCalledWith(jobId, { removeChildren: true });
-    expect(queue.remove.mock.invocationCallOrder[0]).toBeLessThan(queue.add.mock.invocationCallOrder[0]);
+    expect(queue.remove).not.toHaveBeenCalled();
   }
   expect(q.appSubscriptionQueue.add).toHaveBeenCalledWith(`sub-${sub.id}`, { subscriptionId: sub.id }, {
     delay: 172800000, attempts: 2, jobId, backoff: { type: 'fixed', delay: 86400000 }, removeOnComplete: true, removeOnFail: { age: 86400 },
   });
   expect(q.appSubReminderQueue.add).toHaveBeenCalledWith(`reminder-${sub.id}`, { subscriptionId: sub.id }, {
-    delay: 86400000, jobId, removeOnComplete: true, removeOnFail: { age: 86400 },
+    delay: 86400000, jobId, removeOnComplete: { age: 366 * 24 * 3600 }, removeOnFail: { age: 86400 },
   });
   expect(deps.redis.set).toHaveBeenCalledTimes(watermark ? 1 : 0);
 });

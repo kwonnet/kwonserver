@@ -1,3 +1,4 @@
+import { walletOperation, cents } from '@/services/walletLedger';
 // Resolve path aliases
 
 
@@ -41,7 +42,8 @@ const rewardPlayer = async (player: RewardGamePlayer) => {
     // generate txn ref
     const txnRef = generateUniqueRef();
     // implement transaction
-    const result = await prisma.$transaction(async (tx) => {
+    cents(milestone.reward);
+      const result = await walletOperation('reward_champ_of_the_year', `${player.gameId}:${player.mode}:${player.year}:${player.playerId}`, { recipient: player.playerId }, [player.playerId], async (tx) => {
       // insert achievement
       const achievement = await tx.gameAchievement.create({
         data: {
@@ -68,7 +70,7 @@ const rewardPlayer = async (player: RewardGamePlayer) => {
             }
           : milestone.rewardType === "COINS"
           ? {
-              amount: { increment: milestone.reward },
+              coins: { increment: milestone.reward },
             }
           : {
               bonus: { increment: milestone.reward },
@@ -147,7 +149,7 @@ const rewardYearlyChampion = async (gameId: string, mode: GameMode) => {
     FROM "GameMonthStat" gms
     INNER JOIN "GameCategory" gc ON gc."id" = gms."catId"
     INNER JOIN "Game" g ON g."id" = gc."gameId"
-    WHERE gc."gameId" = ${gameId} AND gms."year" = ${2024} AND gms."mode" = ${mode}
+    WHERE gc."gameId" = ${gameId} AND gms."year" = ${dateInfo.yearlyRewardYear} AND gms."mode" = ${mode}
     GROUP BY gc."gameId", g."name", gms."playerId", gms."year", gms."mode"
     ORDER BY "totalScore" DESC
     LIMIT 1;
@@ -198,6 +200,7 @@ const rewardPlayers = async () => {
       );
     }
 
+    if (errors.length) throw new Error(errors.map(e => e.message).join(", "));
     return results;
   } catch (error: any) {
     logger.error(`Error rewarding players: ${error.message}`);

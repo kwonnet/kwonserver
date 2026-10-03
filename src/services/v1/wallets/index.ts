@@ -1,444 +1,106 @@
-import { Prisma, RewardTypeEnum, TaskStatus, Transaction, TxnCategoryEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum, TxnStatusEnum, TxnTypeEnum, Wallet } from "@prisma/client";
-import { BonusTypeEnum, User } from "@/types";
-import prisma from "@/db";
-import redisClient from "@/redis";
-import { getRedisHashKey } from "../games";
-import { generateUniqueRef } from "@/utils";
-import {
-  syncPrismaSenderRecipientWalletToRedis,
-  syncPrismaUserWalletToRedis,
-  syncRedisSenderRecipientWalletToPrisma,
-  syncRedisUserWalletToPrisma,
-} from "../../helper";
+import { RewardTypeEnum, TaskStatus, TxnCategoryEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum, TxnStatusEnum, TxnTypeEnum } from '@prisma/client';
+import { BonusTypeEnum, User } from '@/types';
+import prisma from '@/db';
+import { randomUUID } from 'crypto';
+import { cents, requestKey, WalletError, walletFailure, walletOperation } from '@/services/walletLedger';
 
-export const getUserCoinsWallet = async (id: string) => {
-  try {
-    const result = await prisma.wallet.findFirst({ where: { userId: id } });
-    if (!result) return { data: "Wallet not founc", status: 404 };
-    return { data: result, status: 200 };
-  } catch (error) {
-    return {
-      data: "Error: Failed to find wallet details, please try again",
-      status: 500,
-    };
-  }
+const creditRecord = (userId: string, amount: number, category: TxnCategoryEnum) => ({
+  userId, recipientId: userId, amount, category, txnRef: randomUUID(), currency: TxnCurrencyEnum.COINS,
+  gateway: TxnGatewayEnum.VIRTUAL, source: TxnSourceEnum.VIRTUAL, type: TxnTypeEnum.CREDIT,
+  status: TxnStatusEnum.COMPLETED, description: 'Wallet reward',
+});
+export const getUserCoinsWallet = async (userId: string) => {
+  try { const data = await prisma.wallet.findUnique({ where: { userId } });
+    return { status: data ? 200 : 404, data: data ?? 'Wallet not found' };
+  } catch (error) { return walletFailure(error); }
 };
-
-export const transferCoins = async ({
-  senderId,
-  recipientId,
-  amount,
-}: {
-  senderId: string;
-  recipientId: string;
-  amount: number;
-}) => {
+export const transferCoins = async (arg: { senderId: string; recipientId: string; amount: number; idempotencyKey?: string }) => {
   try {
-    const txnFee = 0.5 * amount;
-    const txnAmount = amount + txnFee;
-    // sync both the sender and the recipient wallet
-    const syncResult = await syncRedisSenderRecipientWalletToPrisma(
-      senderId,
-      recipientId
-    );
-
-    if (syncResult.isError) return { status: 500, message: syncResult.message };
-
-    // get from and to user
-    const [sender, recipient] = await prisma.$transaction([
-      prisma.user.findFirst({
-        where: { id: senderId },
-        include: { wallet: true },
-      }),
-      prisma.user.findFirst({
-        where: { id: recipientId },
-        include: { wallet: true },
-      }),
-    ]);
-    // check if from user and wallet exists
-    if (!sender || !sender.wallet)
-      return { status: 404, message: "Sender does not exist " };
-    // check if to user and wallet exists
-    if (!recipient || !recipient.wallet)
-      return { status: 404, message: "Recipient does not exist" };
-    // check min transfer
-    if (amount < 100)
-      return { status: 400, message: "Minimun transfer amount is 100 coins" };
-    // check from wallet balance
-    if (sender?.wallet?.coins < amount)
-      return { status: 400, message: "Insufficient balance" };
-    // check the wallet balance will cover the transaction fee
-    if (sender?.wallet?.coins < txnAmount)
-      return {
-        status: 400,
-        message: "Insufficient balance to cover transaction fees",
-      };
-    // temporarily lock the sender and recipient wallet until this txn is processed
-    await prisma.$transaction([
-      prisma.wallet.update({
-        where: { userId: senderId },
-        data: { isLocked: true },
-      }),
-      prisma.wallet.update({
-        where: { userId: recipientId },
-        data: { isLocked: true },
-      }),
-    ]);
-    // debit sender and credit recipient
-    const txnRef = generateUniqueRef();
-    const [senderWallet, recipientWallet] = await prisma.$transaction([
-      // debit sender
-      prisma.wallet.update({
-        where: { userId: senderId },
-        data: { isLocked: false, coins: { decrement: txnAmount } },
-      }),
-      // credit recipient
-      prisma.wallet.update({
-        where: { userId: recipientId },
-        data: { isLocked: false, coins: { increment: amount } },
-      }),
-      // save sender transaction
-      prisma.transaction.create({
-        data: {
-          amount: txnAmount,
-          currency: TxnCurrencyEnum.COINS,
-          category: TxnCategoryEnum.COIN_TRANSFER,
-          description: `Transfer of ${amount} ${TxnCurrencyEnum.COINS} to ${recipient.name} successful`,
-          gateway: TxnGatewayEnum.WALLET,
-          source: TxnSourceEnum.COINS,
-          type: TxnTypeEnum.DEBIT,
-          status: TxnStatusEnum.COMPLETED,
-          txnRef,
-          userId: senderId,
-          senderId: senderId,
-          recipientId: recipientId,
-          walletId: sender?.wallet.id,
-          metadata: {
-            item: { amount, txnAmount, txnFee },
-            currency: TxnCurrencyEnum.COINS,
-          },
-        },
-      }),
-      // save recipient transaction
-      prisma.transaction.create({
-        data: {
-          amount: amount,
-          currency: TxnCurrencyEnum.COINS,
-          category: TxnCategoryEnum.COIN_RECEIVED,
-          description: `You received ${amount} ${TxnCurrencyEnum.COINS} from ${sender.name} in your wallet`,
-          gateway: TxnGatewayEnum.WALLET,
-          source: TxnSourceEnum.COINS,
-          type: TxnTypeEnum.CREDIT,
-          status: TxnStatusEnum.COMPLETED,
-          txnRef,
-          userId: recipientId,
-          senderId: senderId,
-          recipientId: recipientId,
-          walletId: recipient?.wallet.id,
-          metadata: {
-            item: { amount, txnAmount, txnFee },
-            currency: TxnCurrencyEnum.COINS,
-          },
-        },
-      }),
-    ]);
-
-    // update redis user wallet
-    if (syncResult.data) {
-      syncPrismaSenderRecipientWalletToRedis({
-        ...syncResult.data,
-        senderWallet,
-        recipientWallet,
+    const amount = cents(arg.amount);
+    if (amount < 10000) throw new WalletError('Minimum transfer amount is 100 coins');
+    if (arg.senderId === arg.recipientId) throw new WalletError('Cannot transfer to yourself');
+    const fee = Math.round(amount * 0.5), debit = amount + fee; // Preserve existing 50% fee policy.
+    return await walletOperation(`transfer:${arg.senderId}`, requestKey(arg.idempotencyKey),
+      { recipientId: arg.recipientId, amount }, [arg.senderId, arg.recipientId], async tx => {
+        const sender = await tx.wallet.findUniqueOrThrow({ where: { userId: arg.senderId } });
+        const recipient = await tx.wallet.findUniqueOrThrow({ where: { userId: arg.recipientId } });
+        if (sender.isLocked || recipient.isLocked) throw new WalletError('Wallet is locked');
+        if (cents(sender.coins, true) < debit) throw new WalletError('Insufficient balance including transaction fee');
+        await tx.wallet.update({ where: { id: sender.id }, data: { coins: (cents(sender.coins, true) - debit) / 100 } });
+        await tx.wallet.update({ where: { id: recipient.id }, data: { coins: { increment: amount / 100 } } });
+        const txnRef = randomUUID();
+        const common = { txnRef, senderId: arg.senderId, recipientId: arg.recipientId, currency: TxnCurrencyEnum.COINS,
+          gateway: TxnGatewayEnum.WALLET, source: TxnSourceEnum.COINS, status: TxnStatusEnum.COMPLETED,
+          metadata: { amount: amount / 100, txnFee: fee / 100, txnAmount: debit / 100 } };
+        await tx.transaction.create({ data: { ...common, userId: arg.senderId, walletId: sender.id,
+          amount: debit / 100, category: TxnCategoryEnum.COIN_TRANSFER, type: TxnTypeEnum.DEBIT, description: 'Coin transfer including fee' } });
+        await tx.transaction.create({ data: { ...common, userId: arg.recipientId, walletId: recipient.id,
+          amount: amount / 100, category: TxnCategoryEnum.COIN_RECEIVED, type: TxnTypeEnum.CREDIT, description: 'Coins received' } });
+        return { status: 200, data: 'Transfer successful' };
       });
-    }
-    // send notification to recipient
-    // use socket.io or server sent events
-
-    // return result
-    return { data: "Transfer successful", status: 200 };
-  } catch (error) {
-    return {
-      data: "Error: Failed to execute transfer, please try again",
-      status: 500,
-    };
-  }
+  } catch (error) { return walletFailure(error); }
 };
-
-export const fundCoins = async (
-  { userId, amount, bonus }: { userId: string; amount: number; bonus: number },
-  currUser: User & { role?: string }
-) => {
-  if (currUser.role !== 'ADMIN' && currUser.role !== 'SUPER') {
-    return { status: 403, data: 'Only administrators can fund wallets' };
-  }
+export const fundCoins = async (arg: { userId: string; amount: number; bonus: number; idempotencyKey?: string }, currUser: User & { role?: string }) => {
+  if (!['ADMIN', 'SUPER'].includes(currUser.role ?? '')) return { status: 403, data: 'Only administrators can fund wallets' };
   try {
-    // sync both the sender and the recipient wallet
-    const syncResult = await syncRedisUserWalletToPrisma(userId);
-    if (syncResult.isError) return { status: 500, message: syncResult.message };
-    // get from and to user
-    const user = await prisma.user.findFirst({
-      where: { id: userId },
-      include: { wallet: true },
-    });
-    // check if from user and wallet exists
-    if (!user || !user.wallet)
-      return { status: 404, message: "User does not exist " };
-    // execute transaction
-    const desc =
-      amount > 0 && bonus > 0
-        ? `You received ${amount} ${TxnCurrencyEnum.COINS} &  bonus of ${bonus} ${TxnCurrencyEnum.COINS} in your wallet from ${currUser.name}`
-        : amount > 0
-        ? `You received ${amount} ${TxnCurrencyEnum.COINS} in your wallet from ${currUser.name}`
-        : `You received bonus of ${bonus} ${TxnCurrencyEnum.COINS} in your wallet from ${currUser.name}`;
-    // update wallet
-    const txnRef = generateUniqueRef();
-    const [userWallet] = await prisma.$transaction([
-      // debit user
-      prisma.wallet.update({
-        where: { userId },
-        data: { coins: { increment: amount }, bonus: { increment: bonus } },
-      }),
-      // save sender transaction
-      prisma.transaction.create({
-        data: {
-          amount,
-          currency: TxnCurrencyEnum.COINS,
-          category: TxnCategoryEnum.COIN_RECEIVED,
-          description: desc,
-          gateway: TxnGatewayEnum.VIRTUAL,
-          source: TxnSourceEnum.VIRTUAL,
-          type: TxnTypeEnum.CREDIT,
-          status: TxnStatusEnum.COMPLETED,
-          txnRef,
-          userId,
-          senderId: currUser.id,
-          recipientId: userId,
-          metadata: {
-            item: { amount, bonus, recipient: userId, senderId: currUser.id },
-            currency: TxnCurrencyEnum.COINS,
-          },
-        },
-      }),
-    ]);
-    // sync user prisma wallet to redis
-    syncPrismaUserWalletToRedis(userId, userWallet);
-    // return response
-    return { status: 200, data: "Funding successful" };
-  } catch (error) {
-    return {
-      data: "Error: Failed to execute transfer, please try again",
-      status: 500,
-    };
-  }
+    const amount = cents(arg.amount, true), bonus = cents(arg.bonus, true);
+    if (!amount && !bonus) throw new WalletError('Amount or bonus must be positive');
+    return await walletOperation(`fund:${currUser.id}`, requestKey(arg.idempotencyKey),
+      { userId: arg.userId, amount, bonus }, [arg.userId], async tx => {
+        const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: arg.userId } });
+        if (wallet.isLocked) throw new WalletError('Wallet is locked');
+        await tx.wallet.update({ where: { id: wallet.id }, data: { coins: { increment: amount / 100 }, bonus: { increment: bonus / 100 } } });
+        await tx.transaction.create({ data: { ...creditRecord(arg.userId, (amount + bonus) / 100, TxnCategoryEnum.COIN_RECEIVED),
+          walletId: wallet.id, senderId: currUser.id, source: amount && bonus ? TxnSourceEnum.COINS_BONUS : amount ? TxnSourceEnum.COINS : TxnSourceEnum.BONUS, metadata: { coins: amount / 100, bonus: bonus / 100 } } });
+        return { status: 200, data: 'Funding successful' };
+      });
+  } catch (error) { return walletFailure(error); }
 };
-
-export const getTxnHistory = async ({
-  userId,
-  page,
-  limit,
-}: {
-  userId: string;
-  page: number;
-  limit: number;
-}) => {
+export const getTxnHistory = async ({ userId, page, limit }: { userId: string; page: number; limit: number }) => {
   try {
-    //1496FD5
-    const skip = (page - 1) * limit;
-
-    const result = await prisma.transaction.findMany({
-      where: { userId },
-      skip,
-      take: limit,
-      orderBy: [{ createdAt: "desc" }],
-    });
-    if (result.length === 0)
-      return { status: 404, data: "No transaction history" };
-    // return response
-    return { status: 200, data: result };
-  } catch (error) {
-    return {
-      data: "Error: Failed to execute transfer, please try again",
-      status: 500,
-    };
-  }
+    if (!Number.isInteger(page) || page < 1 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new WalletError('Invalid pagination');
+    const data = await prisma.transaction.findMany({ where: { userId }, skip: (page - 1) * limit, take: limit, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+    return { status: data.length ? 200 : 404, data: data.length ? data : 'No transaction history' };
+  } catch (error) { return walletFailure(error); }
 };
-
-export const updateWalletBonus = async (arg: {
-  userId: string;
-  amount: number;
-  type: BonusTypeEnum;
-  isTask: boolean;
-  date: string;
-  meta?: any;
-}) => {
+export const updateWalletBonus = async (arg: { userId: string; amount: number; type: BonusTypeEnum; isTask: boolean; date: string; meta?: any }) => {
   try {
-    // sync both the sender and the recipient wallet
-    const syncResult = await syncRedisUserWalletToPrisma(arg.userId);
-    if (syncResult.isError) return { status: 500, message: syncResult.message };
-    // get from and to user
-    const user = await prisma.user.findFirst({
-      where: { id: arg.userId },
-      include: { wallet: true },
+    if (arg.isTask || ![BonusTypeEnum.BONUS, BonusTypeEnum.ADS].includes(arg.type)) throw new WalletError('Invalid reward type');
+    const amount = cents(arg.amount);
+    if (amount > 1000) throw new WalletError('Bonus amount is illegal');
+    // Client-provided dates must never control eligibility.
+    return await walletOperation(`bonus:${arg.userId}`, undefined, {}, [arg.userId], async tx => {
+      const field = arg.type === BonusTypeEnum.BONUS ? 'dailyBonusDate' : 'adsBonusDate';
+      const settings = await tx.userTaskSettings.findUnique({ where: { userId: arg.userId } });
+      const now = new Date();
+      if (settings?.[field] && settings[field] > now) throw new WalletError('User already rewarded today');
+      const next = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: arg.userId } });
+      if (wallet.isLocked) throw new WalletError('Wallet is locked');
+      await tx.wallet.update({ where: { id: wallet.id }, data: { bonus: { increment: amount / 100 } } });
+      await tx.transaction.create({ data: { ...creditRecord(arg.userId, amount / 100, TxnCategoryEnum.DAILY_BONUS), walletId: wallet.id, source: TxnSourceEnum.BONUS, metadata: { bonus: amount / 100, type: arg.type } } });
+      await tx.userTaskSettings.upsert({ where: { userId: arg.userId }, create: { userId: arg.userId, [field]: next }, update: { [field]: next } });
+      return { status: 200, data: 'Success' };
     });
-    // check if from user and wallet exists
-    if (!user || !user.wallet)
-      return { status: 404, message: "User does not exist " };
-
-    // check if a user is already rewarded daily bonus today
-    const now = Date.now()
-    const result = await prisma.userTaskSettings.findFirst({
-        where: { userId: arg.userId,  }})
-    const nextBonusDate = arg.type === BonusTypeEnum.BONUS
-      ? result?.dailyBonusDate : result?.adsBonusDate;
-    if(nextBonusDate && nextBonusDate.getTime() > now){
-      return { status: 400, message: "User already rewarded today"}
-    }
-    // execute transaction
-    const desc = arg.isTask
-      ? `Rewarded ${arg.amount} bonus ${TxnCurrencyEnum.COINS} for performing app task`
-      : `Rewarded ${arg.amount} bonus ${TxnCurrencyEnum.COINS} ${arg.type === BonusTypeEnum.BONUS ? "as daily bonus" : "for watching ads" } `;
-    // update wallet
-    const txnRef = generateUniqueRef();
-    const date = new Date(arg.date) ?? new Date()
-    const [userWallet] = await prisma.$transaction([
-      
-      // credit user
-      prisma.wallet.update({
-        where: { userId: arg.userId },
-        data: { bonus: { increment: arg.amount } },
-      }),
-      // save sender transaction
-      prisma.transaction.create({
-        data: {
-          amount: arg.amount,
-          currency: TxnCurrencyEnum.COINS,
-          category: arg.isTask
-            ? TxnCategoryEnum.APP_TASK
-            : TxnCategoryEnum.DAILY_BONUS,
-          description: desc,
-          gateway: TxnGatewayEnum.VIRTUAL,
-          source: TxnSourceEnum.VIRTUAL,
-          type: TxnTypeEnum.CREDIT,
-          status: TxnStatusEnum.COMPLETED,
-          txnRef,
-          userId: arg.userId,
-          recipientId: arg.userId,
-          metadata: {
-            item: {
-              amount: 0,
-              bonus: arg.amount,
-              recipient: arg.userId,
-              ...(arg.meta && { item: arg.meta }),
-            },
-            currency: TxnCurrencyEnum.COINS,
-          },
-        },
-      }),
-
-      // update task timer
-      prisma.userTaskSettings.upsert({
-        where: { userId: arg.userId},
-        update: { ...(arg.type === BonusTypeEnum.BONUS ? { dailyBonusDate: date} : { adsBonusDate: date}) },
-        create: { userId: arg.userId,...(arg.type === BonusTypeEnum.BONUS ? { dailyBonusDate: date} : { adsBonusDate: date}) },
-      }),
-    ]);
-    // sync user prisma wallet to redis
-    syncPrismaUserWalletToRedis(arg.userId, userWallet);
-    // return response
-    return { status: 200, data: "Success" };
-  } catch (error) {
-    return {
-      data: "Error: Failed to execute transfer, please try again",
-      status: 500,
-    };
-  }
+  } catch (error) { return walletFailure(error); }
 };
-
-export const rewardDailyTask = async ({
-  id: taskId,
-  code,
-  userId,
-}: {
-  id: string;
-  code?: string | undefined;
-  userId: string;
-}) => {
+export const rewardDailyTask = async ({ id: taskId, code, userId }: { id: string; code?: string; userId: string }) => {
   try {
-    const result = await prisma.task.findFirst({
-      where: { id: taskId },
-      include: { performedBy: { where: { userId, taskId } } },
+    return await walletOperation(`task:${userId}`, taskId, { taskId }, [userId], async tx => {
+      const task = await tx.task.findUnique({ where: { id: taskId }, include: { performedBy: { where: { userId } } } });
+      if (!task) throw new WalletError('Task not found', 404);
+      if (task.performedBy.length) throw new WalletError('You have already performed this task', 422);
+      if (task.code && task.code !== code) throw new WalletError('Invalid code provided', 422);
+      const reward = cents(task.reward);
+      const field = task.rewardType === RewardTypeEnum.CREDIT ? 'credit' : task.rewardType === RewardTypeEnum.COINS ? 'coins' : 'bonus';
+      const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId } });
+      if (wallet.isLocked) throw new WalletError('Wallet is locked');
+      await tx.wallet.update({ where: { id: wallet.id }, data: { [field]: { increment: reward / 100 } } });
+      await tx.transaction.create({ data: { ...creditRecord(userId, reward / 100, TxnCategoryEnum.APP_TASK), walletId: wallet.id,
+        source: field === 'credit' ? TxnSourceEnum.CREDIT : field === 'coins' ? TxnSourceEnum.COINS : TxnSourceEnum.BONUS,
+        currency: field === 'credit' ? TxnCurrencyEnum.TZX : TxnCurrencyEnum.COINS, taskId, metadata: { rewardType: task.rewardType } } });
+      await tx.userTask.create({ data: { userId, taskId, status: TaskStatus.COMPLETED } });
+      return { status: 200, data: 'Success' };
     });
-
-    if (!result) return { data: "Not found", status: 404 };
-
-    if (result.performedBy.length > 0) {
-      return { data: "You have already performed this task", status: 422 };
-    }
-    if (result.code && result.code !== code) {
-      return { data: "Invalid code provided", status: 422 };
-    }
-    // sync both the sender and the recipient wallet
-    const syncResult = await syncRedisUserWalletToPrisma(userId);
-    if (syncResult.isError) return { status: 500, data: syncResult.message };
-    // get from and to user
-    const user = await prisma.user.findFirst({
-      where: { id: userId },
-      include: { wallet: true },
-    });
-    // check if from user and wallet exists
-    if (!user || !user.wallet)
-      return { status: 404, data: "User does not exist " };
-    // execute transaction
-    const desc = `Rewarded ${result.reward} ${result.rewardType} for performing app task`;
-    // update wallet
-    const updateObj =
-      result.rewardType === RewardTypeEnum.CREDIT
-        ? { credit: { increment: result.reward } }
-        : result.rewardType === RewardTypeEnum.COINS
-        ? { coins: { increment: result.reward } }
-        : { bonus: { increment: result.reward } };
-    const txnRef = generateUniqueRef();
-    const [userWallet] = await prisma.$transaction([
-      // debit user
-      prisma.wallet.update({ where: { userId }, data: updateObj }),
-      // save sender transaction
-      prisma.transaction.create({
-        data: {
-          amount: result.reward,
-          currency:
-            result.rewardType === RewardTypeEnum.CREDIT
-              ? TxnCurrencyEnum.TZX
-              : TxnCurrencyEnum.COINS,
-          category: TxnCategoryEnum.APP_TASK,
-          description: desc,
-          gateway: TxnGatewayEnum.VIRTUAL,
-          source: TxnSourceEnum.VIRTUAL,
-          type: TxnTypeEnum.CREDIT,
-          status: TxnStatusEnum.COMPLETED,
-          txnRef,
-          userId,
-          recipientId: userId,
-          taskId,
-          metadata: {
-            item: { amount: result.reward, rewardType: result.rewardType,  recipient: userId, taskId, code },
-            currency: TxnCurrencyEnum.COINS,
-          },
-        },
-      }),
-      // create user task
-      prisma.userTask.create({ data: { taskId, userId, status: TaskStatus.COMPLETED } }),
-    ]);
-    // sync user prisma wallet to redis
-    syncPrismaUserWalletToRedis(userId, userWallet);
-    // return response
-    return { status: 200, data: "Success" };
-  } catch (error) {
-    return {
-      data: "Error: Failed to execute transfer, please try again",
-      status: 500,
-    };
-  }
+  } catch (error) { return walletFailure(error); }
 };
-
-// test app wallet
-// Live app wallet

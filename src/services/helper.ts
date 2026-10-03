@@ -29,182 +29,28 @@ export const getRedisHashKey = async <T = any>(key: string) => {
   return parseStringNumbers(result) as T;
 };
 
-export const syncRedisUserWalletToPrisma = async (userId: string) => {
+// PostgreSQL is authoritative. Never overwrite committed balances with a Redis snapshot.
+// Keep these exported names for existing callers during the cutover.
+export const syncRedisUserWalletToPrisma = async (_userId: string) => ({ message: "PostgreSQL wallet is authoritative", isError: false });
+export const syncRedisSenderRecipientWalletToPrisma = async (_senderId: string, _recipientId: string) => ({
+  message: "PostgreSQL wallets are authoritative", isError: false,
+  data: { isSenderExists: true, isRecipientExists: true },
+});
+export const syncPrismaUserWalletToRedis = async (userId: string, _wallet: Wallet) => {
   try {
-    // check and sync the sender redis wallet to prisma
-    const walletKey = `user:${userId}:wallet`;
-    const exists = await redisClient.exists(walletKey);
-    if (exists !== 0) {
-      const redisWallet = await getRedisHashKey<{
-        amount: number;
-        bonus: number;
-        id: string;
-        userId: string;
-        credit: number;
-      }>(walletKey);
-      if (redisWallet) {
-        // sync user redis and prisma wallet
-        await prisma.wallet.update({
-          where: { id: redisWallet.id, userId: redisWallet.userId },
-          data: {
-            credit: redisWallet.credit,
-            coins: redisWallet.amount,
-            bonus: redisWallet.bonus,
-          },
-        });
-      }
-    }
-    return { message: "Success", isError: false };
-  } catch (error: any) {
-    return { message: error?.message, isError: true };
+    // Invalidation avoids out-of-order asynchronous snapshots overwriting newer ones.
+    await redisClient.del(`user:${userId}:wallet`);
+    return { message: "Wallet cache invalidated", isError: false };
+  } catch {
+    // A committed payment must not be reported as failed because its cache is down.
+    return { message: "Wallet committed; cache invalidation unavailable", isError: true };
   }
 };
-
-export const syncPrismaUserWalletToRedis = async (
-  userId: string,
-  userWallet: Wallet
-) => {
-  try {
-    // check and sync the sender redis wallet to prisma
-    const walletKey = `user:${userId}:wallet`;
-    const exists = await redisClient.exists(walletKey);
-    if (exists !== 0) {
-      // check and sync the sender prisma wallet to redis
-      await Promise.all([
-        redisClient.hSet(walletKey, "credit", userWallet.credit.toFixed(2)),
-        redisClient.hSet(walletKey, "amount", userWallet.coins.toFixed(2)),
-        redisClient.hSet(walletKey, "bonus", userWallet.bonus.toFixed(2)),
-      ]);
-    }
-    return { message: "Success", isError: false };
-  } catch (error: any) {
-    return { message: error?.message, isError: true };
-  }
-};
-
-export const syncRedisSenderRecipientWalletToPrisma = async (
-  senderId: string,
-  recipientId: string
-) => {
-  try {
-    // check and sync the sender redis wallet to prisma
-    const senderWalletKey = `user:${senderId}:wallet`;
-    const checkSenderKey = await redisClient.exists(senderWalletKey);
-    const isSenderExists = checkSenderKey !== 0;
-    if (isSenderExists) {
-      const redisWallet = await getRedisHashKey<{
-        amount: number;
-        bonus: number;
-        id: string;
-        userId: string;
-        credit: number;
-      }>(senderWalletKey);
-      if (redisWallet) {
-        // sync user redis and prisma wallet
-        await prisma.wallet.update({
-          where: { id: redisWallet.id, userId: redisWallet.userId },
-          data: {
-            credit: redisWallet.credit,
-            coins: redisWallet.amount,
-            bonus: redisWallet.bonus,
-          },
-        });
-      }
-    }
-    // check and sync the sender redis wallet to prisma
-    const recipientWalletKey = `user:${recipientId}:wallet`;
-    const checkRecipientKey = await redisClient.exists(recipientWalletKey);
-    const isRecipientExists = checkRecipientKey !== 0;
-    if (isRecipientExists) {
-      const redisWallet = await getRedisHashKey<{
-        amount: number;
-        bonus: number;
-        id: string;
-        userId: string;
-        credit: number;
-      }>(recipientWalletKey);
-      if (redisWallet) {
-        // sync user redis and prisma wallet
-        await prisma.wallet.update({
-          where: { id: redisWallet.id, userId: redisWallet.userId },
-          data: {
-            credit: redisWallet.credit,
-            coins: redisWallet.amount,
-            bonus: redisWallet.bonus,
-          },
-        });
-      }
-    }
-    return {
-      message: "Data synced successfully",
-      isError: false,
-      data: { isSenderExists, isRecipientExists },
-    };
-  } catch (error: any) {
-    return { message: error?.message, isError: true };
-  }
-};
-
-export const syncPrismaSenderRecipientWalletToRedis = async ({
-  isSenderExists,
-  senderWallet,
-  isRecipientExists,
-  recipientWallet,
-}: {
-  isRecipientExists: boolean;
-  isSenderExists: boolean;
-  senderWallet: Wallet;
-  recipientWallet: Wallet;
+export const syncPrismaSenderRecipientWalletToRedis = async (args: {
+  isSenderExists: boolean; isRecipientExists: boolean; senderWallet: Wallet; recipientWallet: Wallet;
 }) => {
-  try {
-    if (isSenderExists) {
-      // check and sync the sender prisma wallet to redis
-      const senderWalletKey = `user:${senderWallet.userId}:wallet`;
-      await Promise.all([
-        redisClient.hSet(
-          senderWalletKey,
-          "credit",
-          senderWallet.credit.toFixed(2)
-        ),
-        redisClient.hSet(
-          senderWalletKey,
-          "amount",
-          senderWallet.coins.toFixed(2)
-        ),
-        redisClient.hSet(
-          senderWalletKey,
-          "bonus",
-          senderWallet.bonus.toFixed(2)
-        ),
-      ]);
-    }
-    if (isRecipientExists) {
-      // check and sync the recipient prisma wallet to redis
-      const recipientWalletKey = `user:${recipientWallet.userId}:wallet`;
-      await Promise.all([
-        redisClient.hSet(
-          recipientWalletKey,
-          "credit",
-          recipientWallet.credit.toFixed(2)
-        ),
-        redisClient.hSet(
-          recipientWalletKey,
-          "amount",
-          recipientWallet.coins.toFixed(2)
-        ),
-        redisClient.hSet(
-          recipientWalletKey,
-          "bonus",
-          recipientWallet.bonus.toFixed(2)
-        ),
-      ]);
-    }
-  } catch (error: any) {
-    console.log(
-      "Error: Syncing prisma sender and recipient wallet to redis failed. ",
-      error?.message
-    );
-  }
+  await Promise.all([syncPrismaUserWalletToRedis(args.senderWallet.userId, args.senderWallet),
+    syncPrismaUserWalletToRedis(args.recipientWallet.userId, args.recipientWallet)]);
 };
 
 // Function to get leaderboard
