@@ -673,6 +673,7 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
     .sort((a, b) => b.score - a.score);
 }
 
+
 export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
   try {
     const mode = getGameMode(params.mode)
