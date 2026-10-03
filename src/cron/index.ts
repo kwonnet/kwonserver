@@ -1,12 +1,12 @@
 import logger from '@/logger';
-import * as workers from './jobs/workers';
+import { closeCacheStore } from '@/store';
 import * as queues from './jobs/queue';
 import { startRecurringJobs } from './recurring';
 import { startQuizGeneration } from './quizGeneration';
 import { closeQuestionInventory } from '@/services/questionInventory/runtime';
 
-const activeWorkers = [workers.appSubscriptionWorker, workers.appSubReminderWorker,
-  workers.postEmbeddingWorker, workers.postTopicWorker, workers.postKeywordsWorker];
+let workers: typeof import('./jobs/workers') | undefined;
+let activeWorkers: import('bullmq').Worker[] = [];
 let started = false;
 let quiz: Awaited<ReturnType<typeof startQuizGeneration>> | undefined;
 let recurring: Awaited<ReturnType<typeof startRecurringJobs>> | undefined;
@@ -14,11 +14,16 @@ export async function startCronJobs() {
   if (started || process.env.RUN_BACKGROUND_JOBS === 'false') return;
   started = true;
   try {
+    // autorun:false does not prevent BullMQ from opening blocking connections.
+    // Import only in the process that actually executes jobs.
+    workers = await import('./jobs/workers');
+    activeWorkers = [workers.appSubscriptionWorker, workers.appSubReminderWorker,
+      workers.postEmbeddingWorker, workers.postTopicWorker, workers.postKeywordsWorker];
     for (const worker of activeWorkers) {
-      worker.on('error', error => logger.error(error, 'BullMQ worker error'));
+      worker.on('error', () => logger.error('BullMQ worker connection error'));
       worker.on('failed', (job, error) => logger.error({ job: job?.name, error: error.message }, 'BullMQ job failed'));
       // run() lasts for the worker lifetime; never await workers sequentially.
-      if (!worker.isRunning()) void worker.run().catch(error => logger.error(error, 'BullMQ worker stopped'));
+      if (!worker.isRunning()) void worker.run().catch(error => logger.error('BullMQ worker stopped'));
     }
     recurring = await startRecurringJobs();
     quiz = await startQuizGeneration();
@@ -33,8 +38,6 @@ async function closeCronJobs() {
   if (recurring) await recurring.close();
   if (quiz) await quiz.close();
   await closeQuestionInventory();
-  await Promise.all([queues.appSubscriptionQueue, queues.appSubReminderQueue,
-    queues.postEmbeddingQueue, queues.postTopicQueue, queues.postKeywordsQueue].map(queue => queue.close()));
-  await Promise.all([workers.workerConnection.quit(), queues.queueConnection.quit()]);
+  await Promise.all([workers?.workerConnection.quit(), queues.closeJobQueues(), closeCacheStore()]);
   started = false;
 }

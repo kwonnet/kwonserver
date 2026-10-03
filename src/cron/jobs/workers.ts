@@ -17,7 +17,8 @@ if (!redisUrl) {
   throw new Error("REDIS_URL environment variable is required");
 }
 
-export const workerConnection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+export const workerConnection = new IORedis(redisUrl, { maxRetriesPerRequest: null, connectionName: 'kwonserver:worker:jobs' });
+workerConnection.on('error', () => logger.warn('Redis worker connection unavailable'));
 
 export const appSubscriptionWorker = new Worker(
   APP_SUBSCRIPTION_QUEUE,

@@ -244,3 +244,47 @@ For failed job details, inspect the BullMQ `quiz-generation` queue; generation
 failure logs include its job ID. Validation guarantees structure and normalized
 deduplication, not factual correctness or semantic uniqueness; those still need
 content-quality review.
+
+## Redis connection budget and diagnostics
+
+A single API process with `RUN_BACKGROUND_JOBS=false` now uses two baseline
+connections (application commands and shared queue/inventory commands), plus one
+lazy cache connection after a cached request. No BullMQ Workers are constructed
+in that process. Each Worker needs a separate blocking connection even with
+`autorun:false`, so importing worker constructors in the API is not safe.
+
+The background process uses approximately 12 connections: one application client,
+one queue/inventory client, one shared client for the five job workers and their
+five blocking clients, two for recurring jobs, and two for quiz generation. It
+can use an additional cache client if it executes code that accesses the cache.
+Thus one API plus one worker needs about **15 connections (up to 16 with worker
+cache use)**, excluding diagnostics, deployments, kwonrec, local development and
+old Cloud Run revisions. Each extra process multiplies its budget. Worker
+concurrency is the number of concurrent jobs, not that many new Redis clients.
+
+Before this fix the API also opened six unused worker connections and inventory
+opened an extra client in each process. More seriously, every cached read/write
+constructed a new Keyv Redis client without closing it. Cache clients are now
+singletons and disconnect during shutdown. Restart/redeploy old processes to
+release their previously leaked connections; running an old revision preserves
+the old behavior. Confirm obsolete Cloud Run services are stopped or deleted
+once they are no longer needed.
+
+After deployment, run this read-only diagnostic on the VM:
+
+```bash
+sudo docker exec kwonserver npm run redis:connections
+```
+
+It reports Redis's total connected/blocked clients and groups client names when
+`CLIENT LIST` is permitted. It omits credentials, IPs and usernames. The diagnostic
+itself temporarily uses one connection. Provider dashboards remain authoritative
+if administrative commands are restricted. Never paste a full `CLIENT LIST` or
+Redis AUTH error into public logs; AUTH arguments can contain the password.
+
+`kwonrec` has a separate pool in each API/worker process, configurable with
+`KWONREC_REDIS_MAX_CONNECTIONS` (default 16, previously 100). Connections open on
+demand, not all at startup; account for each process if it shares this Redis
+service. Cluster pools apply limits per node. Its production Compose normally
+uses its own Redis container, in which case it does not consume this managed
+Redis database's allowance. Verify the deployed endpoints before adding budgets.

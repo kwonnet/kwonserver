@@ -60,7 +60,7 @@ server.listen(port, () => {
   startMongodb();
   // start cron jobs
   void startCronJobs().catch(error => {
-    console.error("Background job startup failed", error);
+    console.error("Background job startup failed; check database and Redis availability");
     server.close();
     process.exit(1);
   });

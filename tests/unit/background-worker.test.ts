@@ -1,8 +1,8 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
-  queue: { setGlobalConcurrency: vi.fn(), close: vi.fn() },
+  queue: { on: vi.fn(), setGlobalConcurrency: vi.fn(), close: vi.fn() },
   worker: { on: vi.fn(), run: vi.fn(), close: vi.fn() },
-  connection: { quit: vi.fn() },
+  connection: { on: vi.fn(), quit: vi.fn() },
   register: vi.fn(), Queue: vi.fn(), Worker: vi.fn(), Redis: vi.fn(),
 }));
 vi.mock('bullmq', () => ({

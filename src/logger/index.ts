@@ -2,6 +2,7 @@ import pino from "pino";
 
 const isProduction = process.env.NODE_ENV === "production";
 const logger = pino({
+  redact: { paths: ["command.args", "err.command.args", "error.command.args"], censor: "[REDACTED]" },
   ...(!isProduction && {
     transport: {
       target: "pino-pretty",

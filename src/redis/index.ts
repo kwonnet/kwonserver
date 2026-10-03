@@ -1,6 +1,6 @@
 import { createClient } from 'redis';
 
-const redisClient = createClient({ url: process.env.REDIS_URL });
+const redisClient = createClient({ url: process.env.REDIS_URL, name: `kwonserver:${process.env.RUN_BACKGROUND_JOBS === 'false' ? 'api' : 'worker'}:app` });
 
 redisClient.on('error', err => console.log('Redis Client Error', err?.message));
 

@@ -14,4 +14,4 @@ async function shutdown(code: number) {
 }
 process.once('SIGTERM', () => void shutdown(0));
 process.once('SIGINT', () => void shutdown(0));
-void startCronJobs().catch(error => { logger.error(error, 'Cannot start background workers'); void shutdown(1); });
+void startCronJobs().catch(error => { logger.error('Cannot start background workers; check database and Redis availability'); void shutdown(1); });

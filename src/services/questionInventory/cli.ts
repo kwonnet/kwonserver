@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { getQuestionInventory, closeQuestionInventory } from './runtime';
 import prisma from '@/db';
+import { closeJobQueues } from '@/cron/jobs/queue';
 async function main() {
   const [command, categoryId] = process.argv.slice(2);
   if (!categoryId || !['status', 'rebuild', 'ensure'].includes(command)) {
@@ -13,4 +14,4 @@ async function main() {
   console.log(JSON.stringify(await inventory.inspect(categoryId), null, 2));
 }
 void main().catch(() => { console.error('Quiz inventory command failed; verify arguments and database/Redis access.'); process.exitCode = 1; })
-  .finally(async () => { await closeQuestionInventory(); await prisma.$disconnect(); });
+  .finally(async () => { await closeQuestionInventory(); await closeJobQueues(); await prisma.$disconnect(); });

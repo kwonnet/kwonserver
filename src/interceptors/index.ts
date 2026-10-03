@@ -9,7 +9,7 @@ export const storeDataInCacheMemory = async(req: Request, data: any, {global, tt
         const store = await cacheMemoryStore()
         const converted = serializeBigInts(data);
         console.log("Saving cache key ", key )
-        store.set(key, converted, ttl);
+        await store.set(key, converted, ttl);
         return {message: "Success", isError: false}
     } catch (error: any) {
         console.log("Error saving data ", error?.message)
