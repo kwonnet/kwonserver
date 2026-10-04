@@ -79,11 +79,21 @@ the hashtag `solar`. Hashtags keep their full word: the first letter is not remo
   visibility/country changes replace the post's derived events atomically;
   deletion removes them. Like/view counter updates do not re-extract content.
 - Global trends combine countries into one topic. Country queries bind the
-  country ID as a parameter. The API uses exact rolling 24-hour, previous-24-hour
+  country ID as a parameter (ISO2 codes are resolved to IDs first). The public
+  endpoint requires just one qualifying post in the last 24 hours, rather than
+  ten, so a small community can show trends. Empty results return `200 []`.
+  The API uses exact rolling 24-hour, previous-24-hour
   and 30-day counts, and checks current post/account visibility on every read.
   Private, suspended, deleted or deactivated authors cannot appear in trends,
   even when an analytics summary has not refreshed yet. Future timestamps are
   excluded. Distinct users are counted over the complete window.
+
+Existing posts are indexed by the first deployment backfill, with their original
+creation dates preserved. New posts and edits are indexed by triggers. A keyword
+must occur in a qualifying post within the last 24 hours to appear as a current
+trend; its displayed totals include qualifying posts from the last 30 days.
+Backfilling does not make old posts look newly published. The web sidebar falls
+back to global trends when a user's country has no qualifying topics.
 
 The analytics views are internal reporting summaries. The public API deliberately
 reads indexed events with live visibility checks; precomputed counts alone cannot

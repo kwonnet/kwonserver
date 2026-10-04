@@ -15,14 +15,14 @@ it('binds country filters as SQL parameters rather than interpolating user input
   expect(await getTrendingTopics(country, 7, 10)).toMatchObject({ status: 200, data: [{ country: 'Nigeria' }] });
   const [sql, ...params] = db.$queryRawUnsafe.mock.calls[0];
   expect(sql).toContain('AND e."countryId" = $3'); expect(sql).not.toContain(country); expect(params).toEqual([10, 7, country]);
-  expect(db.country.findUnique).toHaveBeenCalledWith({ where: { id: country }, select: { name: true, emoji: true } });
+  expect(db.country.findUnique).toHaveBeenCalledWith({ where: { id: country }, select: { id: true, name: true, emoji: true } });
 });
 it('labels an unknown country', async () => { db.country.findUnique.mockResolvedValue(null); expect(await getTrendingTopics('missing')).toMatchObject({ data: [{ country: 'Unknown' }] }); });
 it('orders returned trends by recent mentions', async () => {
   db.$queryRawUnsafe.mockResolvedValue([row, { ...row, trend: 'Popular', last_24_mentions: 50n }]);
   const result = await getTrendingTopics(); expect((result.data as any[]).map(r => r.trend)).toEqual(['Popular', 'Topic']);
 });
-it('returns not found for an empty result', async () => { db.$queryRawUnsafe.mockResolvedValue([]); expect(await getTrendingTopics()).toEqual({ status: 404, data: 'Not found' }); });
+it('returns an empty collection for no qualifying topics', async () => { db.$queryRawUnsafe.mockResolvedValue([]); expect(await getTrendingTopics()).toEqual({ status: 200, data: [] }); });
 it.each(['query', 'country'])('returns a generic error after %s failure', async stage => {
   if (stage === 'query') db.$queryRawUnsafe.mockRejectedValue(new Error('private'));
   else db.country.findUnique.mockRejectedValue(new Error('private'));
@@ -32,4 +32,11 @@ it.each(['query', 'country'])('returns a generic error after %s failure', async 
 it.each([0, 101, 1.5])('rejects invalid limit %s before querying', async limit => {
   expect(await getTrendingTopics(null, limit)).toMatchObject({ status: 400 });
   expect(db.$queryRawUnsafe).not.toHaveBeenCalled();
+});
+
+it('resolves ISO2 to the stored country ID before querying event country IDs', async () => {
+  db.country.findUnique.mockResolvedValue({ id: 'country-nigeria', name: 'Nigeria', emoji: '🇳🇬' });
+  expect(await getTrendingTopics('ng', 5, 1)).toMatchObject({ status: 200, data: [{ country: 'Nigeria' }] });
+  expect(db.country.findUnique).toHaveBeenCalledWith({ where: { iso2: 'NG' }, select: { id: true, name: true, emoji: true } });
+  expect(db.$queryRawUnsafe).toHaveBeenCalledWith(expect.any(String), 1, 5, 'country-nigeria');
 });

@@ -9,10 +9,16 @@ export async function getTrendingTopics(
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(minLast24Posts) || minLast24Posts < 0) {
       return { data: "Invalid trending limits", status: 400 };
     }
+    // Browser callers may use a country ID; older server callers use ISO2.
+    const country = countryId ? await prisma.country.findUnique({
+      where: /^[a-z]{2}$/i.test(countryId) ? { iso2: countryId.toUpperCase() } : { id: countryId },
+      select: { id: true, name: true, emoji: true },
+    }) : null;
+    const resolvedCountryId = country?.id ?? countryId;
     const params: any[] = [minLast24Posts, limit];
 
     if (countryId) {
-      params.push(countryId);
+      params.push(resolvedCountryId);
     }
 
     // Exact rolling windows and live visibility checks. Summing hourly distinct
@@ -69,10 +75,6 @@ export async function getTrendingTopics(
     // Fetch country name if specific country requested
     let countryInfo = { name: "Global", emoji: "🌍" };
     if (countryId) {
-      const country = await prisma.country.findUnique({
-        where: { id: countryId },
-        select: { name: true, emoji: true },
-      });
       if (country) {
         countryInfo = { name: country.name, emoji: country.emoji };
       } else {
@@ -92,9 +94,6 @@ export async function getTrendingTopics(
       mentions: Number(row.mentions),
     })).sort((a,b) => b.last_24_mentions - a.last_24_mentions);
 
-    if(trends.length === 0){
-      return { data: "Not found", status: 404}
-    }
     return { data: trends, status: 200}
   } catch (error: any) {
     console.error("Error fetching trending topics:", error?.message ?? error);

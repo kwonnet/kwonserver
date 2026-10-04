@@ -23,7 +23,7 @@ export const getTrendController = async (
 
     const { limit, country } = zodData
 
-    const result = await getTrendingTopics(country, limit, 10)
+    const result = await getTrendingTopics(country, limit, 1)
 
 
     return res.status(result.status).send(result.data);

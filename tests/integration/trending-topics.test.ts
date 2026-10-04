@@ -15,7 +15,23 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.post.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.user.delete({ where: { id: author } });
+  await db.country.deleteMany({ where: { id: { startsWith: prefix } } });
+  await db.continent.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.$disconnect();
+});
+it('a topic in one recent post is available by country ID or ISO2, and older-only topics remain historical', async () => {
+  const continent = await db.continent.create({ data: { id: prefix + 'continent', code: 'ZT', name: prefix + 'continent' } });
+  const country = await db.country.create({ data: { id: prefix + 'country', name: prefix + 'country', iso2: 'ZT', iso3: 'ZTT', emoji: prefix + 'flag', continentId: continent.id } });
+  await makePost('single-recent-country', 'SingleCountryTopic', { countryId: country.id, createdAt: new Date(Date.now() - 3600000) });
+  const historical = await makePost('historical-country', 'HistoricalCountryTopic', { countryId: country.id, createdAt: new Date(Date.now() - 5 * 24 * 3600000) });
+  expect(await db.postTrendingEvent.count({ where: { postId: historical.id } })).toBe(1);
+  for (const filter of [country.id, 'zt']) {
+    const result = await getTrendingTopics(filter, 3, 1);
+    expect(result.status).toBe(200);
+    expect(result.data).toEqual([expect.objectContaining({ trend: 'Singlecountrytopic', country: country.name, posts: 1, last_24_posts: 1 })]);
+  }
+  await db.post.update({ where: { id: prefix + 'single-recent-country' }, data: { isHidden: true } });
+  expect(await getTrendingTopics(country.id, 3, 1)).toEqual({ status: 200, data: [] });
 });
 it('extracts rendered Draft.js text, complete n-grams and hashtags; ignores URL, mentions and metadata', async () => {
   const content = JSON.stringify({ blocks: [{ text: 'Solar Energy Revolution #Solar @privateperson https://example.test/privateword' }], entityMap: { 0: { data: { hidden: 'metadataword' } } } });
