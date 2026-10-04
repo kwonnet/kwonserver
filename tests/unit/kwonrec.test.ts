@@ -35,11 +35,22 @@ describe('recommendation client', () => {
       degraded: true, recommendations: [{ id: 'fallback-1', score: 0 }],
     });
     expect(mocks.posts).toHaveBeenCalledWith({ where: recommendationVisibility('viewer'),
-      select: { id: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 4 });
+      select: { id: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 4, skip: 0 });
   });
   it.each(['following', 'request'])('falls back on %s failure', async dependency => {
     mocks[dependency as 'following' | 'request'].mockRejectedValue(new Error('timeout'));
     expect((await getRecommendationResponse('viewer', 1)).data.degraded).toBe(true);
+  });
+  it('advances fallback pages instead of repeating the first recommendations', async () => {
+    mocks.request.mockRejectedValue(new Error('timeout'));
+    mocks.posts.mockImplementation(async ({ skip, take }) =>
+      Array.from({ length: take }, (_, i) => ({ id: `post-${skip + i}` })));
+    const first = await getRecommendationResponse('viewer', 21, 1);
+    const second = await getRecommendationResponse('viewer', 21, 2);
+    expect(second.data.recommendations).toHaveLength(21);
+    expect(second.data.recommendations[0].id).toBe('post-21');
+    expect(second.data.recommendations.some((post: { id: string }) =>
+      first.data.recommendations.some((previous: { id: string }) => previous.id === post.id))).toBe(false);
   });
   it('propagates failure if the authoritative fallback database also fails', async () => {
     mocks.request.mockRejectedValue(new Error('timeout'));

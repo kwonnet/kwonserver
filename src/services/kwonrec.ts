@@ -37,9 +37,11 @@ export function recommendationVisibility(userId: string): Prisma.PostWhereInput 
   };
 }
 
-export async function getRecommendationResponse(userId: string, requestedLimit: unknown) {
+export async function getRecommendationResponse(userId: string, requestedLimit: unknown, requestedPage: unknown = 1) {
   const parsed = Number(requestedLimit ?? 21);
   const limit = Number.isFinite(parsed) ? Math.min(100, Math.max(1, Math.floor(parsed))) : 21;
+  const parsedPage = Number(requestedPage);
+  const page = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? Math.min(parsedPage, 10000) : 1;
   try {
     const following = await prisma.follow.findMany({
       where: { followerId: userId, status: "ACCEPTED" },
@@ -59,7 +61,7 @@ export async function getRecommendationResponse(userId: string, requestedLimit: 
     // Bounded, authoritative chronological fallback on timeout or service failure.
     const posts = await prisma.post.findMany({
       where: recommendationVisibility(userId),
-      select: { id: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limit,
+      select: { id: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limit, skip: (page - 1) * limit,
     });
     return { data: { recommendations: posts.map(post => ({ id: post.id, score: 0 })), degraded: true } };
   }

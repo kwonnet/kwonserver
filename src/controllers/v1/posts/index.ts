@@ -95,7 +95,7 @@ export const getNewsfeedController = async (
 
     const { limit } = zodData
 
-    const resp = await getRecommendationResponse(user.id, limit);
+    const resp = await getRecommendationResponse(user.id, limit, zodData.page);
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("X-Feed-Source", resp.data.degraded ? "fallback" : "kwonrec");
     const recs = resp.data.recommendations.map((item: { id: string }) => item.id);
