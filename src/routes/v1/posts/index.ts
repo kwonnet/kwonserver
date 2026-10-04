@@ -1,11 +1,14 @@
 
 import express from "express";
+import { getPublicPostPreviewController } from "@/controllers/v1/posts/public-preview";
 import { authMiddleware } from "@/middleware";
 import { createPostClickController, createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostTipController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostAnalyticsController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, getTagUsersOrMentionsController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController, getRecommendationsController } from "@/controllers/v1/posts";
 
 
 
 const router = express.Router();
+
+router.get("/preview", getPublicPostPreviewController);
 
 router.post("/", authMiddleware({checkPermission: true}), createPostController)
 
@@ -70,4 +73,3 @@ router.get("/:id/post-analytics", authMiddleware({checkPermission: true}), getPo
 const postRoutes = router
 
 export default postRoutes
-
