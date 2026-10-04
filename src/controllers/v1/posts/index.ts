@@ -1,3 +1,5 @@
+import { performance } from "node:perf_hooks";
+import logger from "@/logger";
 import {
   CreatePostClickSchema,
   CreatePostHighlightSchema,
@@ -95,17 +97,23 @@ export const getNewsfeedController = async (
 
     const { limit } = zodData
 
+    const started = performance.now();
     const resp = await getRecommendationResponse(user.id, limit, zodData.page);
+    const rankedAt = performance.now();
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("X-Feed-Source", resp.data.degraded ? "fallback" : "kwonrec");
     const recs = resp.data.recommendations.map((item: { id: string }) => item.id);
 
     const result = await getNewsfeed(recs, user, {feed:feedType, ...zodData });
 
-    if(typeof result.data !== "string"){
-      // Personalized feed requests must observe new interactions and visibility changes.
-      console.log("Filtered Recommended posts to the user - ", result.data.length)
-    }
+    const finishedAt = performance.now();
+    const recommendationMs = Math.round(rankedAt - started);
+    const hydrationMs = Math.round(finishedAt - rankedAt);
+    res.setHeader("Server-Timing", `recommendations;dur=${recommendationMs}, hydration;dur=${hydrationMs}`);
+    logger.info({ event: "newsfeed_load", feed: feedType, page: zodData.page,
+      source: resp.data.degraded ? "fallback" : "kwonrec", recommendationMs, hydrationMs,
+      totalMs: Math.round(finishedAt - started), status: result.status,
+      posts: Array.isArray(result.data) ? result.data.length : 0 }, "Newsfeed loaded");
 
     return res.status(result.status).send(result.data);
     

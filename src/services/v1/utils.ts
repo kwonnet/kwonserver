@@ -509,6 +509,7 @@ export const getAuthUser = async (
   const { includeAny, includeEmail } = params || {};
   try {
     const user = await prisma.user.findFirst({
+      relationLoadStrategy: "join",
       where: { id: userId },
       include: {
         subscriptions: {

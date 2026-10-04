@@ -10,22 +10,22 @@ import { getNewsfeed, getRecommendedPosts } from '@/services/v1/posts';
 import { recommendationVisibility } from '@/services/kwonrec';
 beforeEach(() => { findMany.mockReset(); vi.spyOn(console, 'log').mockImplementation(() => {}); });
 it('hydrates only visible recommended posts, preserves ranking and omits missing IDs', async () => {
-  const make = (id: string) => ({ ...post({ id }), user: user() });
-  findMany.mockResolvedValueOnce([make('a'), make('c')]).mockResolvedValueOnce([{ id: 'repost', parentId: 'a' }]);
+  const make = (id: string) => ({ ...post({ id }), user: user(), replies: id === 'a' ? [{ id: 'repost', parentId: 'a' }] : [] });
+  findMany.mockResolvedValueOnce([make('a'), make('c')]);
   const result = await getNewsfeed(['c', 'deleted', 'a'], user(), { feed: 'foryou' });
   expect(result.status).toBe(200);
   expect((result.data as any[]).map(p => p.id)).toEqual(['c', 'a']);
   expect((result.data as any[])[1].actions.hasReposted).toBe(true);
   expect(findMany.mock.calls[0][0].where).toEqual({ ...recommendationVisibility('user-1'), id: { in: ['c', 'deleted', 'a'] } });
-  expect(findMany.mock.calls[1][0].where).toMatchObject({ userId: 'user-1', kind: 'REPOST' });
+  expect(findMany).toHaveBeenCalledTimes(1);
+  expect(findMany.mock.calls[0][0]).toMatchObject({ relationLoadStrategy: 'join', include: { replies: { where: { userId: 'user-1', kind: 'REPOST', status: 'PUBLISHED', deletedAt: null } } } });
 });
 it('returns an empty feed when every recommendation has become unavailable', async () => {
   findMany.mockResolvedValue([]); expect(await getNewsfeed(['deleted'], user(), { feed: 'foryou' })).toEqual({ status: 200, data: [] });
 });
 it('hydrates parent repost actions without leaking credentials', async () => {
-  const parent = { ...post({ id: 'parent' }), user: user() };
-  findMany.mockResolvedValueOnce([{ ...post({ id: 'child', parentId: 'parent', parent }), user: user() }])
-    .mockResolvedValueOnce([{ id: 'repost', parentId: 'parent' }]);
+  const parent = { ...post({ id: 'parent' }), user: user(), replies: [{ id: 'repost', parentId: 'parent' }] };
+  findMany.mockResolvedValueOnce([{ ...post({ id: 'child', parentId: 'parent', parent }), user: user() }]);
   const result = await getNewsfeed(['child'], user(), { feed: 'foryou' });
   expect((result.data as any[])[0].parent.actions.hasReposted).toBe(true);
   expect((result.data as any[])[0].author).not.toHaveProperty('password');
@@ -41,4 +41,9 @@ it('applies the same visibility filter to lightweight recommendation lookup', as
 });
 it('handles lightweight recommendation database failure', async () => {
   findMany.mockRejectedValue(new Error('db')); expect((await getRecommendedPosts('u', [])).status).toBe(500);
+});
+
+it('skips hydration completely for empty rankings', async () => {
+  expect(await getNewsfeed([], user(), { feed: 'foryou' })).toEqual({ status: 200, data: [] });
+  expect(findMany).not.toHaveBeenCalled();
 });

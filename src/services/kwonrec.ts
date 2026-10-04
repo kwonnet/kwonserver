@@ -1,6 +1,7 @@
 import axios from "axios";
 import prisma from "@/db";
-import { Prisma } from "@prisma/client";
+import { recommendationVisibility } from "./recommendation-visibility";
+export { recommendationVisibility } from "./recommendation-visibility";
 
 /** Private service client. Never expose KWONREC_API_KEY to a browser. */
 export const kwonrecClient = axios.create({
@@ -11,31 +12,6 @@ export const kwonrecClient = axios.create({
     ? { Authorization: `Bearer ${process.env.KWONREC_API_KEY}` }
     : {},
 });
-
-/** Always apply against PostgreSQL when hydrating IDs; an index is not authorization. */
-export function recommendationVisibility(userId: string): Prisma.PostWhereInput {
-  const publicPost: Prisma.PostWhereInput = {
-    status: "PUBLISHED", scope: "ANYONE", isHidden: false, deletedAt: null,
-    disinterest: { none: { userId } },
-    reports: { none: { userId } },
-    user: {
-      isPrivate: false, status: "ACTIVE", deletedAt: null, deactivatedAt: null,
-      NOT: [
-        { blockedUsers: { some: { blockedId: userId } } },
-        { blockedBy: { some: { blockerId: userId } } },
-        { mutedBy: { some: { muterId: userId } } },
-      ],
-    },
-  };
-  return {
-    ...publicPost,
-    kind: { in: ["ROOT", "REPOST", "QUOTE"] },
-    AND: [
-      { OR: [{ parentId: null }, { parent: { is: publicPost } }] },
-      { OR: [{ rootId: null }, { root: { is: publicPost } }] },
-    ],
-  };
-}
 
 export async function getRecommendationResponse(userId: string, requestedLimit: unknown, requestedPage: unknown = 1) {
   const parsed = Number(requestedLimit ?? 21);

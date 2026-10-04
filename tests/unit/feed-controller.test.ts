@@ -17,7 +17,8 @@ it('passes ranked IDs to authoritative hydration and disables shared caching', a
   const res = response(); const request = req(); await getNewsfeedController(request, res);
   expect(deps.recommend).toHaveBeenCalledWith('viewer', 10, 1);
   expect(deps.hydrate).toHaveBeenCalledWith(['p2', 'p1'], request.user, expect.objectContaining({ feed: 'foryou', limit: 10, page: 1 }));
-  expect(res.headers).toEqual({ 'Cache-Control': 'private, no-store', 'X-Feed-Source': 'kwonrec' });
+  expect(res.headers).toMatchObject({ 'Cache-Control': 'private, no-store', 'X-Feed-Source': 'kwonrec' });
+  expect(res.headers['Server-Timing']).toMatch(/^recommendations;dur=\d+, hydration;dur=\d+$/);
   expect(res.body).toEqual([{ id: 'p2' }]);
 });
 it('forwards the requested page to recommendations and hydration', async () => {
