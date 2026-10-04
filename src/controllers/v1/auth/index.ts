@@ -8,6 +8,14 @@ import { ZodError } from "zod";
 import logger from "@/logger";
 import { SessionUser, AuthUser } from "@/types/user";
 import { getAuthUser } from "@/services/v1/utils";
+import { allowedOrigins } from "@/config";
+
+export const logoutController = (req: Request, res: Response) => {
+  const origin = req.get("origin");
+  if (origin && !allowedOrigins.includes(origin)) return res.status(403).send("Invalid request origin");
+  for (const name of ["tx_a_t", "x_a_t"]) res.clearCookie(name, { httpOnly: true, secure: true, sameSite: "none", path: "/" });
+  return res.status(204).send();
+};
 
 const composeAuthUser = (user: AuthUser): SessionUser => {
   return { id: user.id, name: user.name, email: String(user.email), username: user.username, role: user.role }
@@ -157,6 +165,5 @@ export const refreshTokenController = async (req: Request, res: Response) => {
     return res.status(500).send("Error: Sorry an error occurred trying to process request. Please close this app & open again.");
   }
 };
-
 
 

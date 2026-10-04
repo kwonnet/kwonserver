@@ -13,12 +13,15 @@ afterEach(() => vi.useRealTimers());
 it('omits a property without mutating its source', () => {
   const input = { id: 'u', email: 'private' }; expect(h.removeProperty(input, 'email')).toEqual({ id: 'u' }); expect(input.email).toBe('private');
 });
-it('prioritizes cookie, then query, then bearer token', () => {
+it('uses the explicitly selected bearer account before query or historical cookies', () => {
   const req: any = { cookies: { x_a_t: 'cookie' }, query: { token: 'query' }, headers: { authorization: 'Bearer header' } };
-  expect(h.getAuthorizationToken(req)).toBe('cookie'); delete req.cookies.x_a_t;
-  expect(h.getAuthorizationToken(req)).toBe('query'); delete req.query.token;
   expect(h.getAuthorizationToken(req)).toBe('header'); delete req.headers.authorization;
+  expect(h.getAuthorizationToken(req)).toBe('query'); delete req.query.token;
+  expect(h.getAuthorizationToken(req)).toBe('cookie'); delete req.cookies.x_a_t;
   expect(h.getAuthorizationToken(req)).toBeNull();
+});
+it.each(['', 'Basic invalid', 'Bearer '])('does not fall back to a different cookie account for invalid explicit authorization %s', authorization => {
+  expect(h.getAuthorizationToken({ cookies: { tx_a_t: 'old-account' }, query: {}, headers: { authorization } } as any)).toBeNull();
 });
 it.each([undefined, '::1', '::ffff:1.2.3.4', '1.2.3.4'])('normalizes geolocation IP %s', async ip => {
   deps.lookup.mockResolvedValue({ country: 'NG' });

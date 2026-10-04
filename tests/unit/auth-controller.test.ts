@@ -5,8 +5,20 @@ vi.mock('@/services/v1/auth', () => ({ createUser: deps.create, loginUser: deps.
 vi.mock('@/services/v1/utils', () => ({ getAuthUser: deps.getUser }));
 vi.mock('@/utils', () => ({ generateToken: deps.generate, getAuthTokenUser: deps.decode }));
 vi.mock('@/utils/ipLocation', () => ({ lookup: deps.lookup }));
-import { signInController, signUpController, refreshTokenController, getMeController } from '@/controllers/v1/auth';
+import { signInController, signUpController, refreshTokenController, getMeController, logoutController } from '@/controllers/v1/auth';
 const body = { name: 'Ada', email: 'ADA@example.test', password: 'password123' };
+it('logout clears both historical API cookies even without a working authenticated session', () => {
+  const res = response(); res.clearCookie = vi.fn(() => res);
+  logoutController({ get: () => undefined } as any, res);
+  expect(res.statusCode).toBe(204);
+  expect(res.clearCookie).toHaveBeenCalledWith('tx_a_t', { httpOnly: true, secure: true, sameSite: 'none', path: '/' });
+  expect(res.clearCookie).toHaveBeenCalledWith('x_a_t', { httpOnly: true, secure: true, sameSite: 'none', path: '/' });
+});
+it('rejects cross-origin logout attempts', () => {
+  const res = response(); res.clearCookie = vi.fn(() => res);
+  logoutController({ get: () => 'https://attacker.invalid' } as any, res);
+  expect(res.statusCode).toBe(403); expect(res.clearCookie).not.toHaveBeenCalled();
+});
 beforeEach(() => {
   Object.values(deps).forEach(fn => fn.mockReset());
   deps.create.mockResolvedValue({ status: 200, data: user() }); deps.login.mockResolvedValue({ status: 200, data: user() });

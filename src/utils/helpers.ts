@@ -66,17 +66,15 @@ export function formatNumberWithCommas(num: number): string {
 }
 
 export const getAuthorizationToken = (req: Request) => {
+  // An explicitly selected account must override a historical browser cookie.
+  // Never fall back to another identity when an explicit credential is invalid.
+  const bearerToken = req.headers.authorization;
+  if (bearerToken !== undefined) return /^Bearer (\S+)$/i.exec(bearerToken)?.[1] ?? null;
+  const queryToken = req?.query?.token;
+  if (queryToken !== undefined) return typeof queryToken === "string" && queryToken ? queryToken : null;
   const cookieToken = req.cookies?.tx_a_t || req.cookies?.x_a_t;
 
   if (cookieToken) return cookieToken as string;
-
-  const queryToken = req?.query?.token;
-
-  if (queryToken) return queryToken as string;
-
-  const bearerToken = req.headers.authorization;
-
-  if (bearerToken) return bearerToken.split("Bearer ")[1];
 
   return null;
 };

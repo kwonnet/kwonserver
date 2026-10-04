@@ -5,6 +5,7 @@ import { Socket } from 'node:net';
 vi.mock('@/config', () => ({
   appName: 'Kwonnet test', jwtKey: 'unit-test-jwt-secret',
   encrytionKey: 'unit-test-encryption-secret',
+  allowedOrigins: ['https://kwonnet.test'],
   flutterwaveApiUrl: 'https://payments.invalid', flutterwaveSecretKey: 'unit-test-only',
 }));
 vi.mock('@/logger', () => ({ default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
