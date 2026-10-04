@@ -52,6 +52,12 @@ describe('recommendation client', () => {
     expect(second.data.recommendations.some((post: { id: string }) =>
       first.data.recommendations.some((previous: { id: string }) => previous.id === post.id))).toBe(false);
   });
+  it.each([['invalid', 0], [0, 0], [-1, 0], [1.5, 0], [Infinity, 0], [10001, 99990]])(
+    'bounds fallback page %s to offset %s', async (page, skip) => {
+      mocks.request.mockRejectedValue(new Error('timeout'));
+      await getRecommendationResponse('viewer', 10, page);
+      expect(mocks.posts).toHaveBeenCalledWith(expect.objectContaining({ take: 10, skip }));
+    });
   it('propagates failure if the authoritative fallback database also fails', async () => {
     mocks.request.mockRejectedValue(new Error('timeout'));
     mocks.posts.mockRejectedValue(new Error('database unavailable'));
