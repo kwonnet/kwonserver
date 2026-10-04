@@ -4,250 +4,115 @@ Run `npm test` for unit and existing regression tests, or
 `npm run test:unit:coverage` for the full source coverage report.
 See [tests/README.md](tests/README.md) for setup, scope and remaining integration/E2E work.
 
-# Postgresql Extensions
-Please enable these postgresql extensions
-### 1. Pgvector
+# PostgreSQL extensions and trending topics
 
-To install [pgvector](https://github.com/pgvector/pgvector)
-Then follow the instructions
+Database preparation is automatic in `npm run db:deploy`, already invoked by the
+Compute Engine release, local Compose `db-prepare`, and other documented release
+flows. It uses the existing `DATABASE_URL`, or `DATABASE_MIGRATION_URL` when set.
+Use a **direct/session connection** for this release step; a transaction pooler
+cannot retain the setup lock. The API continues to use `DATABASE_URL` normally.
+No database provider, credentials, Docker volume, or financial data is changed.
+For a Neon pooled URL, the release automatically selects its documented direct
+endpoint for the same database, preserving pooling for the API. For other
+transaction poolers, supply `DATABASE_MIGRATION_URL` explicitly.
 
-### 2. Timescaledb for analytical and timesearies data
-[timescaledb](https://www.tigerdata.com/docs/self-hosted/latest/install/installation-macos#add-the-timescale_db-extension-to-your-database)
+The release performs these steps before replacing the API/worker:
 
-#### Add timescaledb via docker
+1. Verify that the host provides **pgvector** and enable `vector`. The committed
+   initial migration already uses `vector`; client generation alone is insufficient.
+2. Enable **TimescaleDB** when the host offers it. The extension's SQL name is
+   `timescaledb`, not `timescale_db`. The server must already have its packages
+   and `shared_preload_libraries` configured; app deployment cannot install them
+   on a remote managed database.
+3. Apply committed Prisma migrations and seed reference data.
+4. Prepare the trending hypertable/analytics views and backfill existing posts
+   in resumable batches of 100. The deployment logs progress, remembers the
+   committed cursor, and skips this backfill after completion. New writes and
+   edits are handled by database triggers, rather than replaying all history on
+   every deployment.
 
-```bash
-docker pull timescale/timescaledb-ha:pg18
+`TIMESCALEDB_MODE` defaults to `auto`. Set it to `required` to stop deployment if
+TimescaleDB is unavailable, or `off` to skip enabling it. In automatic mode, a host
+without TimescaleDB uses the same indexed PostgreSQL event table and live views;
+the public trending API continues to function. Permission/preload failures on
+an available extension stop deployment with an actionable error.
+
+Neon lists both pgvector and TimescaleDB, but provides **Apache-2 licensed
+TimescaleDB features only**. Hypertables work; continuous aggregates require the
+Timescale license. The setup detects the license and creates live PostgreSQL
+views on Apache-only hosts instead. See [Neon's extension support](https://neon.com/docs/extensions/pg-extensions)
+and [TimescaleDB on Neon](https://neon.com/docs/extensions/timescaledb).
+
+On a full TimescaleDB installation, `PostTrendingEvent` becomes a one-day-chunk
+hypertable. Versioned `kwonnet_trending_hourly_v1` and
+`kwonnet_trending_daily_v1` continuous aggregates refresh automatically. Each
+counts distinct posts/users directly from events: daily users are not a sum of
+hourly users. The first release refreshes the last 30 days once; subsequent
+releases preserve the views and policies. Recent unmaterialized events are
+included through real-time aggregation. Existing manually created legacy views
+are preserved; no `DROP ... CASCADE` is used.
+
+For a **new** self-hosted database, the official
+[`timescale/timescaledb-ha` image](https://github.com/timescale/timescaledb-docker-ha)
+includes pgvector. Provision it with persistent storage, a private network and
+strong credentials, then point the existing database URLs at it. Do not replace
+an existing production database/container or attach its data directory to a
+new PostgreSQL major version as part of deploying this app. Moving an existing
+database requires a separate backup/restore cutover.
+
+## Turning post content into n-grams
+
+The committed migration installs the extraction functions and post triggers.
+For example, `Solar Energy Revolution #Solar` produces unigrams such as `solar`,
+bigrams such as `solar energy`, trigrams such as `solar energy revolution`, and
+the hashtag `solar`. Hashtags keep their full word: the first letter is not removed.
+
+- Draft.js content is parsed into its rendered block text; entity metadata,
+  object keys, URLs, mentions, and HTML tags are excluded.
+- Keywords are lowercased and deduplicated per post. Repeating a word or hashtag
+  does not inflate its mention count. If a word is also a hashtag, `isHashtag`
+  remains true. English stopwords are excluded without joining unrelated words
+  across removed stopwords. Extraction is capped at 50,000 characters, with
+  n-grams limited to the first 1,000 tokens and keywords at most 160 characters.
+- Only published, visible, public root posts contribute. Drafts, deleted/hidden
+  posts, restricted scopes, replies and reposts are excluded. Content/status/
+  visibility/country changes replace the post's derived events atomically;
+  deletion removes them. Like/view counter updates do not re-extract content.
+- Global trends combine countries into one topic. Country queries bind the
+  country ID as a parameter. The API uses exact rolling 24-hour, previous-24-hour
+  and 30-day counts, and checks current post/account visibility on every read.
+  Private, suspended, deleted or deactivated authors cannot appear in trends,
+  even when an analytics summary has not refreshed yet. Future timestamps are
+  excluded. Distinct users are counted over the complete window.
+
+The analytics views are internal reporting summaries. The public API deliberately
+reads indexed events with live visibility checks; precomputed counts alone cannot
+safely reflect an account becoming private. This is keyword-frequency trending,
+not sentiment analysis, spam detection, or automatic vector embedding generation.
+`vector` enables the existing vector columns; n-gram extraction does not invent
+embeddings or alter their dimensions.
+
+Useful commands after building:
+
+```sh
+npm run db:deploy      # normal automatic release, including analytics
+npm run db:extensions # inspect/enable supported extensions only
+npm run db:analytics  # idempotent analytics preparation/resume only
 ```
 
-```bash
-docker run -d --name timescaledb -p 5433:5432  -v /app/data/postgresl:/pgdata -e PGDATA=/pgdata -e POSTGRES_PASSWORD=12345678 timescale/timescaledb-ha:pg18
-```
-
-<!-- To connect to timescale db -->
-
-```bash
-postgresql://postgres:12345678@timescaledb:5433/kwonnet
-```
-
-
-## Process of turning your db content into n-grams to capture trending topics
-
-
-### Step 1 -  Create hypertable function
+SQL inspection (same configured database):
 
 ```sql
-SELECT create_hypertable('"PostTrendingEvent"', 'createdAt', chunk_time_interval => INTERVAL '1 day');
+SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector', 'timescaledb');
+SELECT name, cursor, "completedAt" FROM "KwonnetAnalyticsSetup";
+SELECT * FROM kwonnet_trend_keywords('Solar Energy Revolution #Solar');
+SELECT * FROM kwonnet_trending_hourly_v1 ORDER BY bucket DESC LIMIT 20;
 ```
 
-### Step 2 - Create function
-
-```sql
-CREATE OR REPLACE FUNCTION extract_and_insert_keywords()
-RETURNS TRIGGER AS $$
-DECLARE
-  clean_text TEXT;
-  words TEXT[];
-  kw TEXT;
-BEGIN
-  -- Skip if not published or no content
-  IF NEW.status != 'PUBLISHED' OR NEW.content IS NULL OR NEW.content = '' THEN
-    RETURN NEW;
-  END IF;
-
-  -- Clean content
-  clean_text := regexp_replace(
-    regexp_replace(
-      regexp_replace(lower(NEW.content), 'https?://\S+', '', 'g'),
-      '@\w+', '', 'g'
-    ),
-    '[^\w\s]', ' ', 'g'
-  );
-  clean_text := regexp_replace(clean_text, '\s+', ' ', 'g');
-  words := regexp_split_to_array(trim(clean_text), '\s+');
-
-  -- Insert hashtags
-  FOR kw IN
-    SELECT lower(substr(m[1], 2)) FROM regexp_matches(NEW.content, '#(\w+)', 'g') m
-  LOOP
-    IF length(kw) >= 3 THEN
-      INSERT INTO "PostTrendingEvent" ("createdAt", "postId", "authorId", keyword, "countryId", "isHashtag")
-      VALUES (NEW."createdAt", NEW.id, NEW."userId", kw, NEW."countryId", true)
-      ON CONFLICT ("postId", keyword, "createdAt") DO NOTHING;
-    END IF;
-  END LOOP;
-
-  -- Unigrams
-  FOR kw IN SELECT unnest(words)
-  LOOP
-    IF length(kw) >= 3 AND kw ~ '^[a-z0-9]+$' AND kw NOT IN ('the','and','for','you','with','that','this','have','from','are','was','but','not','can','all','out','get','has','her','his','one','our','who','new','now','day','time','like','just','know','year','your','more','will','about','than','them','would','been','people','into','only','its','there','what','when','which','their','said','after','over','also','could','other','how','then','may','first','any','very','had','were','each','she','they') THEN
-      INSERT INTO "PostTrendingEvent" ("createdAt", "postId", "authorId", keyword, "countryId", "isHashtag")
-      VALUES (NEW."createdAt", NEW.id, NEW."userId", kw, NEW."countryId", false)
-      ON CONFLICT ("postId", keyword, "createdAt") DO NOTHING;
-    END IF;
-  END LOOP;
-
-  -- Bigrams and Trigrams (similar loop using generate_series)
-  -- ... (same as before, using INSERT with NEW.column)
-
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-```
-
-### step 3. Re-create Continuous Aggregates (Best Version)
-
-```sql
--- Drop old
-DROP MATERIALIZED VIEW IF EXISTS trending_keywords_daily CASCADE;
-DROP MATERIALIZED VIEW IF EXISTS trending_keywords_hourly CASCADE;
-
--- Hourly: all metrics we need
-CREATE MATERIALIZED VIEW trending_keywords_hourly
-WITH (timescaledb.continuous) AS
-SELECT
-  time_bucket('1 hour', "createdAt") AS bucket,
-  keyword,
-  COALESCE("countryId", 'global') AS country,
-  COUNT(*) AS mentions,                          -- total occurrences
-  COUNT(DISTINCT "postId") AS unique_posts,      -- unique posts
-  COUNT(DISTINCT "authorId") AS unique_users     -- unique users
-FROM "PostTrendingEvent"
-GROUP BY bucket, keyword, country;
-
-SELECT add_continuous_aggregate_policy('trending_keywords_hourly',
-  start_offset => INTERVAL '3 months',
-  end_offset => INTERVAL '1 hour',
-  schedule_interval => INTERVAL '1 hour');
-
--- Daily aggregate (on hourly) — repeat time_bucket exactly
-CREATE MATERIALIZED VIEW trending_keywords_daily
-WITH (timescaledb.continuous) AS
-SELECT
-  time_bucket('1 day', bucket) AS bucket,
-  keyword,
-  country,
-  SUM(mentions) AS mentions,
-  SUM(unique_posts) AS unique_posts,
-  SUM(unique_users) AS unique_users
-FROM trending_keywords_hourly
-GROUP BY time_bucket('1 day', bucket), keyword, country;
-
-SELECT add_continuous_aggregate_policy('trending_keywords_daily',
-  start_offset => INTERVAL '1 year',
-  end_offset => INTERVAL '1 day',
-  schedule_interval => INTERVAL '1 day');
-
-```
-
-### Step 4 - Refresh to Populate
-
-```sql
-CALL refresh_continuous_aggregate('trending_keywords_hourly', NULL, NULL);
-CALL refresh_continuous_aggregate('trending_keywords_daily', NULL, NULL);
-
-```
-
-
-
-### Copy existing data
-
-```sql
-    INSERT INTO "PostTrendingEvent" ("createdAt", "postId", "authorId", keyword, "countryId", "isHashtag")
-SELECT
-  p."createdAt",
-  p.id AS "postId",
-  p."userId" AS "authorId",
-  kw.keyword,
-  p."countryId",
-  kw.is_hashtag
-FROM "Post" p
-CROSS JOIN LATERAL (
-  -- Hashtags
-  SELECT 
-    lower(substr(m[1], 2)) AS keyword,
-    true AS is_hashtag
-  FROM regexp_matches(COALESCE(p.content, ''), '#(\w+)', 'g') m
-  WHERE length(lower(substr(m[1], 2))) >= 3
-
-  UNION ALL
-
-  -- Unigrams + Bigrams + Trigrams (cleaned)
-  SELECT 
-    word AS keyword,
-    false AS is_hashtag
-  FROM (
-    SELECT regexp_replace(
-      regexp_replace(
-        regexp_replace(lower(COALESCE(p.content, '')), 'https?://\S+', '', 'g'),
-        '@\w+', '', 'g'
-      ),
-      '[^\w\s]', ' ', 'g'
-    ) AS cleaned_text
-  ) ct,
-  LATERAL unnest(regexp_split_to_array(regexp_replace(ct.cleaned_text, '\s+', ' ', 'g'), '\s+')) AS word
-  WHERE length(trim(word)) >= 3
-    AND trim(word) ~ '^[a-z0-9]+$'
-    AND trim(word) NOT IN ('the','and','for','you','with','that','this','have','from','are','was','but','not','can','all','out','get','has','her','his','one','our','who','new','now','day','time','like','just','know','year','your','more','will','about','than','them','would','been','people','into','only','its','there','what','when','which','their','said','after','over','also','could','other','how','then','may','first','any','very','had','were','each','she','they')
-
-  UNION ALL
-
-  -- Bigrams
-  SELECT 
-    words[i] || ' ' || words[i+1] AS keyword,
-    false AS is_hashtag
-  FROM (
-    SELECT regexp_split_to_array(regexp_replace(
-      regexp_replace(
-        regexp_replace(
-          regexp_replace(lower(COALESCE(p.content, '')), 'https?://\S+', '', 'g'),
-          '@\w+', '', 'g'
-        ),
-        '[^\w\s]', ' ', 'g'
-      ), '\s+', ' ', 'g'), '\s+') AS words
-  ) w,
-  generate_series(1, array_upper(w.words, 1) - 1) i
-  WHERE length(w.words[i] || w.words[i+1]) >= 7
-
-  UNION ALL
-
-  -- Trigrams
-  SELECT 
-    words[i] || ' ' || words[i+1] || ' ' || words[i+2] AS keyword,
-    false AS is_hashtag
-  FROM (
-    SELECT regexp_split_to_array(regexp_replace(
-      regexp_replace(
-        regexp_replace(
-          regexp_replace(lower(COALESCE(p.content, '')), 'https?://\S+', '', 'g'),
-          '@\w+', '', 'g'
-        ),
-        '[^\w\s]', ' ', 'g'
-      ), '\s+', ' ', 'g'), '\s+') AS words
-  ) w,
-  generate_series(1, array_upper(w.words, 1) - 2) i
-  WHERE length(w.words[i] || w.words[i+1] || w.words[i+2]) >= 10
-) kw
-WHERE p.status = 'PUBLISHED'
-  AND p."deletedAt" IS NULL
-  AND (p.content IS NOT NULL AND p.content <> '')
-ON CONFLICT ("postId", keyword, "createdAt") DO NOTHING;
-```
-
-### For local testing - manually refresh the aggregate functions
-
-```sql
--- Refresh hourly aggregate (full history)
-CALL refresh_continuous_aggregate('trending_keywords_hourly', NULL, NULL);
-
--- Refresh daily aggregate
-CALL refresh_continuous_aggregate('trending_keywords_daily', NULL, NULL);
-
-```
-
-### To Query Your Live Trending Topics!
-
-
+Public endpoint: `GET /api/v1/discover/trend` (see the registered discovery
+routes for authentication and country filtering). No manual README SQL steps
+are required on each deployment. Backfill failures roll back the current batch;
+rerunning deployment resumes from the last successful batch.
 
 ## Removed payment integrations
 
@@ -287,7 +152,7 @@ The project uses Prisma 6. The commands live in `package.json`; Docker and the r
 | --- | --- |
 | `npm run build` | Generate Prisma Client and compile the server and seed. Does not change the database. |
 | `npm run db:migrate -- --name describe_change` | Create/apply migrations against a development database. Commit the resulting `prisma/migrations` files. |
-| `npm run db:deploy` | Apply committed migrations with `prisma migrate deploy`, then seed reference data. Run once per release before starting new replicas. |
+| `npm run db:deploy` | Prepare extensions, apply committed migrations, seed reference data, and prepare/backfill analytics. Run once per release before starting new replicas. |
 | `npm run db:setup` | Build, migrate, and seed in sequence for a fresh checkout with dependencies installed. |
 | `npm run db:status` | Inspect migration status. |
 | `npm run db:seed` | Rerun the compiled reference seed after building. |
@@ -304,7 +169,7 @@ npm run db:deploy
 npm start
 ```
 
-The database must support the `vector` extension used by the existing migrations. For Neon, use a direct connection for the release job if your pooled connection rejects migration or transaction operations. Do not use `migrate dev`, `db push`, or `migrate reset` as a production release step. Existing databases created without Prisma migration history need an intentional baseline before deploying migrations; do not reset them.
+The database must support the `vector` extension used by the existing migrations. TimescaleDB is enabled according to `TIMESCALEDB_MODE` as described above. For Neon, use a direct connection for the release job if your pooled connection rejects migration or transaction operations. Do not use `migrate dev`, `db push`, or `migrate reset` as a production release step. Existing databases created without Prisma migration history need an intentional baseline before deploying migrations; do not reset them.
 
 Docker generates Prisma Client for Linux during the build and includes the compiled seed, migration files, and Prisma CLI in the runtime image. Build the image, run a one-off release container, then deploy application replicas:
 

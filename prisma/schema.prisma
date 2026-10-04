@@ -523,6 +523,7 @@ model PostTrendingEvent {
   countryId  String?
   isHashtag  Boolean   @default(false)
 
+  @@index([postId])
   @@id([postId, keyword, createdAt])
   @@index([createdAt])
   @@index([keyword, createdAt(sort: Desc)])
@@ -1967,4 +1968,13 @@ model GameWalletAction {
   createdAt      DateTime @default(now())
   settledAt      DateTime?
   @@index([status, createdAt])
+}
+
+// Deployment-owned cursor; not application data or a writable public model.
+model KwonnetAnalyticsSetup {
+  name        String    @id
+  cursor      String?
+  completedAt DateTime? @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @db.Timestamptz(6)
+  @@ignore
 }

@@ -205,3 +205,20 @@ Keep expanding these areas without excluding source files or replacing real
 behavior with mocks solely to raise the coverage number. The existing
 `test:integrations` (plural) retains its historical meaning: retired-provider
 regressions. Use `test:integration` (singular) for the real database suite.
+
+## Trending database integration
+
+`npm run test:integration` now prepares extensions and analytics before testing.
+The new trending suite exercises rendered-text extraction, all n-gram lengths,
+atomic edit/delete handling, visibility, exact author counts, concurrent edits,
+and resumable/idempotent backfill on disposable PostgreSQL.
+
+To also exercise TimescaleDB hypertables and continuous aggregates:
+
+```sh
+TEST_POSTGRES_IMAGE=timescale/timescaledb-ha:pg17 npm run test:integration
+```
+
+The test database always uses the guarded local fixture URL; it never reads a
+production database URL. Docker removes the test containers and temporary data
+when the suite finishes.

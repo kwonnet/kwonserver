@@ -295,3 +295,15 @@ Before deploying the wallet integrity release, follow the maintenance/reconcilia
 steps in [wallet-integrity.md](../../docs/wallet-integrity.md). Old Redis wallet
 snapshots must be reviewed before enabling PostgreSQL-authoritative game charges;
 this release does not automatically repair historical balances.
+
+### Database extensions and trends
+
+The existing release command `npm run db:deploy` now also prepares pgvector,
+TimescaleDB (when supported), trending extraction triggers, analytics summaries
+and the resumable post backfill before replacing running containers. Keep the
+same `DATABASE_URL` and optional direct `DATABASE_MIGRATION_URL` in
+`KWONSERVER_ENV`. Optional `TIMESCALEDB_MODE=required` makes missing TimescaleDB a
+release failure; the default `auto` supports PostgreSQL-only and Apache-licensed
+hosts using live views. First-time history indexing logs batches; completed
+backfills are skipped on subsequent pushes. See the root README for hosting
+requirements and verification SQL. Deployment never changes the database host.

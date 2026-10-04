@@ -14,7 +14,7 @@ it('binds country filters as SQL parameters rather than interpolating user input
   const country = "NG'; DROP TABLE posts; --"; db.country.findUnique.mockResolvedValue({ name: 'Nigeria', emoji: '🇳🇬' });
   expect(await getTrendingTopics(country, 7, 10)).toMatchObject({ status: 200, data: [{ country: 'Nigeria' }] });
   const [sql, ...params] = db.$queryRawUnsafe.mock.calls[0];
-  expect(sql).toContain('AND country_id = $3'); expect(sql).not.toContain(country); expect(params).toEqual([10, 7, country]);
+  expect(sql).toContain('AND e."countryId" = $3'); expect(sql).not.toContain(country); expect(params).toEqual([10, 7, country]);
   expect(db.country.findUnique).toHaveBeenCalledWith({ where: { id: country }, select: { name: true, emoji: true } });
 });
 it('labels an unknown country', async () => { db.country.findUnique.mockResolvedValue(null); expect(await getTrendingTopics('missing')).toMatchObject({ data: [{ country: 'Unknown' }] }); });
@@ -27,4 +27,9 @@ it.each(['query', 'country'])('returns a generic error after %s failure', async 
   if (stage === 'query') db.$queryRawUnsafe.mockRejectedValue(new Error('private'));
   else db.country.findUnique.mockRejectedValue(new Error('private'));
   expect(await getTrendingTopics('NG')).toEqual({ status: 500, data: 'Error occurred trying to get latest trends' });
+});
+
+it.each([0, 101, 1.5])('rejects invalid limit %s before querying', async limit => {
+  expect(await getTrendingTopics(null, limit)).toMatchObject({ status: 400 });
+  expect(db.$queryRawUnsafe).not.toHaveBeenCalled();
 });

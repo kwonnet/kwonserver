@@ -1,22 +1,14 @@
-import {
-  QueryParams,
-} from "@/schema";
-import {
-  getNewsfeed} from "@/services/v1/posts";
-import { validateZodInput, generateUniqueRef } from "@/utils";
+import { QueryParams } from "@/schema";
+import { validateZodInput } from "@/utils";
 import { Response, Request } from "express";
-import { AuthUser } from "@/types/user";
-import axios from "axios"
-import { storeDataInCacheMemory } from "@/interceptors"
 import { getTrendingTopics } from "@/services/v1/discover";
-
-
-
 
 export const getTrendController = async (
   req: Request,
   res: Response
 ) => {
+  // Visibility changes must not leave private topics in a shared/CDN cache.
+  res.setHeader("Cache-Control", "private, no-store");
   try {
 
     const zodResult = validateZodInput(req.query, QueryParams);
@@ -33,9 +25,6 @@ export const getTrendController = async (
 
     const result = await getTrendingTopics(country, limit, 10)
 
-    if(typeof result.data !== "string"){
-      storeDataInCacheMemory(req, result.data, {ttl: 240000, global: true})
-    }
 
     return res.status(result.status).send(result.data);
   

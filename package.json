@@ -21,7 +21,7 @@
     "db:status": "prisma migrate status",
     "db:seed": "prisma db seed",
     "db:seed:demo": "npm run build:seed && prisma db seed -- --demo",
-    "db:deploy": "npm run db:migrate:deploy && npm run db:seed",
+    "db:deploy": "node scripts/database-analytics.cjs deploy",
     "db:setup": "npm run build && npm run db:deploy",
     "test:prisma": "node --test tests/prisma-seed.test.cjs",
     "test:unit": "vitest run",
@@ -38,7 +38,9 @@
     "dev:worker": "ts-node -r tsconfig-paths/register src/cron/worker.ts",
     "quiz:inventory": "node -r ./scripts/register-paths.cjs dist/services/questionInventory/cli.js",
     "redis:connections": "node scripts/redis-connections.cjs",
-    "wallet:audit": "node scripts/wallet-audit.cjs"
+    "wallet:audit": "node scripts/wallet-audit.cjs",
+    "db:extensions": "node scripts/database-analytics.cjs extensions",
+    "db:analytics": "node scripts/database-analytics.cjs setup"
   },
   "prisma": {
     "seed": "node dist-seed/seed.js"

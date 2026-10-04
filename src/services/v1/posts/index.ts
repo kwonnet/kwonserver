@@ -59,7 +59,6 @@ import { LookupResult } from "ip-location-api";
 import { AppError, cleanTextContent, generateEmbedding, removeProperty, commentClassifier, contentTopicClassifier, topicClassifier, cleanTextContentWithHashtag } from "@/utils/helpers";
 import { SessionUser, AuthUser } from "@/types/user";
 import { clickHouseClient } from "@/db/clickhouse";
-import { prismaAnalytics, sequelizeAnalytics } from "@/db/timescaleDb";
 import axios from "axios";
 import { removeStopwords, eng, fra } from 'stopword'
 

@@ -8,6 +8,8 @@ services:
   db-prepare:
     <<: *kwonserver-image
     command: ["npm", "run", "db:deploy"]
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
       # Optional direct URL for migrations/seeding when the app uses a pooler.
