@@ -25,6 +25,7 @@ jobs:
       contents: read
       id-token: write
     env:
+      REMOTE_DEPLOY_DIR: /tmp/kwonserver-deploy-${{ github.run_id }}-${{ github.run_attempt }}
       GCP_COMPUTE_ENGINE_PROJECT: ${{ secrets.GCP_COMPUTE_ENGINE_PROJECT }}
       GAR_LOCATION: ${{ secrets.GAR_LOCATION }}
       GCP_COMPUTE_ENGINE_NAME: ${{ secrets.GCP_COMPUTE_ENGINE_NAME }}
@@ -98,13 +99,18 @@ jobs:
       - name: Upload deployment over IAP
         id: upload
         run: |
-          gcloud compute scp --recurse deploy/compute "$GCP_COMPUTE_ENGINE_NAME:kwonserver-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+          # Create the destination explicitly before SCP/SFTP inspects it.
+          # Copy its contents so deploy.sh stays directly inside the staging directory.
+          gcloud compute ssh "$GCP_COMPUTE_ENGINE_NAME" --project="$GCP_COMPUTE_ENGINE_PROJECT" --zone="$GCP_COMPUTE_ENGINE_ZONE" \
+            --tunnel-through-iap --quiet \
+            --command="mkdir -m 700 -- '$REMOTE_DEPLOY_DIR'"
+          gcloud compute scp --recurse deploy/compute/* "$GCP_COMPUTE_ENGINE_NAME:$REMOTE_DEPLOY_DIR/" \
             --project="$GCP_COMPUTE_ENGINE_PROJECT" --zone="$GCP_COMPUTE_ENGINE_ZONE" --tunnel-through-iap --quiet
       - name: Install and deploy API and worker
         run: |
           gcloud compute ssh "$GCP_COMPUTE_ENGINE_NAME" --project="$GCP_COMPUTE_ENGINE_PROJECT" --zone="$GCP_COMPUTE_ENGINE_ZONE" \
             --tunnel-through-iap --quiet \
-            --command="chmod -R go-rwx \"\$HOME/kwonserver-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT\" && sudo bash \"\$HOME/kwonserver-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/deploy.sh\" '$DEPLOY_IMAGE'"
+            --command="chmod -R go-rwx '$REMOTE_DEPLOY_DIR' && sudo bash '$REMOTE_DEPLOY_DIR/deploy.sh' '$DEPLOY_IMAGE'"
       - name: Remove temporary deployment files
         if: always()
         run: |
@@ -115,4 +121,4 @@ jobs:
         run: |
           gcloud compute ssh "$GCP_COMPUTE_ENGINE_NAME" --project="$GCP_COMPUTE_ENGINE_PROJECT" --zone="$GCP_COMPUTE_ENGINE_ZONE" \
             --tunnel-through-iap --quiet \
-            --command="rm -rf \"\$HOME/kwonserver-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT\"" || true
+            --command="rm -rf '$REMOTE_DEPLOY_DIR'" || true
