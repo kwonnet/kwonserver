@@ -51,6 +51,8 @@ export const composeAuthUser = (
   return {
     id: user.id,
     avatar: user.avatar,
+    banner: user.banner,
+    website: user.website,
     username: user.username,
     name: user.name,
     role: user.role,

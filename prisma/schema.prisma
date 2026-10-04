@@ -28,6 +28,11 @@ model User {
   email                 String             @unique
   bio                   String?
   avatar                String?
+  banner                String?
+  website               String?
+  dateOfBirth           DateTime?          @db.Date
+  dateOfBirthChangedAt  DateTime?
+  countryChangedAt      DateTime?
   password              String?
   phone                 String?
   /// Historical account identifier retained in storage only.

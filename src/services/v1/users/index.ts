@@ -1604,6 +1604,8 @@ export async function getUserProfileOverview(
         name: true,
         bio: true,
         avatar: true,
+        banner: true,
+        website: true,
         meta: true,
         role: true,
         userType: true,

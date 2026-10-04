@@ -307,3 +307,19 @@ release failure; the default `auto` supports PostgreSQL-only and Apache-licensed
 hosts using live views. First-time history indexing logs batches; completed
 backfills are skipped on subsequent pushes. See the root README for hosting
 requirements and verification SQL. Deployment never changes the database host.
+
+### Profile editing
+
+The normal deployment database migration step adds banner, website, date of birth,
+and independent country/date-of-birth change timestamps. Deploy kwonserver before
+kwonweb. No manual database edits are needed.
+
+Set `CLOUDFLARE_PUBLIC_MEDIA_URL=https://media.kwonnet.com` in `KWONSERVER_ENV`
+if overriding the default media host; it must match kwonweb's R2 public URL.
+Images must come from the authenticated account's normalized R2 upload directory:
+`profiles/<account-hash>/<uuid>.webp` for avatars and
+`banners/<account-hash>/<uuid>.webp` for banners. Existing saved image URLs remain valid.
+`GET/PATCH /api/v1/users/me/profile` expose/edit the signed-in account only.
+Country and date of birth each have an independent 30-day cooldown, including
+removal. First edits of existing accounts are allowed; unchanged values do not
+reset cooldowns. Email, passwords and account privileges are excluded.
