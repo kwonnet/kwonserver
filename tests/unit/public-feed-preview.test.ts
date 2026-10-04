@@ -12,6 +12,7 @@ it("only reads published, unhidden, public root posts from active public account
   expect(publicPreviewQuery(now).where).toEqual({
     status: "PUBLISHED", scope: "ANYONE", kind: "ROOT", type: "CONTENT",
     deletedAt: null, isHidden: false, parentId: null, rootId: null,
+    createdAt: { gte: new Date("2026-10-01T00:00:00Z"), lte: now },
     OR: [{ scheduleAt: null }, { scheduleAt: { lte: now } }],
     user: { isPrivate: false, status: "ACTIVE", deletedAt: null, deactivatedAt: null },
   });
@@ -20,17 +21,17 @@ it("only reads published, unhidden, public root posts from active public account
 it("projects only preview fields, never credentials, relationships, transactions, metadata or quiz answers", () => {
   const query = publicPreviewQuery();
   expect(Object.keys(query.select).sort()).toEqual([
-    "content", "createdAt", "id", "media", "totalLikes", "totalReplies", "totalReposts", "user", "userId",
+    "content", "createdAt", "id", "media", "totalBookmarks", "totalImpressions", "totalLikes", "totalQuotes", "totalReplies", "totalReposts", "totalShares", "totalTips", "totalViews", "user", "userId",
   ]);
-  expect(query.select.user).toEqual({ select: { name: true, username: true, avatar: true } });
-  expect(Object.keys(query.select.media.select).sort()).toEqual(["altText", "fileId", "fileType", "id", "thumbnailUrl", "url"]);
-  expect(query.take).toBe(12);
+  expect(query.select.user).toEqual({ select: { id: true, name: true, username: true, avatar: true } });
+  expect(Object.keys(query.select.media.select).sort()).toEqual(["altText", "fileId", "fileType", "height", "id", "thumbnailUrl", "url", "width"]);
+  expect(query.take).toBe(21);
   expect(query.select.media.take).toBe(4);
 });
 
 it("serializes large counters safely and returns no personalized feed state", async () => {
-  db.post.findMany.mockResolvedValue([{ id: "post", content: "Hello", user: { name: "Ada", username: "ada", avatar: null },
-    media: [], totalLikes: 9007199254740993n, totalReplies: 1n, totalReposts: 0n }]);
+  db.post.findMany.mockResolvedValueOnce([{ id: "post", content: "Hello", user: { name: "Ada", username: "ada", avatar: null },
+    media: [], totalLikes: 9007199254740993n, totalReplies: 1n, totalReposts: 0n, totalQuotes: 0n, totalShares: 0n, totalBookmarks: 0n, totalImpressions: 0n, totalTips: 0n, totalViews: 0n }]).mockResolvedValueOnce([]);
   const posts = await getPublicPostPreview();
   expect(posts[0].totalLikes).toBe("9007199254740993");
   expect(posts[0].author.username).toBe("ada");
@@ -45,7 +46,7 @@ it("ignores arbitrary paging and user input, and does not need an authenticated 
   expect(res.statusCode).toBe(200);
   expect(res.body).toEqual([]);
   expect(res.headers["Cache-Control"]).toBe("no-store");
-  expect(db.post.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 12, where: expect.objectContaining({ scope: "ANYONE" }) }));
+  expect(db.post.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 21, where: expect.objectContaining({ scope: "ANYONE" }) }));
 });
 
 it("does not expose database errors on the public endpoint", async () => {
@@ -54,4 +55,17 @@ it("does not expose database errors on the public endpoint", async () => {
   await getPublicPostPreviewController({} as any, res);
   expect(res.statusCode).toBe(503);
   expect(JSON.stringify(res.body)).not.toContain("password");
+});
+
+it("ranks the last 72 hours by engagement and uses disjoint older fallback only to fill the limit", async () => {
+  const now = new Date("2026-10-04T12:00:00Z");
+  expect(publicPreviewQuery(now).orderBy).toEqual([
+    { totalLikes: "desc" }, { totalReplies: "desc" }, { totalReposts: "desc" }, { totalShares: "desc" }, { createdAt: "desc" }, { id: "desc" },
+  ]);
+  db.post.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+  await getPublicPostPreview(now);
+  expect(db.post.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    take: 21, where: expect.objectContaining({ createdAt: { lt: new Date("2026-10-01T12:00:00Z") }, scope: "ANYONE", isHidden: false }),
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  }));
 });
