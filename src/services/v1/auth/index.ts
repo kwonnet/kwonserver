@@ -39,15 +39,16 @@ export const createUser = async (
 
     let userCountry: Country | null = null;
 
-    if (location && location?.country) {
+    const inferredCountry = location?.country?.trim();
+    const inferredCountryName = location?.country_name?.trim();
+    if (inferredCountry || inferredCountryName) {
+      const identifiers = [...new Set([inferredCountry, inferredCountryName].filter((value): value is string => !!value))];
       userCountry = await prisma.country.findFirst({
-        where: {
-          OR: [
-            { iso2: { mode: "insensitive", equals: location?.country } },
-            { iso3: { mode: "insensitive", equals: location?.country } },
-            { name: { mode: "insensitive", equals: location?.country } },
-          ],
-        },
+        where: {OR: identifiers.flatMap(value => [
+          {iso2: {mode: "insensitive" as const, equals: value}},
+          {iso3: {mode: "insensitive" as const, equals: value}},
+          {name: {mode: "insensitive" as const, equals: value}},
+        ])},
       });
     }
     // check if user name is already taken
@@ -273,7 +274,7 @@ export const handleReferral = async (params: {
 
 
 // Verify signed Google claims before resolving the stable provider identity.
-export async function loginGoogleUser(idToken: string) {
+export async function loginGoogleUser(idToken: string, resolveRegistrationLocation?: () => Promise<Partial<LookupResult> | null>) {
   const audience = process.env.AUTH_GOOGLE_ID;
   if (!audience) return {status: 503, data: "Google sign-in is not configured"};
   let claims;
@@ -307,7 +308,8 @@ export async function loginGoogleUser(idToken: string) {
           }
         }
       } else {
-        const created = await createUser({email, name: claims.name || email.split("@")[0]}, null, {subject: claims.sub, avatar: claims.picture});
+        const registrationLocation = resolveRegistrationLocation ? await resolveRegistrationLocation() : null;
+        const created = await createUser({email, name: claims.name || email.split("@")[0]}, registrationLocation, {subject: claims.sub, avatar: claims.picture});
         // Concurrent callbacks must not create duplicate wallets/registration bonuses.
         account = await prisma.user.findUnique({where: {googleSubject: claims.sub}});
         if (!account) return created;
