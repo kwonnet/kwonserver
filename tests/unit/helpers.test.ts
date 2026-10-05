@@ -3,7 +3,7 @@ const deps = vi.hoisted(() => ({ lookup: vi.fn(), detect: vi.fn(), parseBot: vi.
 vi.mock('@/utils/ipLocation', () => ({ lookup: deps.lookup }));
 vi.mock('node-device-detector', () => ({ default: class { detect = deps.detect; parseBot = deps.parseBot; } }));
 vi.mock('node-device-detector/client-hints', () => ({ default: class { parse = deps.hints; } }));
-vi.mock('@huggingface/transformers', () => ({ pipeline: deps.pipeline }));
+vi.mock('@huggingface/transformers', () => ({ pipeline: deps.pipeline, env: {} }));
 import * as h from '@/utils/helpers';
 beforeEach(() => {
   Object.values(deps).forEach(fn => fn.mockReset());
@@ -80,4 +80,13 @@ it('accepts the cookie issued by signup and signin', () => {
 });
 it('handles requests without parsed cookies', () => {
   expect(h.getAuthorizationToken({ query: {}, headers: { authorization: 'Bearer token' } } as any)).toBe('token');
+});
+
+it('scores topic relevance independently instead of diluting it across overlapping categories', async () => {
+  const result = { labels: ['sports', 'news'], scores: [0.82, 0.76] };
+  const classify = vi.fn().mockResolvedValue(result);
+  deps.pipeline.mockResolvedValue(classify);
+  expect(await h.topicClassifier('Champions league match tonight')).toEqual(result);
+  expect(deps.pipeline).toHaveBeenCalledWith('zero-shot-classification', 'Xenova/bart-large-mnli', { dtype: 'q8', device: 'cpu' });
+  expect(classify).toHaveBeenCalledWith('Champions league match tonight', expect.arrayContaining(['sports', 'news']), { multi_label: true, hypothesis_template: 'This discussion is about {}.' });
 });

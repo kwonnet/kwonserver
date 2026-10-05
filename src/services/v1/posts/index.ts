@@ -8317,8 +8317,9 @@ export async function inferPostTopic(id: string, expectedHash?: string) {
   if (text.length >= 10) {
     const result = await topicClassifier(text);
     const label = result.labels?.[0], score = result.scores?.[0];
-    if (typeof score !== 'number' || !Number.isFinite(score) || typeof label !== 'string') throw new Error('Invalid topic inference response');
-    if (score >= 0.35 && POST_LABELS.includes(label)) topic = label;
+    if (typeof score !== 'number' || !Number.isFinite(score) || score < 0 || score > 1 || typeof label !== 'string') throw new Error('Invalid topic inference response');
+    // Independent entailment must outweigh contradiction before assigning a topic.
+    if (score >= 0.5 && POST_LABELS.includes(label)) topic = label;
   }
   // Do not let an old inference overwrite an edit, deletion or unpublished post.
   await prisma.post.updateMany({ where: { id, content: post.content, deletedAt: null, status: { in: [PostStatus.PUBLISHED, PostStatus.SCHEDULED] } }, data: { topic } });

@@ -341,7 +341,10 @@ one job globally at a time; content is not sent to a third-party inference API.
 The old kwonrec `/classify` compatibility endpoint only matched literal label
 words and is no longer used for post categorization. Inference reads rendered
 text, excludes Draft.js metadata, caps input at 2,000 characters and stores
-`generic` for tiny text or a top score below 0.35. A model score is a heuristic,
+`generic` for text shorter than 10 characters or a top independent relevance score
+below 0.5. Categories are scored independently (`multi_label: true`), and only
+the strongest accepted category is saved. This avoids diluting confidence across
+overlapping labels such as news, politics and community. A model score is a heuristic,
 not guaranteed semantic accuracy, particularly for non-English content; validate
 category quality with representative posts before tuning this cutoff.
 
@@ -353,7 +356,11 @@ Redis loss using pending database rows. Deleted/unpublished posts and obsolete
 content versions are ignored; conditional writes prevent late inference from
 replacing an edited post. The normal deployment migration clears old lexical
 labels for semantic backfill and adds a trigger resetting topics after text edits.
-Existing posts are processed gradually, without delaying post creation or reads.
+Migration `20261005140000_reassess_generic_post_topics` resets existing published
+and scheduled generic topics to pending once so the corrected scoring can reassess
+them. Run the normal deployment migration and restart the worker; the existing
+bounded reconciliation job handles the backfill. Existing posts are processed
+gradually, without delaying post creation or reads.
 
 Compute deployment persists the model cache in `kwonserver_model_cache`, mounted
 only in the worker with `TRANSFORMERS_CACHE=/app/model-cache`. Other hosts should

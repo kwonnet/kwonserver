@@ -214,7 +214,9 @@ const getTopicPipeline = async () => {
 
 export async function topicClassifier(text: string) {
   const classifier = await getTopicPipeline()
-  const result = await classifier(text, TOPIC_LABELS, { multi_label: false, hypothesis_template: "This discussion is about {}.",} );
+  // Score each category against contradiction independently. A softmax across
+  // overlapping categories dilutes relevance and makes a fixed cutoff misleading.
+  const result = await classifier(text, TOPIC_LABELS, { multi_label: true, hypothesis_template: "This discussion is about {}.",} );
   return Array.isArray(result) ? result[0] : result
 }
 

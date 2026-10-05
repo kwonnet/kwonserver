@@ -27,7 +27,7 @@ it('ignores deleted or obsolete queued versions', async () => {
   deps.post.findFirst.mockResolvedValue(null); await inferPostTopic('post');
   expect(deps.classifier).not.toHaveBeenCalled(); expect(deps.post.updateMany).not.toHaveBeenCalled();
 });
-it.each([{ labels: ['sports'], scores: [0.1] }, { labels: ['invented'], scores: [0.9] }])('keeps uncertain or unknown labels generic', async result => {
+it.each([{ labels: ['sports'], scores: [0.1] }, { labels: ['sports'], scores: [0.49] }, { labels: ['invented'], scores: [0.9] }])('keeps uncertain or unknown labels generic', async result => {
   deps.classifier.mockResolvedValue(result); await inferPostTopic('post');
   expect(deps.post.updateMany.mock.calls[0][0].data.topic).toBe('generic');
 });
@@ -38,5 +38,16 @@ it('does not download a model for empty or tiny content', async () => {
 it('leaves failed inference pending for retry rather than storing a fake topic', async () => {
   deps.classifier.mockRejectedValue(new Error('Model unavailable'));
   await expect(inferPostTopic('post')).rejects.toThrow('Model unavailable');
+  expect(deps.post.updateMany).not.toHaveBeenCalled();
+});
+
+it('selects the strongest independently relevant category even when several categories apply', async () => {
+  deps.classifier.mockResolvedValue({ labels: ['sports', 'news', 'community'], scores: [0.65, 0.61, 0.56] });
+  await inferPostTopic('post');
+  expect(deps.post.updateMany.mock.calls[0][0].data.topic).toBe('sports');
+});
+it.each([NaN, -0.1, 1.1])('retries malformed model scores rather than saving generic: %s', async score => {
+  deps.classifier.mockResolvedValue({ labels: ['sports'], scores: [score] });
+  await expect(inferPostTopic('post')).rejects.toThrow('Invalid topic inference response');
   expect(deps.post.updateMany).not.toHaveBeenCalled();
 });
