@@ -41,7 +41,8 @@
     "wallet:audit": "node scripts/wallet-audit.cjs",
     "db:extensions": "node scripts/database-analytics.cjs extensions",
     "db:analytics": "node scripts/database-analytics.cjs setup",
-    "auth:cleanup": "node scripts/auth-retention.cjs"
+    "auth:cleanup": "node scripts/auth-retention.cjs",
+    "topics:evaluate": "node scripts/evaluate-post-topics.cjs"
   },
   "prisma": {
     "seed": "node dist-seed/seed.js"

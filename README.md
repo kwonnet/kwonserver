@@ -336,7 +336,7 @@ semantic inference assigns `Post.topic` and does not replace that extraction.
 
 The existing BullMQ topic queue now receives new posts after commit. The worker
 uses the existing [Transformers.js zero-shot classifier](https://huggingface.co/docs/transformers.js/api/pipelines#module_pipelines.ZeroShotClassificationPipeline)
-with quantized BART MNLI locally, with
+with quantized `MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33` locally, with
 one job globally at a time; content is not sent to a third-party inference API.
 The old kwonrec `/classify` compatibility endpoint only matched literal label
 words and is no longer used for post categorization. Inference reads rendered
@@ -598,3 +598,38 @@ Public SEO endpoints are `/users/:id/metadata`, `/posts/:id/metadata` and
 root posts, never private identity/contact data or viewer relationships. The sitemap
 index is capped at the newest 1,000 posts from the past 30 days. Anonymous embeds
 apply the same visibility gate and never include another user's reaction state.
+
+
+### DeBERTa post topic classification
+
+The post worker now runs the requested [DeBERTa model](https://huggingface.co/MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33)
+through its published ONNX q8 weights using the existing Transformers.js dependency.
+Weights and tokenizer are pinned to revision `c5dca3bda16d30337e493e3e3e5caa19a3e7c8c2`.
+The hypothesis is `This example is about {}`; the existing 17 category labels,
+independent relevance scoring (`multi_label: true`), top-label selection and 0.5
+minimum remain unchanged. Scores are not calibrated probabilities. The model was
+trained on English; assess non-English/Pidgin posts separately before claiming quality.
+
+Deploy migration `20261005190000_post_topic_model_version` before restarting the
+API/worker. It adds `Post.topicModel` and a sparse recovery index for this revision.
+The existing recovery job scans old/null model versions in batches of 50, preserves
+current labels during the backlog, and stamps successful processing with the new
+model version. Failure leaves the previous label/version intact for retry. Content
+hashes still prevent stale edits being overwritten; job IDs now include the model
+version so old failures cannot block the replacement classifier. Changing the model
+revision later should also refresh the recovery index predicate in a migration.
+
+Model loading remains lazy in the background worker. Existing deployment cache
+volume/settings are reused. The first download is approximately 643 MB; allow RAM
+headroom for both Node workers and kwonrec on the shared VM. On the development
+machine the quantized model used roughly 1.3 GB RSS after evaluation; six short posts
+ran in approximately 0.55–0.80 seconds each with two CPU threads and one global job.
+Those figures are not a VM capacity benchmark. The example about AI art ranked
+technology (0.9981) above learning (0.9821). All six public smoke examples matched
+intended categories; this is not an accuracy claim over the production corpus.
+
+To reproduce without reading application credentials, database rows or Redis:
+`npm run compile` then `npm run topics:evaluate`. Set `TRANSFORMERS_CACHE` to a
+writable persistent directory to reuse weights. The default local `.model-cache`
+is git-ignored. Run evaluation where RAM is available for an additional model
+instance, rather than duplicating inference blindly on a busy production worker.

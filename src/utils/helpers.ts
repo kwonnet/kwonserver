@@ -1,3 +1,4 @@
+import {POST_LABELS, POST_TOPIC_MODEL, POST_TOPIC_MODEL_REVISION, POST_TOPIC_HYPOTHESIS, POST_TOPIC_SESSION_OPTIONS} from '@/cron/helpers';
 import { Request } from "express";
 import { lookup } from "./ipLocation";
 import DeviceDetector from "node-device-detector";
@@ -197,16 +198,15 @@ export async function commentClassifier(text: string) {
   // console.log("sentiment---", result)
   return result[0] as { label: string, score: number }
 }
-const TOPIC_LABELS = [ 'sports', 'news', 'music', 'business', 'education', 'technology', 'entertainment',  'politics', 'arts & culture', 'inspiration', 'learning', 'gaming',
-  'movies', 'comedy', 'lifestyle', 'community', 'shopping'
-  ]
+const TOPIC_LABELS = POST_LABELS;
 // Lazy-load the model once (fast in workers, zero overhead on startup)
 let topicPipeline: Promise<ZeroShotClassificationPipeline> | null = null;
 const getTopicPipeline = async () => {
   if (!topicPipeline) {
     if (process.env.TRANSFORMERS_CACHE) env.cacheDir = process.env.TRANSFORMERS_CACHE;
-    topicPipeline = pipeline("zero-shot-classification", "Xenova/bart-large-mnli", {
-      dtype: 'q8', device: 'cpu',
+    topicPipeline = pipeline("zero-shot-classification", POST_TOPIC_MODEL, {
+      revision: POST_TOPIC_MODEL_REVISION,
+      dtype: 'q8', device: 'cpu', session_options: POST_TOPIC_SESSION_OPTIONS,
     }).catch(error => { topicPipeline = null; throw error; });
   }
   return topicPipeline;
@@ -216,7 +216,7 @@ export async function topicClassifier(text: string) {
   const classifier = await getTopicPipeline()
   // Score each category against contradiction independently. A softmax across
   // overlapping categories dilutes relevance and makes a fixed cutoff misleading.
-  const result = await classifier(text, TOPIC_LABELS, { multi_label: true, hypothesis_template: "This discussion is about {}.",} );
+  const result = await classifier(text, TOPIC_LABELS, { multi_label: true, hypothesis_template: POST_TOPIC_HYPOTHESIS,} );
   return Array.isArray(result) ? result[0] : result
 }
 

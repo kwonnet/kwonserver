@@ -1,3 +1,4 @@
+import {POST_TOPIC_MODEL_VERSION} from '@/cron/helpers';
 import { createHash } from 'node:crypto';
 import { POST_LABELS } from '@/cron/helpers';
 import { enqueuePostTopic } from '@/cron/utils';
@@ -8142,7 +8143,7 @@ export async function inferPostTopic(id: string, expectedHash?: string) {
     if (score >= 0.5 && POST_LABELS.includes(label)) topic = label;
   }
   // Do not let an old inference overwrite an edit, deletion or unpublished post.
-  await prisma.post.updateMany({ where: { id, content: post.content, deletedAt: null, status: { in: [PostStatus.PUBLISHED, PostStatus.SCHEDULED] } }, data: { topic } });
+  await prisma.post.updateMany({ where: { id, content: post.content, deletedAt: null, status: { in: [PostStatus.PUBLISHED, PostStatus.SCHEDULED] } }, data: { topic, topicModel: POST_TOPIC_MODEL_VERSION } });
 }
 
 /** Search rendered text only; metadata and private posts never become search hits. */

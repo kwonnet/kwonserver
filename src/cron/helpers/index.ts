@@ -12,3 +12,10 @@ export const POST_LABELS = ["news", "music", "business", "education", "technolog
 
 
 
+
+// Pin weights/tokenizer together so classifications do not change with upstream main.
+export const POST_TOPIC_MODEL = 'MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33';
+export const POST_TOPIC_MODEL_REVISION = 'c5dca3bda16d30337e493e3e3e5caa19a3e7c8c2';
+export const POST_TOPIC_HYPOTHESIS = 'This example is about {}';
+export const POST_TOPIC_MODEL_VERSION = `${POST_TOPIC_MODEL}@${POST_TOPIC_MODEL_REVISION}`;
+export const POST_TOPIC_SESSION_OPTIONS = {intraOpNumThreads: 2, interOpNumThreads: 1};

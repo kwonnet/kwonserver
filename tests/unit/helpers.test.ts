@@ -87,6 +87,6 @@ it('scores topic relevance independently instead of diluting it across overlappi
   const classify = vi.fn().mockResolvedValue(result);
   deps.pipeline.mockResolvedValue(classify);
   expect(await h.topicClassifier('Champions league match tonight')).toEqual(result);
-  expect(deps.pipeline).toHaveBeenCalledWith('zero-shot-classification', 'Xenova/bart-large-mnli', { dtype: 'q8', device: 'cpu' });
-  expect(classify).toHaveBeenCalledWith('Champions league match tonight', expect.arrayContaining(['sports', 'news']), { multi_label: true, hypothesis_template: 'This discussion is about {}.' });
+  expect(deps.pipeline).toHaveBeenCalledWith('zero-shot-classification', 'MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33', { revision: 'c5dca3bda16d30337e493e3e3e5caa19a3e7c8c2', dtype: 'q8', device: 'cpu', session_options: {intraOpNumThreads: 2, interOpNumThreads: 1} });
+  expect(classify).toHaveBeenCalledWith('Champions league match tonight', expect.arrayContaining(['sports', 'news']), { multi_label: true, hypothesis_template: 'This example is about {}' });
 });

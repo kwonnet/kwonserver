@@ -1,3 +1,4 @@
+import {POST_TOPIC_MODEL_VERSION} from '../helpers';
 import { createHash } from 'node:crypto';
 import prisma from "@/db";
 import redisClient from "@/redis";
@@ -218,14 +219,14 @@ export async function removePostTopicCronJob(id: string) {
 
 // Content-addressed jobs never remove an active job; edits create a new version.
 export async function enqueuePostTopic(id: string, content: string | null, priority = 1) {
-  const hash = createHash('sha256').update(content ?? '').digest('hex');
+  const hash = createHash('sha256').update(POST_TOPIC_MODEL_VERSION).update('\0').update(content ?? '').digest('hex');
   const jobId = `topic-${id}-${hash}`;
   const existing = await postTopicQueue.getJob(jobId);
   if (existing) {
     if (await existing.getState() === 'failed' && Date.now() - (existing.finishedOn ?? 0) >= 3600_000) await existing.retry();
     return;
   }
-  await postTopicQueue.add(`topic-${id}`, { id, contentHash: hash }, {
+  await postTopicQueue.add(`topic-${id}`, { id, contentHash: createHash('sha256').update(content ?? '').digest('hex') }, {
     jobId, priority, attempts: 4, backoff: { type: 'exponential', delay: 30_000 },
     removeOnComplete: true, removeOnFail: { count: 500, age: 86400 },
   });

@@ -1,3 +1,5 @@
+import {POST_TOPIC_MODEL_VERSION} from '@/cron/helpers';
+import {createHash} from 'node:crypto';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { resetMocks } from './fixtures';
 const deps = vi.hoisted(() => {
@@ -94,7 +96,7 @@ it('deduplicates versioned topic jobs without removing active work and bounds re
   expect(queue.remove).not.toHaveBeenCalled();
   expect(queue.add.mock.calls[0][2]).toMatchObject({ attempts: 4, priority: 1, backoff: { type: 'exponential', delay: 30000 } });
   expect(queue.add.mock.calls[0][2].jobId).not.toBe(queue.add.mock.calls[1][2].jobId);
-  expect(queue.add.mock.calls[0][1]).toEqual({ id: 'post', contentHash: expect.any(String) });
+  expect(queue.add.mock.calls[0][1]).toEqual({ id: 'post', contentHash: createHash('sha256').update('first').digest('hex') });
 });
 it('retries exhausted topic jobs only after the cooldown', async () => {
   const retry = vi.fn();
@@ -115,4 +117,11 @@ it('recovers retained failures without a completion timestamp', async () => {
   const retry = vi.fn();
   deps.queues.postTopicQueue.getJob.mockResolvedValue({ getState: async () => 'failed', retry });
   await jobs.enqueuePostTopic('post', 'text'); expect(retry).toHaveBeenCalledOnce();
+});
+
+it('separates queue deduplication by model revision while retaining the raw content hash for edit protection', async () => {
+ deps.queues.postTopicQueue.getJob.mockResolvedValue(null);
+ await jobs.enqueuePostTopic('post', 'text');
+ const expected = createHash('sha256').update(POST_TOPIC_MODEL_VERSION).update('\0').update('text').digest('hex');
+ expect(deps.queues.postTopicQueue.add).toHaveBeenCalledWith('topic-post', {id: 'post', contentHash: createHash('sha256').update('text').digest('hex')}, expect.objectContaining({jobId: `topic-post-${expected}`}));
 });
