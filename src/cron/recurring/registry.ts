@@ -1,4 +1,5 @@
 export const recurringJobs = [
+  { name: 'infer_pending_post_topics', pattern: '* * * * *', load: () => import('./infer_pending_post_topics') },
   { name: 'recover_game_wallet_actions', pattern: '* * * * *', load: () => import('./recover_game_wallet_actions') },
   { name: 'settle_pending_tips', pattern: '*/5 * * * *', load: () => import('./settle_pending_tips') },
   { name: 'sync_redis_prisma_transactions', pattern: '*/30 * * * *', load: () => import('./sync_redis_prisma_transactions') },

@@ -1,3 +1,4 @@
+import { inferPostTopic } from '@/services/v1/posts';
 import prisma from "@/db";
 import { Worker } from "bullmq";
 import {
@@ -142,52 +143,9 @@ export const postEmbeddingWorker = new Worker(
 export const postTopicWorker = new Worker(
   POST_TOPIC_QUEUE,
   async (job) => {
-    const { id } = job.data;
-    logger.info(`Processing post topic job: ${id}`);
-    // get post and thread
-    const { thread, ...rest } = await prisma.post.findFirstOrThrow({where: { id, status: { in: [PostStatus.PUBLISHED, PostStatus.SCHEDULED]}, deletedAt: null }, select: {
-      id: true,
-      content: true,
-       thread: {
-        select: {
-          id: true,
-          content: true
-        }
-       }
-    }})
-
-    const posts = [rest, ...thread]?.filter(item => !!item.content)
-
-    if(posts.length === 0){
-      logger.warn(`Skipping .. Queued post job not available: ${id}`);
-      // throw new Error(`Queued post job not available: ${id}`);
-    }
-
-    const topicPosts: { id: string, topic: string} [] = []
-
-    for (let index = 0; index < posts.length; index++) {
-      const item = posts[index];
-      const text = cleanTextContent(item.content);
-      // get topic
-      const resp = await kwonrecClient.post("/classify", { labels: POST_LABELS, text })
-      const result = resp.data as { label: string, score: number}
-
-      if (result.score > 0) topicPosts.push({id: item.id, topic: result.label })
-    }
-    // update db
-    await prisma.$transaction(
-      topicPosts.map(item =>
-        prisma.post.update({
-          where: { id: item.id },
-          data: {
-            topic: item.topic
-          }
-        })
-      )
-    )
-    logger.info(`Post topic job executed - ${id}`);
+    await inferPostTopic(job.data.id, job.data.contentHash);
   },
-  { connection: workerConnection, autorun: false }
+  { connection: workerConnection, autorun: false, concurrency: 1 }
 );
 
 export const postKeywordsWorker = new Worker(

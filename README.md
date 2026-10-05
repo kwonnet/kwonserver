@@ -317,3 +317,48 @@ orders visible public posts from the last 72 hours by likes, replies, reposts,
 shares, and date. Non-recommendation tabs query PostgreSQL directly and paginate
 there, without requiring kwonrec. Privacy, block/mute, report, scheduling, and
 quoted/reposted parent visibility checks remain enforced by the API.
+
+### Discover country and semantic category trends
+
+`GET /api/v1/discover/trend?mode=foryou&limit=50` resolves the authenticated
+account's country from PostgreSQL. An empty country result falls back to worldwide
+trends; guests and accounts without a country use worldwide directly. A database
+error is reported rather than disguised as empty results. Ordinary country filters
+remain available for Worldwide. New posts capture the author's country when no
+country is assigned; older events without one use the author's current country.
+
+`topic=sports`, `topic=music`, etc. filters the same real keyword/hashtag counts
+by the post's inferred category. `arts-culture` in the UI maps to `arts & culture`.
+These categories do not manufacture trends: results still require public, visible,
+published root posts in the last 24 hours, with exact unique-post/author counts.
+The existing PostgreSQL/Timescale extraction indexes words, n-grams and hashtags;
+semantic inference assigns `Post.topic` and does not replace that extraction.
+
+The existing BullMQ topic queue now receives new posts after commit. The worker
+uses the existing [Transformers.js zero-shot classifier](https://huggingface.co/docs/transformers.js/api/pipelines#module_pipelines.ZeroShotClassificationPipeline)
+with quantized BART MNLI locally, with
+one job globally at a time; content is not sent to a third-party inference API.
+The old kwonrec `/classify` compatibility endpoint only matched literal label
+words and is no longer used for post categorization. Inference reads rendered
+text, excludes Draft.js metadata, caps input at 2,000 characters and stores
+`generic` for tiny text or a top score below 0.35. A model score is a heuristic,
+not guaranteed semantic accuracy, particularly for non-English content; validate
+category quality with representative posts before tuning this cutoff.
+
+Jobs use content hashes, four exponential retries, bounded retained failures and
+an hourly retry cooldown for exhausted jobs. A minute-by-minute reconciliation
+job scans 50 pending posts per page, prioritizes new posts over historical
+backfill and pauses at 500 queued/in-flight jobs. It recovers missed enqueues or
+Redis loss using pending database rows. Deleted/unpublished posts and obsolete
+content versions are ignored; conditional writes prevent late inference from
+replacing an edited post. The normal deployment migration clears old lexical
+labels for semantic backfill and adds a trigger resetting topics after text edits.
+Existing posts are processed gradually, without delaying post creation or reads.
+
+Compute deployment persists the model cache in `kwonserver_model_cache`, mounted
+only in the worker with `TRANSFORMERS_CACHE=/app/model-cache`. Other hosts should
+provide a writable persistent cache using that setting. First inference downloads
+the model from Hugging Face; subsequent jobs/releases reuse it. Monitor worker
+memory, `postTopicQueue` backlog/failures and pending `Post.topic IS NULL` rows.
+Deploy kwonserver before kwonweb. Category pages can be empty until classification
+has caught up; that is displayed as an empty state rather than a placeholder.

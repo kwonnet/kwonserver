@@ -16,6 +16,7 @@ export async function startCronJobs() {
   try {
     // autorun:false does not prevent BullMQ from opening blocking connections.
     // Import only in the process that actually executes jobs.
+    await queues.postTopicQueue.setGlobalConcurrency(1);
     workers = await import('./jobs/workers');
     activeWorkers = [workers.appSubscriptionWorker, workers.appSubReminderWorker,
       workers.postEmbeddingWorker, workers.postTopicWorker, workers.postKeywordsWorker];

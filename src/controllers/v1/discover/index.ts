@@ -1,7 +1,7 @@
 import { QueryParams } from "@/schema";
 import { validateZodInput } from "@/utils";
 import { Response, Request } from "express";
-import { getTrendingTopics } from "@/services/v1/discover";
+import { getDiscoverTrends } from "@/services/v1/discover";
 
 export const getTrendController = async (
   req: Request,
@@ -23,7 +23,10 @@ export const getTrendController = async (
 
     const { limit, country } = zodData
 
-    const result = await getTrendingTopics(country, limit, 1)
+    const mode = req.query.mode;
+    const topic = req.query.topic;
+    if ((mode !== undefined && mode !== 'foryou') || (topic !== undefined && typeof topic !== 'string')) return res.status(400).send('Invalid trend filter');
+    const result = await getDiscoverTrends({ viewerId: req.user?.id, personalized: mode === 'foryou', country, limit, topic: topic as string | undefined })
 
 
     return res.status(result.status).send(result.data);

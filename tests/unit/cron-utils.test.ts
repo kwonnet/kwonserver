@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { resetMocks } from './fixtures';
 const deps = vi.hoisted(() => {
-  const queue = () => ({ add: vi.fn(), remove: vi.fn() });
+  const queue = () => ({ add: vi.fn(), remove: vi.fn(), getJob: vi.fn() });
   return { queues: { appSubscriptionQueue: queue(), appSubReminderQueue: queue(), postEmbeddingQueue: queue(), postTopicQueue: queue() },
     redis: { get: vi.fn(), set: vi.fn() }, db: { subscription: { findUnique: vi.fn() } }, delay: vi.fn() };
 });
@@ -87,3 +87,32 @@ for (const entry of [
     entry.queue.remove.mockRejectedValue(new Error('redis')); await entry.remove('post'); expect(logger.error).toHaveBeenCalled();
   });
 }
+
+it('deduplicates versioned topic jobs without removing active work and bounds retries', async () => {
+  await jobs.enqueuePostTopic('post', 'first'); await jobs.enqueuePostTopic('post', 'edited');
+  const queue = deps.queues.postTopicQueue;
+  expect(queue.remove).not.toHaveBeenCalled();
+  expect(queue.add.mock.calls[0][2]).toMatchObject({ attempts: 4, priority: 1, backoff: { type: 'exponential', delay: 30000 } });
+  expect(queue.add.mock.calls[0][2].jobId).not.toBe(queue.add.mock.calls[1][2].jobId);
+  expect(queue.add.mock.calls[0][1]).toEqual({ id: 'post', contentHash: expect.any(String) });
+});
+it('retries exhausted topic jobs only after the cooldown', async () => {
+  const retry = vi.fn();
+  deps.queues.postTopicQueue.getJob.mockResolvedValue({ getState: async () => 'failed', finishedOn: Date.now(), retry });
+  await jobs.enqueuePostTopic('post', 'text'); expect(retry).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(3600000); await jobs.enqueuePostTopic('post', 'text'); expect(retry).toHaveBeenCalledOnce();
+  expect(deps.queues.postTopicQueue.add).not.toHaveBeenCalled();
+});
+
+it('preserves active topic jobs and supports empty content and backfill priority', async () => {
+  deps.queues.postTopicQueue.getJob.mockResolvedValueOnce({ getState: async () => 'active' });
+  await jobs.enqueuePostTopic('post', 'text'); expect(deps.queues.postTopicQueue.add).not.toHaveBeenCalled();
+  deps.queues.postTopicQueue.getJob.mockResolvedValueOnce(undefined);
+  await jobs.enqueuePostTopic('empty', null, 10);
+  expect(deps.queues.postTopicQueue.add.mock.calls[0][2].priority).toBe(10);
+});
+it('recovers retained failures without a completion timestamp', async () => {
+  const retry = vi.fn();
+  deps.queues.postTopicQueue.getJob.mockResolvedValue({ getState: async () => 'failed', retry });
+  await jobs.enqueuePostTopic('post', 'text'); expect(retry).toHaveBeenCalledOnce();
+});

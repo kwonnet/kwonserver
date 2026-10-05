@@ -112,3 +112,22 @@ it('backfills pre-existing posts once and resumes without duplicating events', a
     expect(await db.postTrendingEvent.count({ where: { postId: post.id } })).toBe(3);
   } finally { await connection.end(); }
 });
+
+it('filters category trends using inferred topics and resets them when content changes', async () => {
+  const post = await makePost('sports', 'Championship Victory');
+  await db.post.update({ where: { id: post.id }, data: { topic: 'sports' } });
+  const sports = await getTrendingTopics(null, 100, 1, 'sports');
+  expect(sports.data).toEqual(expect.arrayContaining([expect.objectContaining({ trend: 'Championship Victory' })]));
+  const music = await getTrendingTopics(null, 100, 1, 'music');
+  expect(music.data).not.toEqual(expect.arrayContaining([expect.objectContaining({ trend: 'Championship Victory' })]));
+  await db.post.update({ where: { id: post.id }, data: { content: 'Album Release' } });
+  expect((await db.post.findUniqueOrThrow({ where: { id: post.id } })).topic).toBeNull();
+});
+
+it('captures the author country for new posts without a location', async () => {
+  const country = await db.country.findUniqueOrThrow({ where: { id: prefix + 'country' } });
+  await db.user.update({ where: { id: author }, data: { countryId: country.id } });
+  const post = await makePost('author-country', 'Localized Celebration');
+  expect(post.countryId).toBe(country.id);
+  expect((await getTrendingTopics(country.id, 100, 1)).data).toEqual(expect.arrayContaining([expect.objectContaining({ trend: 'Localized Celebration' })]));
+});

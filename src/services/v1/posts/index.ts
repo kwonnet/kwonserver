@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { POST_LABELS } from '@/cron/helpers';
+import { enqueuePostTopic } from '@/cron/utils';
 import { lockWallets, cents, WalletError, walletOperation, requestKey } from '@/services/walletLedger';
 import { recommendationVisibility, kwonrecClient } from "@/services/kwonrec";
 import prisma from "@/db";
@@ -574,6 +577,9 @@ export const createPost = async (body: PostCreate, userId: string) => {
       return { ...rootPost, thread };
     });
 
+    for (const post of [result, ...result.thread]) {
+      void enqueuePostTopic(post.id, post.content).catch(() => console.warn('Topic enqueue failed; background scan will retry'));
+    }
     triggerPushNotification(
       "cm8wuohmp0002c9jnx181fdno",
       result.content?.slice(0, 100) ?? "User just published a post"
@@ -8294,4 +8300,25 @@ export function getFeedVisibility(userId: string, feed: string): Prisma.PostWher
   return { ...visibility, AND: [visibility, schedules],
     ...(feed === "trending" ? { createdAt: { gte: new Date(now.getTime() - THREE_DAYS_MS), lte: now } } : {}),
   };
+}
+
+/** Semantic inference runs only in the job worker, never during post creation. */
+export async function inferPostTopic(id: string, expectedHash?: string) {
+  const post = await prisma.post.findFirst({ where: { id, deletedAt: null, status: { in: [PostStatus.PUBLISHED, PostStatus.SCHEDULED] } }, select: { id: true, content: true } });
+  if (!post || (expectedHash !== undefined && createHash('sha256').update(post.content ?? '').digest('hex') !== expectedHash)) return;
+  let text = post.content ?? '';
+  try {
+    const raw = JSON.parse(text);
+    if (Array.isArray(raw.blocks)) text = raw.blocks.map((block: { text?: string }) => typeof block.text === 'string' ? block.text : '').join(' ');
+  } catch { /* Plain text is already rendered content. */ }
+  text = text.replace(/https?:\/\/\S+|@[\w]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 2000);
+  let topic = 'generic';
+  if (text.length >= 10) {
+    const result = await topicClassifier(text);
+    const label = result.labels?.[0], score = result.scores?.[0];
+    if (typeof score !== 'number' || !Number.isFinite(score) || typeof label !== 'string') throw new Error('Invalid topic inference response');
+    if (score >= 0.35 && POST_LABELS.includes(label)) topic = label;
+  }
+  // Do not let an old inference overwrite an edit, deletion or unpublished post.
+  await prisma.post.updateMany({ where: { id, content: post.content, deletedAt: null, status: { in: [PostStatus.PUBLISHED, PostStatus.SCHEDULED] } }, data: { topic } });
 }

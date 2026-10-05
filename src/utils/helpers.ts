@@ -2,7 +2,7 @@ import { Request } from "express";
 import { lookup } from "./ipLocation";
 import DeviceDetector from "node-device-detector";
 import ClientHints from "node-device-detector/client-hints";
-import { DocumentQuestionAnsweringPipeline, FeatureExtractionPipeline, pipeline, QuestionAnsweringPipeline, SummarizationPipeline, TextClassificationPipeline, TranslationPipeline, ZeroShotClassificationPipeline } from "@huggingface/transformers";
+import { DocumentQuestionAnsweringPipeline, FeatureExtractionPipeline, env, pipeline, QuestionAnsweringPipeline, SummarizationPipeline, TextClassificationPipeline, TranslationPipeline, ZeroShotClassificationPipeline } from "@huggingface/transformers";
 import z from "zod";
 import genkitAi from "./genkitAi";
 import rake from "node-rake-v2"
@@ -201,16 +201,15 @@ const TOPIC_LABELS = [ 'sports', 'news', 'music', 'business', 'education', 'tech
   'movies', 'comedy', 'lifestyle', 'community', 'shopping'
   ]
 // Lazy-load the model once (fast in workers, zero overhead on startup)
-let topicPipeline: any = null;
+let topicPipeline: Promise<ZeroShotClassificationPipeline> | null = null;
 const getTopicPipeline = async () => {
   if (!topicPipeline) {
-    topicPipeline = await pipeline("zero-shot-classification", "Xenova/bart-large-mnli", {
-      // This reduces the model size and fixes the Protobuf error
-      dtype: 'q8', 
-      device: 'cpu'
-  });
+    if (process.env.TRANSFORMERS_CACHE) env.cacheDir = process.env.TRANSFORMERS_CACHE;
+    topicPipeline = pipeline("zero-shot-classification", "Xenova/bart-large-mnli", {
+      dtype: 'q8', device: 'cpu',
+    }).catch(error => { topicPipeline = null; throw error; });
   }
-  return topicPipeline as ZeroShotClassificationPipeline;
+  return topicPipeline;
 };
 
 export async function topicClassifier(text: string) {

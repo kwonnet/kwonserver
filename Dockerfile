@@ -25,6 +25,7 @@ COPY --from=builder --chown=kwonserver:kwonserver /app/dist-seed ./dist-seed
 COPY --from=builder --chown=kwonserver:kwonserver /app/prisma ./prisma
 COPY --from=builder --chown=kwonserver:kwonserver /app/scripts ./scripts
 COPY --from=builder --chown=kwonserver:kwonserver /app/package.json ./package.json
+RUN mkdir -p /app/model-cache && chown kwonserver:kwonserver /app/model-cache
 USER kwonserver
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"

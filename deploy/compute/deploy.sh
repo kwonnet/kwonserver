@@ -82,7 +82,7 @@ for container in kwonserver kwonserver-worker; do
   if docker container inspect "$container" >/dev/null 2>&1; then docker stop --time 30 "$container" >/dev/null; docker rm "$container" >/dev/null; fi
 done
 docker run "${COMMON[@]}" --name kwonserver --env-file "$ENV_FILE" -e NODE_ENV=production -e PORT=8000 -e RUN_BACKGROUND_JOBS=false "$IMAGE" >/dev/null
-docker run "${COMMON[@]}" --name kwonserver-worker --env-file "$ENV_FILE" -e NODE_ENV=production -e RUN_BACKGROUND_JOBS=true --no-healthcheck "$IMAGE" npm run start:worker >/dev/null
+docker run "${COMMON[@]}" --name kwonserver-worker -v kwonserver_model_cache:/app/model-cache -e TRANSFORMERS_CACHE=/app/model-cache --env-file "$ENV_FILE" -e NODE_ENV=production -e RUN_BACKGROUND_JOBS=true --no-healthcheck "$IMAGE" npm run start:worker >/dev/null
 deployment_failure() {
   echo "$1" >&2
   python3 "$BUNDLE/diagnostics.py" "$ENV_FILE" >&2 || echo 'Could not collect startup diagnostics.' >&2
