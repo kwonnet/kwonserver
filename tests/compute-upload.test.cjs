@@ -16,6 +16,7 @@ function fixture(t) {
   fs.mkdirSync(path.join(root, 'bin')); fs.mkdirSync(path.join(root, 'deploy/compute'), { recursive: true });
   for (const name of ['deploy.sh', 'app.env', 'registry-token', 'diagnostics.py']) fs.writeFileSync(path.join(root, 'deploy/compute', name), 'test fixture');
   const remote = path.join(root, 'staging');
+  fs.writeFileSync(path.join(root, 'bin/flock'), '#!/bin/sh\nshift 3\nexec "$@"\n', { mode: 0o755 });
   fs.writeFileSync(path.join(root, 'bin/sudo'), '#!/bin/sh\nexec "$@"\n', { mode: 0o755 });
   fs.writeFileSync(path.join(root, 'bin/docker'), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$PRUNE_LOG\"\nexit \"${FAIL_PRUNE:-0}\"\n", { mode: 0o755 });
   fs.writeFileSync(path.join(root, 'bin/gcloud'), `#!${process.execPath}\n` + String.raw`

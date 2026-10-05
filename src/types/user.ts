@@ -63,6 +63,7 @@ export interface UserPublic extends UserInfo {
 }
 
 export interface UserProfileOverview extends UserInfo {
+  dateOfBirth?: string | null;
     stats: {
         totalReplies: number;
         totalMediaPosts: number;

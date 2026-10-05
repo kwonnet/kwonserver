@@ -5,6 +5,9 @@ set -euo pipefail
 IMAGE=${1:?Immutable image required}
 [[ "$IMAGE" =~ ^[a-z0-9-]+-docker.pkg.dev/[a-z0-9-]+/kwonnet/kwonserver@sha256:[a-f0-9]{64}$ ]] || { echo 'Unexpected image reference' >&2; exit 2; }
 BUNDLE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Serialize image cleanup and releases across both applications on this VM.
+exec 8>/var/lock/kwonnet-compute-deploy.lock
+flock -w 1800 8
 ROOT=/opt/kwonnet
 mkdir -p "$ROOT/env" "$ROOT/history"
 chmod 700 "$ROOT" "$ROOT/env" "$ROOT/history"

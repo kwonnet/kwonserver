@@ -337,3 +337,8 @@ images. Images referenced by running or stopped containers are preserved; contai
 networks and volumes are never pruned. Unused rollback images must be downloaded
 again from Artifact Registry. Retain the corresponding registry digests. No new
 GitHub secrets or environment variables are required.
+
+Both kwonserver and kwonrec deployment scripts and pre-upload cleanup acquire
+`/var/lock/kwonnet-compute-deploy.lock` on the VM. This serializes releases and
+prevents cleanup from removing an image while the other application deploys.
+Push both repositories' updated deployment pipelines to enable coordination.

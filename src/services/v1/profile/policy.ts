@@ -9,7 +9,7 @@ const nullableText = (max: number) => z.string().trim().max(max).nullable();
 export const profileUpdateSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
   username: z.string().trim().regex(/^[a-zA-Z0-9_]{3,30}$/, 'Use 3–30 letters, numbers or underscores').transform(v => v.toLowerCase()).optional(),
-  bio: nullableText(500).optional(),
+  bio: nullableText(160).optional(),
   phone: z.string().trim().regex(/^$|^\+?[0-9 ()-]{7,25}$/, 'Enter a valid phone number').nullable().optional(),
   website: z.union([z.literal(''), z.string().url().max(2048).refine(v => ['https:', 'http:'].includes(new URL(v).protocol), 'Use an HTTP or HTTPS website')]).nullable().optional(),
   avatar: nullableText(2048).optional(),

@@ -1606,6 +1606,7 @@ export async function getUserProfileOverview(
         avatar: true,
         banner: true,
         website: true,
+        dateOfBirth: true,
         meta: true,
         role: true,
         userType: true,
@@ -1718,6 +1719,7 @@ export async function getUserProfileOverview(
     // compose result
     const data: UserProfileOverview = {
       ...composeAuthUser(user),
+      ...(user.id === currentUserId ? { dateOfBirth: user.dateOfBirth?.toISOString().slice(0, 10) ?? null } : {}),
       stats: {
         totalReplies,
         totalMediaPosts,

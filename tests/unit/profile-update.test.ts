@@ -93,3 +93,9 @@ it('preserves unchanged legacy images while rejecting new media-folder assignmen
   await expect(updateEditableProfile('owner', { avatar: legacy, bio: 'Hello' })).resolves.toMatchObject({ avatar: legacy });
   await expect(updateEditableProfile('owner', { avatar: legacy + 'new' })).rejects.toThrow('uploaded by your account');
 });
+
+it('limits profile bios to 160 characters', async () => {
+  expect(profileUpdateSchema.safeParse({ bio: 'x'.repeat(160) }).success).toBe(true);
+  await expect(updateEditableProfile('owner', { bio: 'x'.repeat(161) })).rejects.toThrow('bio');
+  expect(db.user.update).not.toHaveBeenCalled();
+});

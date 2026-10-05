@@ -15,7 +15,7 @@ function fixture(t) {
   fs.copyFileSync(path.join(__dirname, '../deploy/compute/diagnostics.py'), path.join(root, 'diagnostics.py'));
   fs.writeFileSync(path.join(root, 'registry-token'), 'test-token');
   fs.writeFileSync(path.join(root, 'app.env'), 'DATABASE_URL=test\nREDIS_URL=test\nJWT_SECRET=test\nMONGO_URL=test\nAPI_DOMAIN=api.example.com\nACME_EMAIL=admin@example.com\n');
-  fs.writeFileSync(path.join(root, 'deploy.sh'), source.replace('[[ $EUID -eq 0 ]]', 'true').replace('ROOT=/opt/kwonnet', `ROOT='${root}/runtime'`));
+  fs.writeFileSync(path.join(root, 'deploy.sh'), source.replace('[[ $EUID -eq 0 ]]', 'true').replace('/var/lock/kwonnet-compute-deploy.lock', `${root}/shared.lock`).replace('ROOT=/opt/kwonnet', `ROOT='${root}/runtime'`));
   for (const name of ['flock','systemctl','sleep']) fs.writeFileSync(path.join(root,'bin',name), '#!/bin/sh\nexit 0\n',{mode:0o755});
   fs.writeFileSync(path.join(root, 'bin/docker'), `#!${python}\n`+String.raw`
 import json,os,sys
