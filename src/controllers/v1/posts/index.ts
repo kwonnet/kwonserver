@@ -16,6 +16,8 @@ import {
 } from "@/schema";
 import { PostCreateSchema } from "@/schema/post";
 import {
+  getPostGifters,
+  getPostEngagementsOverview,
   searchPosts,
   createAndUpdatePostShares,
   createPost,
@@ -1049,3 +1051,23 @@ export async function searchPostsController(req: Request, res: Response) {
     return res.send(await searchPosts(q, tab, page, limit, req.user as AuthUser | undefined));
   } catch { return res.status(500).send({ error: 'Unable to load search results' }); }
 }
+
+
+export const getPostGiftersController = async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  const query = z.object({page: z.coerce.number().int().min(1).max(100_000).default(1), limit: z.coerce.number().int().min(1).max(50).default(21)}).safeParse(req.query);
+  if (!query.success) return res.status(400).send("Invalid pagination");
+  try {
+    const result = await getPostGifters(req.params.id, req.user!.id, query.data.page, query.data.limit);
+    return res.status(result.status).send(result.data);
+  } catch { return res.status(500).send("Unable to load gifters. Please try again"); }
+};
+
+
+export const getPostEngagementsOverviewController = async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  try {
+    const result = await getPostEngagementsOverview(req.params.id, req.user!.id);
+    return res.status(result.status).send(result.data);
+  } catch { return res.status(500).send("Unable to load engagements"); }
+};

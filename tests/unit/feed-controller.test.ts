@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response } from './fixtures';
-const deps = vi.hoisted(() => ({ recommend: vi.fn(), hydrate: vi.fn(), create: vi.fn() }));
+const deps = vi.hoisted(() => ({ recommend: vi.fn(), hydrate: vi.fn(), create: vi.fn(), gifters: vi.fn() }));
 vi.mock('@/services/kwonrec', () => ({ getRecommendationResponse: deps.recommend }));
-vi.mock('@/services/v1/posts', () => ({ getNewsfeed: deps.hydrate, createPost: deps.create }));
+vi.mock('@/services/v1/posts', () => ({ getNewsfeed: deps.hydrate, createPost: deps.create, getPostGifters: deps.gifters }));
 vi.mock('@/sseEmitter', () => ({ default: {} }));
 vi.mock('@/utils/helpers', () => ({ getReqInfo: vi.fn() }));
-import { getNewsfeedController, createPostController } from '@/controllers/v1/posts';
+import { getNewsfeedController, createPostController, getPostGiftersController } from '@/controllers/v1/posts';
 beforeEach(() => {
   Object.values(deps).forEach(fn => fn.mockReset());
   deps.recommend.mockResolvedValue({ data: { recommendations: [{ id: 'p2' }, { id: 'p1' }] } });
@@ -70,4 +70,20 @@ it.each([{ params: { feedType: 'unknown' } }, { query: { page: '0' } }, { query:
   const res = response(); return getNewsfeedController({ ...req(), ...changes }, res).then(() => {
     expect(res.statusCode).toBe(400); expect(deps.recommend).not.toHaveBeenCalled(); expect(deps.hydrate).not.toHaveBeenCalled();
   });
+});
+
+
+it('binds gift reporting to the authenticated owner and passes validated pagination', async () => {
+  deps.gifters.mockResolvedValue({status: 200, data: {gifters: [], totalCoins: "0", hasMore: false}});
+  const request = {params: {id: "post"}, query: {page: "2", limit: "10", viewerId: "attacker"}, user: {id: "owner"}} as any;
+  const res = response();
+  await getPostGiftersController(request, res);
+  expect(deps.gifters).toHaveBeenCalledWith("post", "owner", 2, 10);
+  expect(res.headers['Cache-Control']).toBe('private, no-store');
+});
+it.each([{page: "0"}, {limit: "51"}, {page: "1.5"}])('rejects invalid gift pagination %j before database reads', async query => {
+  const res = response();
+  await getPostGiftersController({params: {id: "post"}, query, user: {id: "owner"}} as any, res);
+  expect(res.statusCode).toBe(400);
+  expect(deps.gifters).not.toHaveBeenCalled();
 });

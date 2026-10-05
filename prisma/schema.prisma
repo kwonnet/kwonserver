@@ -33,6 +33,7 @@ model User {
   dateOfBirth           DateTime?          @db.Date
   dateOfBirthChangedAt  DateTime?
   countryChangedAt      DateTime?
+  googleSubject         String?            @unique
   password              String?
   phone                 String?
   /// Historical account identifier retained in storage only.
@@ -1214,6 +1215,7 @@ model PostTip {
   tipId           String
   tip             TipPackage   @relation(fields: [tipId], references: [id], onDelete: Cascade)
   rewardTip       RewardTip?   
+  coinsAmount     Decimal? @db.Decimal(20, 2) // Immutable gross coin value; null for legacy tips
   message         String?
   isAnon          Boolean      @default(false)
   referer         String?
@@ -1221,6 +1223,7 @@ model PostTip {
   device          Json?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+  @@index([postId, createdAt(sort: Desc), id(sort: Desc)])
 }
 
 model RewardTip {

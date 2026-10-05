@@ -55,6 +55,7 @@ it('charges concurrent tip retries once and creates linked pending credit withou
  expect(moneyJson(entries.find(e=>e.type==='DEBIT'))).toMatchObject({userId:reader.id,amount:30,status:'COMPLETED'});
  expect(moneyJson(entries.find(e=>e.type==='CREDIT'))).toMatchObject({userId:author.id,amount:5.5,status:'PENDING'});
  expect(await prisma.rewardTip.count({where:{userId:author.id,status:'PENDING'}})).toBe(1);
+ expect((await prisma.postTip.findFirstOrThrow({where:{postId:'integration-post'}})).coinsAmount?.toString()).toBe('30');
  expect((await createPostTip({...args,senderId:author.id},reader)).status).toBe(400);
  expect((await createPostTip({...args,senderId:author.id,recipientId:reader.id,idempotencyKey:'wrong-post-owner'},author)).status).toBe(400);
  expect(moneyJson((await prisma.wallet.findUniqueOrThrow({where:{userId:reader.id}})).coins)).toBe(30);
@@ -65,4 +66,5 @@ it('rounds a credit-funded tip debit upward and keeps the remaining balance nonn
  expect((await createPostTip({senderId:reader.id,recipientId:author.id,postId:'integration-post',tipId:pack.id,device:{},meta:null,idempotencyKey:'credit-funded-tip'} as any,reader)).status).toBe(200);
  expect(moneyJson((await prisma.wallet.findUniqueOrThrow({where:{userId:reader.id}})).credit)).toBeCloseTo(0);
  expect(moneyJson(await prisma.transaction.findFirst({where:{userId:reader.id,category:'POST_TIP',currency:'TZX',type:'DEBIT'}}))).toMatchObject({amount:13.64});
+ expect((await prisma.postTip.findMany({where:{postId:'integration-post'}})).every(tip=>tip.coinsAmount?.toString()==='30')).toBe(true);
 });

@@ -11,15 +11,19 @@ import { randomUUID } from "crypto";
 import { LookupResult } from "ip-location-api";
 import { composeAuthUser, getUserStatusMessage } from "../utils";
 import logger from "@/logger";
+import { OAuth2Client } from "google-auth-library";
+import { getAuthUser } from "../utils";
+const googleVerifier = new OAuth2Client();
 
 export const createUser = async (
   body: {
     name: string;
     email: string;
-    password: string;
+    password?: string;
     refId?: string | null;
   },
-  location?: LookupResult | null
+  location?: LookupResult | null,
+  googleIdentity?: { subject: string; avatar?: string }
 ) => {
   try {
     const dbUser = await prisma.user.findFirst({
@@ -28,7 +32,8 @@ export const createUser = async (
     if (dbUser) return { status: 422, data: "User with email already exists" };
     // create new user
 
-    const hash = await bcrypt.hash(body.password, 10);
+    if (!googleIdentity && !body.password) return {status: 400, data: "Password required"};
+    const hash = googleIdentity ? null : await bcrypt.hash(body.password!, 10);
 
     let userCountry: Country | null = null;
 
@@ -59,6 +64,7 @@ export const createUser = async (
           name: body.name,
           username,
           password: hash,
+          ...(googleIdentity && { googleSubject: googleIdentity.subject, avatar: googleIdentity.avatar, isVerified: true }),
           wallet: { create: { bonus: amount } },
           location: {
             create: {
@@ -262,3 +268,50 @@ export const handleReferral = async (params: {
   }
 };
 
+
+
+// Verify signed Google claims before resolving the stable provider identity.
+export async function loginGoogleUser(idToken: string) {
+  const audience = process.env.AUTH_GOOGLE_ID;
+  if (!audience) return {status: 503, data: "Google sign-in is not configured"};
+  let claims;
+  try {
+    const ticket = await googleVerifier.verifyIdToken({idToken, audience});
+    claims = ticket.getPayload();
+  } catch { return {status: 401, data: "Invalid Google sign-in token"}; }
+  if (!claims?.sub || !claims.email || claims.email_verified !== true) {
+    return {status: 401, data: "Google email verification is required"};
+  }
+  const email = claims.email.toLowerCase();
+  try {
+    let account = await prisma.user.findUnique({where: {googleSubject: claims.sub}});
+    if (!account) {
+      account = await prisma.user.findFirst({where: {email: {equals: email, mode: "insensitive"}}});
+      if (account) {
+        // Google is authoritative for Gmail/Workspace addresses. A third-party
+        // email claim alone must never take over an existing password account.
+        if (!email.endsWith("@gmail.com") && !claims.hd) {
+          return {status: 409, data: "Please sign in to the existing account with its password"};
+        }
+        if (account.googleSubject && account.googleSubject !== claims.sub) {
+          return {status: 409, data: "This account is linked to another Google identity"};
+        }
+        if (![UserStatus.ACTIVE, UserStatus.PRIVATE].some(status => status === account!.status) || account.deletedAt || account.deactivatedAt) return {status: 401, data: "Account unavailable"};
+        if (!account.googleSubject) {
+          const linked = await prisma.user.updateMany({where: {id: account.id, googleSubject: null}, data: {googleSubject: claims.sub, isVerified: true}});
+          if (linked.count !== 1) {
+            account = await prisma.user.findUnique({where: {googleSubject: claims.sub}});
+            if (!account) return {status: 409, data: "Unable to link this Google identity"};
+          }
+        }
+      } else {
+        const created = await createUser({email, name: claims.name || email.split("@")[0]}, null, {subject: claims.sub, avatar: claims.picture});
+        // Concurrent callbacks must not create duplicate wallets/registration bonuses.
+        account = await prisma.user.findUnique({where: {googleSubject: claims.sub}});
+        if (!account) return created;
+      }
+    }
+    if (![UserStatus.ACTIVE, UserStatus.PRIVATE].some(status => status === account!.status) || account.deletedAt || account.deactivatedAt) return {status: 401, data: "Account unavailable"};
+    return getAuthUser(account.id, {includeEmail: true});
+  } catch { return {status: 500, data: "Unable to sign in with Google. Please try again"}; }
+}

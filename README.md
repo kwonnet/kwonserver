@@ -406,3 +406,26 @@ viewer-scoped SWR caches, and database pagination uses a stable ID tie-breaker.
 Migration `20261005050000_profile_feed_index` adds the author/status/date index via
 the existing deployment migration process. Profile overview counts and mutual
 connections load concurrently. Empty pages skip the repost-status query.
+
+### Google identity and owner-only gift reporting
+
+Google authentication uses `POST /api/v1/auth/google` with a Google `idToken`.
+Set `AUTH_GOOGLE_ID` to the web application's OAuth client ID. The Google SDK
+verifies signature, issuer, expiry and audience; verified email is required.
+Accounts bind to the stable Google subject. Existing Gmail/Workspace addresses
+can link to their matching account; existing third-party email accounts require
+password sign-in instead of automatic linking. Inactive/deleted accounts cannot
+sign in. New accounts reuse transactional wallet/registration-bonus creation.
+
+Migration `20261005060000_google_and_post_gifters` adds the unique Google subject,
+an immutable coin-value field on new tips, and an index for post gift pagination.
+It runs in the existing deployment migration process.
+
+`GET /api/v1/posts/:id/engagements` reports whether the authenticated viewer owns the
+post. `GET /api/v1/posts/:id/gifters?page=1&limit=21` independently enforces ownership,
+returns stable gift pagination and totals from a repeatable-read snapshot, redacts
+anonymous identities, and excludes refunded/expired gifts. Results use
+`private, no-store`. Amounts are gross tip values in coins, not net TZX settlement.
+Legacy tips have no historical coin snapshot; their current package price is used
+only as an explicitly flagged estimate. New tips capture the package price inside
+the existing wallet transaction. Reporting never changes balances or settlements.

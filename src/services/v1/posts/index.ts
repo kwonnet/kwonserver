@@ -1478,6 +1478,7 @@ export async function createPostTip(
           senderId: args.senderId,
           recipientId: args.recipientId,
           tipId: tip.id,
+          coinsAmount: tip.price,
           message: args.message,
           isAnon: args.isAnon,
           device: args.device,
@@ -8359,4 +8360,42 @@ export async function searchPosts(query: string, tab: 'top' | 'latest', page: nu
     where: { ...base.where, createdAt: { lte: new Date() }, id: { in: ids } } });
   const ordered = ids.flatMap(id => posts.filter(post => post.id === id));
   return { posts: ordered.map(({ user, ...post }) => serializeBigInts({ ...post, author: user })), hasMore: rows.length > limit };
+}
+
+
+export async function getPostGifters(postId: string, viewerId: string, page = 1, limit = 21) {
+  return prisma.$transaction(async tx => {
+    const post = await tx.post.findUnique({where: {id: postId}, select: {userId: true, deletedAt: true}});
+    if (!post || post.deletedAt) return {status: 404, data: "Post not found"};
+    if (post.userId !== viewerId) return {status: 403, data: "Only the post owner can view gifters"};
+    const where = {postId, OR: [{rewardTip: null}, {rewardTip: {status: {in: ['PENDING', 'SETTLED'] as ('PENDING' | 'SETTLED')[]}}}]};
+    const [tips, totalGifts, totals] = await Promise.all([
+      tx.postTip.findMany({where, skip: (page - 1) * limit, take: limit, orderBy: [{createdAt: 'desc'}, {id: 'desc'}], select: {
+        id: true, createdAt: true, isAnon: true, message: true, coinsAmount: true,
+        sender: {select: {id: true, name: true, username: true, avatar: true}},
+        tip: {select: {name: true, price: true}}, rewardTip: {select: {status: true}},
+      }}),
+      tx.postTip.count({where}),
+      tx.$queryRaw<{totalCoins: string; estimated: boolean}[]>`
+        SELECT COALESCE(SUM(COALESCE(t."coinsAmount", p.price)), 0)::text AS "totalCoins",
+          COALESCE(BOOL_OR(t."coinsAmount" IS NULL), false) AS estimated
+        FROM "PostTip" t JOIN "TipPackage" p ON p.id = t."tipId"
+        LEFT JOIN "RewardTip" r ON r."postTipId" = t.id
+        WHERE t."postId" = ${postId} AND (r.id IS NULL OR r.status IN ('PENDING', 'SETTLED'))
+      `,
+    ]);
+    return {status: 200, data: {
+      gifters: tips.map(tip => ({id: tip.id, createdAt: tip.createdAt, message: tip.message,
+        sender: tip.isAnon ? null : tip.sender, anonymous: tip.isAnon,
+        coins: (tip.coinsAmount ?? tip.tip.price).toString(), gift: tip.tip.name,
+        estimated: tip.coinsAmount === null, status: tip.rewardTip?.status ?? 'SETTLED'})),
+      ownerId: viewerId, totalGifts, totalCoins: totals[0]?.totalCoins ?? '0', hasEstimatedAmounts: totals[0]?.estimated ?? false,
+      page, hasMore: page * limit < totalGifts,
+    }};
+  }, {isolationLevel: 'RepeatableRead'});
+}
+
+export async function getPostEngagementsOverview(postId: string, viewerId: string) {
+  const post = await prisma.post.findUnique({where: {id: postId}, select: {userId: true, deletedAt: true}});
+  return !post || post.deletedAt ? {status: 404, data: "Post not found"} : {status: 200, data: {isOwner: post.userId === viewerId}};
 }
