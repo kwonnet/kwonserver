@@ -1,3 +1,4 @@
+import { cachedCatalogRead } from "@/store";
 import { cents, requestKey, WalletError, walletFailure, walletOperation } from '@/services/walletLedger';
 import { verifiedPaymentId } from '@/services/walletLedger/verifiedPayment';
 import { paymentMethodSchema } from "@/schema/payment";
@@ -20,18 +21,20 @@ import { generateUniqueRef } from "@/utils";
 import logger from "@/logger";
 
 export const getCoinPackages = async () => {
-  try {
-    const packages = await prisma.coinPackage.findMany();
-    return {
-      data: {
-        packages,
-        addresses: [],
-      },
-      status: 200,
-    };
-  } catch (error) {
-    return { data: "Error: Failed to fetch packages", status: 500 };
-  }
+  return cachedCatalogRead("coin-packages", 60000, async () => {
+    try {
+      const packages = await prisma.coinPackage.findMany();
+      return {
+        data: {
+          packages,
+          addresses: [],
+        },
+        status: 200,
+      };
+    } catch (error) {
+      return { data: "Error: Failed to fetch packages", status: 500 };
+    }
+  });
 };
 
 export const saveTxnLog = async (item: {

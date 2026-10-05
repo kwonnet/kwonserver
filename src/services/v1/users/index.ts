@@ -1664,15 +1664,11 @@ export async function getUserProfileOverview(
     });
     if (!user) return { data: "User account not found", status: 404 };
     // Find the current user's followings who are also following the target user
-    const result =
+    // These independent reads should not wait for mutual-follow lookup first.
+    const [result, totalReplies, totalMediaPosts, totalScheduled] = await Promise.all([
       user.id === currentUserId
-        ? { count: 0, followers: [] }
-        : await getMutualFollowings(user.id, currentUserId);
-
-    // get post stats
-    // console.log("Profile details post targetUserId ", targetUserId)
-    // console.log("Profile details post currentUserId ", currentUserId)
-    const [totalReplies, totalMediaPosts, totalScheduled] = await Promise.all([
+        ? Promise.resolve({ count: 0, followers: [] })
+        : getMutualFollowings(user.id, currentUserId),
       prisma.post.count({
         where: {
           userId: user.id,
@@ -2591,7 +2587,7 @@ export const getUserPosts = async (
       },
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: [{ pins: { _count: "desc" } }, { createdAt: "desc" }],
+      orderBy: [{ pins: { _count: "desc" } }, { createdAt: "desc" }, { id: "desc" }],
       include: {
         thread: false,
         media: true,
@@ -3600,7 +3596,7 @@ export const getUserPosts = async (
     // Step 2: Fetch all reposts by the current user for these posts
     const postIds = feedPosts.map((post) => post.id); // Collect all post IDs
 
-    const userReposts = await prisma.post.findMany({
+    const userReposts = postIds.length === 0 ? [] : await prisma.post.findMany({
       where: {
         userId: user.id, // Current user's posts
         kind: PostKindEnum.REPOST, // Only reposts
@@ -4664,12 +4660,12 @@ export const getUserScheduledPosts = async (
           },
         },
       },
-      orderBy: [{ createdAt: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     // Step 2: Fetch all reposts by the current user for these posts
     const postIds = feedPosts.map((post) => post.id); // Collect all post IDs
 
-    const userReposts = await prisma.post.findMany({
+    const userReposts = postIds.length === 0 ? [] : await prisma.post.findMany({
       where: {
         userId: user.id, // Current user's posts
         kind: PostKindEnum.REPOST, // Only reposts
@@ -5733,12 +5729,12 @@ export const getUserReplies = async (
           },
         },
       },
-      orderBy: [{ createdAt: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     // Step 2: Fetch all reposts by the current user for these posts
     const postIds = feedPosts.map((post) => post.id); // Collect all post IDs
 
-    const userReposts = await prisma.post.findMany({
+    const userReposts = postIds.length === 0 ? [] : await prisma.post.findMany({
       where: {
         userId: user.id, // Current user's posts
         kind: PostKindEnum.REPOST, // Only reposts
@@ -6810,13 +6806,13 @@ export const getUserLikedPosts = async (
           },
         },
       },
-      orderBy: [{ createdAt: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     const feedPosts = result.map((r) => r.post);
     // Step 2: Fetch all reposts by the current user for these posts
     const postIds = feedPosts.map((post) => post.id); // Collect all post IDs
 
-    const userReposts = await prisma.post.findMany({
+    const userReposts = postIds.length === 0 ? [] : await prisma.post.findMany({
       where: {
         userId: user.id, // Current user's posts
         kind: PostKindEnum.REPOST, // Only reposts
@@ -7889,13 +7885,13 @@ export const getUserBookmarkPosts = async (
           },
         },
       },
-      orderBy: [{ createdAt: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     const feedPosts = result.map((r) => r.post);
     // Step 2: Fetch all reposts by the current user for these posts
     const postIds = feedPosts.map((post) => post.id); // Collect all post IDs
 
-    const userReposts = await prisma.post.findMany({
+    const userReposts = postIds.length === 0 ? [] : await prisma.post.findMany({
       where: {
         userId: user.id, // Current user's posts
         kind: PostKindEnum.REPOST, // Only reposts
@@ -8968,13 +8964,13 @@ export const getUserHighlightPosts = async (
           },
         },
       },
-      orderBy: [{ createdAt: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     const feedPosts = result.map((r) => r.post);
     // Step 2: Fetch all reposts by the current user for these posts
     const postIds = feedPosts.map((post) => post.id); // Collect all post IDs
 
-    const userReposts = await prisma.post.findMany({
+    const userReposts = postIds.length === 0 ? [] : await prisma.post.findMany({
       where: {
         userId: user.id, // Current user's posts
         kind: PostKindEnum.REPOST, // Only reposts
@@ -10035,12 +10031,12 @@ export const getUserMediaPosts = async (
           },
         },
       },
-      orderBy: [{ createdAt: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     // Step 2: Fetch all reposts by the current user for these posts
     const postIds = feedPosts.map((post) => post.id); // Collect all post IDs
 
-    const userReposts = await prisma.post.findMany({
+    const userReposts = postIds.length === 0 ? [] : await prisma.post.findMany({
       where: {
         userId: user.id, // Current user's posts
         kind: PostKindEnum.REPOST, // Only reposts

@@ -517,6 +517,7 @@ model Post {
   replyContinents PostReplyContinent[]
 
   @@index([userId, createdAt, kind, status])
+  @@index([userId, status, createdAt(sort: Desc), id(sort: Desc)], map: "Post_profile_feed_idx")
   @@index([createdAt])
 }
 

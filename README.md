@@ -391,3 +391,18 @@ After a successful profile save, the web editor explicitly triggers the Auth.js
 update callback to refetch identity from the authenticated backend. Cached public
 identity fields and linked-account metadata are refreshed without accepting
 client-provided session identity or requiring another login.
+
+### Read caching and profile performance
+
+Countries/continents use the existing shared Redis cache for one hour. Coin packages
+and subscription catalogs use a one-minute cache; purchase operations continue to
+validate prices from the database. Concurrent catalog misses share one SQL read,
+and Redis read failures or waits over 200 ms fall back to SQL. Failed service
+responses are not cached. This reuses the process's existing cache connection.
+
+Profile feeds remain viewer-specific and freshly authorized rather than globally
+cached. Their first page streams from the web server, subsequent pages/tabs use
+viewer-scoped SWR caches, and database pagination uses a stable ID tie-breaker.
+Migration `20261005050000_profile_feed_index` adds the author/status/date index via
+the existing deployment migration process. Profile overview counts and mutual
+connections load concurrently. Empty pages skip the repost-status query.

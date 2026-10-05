@@ -1,3 +1,4 @@
+import { cachedCatalogRead } from "@/store";
 import logger from '@/logger';
 import { lockWallets, walletOperation, WalletError, cents, requestKey } from '@/services/walletLedger';
 import { subscriptionPrice, nextBillingDate } from '@/services/walletLedger/pricing';
@@ -23,17 +24,19 @@ import { syncUserRedisWalletToPrisma } from "../games";
 import { addSubscriptionCronJob, removeSubscriptionCronJob } from "@/cron/utils";
 
 export const getPlans = async () => {
-  try {
-    const data = await prisma.subscriptionPlan.findMany({
-      include: { features: true },
-    });
-    
-    const isFound = data.length > 0;
+  return cachedCatalogRead("subscription-plans", 60000, async () => {
+    try {
+      const data = await prisma.subscriptionPlan.findMany({
+        include: { features: true },
+      });
 
-    return { data: isFound ? data : "Not found", status: isFound ? 200 : 404 };
-  } catch (error) {
-    return { data: "Error occurred, please try again", status: 500 };
-  }
+      const isFound = data.length > 0;
+
+      return { data: isFound ? data : "Not found", status: isFound ? 200 : 404 };
+    } catch (error) {
+      return { data: "Error occurred, please try again", status: 500 };
+    }
+  });
 };
 
 export const purchaseAppSubscriptionWithWallet = async (
@@ -195,7 +198,7 @@ export const purchaseAppSubscriptionWithWallet = async (
     else{
       await removeSubscriptionCronJob({userId: user.id, subId: result.subscription.id}).catch(() => logger.error('Subscription job cleanup failed'))
     }
-    
+
     // sync prisma wallet to redis
     await syncPrismaUserWalletToRedis(user.id, result.wallet);
     return { data: item, status: 200 };

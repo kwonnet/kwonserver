@@ -6,9 +6,14 @@ import { getTrendingTopics } from '@/services/v1/discover';
 const db = new PrismaClient();
 const prefix = 'trending-fixture-';
 const author = prefix + 'author';
-const makePost = (id: string, content: string, extra: any = {}) => db.post.create({ data: {
-  id: prefix + id, userId: author, type: 'CONTENT', kind: 'ROOT', content, ...extra,
-} });
+const makePost = async (id: string, content: string, extra: any = {}) => {
+  // The live trend window uses the database clock. Docker and the host can differ
+  // by seconds, making freshly created Prisma timestamps appear in the future.
+  const [{ now }] = await db.$queryRaw<{ now: Date }[]>`SELECT NOW() AS now`;
+  return db.post.create({ data: {
+    id: prefix + id, userId: author, type: 'CONTENT', kind: 'ROOT', content, createdAt: now, ...extra,
+  } });
+};
 beforeAll(async () => {
   await db.user.create({ data: { id: author, name: 'Trending Author', username: author, email: author + '@example.invalid' } });
 });
