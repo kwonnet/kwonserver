@@ -1,4 +1,5 @@
 import axios from "axios";
+import logger from "@/logger";
 import prisma from "@/db";
 import { recommendationVisibility } from "./recommendation-visibility";
 export { recommendationVisibility } from "./recommendation-visibility";
@@ -34,6 +35,7 @@ export async function getRecommendationResponse(userId: string, requestedLimit: 
     }
     return response;
   } catch {
+    logger.warn('Recommendation service unavailable or invalid; using chronological fallback');
     // Bounded, authoritative chronological fallback on timeout or service failure.
     const posts = await prisma.post.findMany({
       where: recommendationVisibility(userId),

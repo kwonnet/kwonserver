@@ -457,6 +457,7 @@ enum StoryType {
 }
 
 model Post {
+  scheduledEffectsPending Boolean @default(false)
   id               String        @id @default(cuid())
   content          String?
   scheduleAt       DateTime?
@@ -1146,6 +1147,9 @@ model Subscription {
 
 model Notification {
   id          String        @id @default(cuid())
+  pushSentAt DateTime?
+  pushAttempts Int @default(0)
+  nextPushAttemptAt DateTime @default(now())
   title       String
   message     String
   meta        Json?
@@ -1162,10 +1166,14 @@ model Notification {
   createdAt   DateTime?     @default(now())
   updatedAt   DateTime?     @updatedAt
 
+   @@index([pushSentAt, nextPushAttemptAt])
    @@index([createdAt])
 }
 
 model PushNotification {
+  sessionId String?
+  session UserSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  endpoint  String? @unique
   id        String    @id @default(cuid())
   config    Json?
   userId    String?
@@ -2030,6 +2038,7 @@ model UserSession {
   revokedReason String?
   retainUntil DateTime
   events LoginEvent[]
+  pushSubscriptions PushNotification[]
   @@index([userId, revokedAt, expiresAt])
   @@index([retainUntil])
 }

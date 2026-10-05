@@ -13,7 +13,6 @@ import {
   QuizThread,
 } from "@/types/post";
 import { generateUniqueRef } from "@/utils";
-import webpush from "@/utils/webpush";
 import {
   NotifAction,
   NotifTypeEnum,
@@ -119,8 +118,9 @@ export const createPost = async (body: PostCreate, userId: string) => {
         ? {
             status: body.isDraft ? PostStatus.DRAFT : PostStatus.SCHEDULED,
             scheduleAt: new Date(body.scheduleAt),
+            scheduledEffectsPending: !body.isDraft,
           }
-        : {};
+        : body.isDraft ? {status: PostStatus.DRAFT} : {};
       // Step 1: Create the root post (first item in the array)
       const {
         poll,
@@ -142,7 +142,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
 
       if (rest.type === PostTypeEnum.POLL) {
         const _pollItem = poll as PollThread;
-        const expireAt = getExpiryDate(_pollItem.duration);
+        const expireAt = getExpiryDate(_pollItem.duration, body.scheduleAt);
         const pollItem = removeProperty(_pollItem, "duration");
         rootPost = await tx.post.create({
           data: {
@@ -217,7 +217,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
         });
       } else if (rest.type === PostTypeEnum.QUIZ) {
         const _quizItem = quiz as QuizThread;
-        const expireAt = getExpiryDate(_quizItem.duration);
+        const expireAt = getExpiryDate(_quizItem.duration, body.scheduleAt);
         const quizItem = removeProperty(_quizItem, "duration");
         rootPost = await tx.post.create({
           data: {
@@ -360,7 +360,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
           // check post type
           if (item.type === PostTypeEnum.POLL) {
             const _pollItem = poll as PollThread;
-            const expireAt = getExpiryDate(_pollItem.duration);
+            const expireAt = getExpiryDate(_pollItem.duration, body.scheduleAt);
             const pollItem = removeProperty(_pollItem, "duration");
             const res = await tx.post.create({
               data: {
@@ -428,7 +428,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
             thread.push(res);
           } else if (item.type === PostTypeEnum.QUIZ) {
             const _quizItem = quiz as QuizThread;
-            const expireAt = getExpiryDate(_quizItem.duration);
+            const expireAt = getExpiryDate(_quizItem.duration, body.scheduleAt);
             const quizItem = removeProperty(_quizItem, "duration");
             const res = await tx.post.create({
               data: {
@@ -580,10 +580,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
     for (const post of [result, ...result.thread]) {
       void enqueuePostTopic(post.id, post.content).catch(() => console.warn('Topic enqueue failed; background scan will retry'));
     }
-    triggerPushNotification(
-      "cm8wuohmp0002c9jnx181fdno",
-      result.content?.slice(0, 100) ?? "User just published a post"
-    );
+
 
     // 1. if this is a scheduled post, schedule the post
     // isScheduled, scheduleAt, postId: result.id
@@ -614,8 +611,9 @@ export const createPostQuote = async (
         ? {
             status: body.isDraft ? PostStatus.DRAFT : PostStatus.SCHEDULED,
             scheduleAt: new Date(body.scheduleAt),
+            scheduledEffectsPending: !body.isDraft,
           }
-        : {};
+        : body.isDraft ? {status: PostStatus.DRAFT} : {};
       // Step 1: Create the root post (first item in the array)
       const {
         poll,
@@ -637,7 +635,7 @@ export const createPostQuote = async (
 
       if (rest.type === PostTypeEnum.POLL) {
         const _pollItem = poll as PollThread;
-        const expireAt = getExpiryDate(_pollItem.duration);
+        const expireAt = getExpiryDate(_pollItem.duration, body.scheduleAt);
         const pollItem = removeProperty(_pollItem, "duration");
         rootPost = await tx.post.create({
           data: {
@@ -777,7 +775,7 @@ export const createPostQuote = async (
         // check post type
         if (item.type === PostTypeEnum.POLL) {
           const _pollItem = poll as PollThread;
-          const expireAt = getExpiryDate(_pollItem.duration);
+          const expireAt = getExpiryDate(_pollItem.duration, body.scheduleAt);
           const pollItem = removeProperty(_pollItem, "duration");
           res = await tx.post.create({
             data: {
@@ -874,8 +872,8 @@ export const createPostQuote = async (
         }
         thread.push(res);
       }
-      // Increase totalQuotes count for the original post
-      await tx.post.update({
+      // Scheduled/draft quotes count only when published.
+      if (!body.isDraft && !body.scheduleAt) await tx.post.update({
         where: { id: postId },
         data: { totalQuotes: { increment: 1 } },
       });
@@ -906,8 +904,9 @@ export const createPostReply = async (
         ? {
             status: isDraft ? PostStatus.DRAFT : PostStatus.SCHEDULED,
             scheduleAt: new Date(body.scheduleAt),
+            scheduledEffectsPending: !body.isDraft,
           }
-        : {};
+        : isDraft ? {status: PostStatus.DRAFT} : {};
       // create new post reply
       const {
         mentions,
@@ -927,7 +926,7 @@ export const createPostReply = async (
       const mentionedUsers = users.map((user) => user.id);
       if (rest.type === PostTypeEnum.POLL) {
         const _pollItem = poll as PollThread;
-        const expireAt = getExpiryDate(_pollItem.duration);
+        const expireAt = getExpiryDate(_pollItem.duration, body.scheduleAt);
         const pollItem = removeProperty(_pollItem, "duration");
         reply = await tx.post.create({
           data: {
@@ -1022,13 +1021,13 @@ export const createPostReply = async (
           },
         });
       }
-      // Increase totalReplies count for the parent post
-      await tx.post.update({
+      // Scheduled/draft replies count only when published.
+      if (!body.isDraft && !body.scheduleAt) await tx.post.update({
         where: { id: postId },
         data: { totalReplies: { increment: 1 } },
       });
       // insert reply notification IF Not owner
-      if (post?.userId !== user.id) {
+      if (!body.isDraft && !body.scheduleAt && post?.userId !== user.id) {
         // insert notification
         await tx.notification.create({
           data: {
@@ -5267,34 +5266,12 @@ export const voteQuizPost = async (
   }
 };
 
-const triggerPushNotification = async (userId: string, message: string) => {
-  try {
-    const subs = await prisma.pushNotification.findMany({ where: { userId } });
-    if (subs.length === 0) {
-      logger.info("User is not subscribed to push notifications");
-      return;
-    }
-    const payload = JSON.stringify({
-      title: "🔔 New Message",
-      body: message || "Hello from torazon!",
-    });
-    const result = await Promise.all(
-      subs.map((sub) => webpush.sendNotification(sub.config as any, payload))
-    );
-    logger.warn(result);
-    logger.info("Web push notifications sent");
-  } catch (error: any) {
-    logger.warn(`error sending web push notification ${error.message}`);
-    logger.error(error);
-  }
-};
-
 const getExpiryDate = (duration: {
   days: number;
   hours: number;
   minutes: number;
-}): Date => {
-  const now = new Date(); // Get current date & time
+}, startsAt?: string | Date | null): Date => {
+  const now = startsAt ? new Date(startsAt) : new Date();
   now.setDate(now.getDate() + duration.days); // Add days
   now.setHours(now.getHours() + duration.hours); // Add hours
   now.setMinutes(now.getMinutes() + duration.minutes); // Add minutes
@@ -8399,4 +8376,28 @@ export async function getPostGifters(postId: string, viewerId: string, page = 1,
 export async function getPostEngagementsOverview(postId: string, viewerId: string) {
   const post = await prisma.post.findUnique({where: {id: postId}, select: {userId: true, deletedAt: true}});
   return !post || post.deletedAt ? {status: 404, data: "Post not found"} : {status: 200, data: {isOwner: post.userId === viewerId}};
+}
+
+/** Atomic bounded publication; DB triggers update recommendation/trend indexes. */
+export async function publishDueScheduledPosts() {
+  return prisma.$transaction(async tx => {
+    const due = await tx.$queryRaw<{id: string; kind: string; parentId: string | null; userId: string; scheduledEffectsPending: boolean}[]>`SELECT p.id, p.kind, p."parentId", p."userId", p."scheduledEffectsPending" FROM "Post" p JOIN "User" u ON u.id = p."userId"
+      WHERE p.status = 'SCHEDULED' AND p."scheduleAt" <= NOW() AND p."deletedAt" IS NULL
+      AND u.status IN ('ACTIVE', 'PRIVATE') AND u."deletedAt" IS NULL AND u."deactivatedAt" IS NULL
+      AND (p.kind NOT IN ('REPLY', 'QUOTE') OR EXISTS (SELECT 1 FROM "Post" parent
+        WHERE parent.id = p."parentId" AND parent.status = 'PUBLISHED' AND parent."deletedAt" IS NULL AND NOT parent."isHidden"))
+      ORDER BY p."scheduleAt", p.id LIMIT 100 FOR UPDATE OF p SKIP LOCKED`;
+    if (!due.length) return 0;
+    const result = await tx.post.updateMany({where: {id: {in: due.map(post => post.id)}, status: 'SCHEDULED', deletedAt: null}, data: {status: 'PUBLISHED', createdAt: new Date(), scheduledEffectsPending: false}});
+    for (const post of due) {
+      if (post.scheduledEffectsPending && post.parentId && (post.kind === 'REPLY' || post.kind === 'QUOTE')) {
+        await tx.post.update({where: {id: post.parentId}, data: post.kind === 'REPLY' ? {totalReplies: {increment: 1}} : {totalQuotes: {increment: 1}}});
+        if (post.kind === 'REPLY') {
+          const parent = await tx.post.findUnique({where: {id: post.parentId}, select: {userId: true}});
+          if (parent && parent.userId !== post.userId) await tx.notification.create({data: {senderId: post.userId, recipientId: parent.userId, postId: post.id, type: NotifTypeEnum.POST, action: NotifAction.COMMENT, title: 'New post comment', message: 'Someone replied to your post'}});
+        }
+      }
+    }
+    return result.count;
+  });
 }

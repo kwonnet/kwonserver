@@ -1,4 +1,6 @@
 export const recurringJobs = [
+  { name: 'publish_scheduled_posts', pattern: '* * * * *', load: () => import('./publish_scheduled_posts') },
+  { name: 'deliver_push_notifications', pattern: '* * * * *', load: () => import('./deliver_push_notifications') },
   { name: 'infer_pending_post_topics', pattern: '* * * * *', load: () => import('./infer_pending_post_topics') },
   { name: 'recover_game_wallet_actions', pattern: '* * * * *', load: () => import('./recover_game_wallet_actions') },
   { name: 'settle_pending_tips', pattern: '*/5 * * * *', load: () => import('./settle_pending_tips') },

@@ -89,7 +89,7 @@ const PostThreadSchema = z.object({
 // Schema for PostCreate
 export const PostCreateSchema = z.object({
   thread: z.array(PostThreadSchema),
-  scheduleAt: z.union([z.string(), z.date()]).optional(),
+  scheduleAt: z.union([z.string().datetime({offset: true}), z.date()]).refine(value => new Date(value).getTime() >= Date.now() + 5 * 60_000, 'Schedule at least five minutes in the future').optional(),
   location: z.string().optional(),
   isDraft: z.boolean(),
 });

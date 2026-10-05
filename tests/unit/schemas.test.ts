@@ -76,3 +76,9 @@ it('validates ranking options and parses reward query numbers', () => {
   expect(rewardQuerySchema.parse({ userId: 'user', page: '2', limit: '10', year: '2026' })).toMatchObject({ page: 2, limit: 10, year: 2026 });
   expect(() => rewardQuerySchema.parse({ userId: 'user', page: 'bad', limit: '10' })).toThrow('Invalid page format');
 });
+it.each(['not-a-date', '2020-01-01T00:00:00Z', new Date(Date.now() + 60_000).toISOString()])('rejects invalid or too-soon scheduled dates %s', scheduleAt => {
+ expect(PostCreateSchema.safeParse({...quizPost(), scheduleAt}).success).toBe(false);
+});
+it('accepts future schedule dates with an explicit timezone', () => {
+ expect(PostCreateSchema.safeParse({...quizPost(), scheduleAt: new Date(Date.now() + 3600_000).toISOString()}).success).toBe(true);
+});

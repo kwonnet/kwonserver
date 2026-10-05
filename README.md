@@ -550,3 +550,29 @@ catalog match leaves country null rather than inventing a default. Google signin
 or email linking for existing accounts never overwrites a chosen country. Existing
 users are not backfilled by this change; they can use the profile country editor.
 No new schema migration is needed for this registration fix.
+
+
+### Push notification delivery and scheduled posts
+
+Deploy migration `20261005150000_push_delivery` before restarting the API and worker.
+It deduplicates browser endpoints, associates new subscriptions with login sessions,
+and adds durable push-delivery bookkeeping. Historical notifications are marked
+processed so rollout does not notify users about old activity. Set `VAPID_EMAIL`
+(a `mailto:` contact), `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` on kwonserver;
+kwonweb's `NEXT_PUBLIC_VAPID_PUBLIC_KEY` must match the public key. Never expose the
+private key. Push requires HTTPS and browser permission granted from Settings.
+Expired push endpoints (404/410) are removed. Delivery scans new committed in-app
+notifications every minute, retries transient failures up to five attempts, and
+uses notification IDs as browser tags to replace duplicate deliveries after retries.
+Monitor unsent `Notification` rows with `pushAttempts = 5` for configuration or
+provider problems. Session-bound subscriptions are excluded after revocation or
+expiry; old subscriptions without a session are rebound when the user next visits.
+
+`publish_scheduled_posts` runs every minute in the existing background worker.
+It locks bounded batches of due scheduled posts and publishes atomically; future,
+draft, deleted and disabled-author posts are not published. Poll/quiz expiry starts
+from the chosen schedule. New scheduled reply/quote engagement effects occur at
+publication; older scheduled posts retain their already-applied counts. UTC dates
+with explicit offsets are required, at least five minutes in the future. Publication
+may be up to one scheduler interval later, or longer under worker backlog/outage;
+overdue posts are picked up when the worker resumes. Keep background jobs enabled.
