@@ -75,7 +75,13 @@ export async function authRequestMetadata(req: Request) {
   let location = null;
   // No artificial Google DNS fallback and no coordinates retained.
   if (ip && ip !== '::1' && !ip.startsWith('127.') && ip !== '0.0.0.0') {
-    try { location = approximateLocation(await lookup(ip)); } catch { /* Optional lookup. */ }
+    try {
+      location = approximateLocation(await lookup(ip));
+      if (!location && lookup.status) {
+        // No full addresses, hashes, agents or provider credentials in diagnostics.
+        console.warn('Authentication location unavailable', lookup.status());
+      }
+    } catch { /* Optional lookup. */ }
   }
   return {device: parseAuthDevice(bridge ? bridge.agent : req.get?.('user-agent')), location,
     ...protectedIp(ip), metadataSource: bridge ? 'SIGNED_WEB' : 'API_REQUEST'};

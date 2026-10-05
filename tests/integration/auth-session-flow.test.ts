@@ -14,7 +14,10 @@ beforeAll(async () => {
  expect(signup.status).toBe(200); owner = (signup.data as any).id;
 });
 afterAll(async () => {
- await db.user.deleteMany({where: {email: {startsWith: prefix}}}); await db.$disconnect(); vi.unstubAllEnvs();
+ await db.user.deleteMany({where: {email: {startsWith: prefix}}});
+ await db.country.deleteMany({where: {id: {startsWith: prefix}}});
+ await db.continent.deleteMany({where: {id: {startsWith: prefix}}});
+ await db.$disconnect(); vi.unstubAllEnvs();
 });
 it('preserves the password account/wallet when Google links and records the verified provider', async () => {
  expect((await loginUser({email: prefix + 'password@gmail.com', password: 'test-only-password'})).status).toBe(200);
@@ -65,4 +68,23 @@ it('session and audit insertion roll back together on failure', async () => {
  const before = await db.userSession.count({where: {userId: owner}});
  await expect(startAuthSession(owner, 'PASSWORD', {...metadata, device: undefined} as any)).rejects.toThrow();
  expect(await db.userSession.count({where: {userId: owner}})).toBe(before);
+});
+
+
+it('persists inferred country and returns it for new password and Google registrations without changing existing Google users', async () => {
+ const continent = await db.continent.create({data: {id: prefix + 'country-continent', code: 'XR', name: 'Registration Fixture'}});
+ const country = await db.country.create({data: {id: prefix + 'country', name: 'Registration Country', iso2: 'XR', iso3: 'XRG', emoji: '', continentId: continent.id}});
+ const passwordUser = await createUser({name: 'Country User', email: prefix + 'country-password@example.invalid', password: 'test-only-password'}, {country: ' xr ', city: 'Test city'});
+ expect(passwordUser.status).toBe(200); expect(passwordUser.data).toMatchObject({country: {id: country.id, iso2: 'XR'}});
+ expect(await db.user.findUnique({where: {id: (passwordUser.data as any).id}})).toMatchObject({countryId: country.id});
+ verify.mockResolvedValue({getPayload: () => ({sub: prefix + 'country-google', email: prefix + 'country-google@gmail.com', name: 'Google Country', email_verified: true})});
+ const resolveLocation = vi.fn(async () => ({country: 'XR', city: 'Test city'}));
+ const first = await loginGoogleUser('verified-token', resolveLocation);
+ expect(first.status).toBe(200); expect(first.data).toMatchObject({country: {id: country.id, iso2: 'XR'}}); expect(resolveLocation).toHaveBeenCalledOnce();
+ expect(await db.user.findUnique({where: {id: (first.data as any).id}})).toMatchObject({countryId: country.id});
+ const laterLocation = vi.fn(async () => ({country: 'US'}));
+ expect((await loginGoogleUser('verified-token', laterLocation)).data).toMatchObject({country: {id: country.id}});
+ expect(laterLocation).not.toHaveBeenCalled();
+ const unknown = await createUser({name: 'Unknown Country', email: prefix + 'country-missing@example.invalid', password: 'test-only-password'}, null);
+ expect(unknown.status).toBe(200); expect(await db.user.findUnique({where: {id: (unknown.data as any).id}})).toMatchObject({countryId: null});
 });

@@ -1,5 +1,6 @@
-import {authProxyTrust} from "@/utils/auth-security";
 import "dotenv/config";
+import {authProxyTrust} from "@/utils/auth-security";
+import {lookup as ipLookup} from "@/utils/ipLocation";
 import * as express from "express";
 import http from "http";
 import app from "./app";
@@ -57,6 +58,8 @@ app.use("/api/v1/", bigintConverterMiddleware, v1Routes);
 
 server.listen(port, () => {
   console.log(`listening on port: ${port}`);
+  // Warm the existing geo database in the background, outside the login deadline.
+  void ipLookup.warmup();
   // start mongo db
   startMongodb();
   // start cron jobs

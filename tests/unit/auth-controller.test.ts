@@ -93,7 +93,7 @@ it('Google issues a Kwonnet token containing only the trusted API identity', asy
   const identity = user(); deps.google.mockResolvedValue({status: 200, data: identity});
   const res = response(); const idToken = 'signed-google-id-token';
   await googleSignInController({body: {idToken, id: 'attacker', role: 'ADMIN'}} as any, res);
-  expect(deps.google).toHaveBeenCalledWith(idToken);
+  expect(deps.google).toHaveBeenCalledWith(idToken, expect.any(Function));
   expect(deps.generate).toHaveBeenCalledWith({id: 'user-1', name: 'Ada', email: 'ada@example.test', username: 'ada', role: 'USER', sessionId: expect.any(String)}, {expiresIn: '24h'});
   expect(res.body).toEqual({user: {...identity, sessionId: expect.any(String)}, accessToken: 'signed-token'});
   expect(res.cookie).not.toHaveBeenCalled();
@@ -202,4 +202,16 @@ it('cookie-only logout can revoke the historical API session safely', async () =
   const res = response(); res.clearCookie = vi.fn();
   await logoutController({get: () => undefined, cookies: {tx_a_t: 'cookie-token'}} as any, res);
   expect(deps.decode).toHaveBeenCalledWith('cookie-token', true); expect(deps.revoke).toHaveBeenCalledWith('u', 'existing-session', 'LOGOUT');
+});
+
+
+it('Google registration and the login event share one trusted location lookup', async () => {
+  deps.google.mockImplementation(async (_token, resolveLocation) => {
+    expect(await resolveLocation()).toEqual({country: 'NG'});
+    return {status: 200, data: user()};
+  });
+  const res = response();
+  await googleSignInController({body: {idToken: 'signed-google-id-token', country: 'US'}, ip: '198.51.100.12'} as any, res);
+  expect(res.statusCode).toBe(200); expect(deps.lookup).toHaveBeenCalledOnce();
+  expect(deps.startSession).toHaveBeenCalledWith('user-1', 'GOOGLE', expect.objectContaining({location: {country: 'NG'}}), 'SIGN_IN', expect.any(String));
 });

@@ -1,6 +1,6 @@
 import {beforeEach, afterEach, expect, it, vi} from 'vitest';
 const mocks = vi.hoisted(() => ({verify: vi.fn(), identity: vi.fn(), compose: vi.fn(), hash: vi.fn(),
-  db: {user: {findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), create: vi.fn()}, wallet: {findUniqueOrThrow: vi.fn()}, transaction: {create: vi.fn()}, $transaction: vi.fn()}}));
+  db: {user: {findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), create: vi.fn()}, country: {findFirst: vi.fn()}, wallet: {findUniqueOrThrow: vi.fn()}, transaction: {create: vi.fn()}, $transaction: vi.fn()}}));
 vi.mock('google-auth-library', () => ({OAuth2Client: class {verifyIdToken = mocks.verify;}}));
 vi.mock('@/db', () => ({default: mocks.db}));
 vi.mock('@/services/v1/utils', () => ({getAuthUser: mocks.identity, composeAuthUser: mocks.compose, getUserStatusMessage: () => 'Unavailable'}));
@@ -128,4 +128,25 @@ it('requires a password when registration is not a verified Google registration'
   mocks.db.user.findFirst.mockResolvedValue(null);
   expect(await createUser({name: 'Ada', email: 'ada@example.test'})).toEqual({status: 400, data: 'Password required'});
   expect(mocks.db.user.create).not.toHaveBeenCalled();
+});
+
+
+it('infers country for a new Google account before committing normal registration', async () => {
+  mocks.db.user.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(account);
+  mocks.db.user.findFirst.mockResolvedValue(null);
+  mocks.db.country.findFirst.mockResolvedValue({id: 'nigeria'});
+  mocks.db.$transaction.mockImplementation(async work => work(mocks.db));
+  mocks.db.user.create.mockResolvedValue(account); mocks.db.wallet.findUniqueOrThrow.mockResolvedValue({id: 'wallet'});
+  const resolve = vi.fn(async () => ({country: 'NG', city: 'Lagos'}));
+  expect((await loginGoogleUser('token', resolve)).status).toBe(200);
+  expect(resolve).toHaveBeenCalledOnce();
+  expect(mocks.db.user.create).toHaveBeenCalledWith(expect.objectContaining({data: expect.objectContaining({country: {connect: {id: 'nigeria'}}, location: {create: {latitude: 0, longitude: 0, meta: {country: 'NG', city: 'Lagos'}}}})}));
+});
+it('never infers or overwrites an existing account country during Google signin/linking', async () => {
+  const resolve = vi.fn(async () => ({country: 'NG'}));
+  mocks.db.user.findUnique.mockResolvedValue({...account, countryId: 'chosen-country'});
+  expect((await loginGoogleUser('token', resolve)).status).toBe(200); expect(resolve).not.toHaveBeenCalled();
+  mocks.db.user.findUnique.mockResolvedValue(null); mocks.db.user.findFirst.mockResolvedValue({...account, googleSubject: null, countryId: 'chosen-country'});
+  expect((await loginGoogleUser('token', resolve)).status).toBe(200); expect(resolve).not.toHaveBeenCalled();
+  expect(mocks.db.user.updateMany).toHaveBeenCalledWith(expect.objectContaining({data: {googleSubject: 'google-sub', isVerified: true}}));
 });

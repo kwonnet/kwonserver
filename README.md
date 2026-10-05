@@ -505,3 +505,41 @@ on the host is an operator deployment step, not an automatically installed cron.
 Deploy backend migrations/API before the web changes, then configure the bridge
 and proxy trust. Live ingress/header trust and secret distribution must be checked
 in the deployment environment; local tests cannot prove production topology.
+
+### Diagnosing missing IP locations
+
+An IP is an input to a geolocation database, not an encoded city/country. IPv6 is
+supported by the installed library. A masked `ipAddress` prefix in telemetry is
+only the stored privacy-safe representation; lookup uses the full transient IP.
+
+The API warms its existing `ip-location-api` database in the background at startup.
+Authentication retains the 1.5-second maximum optional lookup wait so database
+creation/download does not delay sign-in indefinitely. Failed initialization now
+retries after a one-minute cooldown on the next lookup. Default fields are country,
+region name, city and timezone (an explicit `ILA_FIELDS` setting overrides this).
+No additional external geolocation service is used.
+
+Logs distinguish `IP geolocation database ready` from initialization failure.
+`Authentication location unavailable` reports state, failure count, retry time and
+the last lookup outcome (`timeout`, `no_match`, `lookup_failed`). Recognized filesystem
+and network error codes are reported without raw messages, full IPs, agents or
+credentials. Outcomes are process-level diagnostic snapshots during concurrent
+requests. A ready database can still lack a particular address range; it does not
+guarantee a city-level result. Existing login history snapshots are not retroactively
+modified. After database readiness, a new successful login captures any available
+coarse location. The SDK's data directory must be writable and its configured
+GeoLite/IP database download source reachable from the container.
+
+### Registration country inference
+
+Password signup passes the trusted request's sanitized IP-lookup JSON to
+`createUser`. New Google registration now does the same after Google verification,
+reusing one lookup snapshot for account creation and authentication history.
+`createUser` resolves non-empty, trimmed lookup country identifiers/names against
+the existing Country catalog (case-insensitive ISO2, ISO3 or name), connects
+`User.countryId` within the registration transaction, and returns the included
+country in the normal authentication user response. A lookup miss or missing
+catalog match leaves country null rather than inventing a default. Google signin
+or email linking for existing accounts never overwrites a chosen country. Existing
+users are not backfilled by this change; they can use the profile country editor.
+No new schema migration is needed for this registration fix.

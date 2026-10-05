@@ -123,3 +123,14 @@ describe('referral rewards', () => {
       expect(db.wallet.update.mock.calls.length).toBe(rewarded ? 1 : 0);
     });
 });
+
+it.each([{country: ' ng '}, {country_name: ' Nigeria '}])('resolves a new registration country from available trusted identifiers %j', async location => {
+  db.user.findFirst.mockResolvedValue(null); db.user.create.mockResolvedValue(user()); db.country.findFirst.mockResolvedValue({id: 'nigeria'});
+  await createUser({...credentials, name: 'Ada'}, location);
+  expect(db.user.create).toHaveBeenCalledWith(expect.objectContaining({data: expect.objectContaining({country: {connect: {id: 'nigeria'}}})}));
+});
+it('does not guess a country when lookup has no usable country or the catalog lacks a match', async () => {
+  db.user.findFirst.mockResolvedValue(null); db.user.create.mockResolvedValue(user()); db.country.findFirst.mockResolvedValue(null);
+  await createUser({...credentials, name: 'Ada'}, {country: 'ZZ'});
+  expect(db.user.create.mock.calls[0][0].data).not.toHaveProperty('country');
+});
