@@ -1,11 +1,12 @@
 
 import express from "express";
 import { authMiddleware, detectBotMiddleware } from "@/middleware";
-import { blockUserController, followUserController, getConnectionsController, getUserAccountAnalyticsController, getUserBlockedUsersController, getUserBookmarksController, getUserFollowersController, getUserFollowingController, getUserFollowRequestsController, getUserFriendsController, getUserHighlightPostsController, getUserLikesController, getUserMediaPostsController, getUserMutedUsersController, getUserNotificationsController, getUserPostsController, getUserProfileOverviewController, getUserRepliesController, getUserScheduledPostsController, getUserVerifiedFollowersController, muteUserController, profileVisitorController, reportUserController, searchUserController, searchUsersController, updateAccountStatusController, updateUserNotifController, userAchievementsController, userActiveSubscriptionController, userLocationController, userStatsController, userUserTaskSettingsController, getUserInteractionHistoryController } from "@/controllers/v1/users";
+import { publicProfileMetadataController, blockUserController, followUserController, getConnectionsController, getUserAccountAnalyticsController, getUserBlockedUsersController, getUserBookmarksController, getUserFollowersController, getUserFollowingController, getUserFollowRequestsController, getUserFriendsController, getUserHighlightPostsController, getUserLikesController, getUserMediaPostsController, getUserMutedUsersController, getUserNotificationsController, getUserPostsController, getUserProfileOverviewController, getUserRepliesController, getUserScheduledPostsController, getUserVerifiedFollowersController, muteUserController, profileVisitorController, reportUserController, searchUserController, searchUsersController, updateAccountStatusController, updateUserNotifController, userAchievementsController, userActiveSubscriptionController, userLocationController, userStatsController, userUserTaskSettingsController, getUserInteractionHistoryController } from "@/controllers/v1/users";
 
 import { editableProfileController } from "@/controllers/v1/profile";
 
 const router = express.Router();
+router.get("/:id/metadata", publicProfileMetadataController);
 router.get("/me/profile", authMiddleware(), editableProfileController);
 router.patch("/me/profile", authMiddleware(), editableProfileController);
 

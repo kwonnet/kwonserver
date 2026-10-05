@@ -1,3 +1,4 @@
+import {getPublicProfileMetadata} from "@/services/v1/users";
 import { SessionUser, AuthUser } from "@/types/user";
 import { QueryParams, ReportCreateSchema, SearchQuerySchema, updateAccountStatusSchema, VisitorCreateSchema } from "@/schema";
 import { rewardQuerySchema, SearchUserSchema } from "@/schema/gameSchema";
@@ -863,4 +864,9 @@ export const getUserInteractionHistoryController = async (
   } catch (error: any) {
     return res.status(400).send(error?.message);
   }
+};
+export const publicProfileMetadataController = async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {const profile = await getPublicProfileMetadata(req.params.id); return profile ? res.json(profile) : res.status(404).json({error: 'Profile unavailable'});}
+  catch {return res.status(503).json({error: 'Metadata unavailable'});}
 };

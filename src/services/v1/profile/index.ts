@@ -25,6 +25,7 @@ export async function updateEditableProfile(userId: string, body: unknown) {
   const base = process.env.CLOUDFLARE_PUBLIC_MEDIA_URL || 'https://media.kwonnet.com';
   try {
     return await prisma.$transaction(async tx => {
+      if (input.username) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${"username:" + input.username}, 0))`;
       // Serialize edits to enforce cooldowns even for simultaneous requests.
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
       const current = await tx.user.findUnique({ where: { id: userId } });

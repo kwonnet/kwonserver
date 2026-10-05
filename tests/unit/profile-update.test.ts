@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
-const db = vi.hoisted(() => ({ user: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() }, country: { findUnique: vi.fn(), findMany: vi.fn() }, $queryRaw: vi.fn(), $transaction: vi.fn() }));
+const db = vi.hoisted(() => ({ user: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() }, country: { findUnique: vi.fn(), findMany: vi.fn() }, $queryRaw: vi.fn(), $executeRaw: vi.fn(), $transaction: vi.fn() }));
 vi.mock('@/db', () => ({ default: db }));
 import { updateEditableProfile, getEditableProfile } from '@/services/v1/profile';
 import { assertChangeAllowed, assertProfileImage, profileUpdateSchema, PROFILE_CHANGE_INTERVAL } from '@/services/v1/profile/policy';

@@ -346,7 +346,10 @@ export async function startAuthSession(userId: string, provider: import('@prisma
 export async function validateAuthSession(user: {id: string; sessionId?: string}) {
   // Pre-migration signed API tokens retain their existing expiry; their next refresh
   // upgrades them to a LEGACY-attributed, revocable session without inventing a provider.
-  if (!user.sessionId) return true;
+  if (!user.sessionId) {
+    const account = await prisma.user.findUnique({where: {id: user.id}, select: {passwordChangedAt: true}});
+    return !!account && !account.passwordChangedAt;
+  }
   const session = await prisma.userSession.findFirst({where: {id: user.sessionId, userId: user.id, revokedAt: null, expiresAt: {gt: new Date()}, user: {status: {in: ['ACTIVE', 'PRIVATE']}, deletedAt: null, deactivatedAt: null}}, select: {id: true}});
   return !!session;
 }
@@ -389,4 +392,36 @@ export async function sessionProvider(userId: string, id: string) {
   const session = await prisma.userSession.findFirst({where: {id, userId, revokedAt: null, expiresAt: {gt: new Date()}}, select: {provider: true}});
   if (!session) throw new Error('Session revoked or expired');
   return session.provider;
+}
+
+export async function getAccountSettings(userId: string) {
+  const user = await prisma.user.findUniqueOrThrow({where: {id: userId}, select: {username: true, password: true}});
+  return {username: user.username, hasPassword: !!user.password};
+}
+export async function updateAccountPassword(userId: string, sessionId: string | undefined, input: {currentPassword?: string; newPassword: string}) {
+  const user = await prisma.user.findUnique({where: {id: userId}, select: {password: true, googleSubject: true}});
+  if (!user) return {status: 404, data: 'Account not found'};
+  if (user.password) {
+    if (!input.currentPassword || !await bcrypt.compare(input.currentPassword, user.password)) return {status: 403, data: 'Current password is incorrect'};
+    if (await bcrypt.compare(input.newPassword, user.password)) return {status: 400, data: 'Choose a different password'};
+  } else {
+    const recent = sessionId && user.googleSubject && await prisma.userSession.findFirst({where: {id: sessionId, userId, provider: 'GOOGLE', revokedAt: null, expiresAt: {gt: new Date()}, createdAt: {gte: new Date(Date.now() - 5 * 60_000)}, events: {some: {provider: 'GOOGLE', kind: 'SIGN_IN'}}}, select: {id: true}});
+    if (!recent) return {status: 403, data: 'Sign in with Google again before setting your first password'};
+  }
+  const password = await bcrypt.hash(input.newPassword, 10);
+  const revoked = await prisma.$transaction(async tx => {
+    // Serialize credential changes and reject a stale concurrent password check.
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+    const current = await tx.user.findUniqueOrThrow({where: {id: userId}, select: {password: true}});
+    if (current.password !== user.password) return null;
+    await tx.user.update({where: {id: userId}, data: {password, passwordChangedAt: new Date()}});
+    await tx.pushNotification.deleteMany({where: {userId, sessionId: null}});
+    await tx.authIdentity.upsert({where: {userId_provider: {userId, provider: 'PASSWORD'}}, create: {userId, provider: 'PASSWORD', providerAccountId: userId}, update: {}});
+    const sessions = await tx.userSession.findMany({where: {userId, revokedAt: null, ...(sessionId ? {id: {not: sessionId}} : {})}, select: {id: true}});
+    await tx.userSession.updateMany({where: {id: {in: sessions.map(session => session.id)}}, data: {revokedAt: new Date(), revokedReason: 'PASSWORD_CHANGED'}});
+    return sessions;
+  });
+  if (!revoked) return {status: 409, data: 'Password changed during this request. Please try again'};
+  for (const session of revoked) disconnectAuthSession(session.id);
+  return {status: 200, data: {updated: true, reloginRequired: !sessionId}};
 }

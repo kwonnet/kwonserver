@@ -1,3 +1,4 @@
+import {getEmbedPost, getPublicPostMetadata, getPublicPostMetadataIndex} from "@/services/v1/posts";
 import { z } from 'zod';
 import { performance } from "node:perf_hooks";
 import logger from "@/logger";
@@ -258,7 +259,7 @@ export const getEmbedPostController = async (
 
     const user = req.user as AuthUser;
 
-    const result = await getPostFeedDetails(postId, user);
+    const result = await getEmbedPost(postId, user?.id);
 
     return res.status(result.status).send(result.data);
   } catch (error: any) {
@@ -1070,4 +1071,15 @@ export const getPostEngagementsOverviewController = async (req: Request, res: Re
     const result = await getPostEngagementsOverview(req.params.id, req.user!.id);
     return res.status(result.status).send(result.data);
   } catch { return res.status(500).send("Unable to load engagements"); }
+};
+
+export const publicPostMetadataController = async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {const post = await getPublicPostMetadata(req.params.id); return post ? res.json(post) : res.status(404).json({error: 'Post unavailable'});}
+  catch {return res.status(503).json({error: 'Metadata unavailable'});}
+};
+export const publicPostMetadataIndexController = async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {return res.json(await getPublicPostMetadataIndex());}
+  catch {return res.status(503).json({error: 'Metadata unavailable'});}
 };

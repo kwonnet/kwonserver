@@ -29,3 +29,8 @@ export const SignUpSchema = z.object({
 
     refId: z.string({message: "Referrer ID must be a string"}).nullable().optional()
 })
+export const PasswordUpdateSchema = z.object({
+  currentPassword: z.string().max(72).optional(),
+  newPassword: z.string().min(8, 'Use at least 8 characters').max(32, 'Use at most 32 characters')
+    .refine(value => Buffer.byteLength(value, 'utf8') <= 72, 'Password is too long in UTF-8'),
+}).strict();

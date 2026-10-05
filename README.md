@@ -576,3 +576,25 @@ publication; older scheduled posts retain their already-applied counts. UTC date
 with explicit offsets are required, at least five minutes in the future. Publication
 may be up to one scheduler interval later, or longer under worker backlog/outage;
 overdue posts are picked up when the worker resumes. Keep background jobs enabled.
+
+
+### Account credentials and SEO preview APIs
+
+Settings reads `GET /api/v1/auth/settings` (username and hasPassword only) and updates
+passwords through `PATCH /api/v1/auth/password`. Existing password accounts must
+verify the current password. Google-only accounts may set their first password
+only from a Google session created within the last five minutes. New passwords use
+the existing 8–32 character policy and enforce bcrypt's 72-byte UTF-8 limit. Hashes
+are stored using bcrypt; responses and logs never include credentials. Password
+changes preserve the current tracked session, revoke other tracked sessions and
+invalidate historical sessionless tokens. Deploy migration
+`20261005170000_password_change_revocation` before restarting the API. Existing
+accounts retain historical token compatibility until they change their password.
+Username edits reuse the existing profile endpoint, normalize to lowercase and
+serialize competing claims with an advisory lock; IDs and account data stay intact.
+
+Public SEO endpoints are `/users/:id/metadata`, `/posts/:id/metadata` and
+`/posts/metadata-index`. They expose only active public profiles and visible public
+root posts, never private identity/contact data or viewer relationships. The sitemap
+index is capped at the newest 1,000 posts from the past 30 days. Anonymous embeds
+apply the same visibility gate and never include another user's reaction state.

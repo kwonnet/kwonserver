@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response, user } from './fixtures';
-const deps = vi.hoisted(() => ({ create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn(), startSession: vi.fn(), validateSession: vi.fn(), touch: vi.fn(), provider: vi.fn(), revoke: vi.fn(), sessions: vi.fn(), events: vi.fn() }));
-vi.mock('@/services/v1/auth', () => ({ createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google, startAuthSession: deps.startSession, validateAuthSession: deps.validateSession, touchAuthSession: deps.touch, sessionProvider: deps.provider, revokeAuthSession: deps.revoke, listAuthSessions: deps.sessions, listLoginEvents: deps.events }));
+const deps = vi.hoisted(() => ({ create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn(), startSession: vi.fn(), validateSession: vi.fn(), touch: vi.fn(), provider: vi.fn(), revoke: vi.fn(), sessions: vi.fn(), events: vi.fn(), account: vi.fn(), password: vi.fn() }));
+vi.mock('@/services/v1/auth', () => ({ getAccountSettings: deps.account, updateAccountPassword: deps.password, createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google, startAuthSession: deps.startSession, validateAuthSession: deps.validateSession, touchAuthSession: deps.touch, sessionProvider: deps.provider, revokeAuthSession: deps.revoke, listAuthSessions: deps.sessions, listLoginEvents: deps.events }));
 vi.mock('@/services/v1/utils', () => ({ getAuthUser: deps.getUser }));
 vi.mock('@/utils', () => ({ generateToken: deps.generate, getAuthTokenUser: deps.decode }));
 vi.mock('@/utils/ipLocation', () => ({ lookup: deps.lookup }));
-import { signInController, signUpController, refreshTokenController, getMeController, logoutController, googleSignInController, authSessionsController, loginEventsController, revokeAuthSessionController, guardAuthStream } from '@/controllers/v1/auth';
+import { accountSettingsController, passwordUpdateController, signInController, signUpController, refreshTokenController, getMeController, logoutController, googleSignInController, authSessionsController, loginEventsController, revokeAuthSessionController, guardAuthStream } from '@/controllers/v1/auth';
 const body = { name: 'Ada', email: 'ADA@example.test', password: 'password123' };
 it('logout clears both historical API cookies even without a working authenticated session', () => {
   const res = response(); res.clearCookie = vi.fn(() => res);
@@ -214,4 +214,15 @@ it('Google registration and the login event share one trusted location lookup', 
   await googleSignInController({body: {idToken: 'signed-google-id-token', country: 'US'}, ip: '198.51.100.12'} as any, res);
   expect(res.statusCode).toBe(200); expect(deps.lookup).toHaveBeenCalledOnce();
   expect(deps.startSession).toHaveBeenCalledWith('user-1', 'GOOGLE', expect.objectContaining({location: {country: 'NG'}}), 'SIGN_IN', expect.any(String));
+});
+
+it('loads account settings for the authenticated owner and handles failure', async () => {
+ deps.account.mockResolvedValue({username: 'owner', hasPassword: true}); const res = response(); await accountSettingsController({user: {id: 'owner'}} as any, res); expect(deps.account).toHaveBeenCalledWith('owner');
+ deps.account.mockRejectedValue(new Error('private')); await accountSettingsController({user: {id: 'owner'}} as any, res); expect(res.statusCode).toBe(503);
+});
+it('validates password updates and binds the active session to the authenticated owner', async () => {
+ const res = response(); await passwordUpdateController({user: {id: 'owner'}, body: {newPassword: 'short'}} as any, res); expect(res.statusCode).toBe(400);
+ deps.password.mockResolvedValue({status: 200, data: {updated: true}}); await passwordUpdateController({user: {id: 'owner', sessionId: 'current'}, body: {currentPassword: 'old-password', newPassword: 'new-password'}} as any, res); expect(deps.password).toHaveBeenCalledWith('owner', 'current', {currentPassword: 'old-password', newPassword: 'new-password'});
+ deps.password.mockResolvedValue({status: 403, data: 'Incorrect'}); await passwordUpdateController({user: {id: 'owner'}, body: {newPassword: 'new-password'}} as any, res); expect(res.statusCode).toBe(403);
+ deps.password.mockRejectedValue(new Error('private')); await passwordUpdateController({user: {id: 'owner'}, body: {newPassword: 'new-password'}} as any, res); expect(res.statusCode).toBe(500);
 });

@@ -10922,3 +10922,7 @@ export async function getUserInteractionHistory(userId: string) {
     return { data: "Getting history failed", status: 500}
   }
 }
+/** Public-only SEO data; never returns email, birthday, wallet or relationship state. */
+export async function getPublicProfileMetadata(identifier: string) {
+  return prisma.user.findFirst({where: {username: {equals: identifier.replace(/^@/, ''), mode: 'insensitive'}, status: 'ACTIVE', isPrivate: false, deletedAt: null, deactivatedAt: null}, select: {name: true, username: true, bio: true, avatar: true}});
+}

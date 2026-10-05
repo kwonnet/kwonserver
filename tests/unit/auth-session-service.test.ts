@@ -1,6 +1,6 @@
 import {beforeEach, expect, it, vi} from 'vitest';
 const mocks = vi.hoisted(() => ({disconnect: vi.fn(), db: {
- user: {findUniqueOrThrow: vi.fn()}, authIdentity: {upsert: vi.fn()}, userSession: {create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), count: vi.fn(), deleteMany: vi.fn()}, loginEvent: {create: vi.fn(), findMany: vi.fn(), count: vi.fn(), deleteMany: vi.fn()}, $transaction: vi.fn(),
+ user: {findUnique: vi.fn(), findUniqueOrThrow: vi.fn()}, authIdentity: {upsert: vi.fn()}, userSession: {create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), count: vi.fn(), deleteMany: vi.fn()}, loginEvent: {create: vi.fn(), findMany: vi.fn(), count: vi.fn(), deleteMany: vi.fn()}, $transaction: vi.fn(),
 }}));
 vi.mock('@/db', () => ({default: mocks.db}));
 vi.mock('@/utils/auth-session-sockets', () => ({disconnectAuthSession: mocks.disconnect}));
@@ -9,6 +9,7 @@ const metadata = {device: {browser: 'Chrome', browserVersion: '129.0', os: 'Mac'
 beforeEach(() => {
  vi.resetAllMocks();
  mocks.db.$transaction.mockImplementation(work => typeof work === 'function' ? work(mocks.db) : Promise.all(work));
+ mocks.db.user.findUnique.mockResolvedValue({passwordChangedAt: null});
  mocks.db.user.findUniqueOrThrow.mockResolvedValue({googleSubject: 'sub'});
  mocks.db.authIdentity.upsert.mockImplementation(async args => ({id: 'identity', providerAccountId: args.create.providerAccountId}));
  mocks.db.userSession.create.mockImplementation(async args => ({id: args.data.id}));
@@ -62,4 +63,9 @@ it('purges expired telemetry using retention fields without deleting active sess
  mocks.db.loginEvent.deleteMany.mockResolvedValue({count: 2}); mocks.db.userSession.deleteMany.mockResolvedValue({count: 1});
  expect(await cleanupAuthHistory()).toEqual({events: 2, sessions: 1});
  expect(mocks.db.userSession.deleteMany).toHaveBeenCalledWith({where: {retainUntil: {lt: expect.any(Date)}, OR: [{revokedAt: {not: null}}, {expiresAt: {lt: expect.any(Date)}}]}});
+});
+
+it('rejects old sessionless tokens after a password change or account removal', async () => {
+ mocks.db.user.findUnique.mockResolvedValue({passwordChangedAt: new Date()}); expect(await validateAuthSession({id: 'user'})).toBe(false);
+ mocks.db.user.findUnique.mockResolvedValue(null); expect(await validateAuthSession({id: 'user'})).toBe(false);
 });

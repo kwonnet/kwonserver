@@ -35,6 +35,7 @@ import {
   TxnTypeEnum,
   PostAction,
   UserRoleEnum,
+  UserStatus,
   Prisma,
   PostMediaKind,
   PostMediaAction,
@@ -1830,196 +1831,38 @@ export const getPostMentionUsers = async (
 };
 
 export const getEmbedPost = async (postId: string, userId?: string) => {
+  const viewerId = userId ?? '__public_viewer__';
+  const publicUser = {status: UserStatus.ACTIVE, isPrivate: false, deletedAt: null, deactivatedAt: null};
+  const authorSelect = {
+    id: true, name: true, username: true, avatar: true, bio: true, role: true,
+    userType: true, meta: true, status: true, createdAt: true, accountVerified: true,
+    subscriptions: {where: {status: {in: [SubStatusEnum.ACTIVE, SubStatusEnum.TRIAL, SubStatusEnum.PAYMENT_ERROR] as SubStatusEnum[]}}, select: {id: true}, take: 1},
+    _count: {select: {followers: {where: {status: FollowStatus.ACCEPTED}}, following: {where: {status: FollowStatus.ACCEPTED}}}},
+    followers: {where: {followerId: viewerId}, select: {status: true}},
+    following: {where: {followingId: viewerId}, select: {status: true}},
+  } as const;
   try {
-    // get some post replies of the current post
-    const post = await prisma.post.findFirst({
-      where: {
-        id: postId,
-        status: PostStatus.PUBLISHED,
-      },
-      include: {
-        media: true,
-        root: {
-          select: {
-            id: true,
-            scope: true,
-            userId: true,
-            rootId: true,
-          },
-        },
-        user: {
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            avatar: true,
-            bio: true,
-            role: true,
-            userType: true,
-            meta: true,
-            isVerified: true,
-            accountVerified: true,
-            followers: {
-              where: {
-                followerId: userId,
-              },
-              select: { id: true, followerId: true, followingId: true },
-            },
-            following: {
-              where: {
-                followingId: userId,
-              },
-              select: { id: true, followerId: true, followingId: true },
-            },
-            subscriptions: {
-              where: {
-                status: {
-                  in: [
-                    SubStatusEnum.ACTIVE,
-                    SubStatusEnum.TRIAL,
-                    SubStatusEnum.PAYMENT_ERROR,
-                  ],
-                },
-              },
-            },
-            country: {
-              select: {
-                id: true,
-                name: true,
-                iso2: true,
-                iso3: true,
-                emoji: true,
-                continentId: true,
-                continent: true,
-              },
-            },
-          },
-        },
-        tagUsers: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                avatar: true,
-                name: true,
-                isVerified: true,
-                accountVerified: true,
-                bio: true,
-                role: true,
-                userType: true,
-                meta: true,
-                subscriptions: {
-                  where: {
-                    status: {
-                      in: [
-                        SubStatusEnum.ACTIVE,
-                        SubStatusEnum.TRIAL,
-                        SubStatusEnum.PAYMENT_ERROR,
-                      ],
-                    },
-                  },
-                },
-                country: {
-                  select: {
-                    id: true,
-                    name: true,
-                    iso2: true,
-                    iso3: true,
-                    emoji: true,
-                    continentId: true,
-                    continent: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-        mentions: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                avatar: true,
-                name: true,
-                isVerified: true,
-                accountVerified: true,
-                bio: true,
-                role: true,
-                userType: true,
-                meta: true,
-                subscriptions: {
-                  where: {
-                    status: {
-                      in: [
-                        SubStatusEnum.ACTIVE,
-                        SubStatusEnum.TRIAL,
-                        SubStatusEnum.PAYMENT_ERROR,
-                      ],
-                    },
-                  },
-                },
-                country: {
-                  select: {
-                    id: true,
-                    name: true,
-                    iso2: true,
-                    iso3: true,
-                    emoji: true,
-                    continentId: true,
-                    continent: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-        poll: {
-          include: {
-            options: {
-              include: {
-                voters: {
-                  where: {
-                    userId,
-                  },
-                },
-              },
-            },
-            continents: true,
-            countries: true,
-          },
-        },
-        likes: {
-          where: {
-            userId, // Check if the current user has liked the post
-          },
-          select: {
-            id: true, // Fetch only the like ID (or boolean flag)
-            userId: true,
-          },
-        },
-        bookmarks: {
-          where: {
-            userId, // Check if the current user has liked the post
-          },
-          select: {
-            id: true, // Fetch only the like ID (or boolean flag)
-            userId: true,
-          },
-        },
-      },
-    });
-
-    const data = transformPost(post);
-
-    return { data, status: 200 };
-  } catch (error) {
-    return {
-      data: "Error occurred trying to get post, please try again",
-      status: 500,
-    };
-  }
+    const post = await prisma.post.findFirst({where: {
+      id: postId, status: PostStatus.PUBLISHED, scope: 'ANYONE', kind: 'ROOT',
+      deletedAt: null, isHidden: false, parentId: null, rootId: null,
+      createdAt: {lte: new Date()}, user: publicUser,
+      OR: [{scheduleAt: null}, {scheduleAt: {lte: new Date()}}],
+    }, include: {
+      media: true, user: {select: authorSelect},
+      tagUsers: {where: {user: publicUser}, select: {user: {select: authorSelect}}},
+      mentions: {where: {user: publicUser}, select: {user: {select: authorSelect}}},
+      poll: {include: {options: {include: {voters: {where: {userId: viewerId}}}}, continents: true, countries: true}},
+      likes: {where: {userId: viewerId}, select: {id: true, userId: true}},
+      bookmarks: {where: {userId: viewerId}, select: {id: true, userId: true}},
+    }});
+    if (!post) return {status: 404, data: 'Post unavailable'};
+    // The shared author formatter expects moderation metadata. Public ACTIVE
+    // authors need no moderation history; never include it in the preview query.
+    const author = (value: typeof post.user) => ({...value, metadata: [], followerCount: value._count.followers, followingCount: value._count.following});
+    return {status: 200, data: serializeBigInts(transformPost({...post, user: author(post.user),
+      tagUsers: post.tagUsers.map(item => author(item.user)), mentions: post.mentions.map(item => author(item.user)),
+    }))};
+  } catch {return {status: 503, data: 'Post temporarily unavailable'};}
 };
 
 export const getPostReplies = async (
@@ -8400,4 +8243,11 @@ export async function publishDueScheduledPosts() {
     }
     return result.count;
   });
+}
+
+export async function getPublicPostMetadata(id: string) {
+  return prisma.post.findFirst({where: {id, status: 'PUBLISHED', scope: 'ANYONE', kind: 'ROOT', deletedAt: null, isHidden: false, parentId: null, rootId: null, createdAt: {lte: new Date()}, OR: [{scheduleAt: null}, {scheduleAt: {lte: new Date()}}], user: {status: 'ACTIVE', isPrivate: false, deletedAt: null, deactivatedAt: null}}, select: {id: true, content: true, updatedAt: true, user: {select: {name: true, username: true}}, media: {take: 1, select: {url: true, thumbnailUrl: true, fileType: true}}}});
+}
+export async function getPublicPostMetadataIndex() {
+  return prisma.post.findMany({where: {status: 'PUBLISHED', scope: 'ANYONE', kind: 'ROOT', deletedAt: null, isHidden: false, parentId: null, rootId: null, createdAt: {gte: new Date(Date.now() - 30 * 86400_000), lte: new Date()}, OR: [{scheduleAt: null}, {scheduleAt: {lte: new Date()}}], user: {status: 'ACTIVE', isPrivate: false, deletedAt: null, deactivatedAt: null}}, orderBy: [{createdAt: 'desc'}, {id: 'desc'}], take: 1000, select: {id: true, updatedAt: true, user: {select: {username: true}}}});
 }

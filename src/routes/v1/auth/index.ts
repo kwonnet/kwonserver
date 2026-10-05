@@ -1,6 +1,6 @@
 import express, {  } from "express";
 import { authMiddleware } from "@/middleware";
-import { authSessionsController, loginEventsController, revokeAuthSessionController, googleSignInController, getMeController, logoutController, refreshTokenController, signInController, signUpController } from "@/controllers/v1/auth";
+import { accountSettingsController, passwordUpdateController, authSessionsController, loginEventsController, revokeAuthSessionController, googleSignInController, getMeController, logoutController, refreshTokenController, signInController, signUpController } from "@/controllers/v1/auth";
 
 const router = express.Router();
 
@@ -15,6 +15,9 @@ router.post("/refresh-token", refreshTokenController)
 router.get("/me", authMiddleware({checkPermWithEmail: true}), getMeController)
 
 router.get("/session-status", authMiddleware(), getMeController)
+
+router.get("/settings", authMiddleware(), accountSettingsController)
+router.patch("/password", authMiddleware(), passwordUpdateController)
 
 router.get("/sessions", authMiddleware(), authSessionsController)
 router.get("/login-events", authMiddleware(), loginEventsController)

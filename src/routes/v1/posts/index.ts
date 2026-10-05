@@ -1,12 +1,14 @@
 
 import express from "express";
 import { authMiddleware } from "@/middleware";
-import { getPostEngagementsOverviewController, getPostGiftersController, searchPostsController, getPublicPostPreviewController, createPostClickController, createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostTipController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostAnalyticsController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, getTagUsersOrMentionsController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController, getRecommendationsController } from "@/controllers/v1/posts";
+import { publicPostMetadataController, publicPostMetadataIndexController, getPostEngagementsOverviewController, getPostGiftersController, searchPostsController, getPublicPostPreviewController, createPostClickController, createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostTipController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostAnalyticsController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, getTagUsersOrMentionsController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController, getRecommendationsController } from "@/controllers/v1/posts";
 
 
 
 const router = express.Router();
 
+router.get("/metadata-index", publicPostMetadataIndexController);
+router.get("/:id/metadata", publicPostMetadataController);
 router.get("/search", authMiddleware({required: false}), searchPostsController);
 
 router.get("/preview", getPublicPostPreviewController);

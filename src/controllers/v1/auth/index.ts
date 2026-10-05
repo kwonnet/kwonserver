@@ -3,10 +3,10 @@ import {z} from "zod";
 import {authRequestMetadata} from "@/utils/auth-security";
 import { Request, Response } from "express";
 import { generateToken, getAuthTokenUser } from "@/utils";
-import { createUser, loginUser, loginGoogleUser, startAuthSession, validateAuthSession, touchAuthSession, listAuthSessions, listLoginEvents, revokeAuthSession, sessionProvider } from "@/services/v1/auth";
+import { getAccountSettings, updateAccountPassword, createUser, loginUser, loginGoogleUser, startAuthSession, validateAuthSession, touchAuthSession, listAuthSessions, listLoginEvents, revokeAuthSession, sessionProvider } from "@/services/v1/auth";
 import type { LookupResult } from 'ip-location-api';
 import { lookup } from '@/utils/ipLocation';
-import { SignInSchema, SignUpSchema } from "@/schema/auth";
+import { PasswordUpdateSchema, SignInSchema, SignUpSchema } from "@/schema/auth";
 import { ZodError } from "zod";
 import logger from "@/logger";
 import { SessionUser, AuthUser } from "@/types/user";
@@ -225,4 +225,19 @@ export const guardAuthStream = (req: Request, res: Response, next: import('expre
     res.on('close', () => clearInterval(timer));
   }
   next();
+};
+
+export const accountSettingsController = async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  try {return res.json(await getAccountSettings(req.user!.id));}
+  catch {return res.status(503).json({error: 'Account settings unavailable'});}
+};
+export const passwordUpdateController = async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  const parsed = PasswordUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({error: parsed.error.issues[0].message});
+  try {
+    const result = await updateAccountPassword(req.user!.id, req.user!.sessionId, parsed.data);
+    return res.status(result.status).json(result.status === 200 ? result.data : {error: result.data});
+  } catch {return res.status(500).json({error: 'Unable to update password'});}
 };
