@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response, user } from './fixtures';
-const deps = vi.hoisted(() => ({ create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn() }));
-vi.mock('@/services/v1/auth', () => ({ createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google }));
+const deps = vi.hoisted(() => ({ create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn(), startSession: vi.fn(), validateSession: vi.fn(), touch: vi.fn(), provider: vi.fn(), revoke: vi.fn(), sessions: vi.fn(), events: vi.fn() }));
+vi.mock('@/services/v1/auth', () => ({ createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google, startAuthSession: deps.startSession, validateAuthSession: deps.validateSession, touchAuthSession: deps.touch, sessionProvider: deps.provider, revokeAuthSession: deps.revoke, listAuthSessions: deps.sessions, listLoginEvents: deps.events }));
 vi.mock('@/services/v1/utils', () => ({ getAuthUser: deps.getUser }));
 vi.mock('@/utils', () => ({ generateToken: deps.generate, getAuthTokenUser: deps.decode }));
 vi.mock('@/utils/ipLocation', () => ({ lookup: deps.lookup }));
-import { signInController, signUpController, refreshTokenController, getMeController, logoutController, googleSignInController } from '@/controllers/v1/auth';
+import { signInController, signUpController, refreshTokenController, getMeController, logoutController, googleSignInController, authSessionsController, loginEventsController, revokeAuthSessionController, guardAuthStream } from '@/controllers/v1/auth';
 const body = { name: 'Ada', email: 'ADA@example.test', password: 'password123' };
 it('logout clears both historical API cookies even without a working authenticated session', () => {
   const res = response(); res.clearCookie = vi.fn(() => res);
@@ -22,7 +22,8 @@ it('rejects cross-origin logout attempts', () => {
 beforeEach(() => {
   Object.values(deps).forEach(fn => fn.mockReset());
   deps.create.mockResolvedValue({ status: 200, data: user() }); deps.login.mockResolvedValue({ status: 200, data: user() });
-  deps.generate.mockReturnValue('signed-token'); deps.decode.mockReturnValue({ id: 'u' });
+  deps.generate.mockReturnValue('signed-token'); deps.decode.mockReturnValue({ id: 'u', sessionId: 'existing-session' });
+  deps.validateSession.mockResolvedValue(true); deps.startSession.mockResolvedValue('new-session'); deps.provider.mockResolvedValue('GOOGLE');
   deps.getUser.mockResolvedValue({ status: 200, data: user() }); deps.lookup.mockResolvedValue({ country: 'NG' });
 });
 it.each([['signin', signInController], ['signup', signUpController]] as const)('%s validates before calling services', async (_name, controller) => {
@@ -32,7 +33,7 @@ it.each([['signin', signInController], ['signup', signUpController]] as const)('
 it.each([['signin', signInController], ['signup', signUpController]] as const)('%s issues a minimal encrypted-token payload and secure cookie', async (_name, controller) => {
   const res = response(); await controller({ body, ip: '::ffff:1.2.3.4' } as any, res);
   expect(res.body.accessToken).toBe('signed-token');
-  expect(deps.generate).toHaveBeenCalledWith({ id: 'user-1', name: 'Ada', email: 'ada@example.test', username: 'ada', role: 'USER' }, { expiresIn: '24h' });
+  expect(deps.generate).toHaveBeenCalledWith({ id: 'user-1', name: 'Ada', email: 'ada@example.test', username: 'ada', role: 'USER', sessionId: expect.any(String) }, { expiresIn: '24h' });
   expect(res.cookie).toHaveBeenCalledWith('tx_a_t', 'signed-token', { httpOnly: true, secure: true, sameSite: 'none', maxAge: 86400000 });
 });
 it.each([['signin', signInController, 'login'], ['signup', signUpController, 'create']] as const)('%s forwards service rejections without issuing tokens', async (_name, controller, service) => {
@@ -44,9 +45,9 @@ it.each([['signin', signInController, 'login'], ['signup', signUpController, 'cr
   deps[service].mockRejectedValue(new Error('secret')); const res = response();
   await controller({ body } as any, res); expect(res.statusCode).toBe(500); expect(res.body).not.toContain('secret');
 });
-it.each([['::ffff:1.2.3.4', '1.2.3.4'], ['::1', '8.8.8.8'], [undefined, '8.8.8.8']])('signup resolves client IP %s', async (ip, expected) => {
-  await signUpController({ body, ip } as any, response()); expect(deps.lookup).toHaveBeenCalledWith(expected);
-  expect(deps.create).toHaveBeenCalledWith({ ...body, name: 'ada', email: 'ada@example.test' }, { country: 'NG' });
+it.each([['::ffff:1.2.3.4', '1.2.3.4'], ['::1', null], [undefined, null]])('signup resolves client IP %s', async (ip, expected) => {
+  await signUpController({ body, ip } as any, response()); if (expected) expect(deps.lookup).toHaveBeenCalledWith(expected); else expect(deps.lookup).not.toHaveBeenCalled();
+  expect(deps.create).toHaveBeenCalledWith({ ...body, name: 'ada', email: 'ada@example.test' }, expected ? {country: 'NG'} : null);
 });
 it('returns the authenticated user for /me', async () => {
   const res = response(); const viewer = user(); await getMeController({ user: viewer } as any, res);
@@ -93,8 +94,8 @@ it('Google issues a Kwonnet token containing only the trusted API identity', asy
   const res = response(); const idToken = 'signed-google-id-token';
   await googleSignInController({body: {idToken, id: 'attacker', role: 'ADMIN'}} as any, res);
   expect(deps.google).toHaveBeenCalledWith(idToken);
-  expect(deps.generate).toHaveBeenCalledWith({id: 'user-1', name: 'Ada', email: 'ada@example.test', username: 'ada', role: 'USER'}, {expiresIn: '24h'});
-  expect(res.body).toEqual({user: identity, accessToken: 'signed-token'});
+  expect(deps.generate).toHaveBeenCalledWith({id: 'user-1', name: 'Ada', email: 'ada@example.test', username: 'ada', role: 'USER', sessionId: expect.any(String)}, {expiresIn: '24h'});
+  expect(res.body).toEqual({user: {...identity, sessionId: expect.any(String)}, accessToken: 'signed-token'});
   expect(res.cookie).not.toHaveBeenCalled();
 });
 it.each([{status: 401, data: 'Invalid token'}, {status: 503, data: {reason: 'Unavailable'}}, {status: 200, data: 'Invalid identity'}])('Google never issues tokens for a rejected service result %j', async result => {
@@ -110,4 +111,95 @@ it.each(['verification', 'signing'])('Google masks unexpected %s errors without 
   const res = response(); await googleSignInController({body: {idToken: 'signed-google-id-token'}} as any, res);
   expect(res.statusCode).toBe(500); expect(res.body).not.toContain('private');
   expect(res.body).not.toHaveProperty('accessToken');
+});
+
+
+it.each([['PASSWORD', signInController], ['GOOGLE', googleSignInController]] as const)('attributes %s successful logins without persisting credentials', async (provider, controller) => {
+  deps.google.mockResolvedValue({status: 200, data: user()});
+  await controller({body: {...body, idToken: 'signed-google-id-token'}, ip: '127.0.0.1'} as any, response());
+  expect(deps.startSession).toHaveBeenCalledWith('user-1', provider, expect.objectContaining({location: null, metadataSource: 'API_REQUEST'}), 'SIGN_IN', expect.any(String));
+  const json = JSON.stringify(deps.startSession.mock.calls);
+  expect(json).not.toContain(body.password); expect(json).not.toContain('signed-google-id-token');
+});
+it('refresh checks revocation and does not create another login event', async () => {
+  const res = response(); await refreshTokenController({body: {token: 'old'}} as any, res);
+  expect(deps.validateSession).toHaveBeenCalledWith({id: 'u', sessionId: 'existing-session'});
+  expect(deps.startSession).not.toHaveBeenCalled(); expect(deps.touch).toHaveBeenCalled();
+  expect(res.body.user.sessionId).toBe('existing-session');
+});
+it('refuses a revoked session before loading user data', async () => {
+  deps.validateSession.mockResolvedValue(false); const res = response();
+  await refreshTokenController({body: {token: 'old'}} as any, res);
+  expect(res.statusCode).toBe(401); expect(deps.getUser).not.toHaveBeenCalled();
+});
+it.each([false, true])('upgrades legacy tokens or records a saved-account switch (%s)', async switchAccount => {
+  deps.decode.mockReturnValue({id: 'u', ...(switchAccount && {sessionId: 'old-session'})});
+  await refreshTokenController({body: {token: 'old', newSession: switchAccount}} as any, response());
+  expect(deps.startSession).toHaveBeenCalledWith('user-1', switchAccount ? 'GOOGLE' : 'LEGACY', expect.any(Object), switchAccount ? 'ACCOUNT_SWITCH' : 'LEGACY_UPGRADE', expect.any(String));
+});
+it('tracking failure returns an error and never sends a token or cookie', async () => {
+  deps.startSession.mockRejectedValue(new Error('private storage details')); const res = response();
+  await signInController({body} as any, res); expect(res.statusCode).toBe(500);
+  expect(res.cookie).not.toHaveBeenCalled(); expect(res.body).not.toHaveProperty('accessToken');
+});
+it.each([['sessions', authSessionsController], ['events', loginEventsController]] as const)('scopes %s history to the authenticated user and validates pagination', async (kind, controller) => {
+  deps[kind].mockResolvedValue({data: []});
+  let res = response(); await controller({query: {page: '2', userId: 'other'}, user: {id: 'owner', sessionId: 'current'}} as any, res);
+  expect(res.headers['Cache-Control']).toBe('private, no-store');
+  expect(deps[kind]).toHaveBeenCalledWith(...(kind === 'sessions' ? ['owner', 'current', 2] : ['owner', 2]));
+  res = response(); await controller({query: {page: '0'}, user: {id: 'owner'}} as any, res); expect(res.statusCode).toBe(400);
+  deps[kind].mockRejectedValue(new Error('storage')); res = response();
+  await controller({query: {}, user: {id: 'owner'}} as any, res); expect(res.statusCode).toBe(503);
+});
+it('revokes owned sessions and returns safe errors for invalid, missing and failed revocations', async () => {
+  const request = {params: {id: 'cfad39b0-29f5-4ffc-aabc-607aaed1e740'}, user: {id: 'owner'}} as any;
+  for (const [exists, code] of [[true, 204], [false, 404]] as const) {
+    deps.revoke.mockResolvedValue(exists); const res = response(); await revokeAuthSessionController(request, res); expect(res.statusCode).toBe(code);
+    expect(deps.revoke).toHaveBeenCalledWith('owner', request.params.id);
+  }
+  let res = response(); await revokeAuthSessionController({...request, params: {id: 'invalid'}}, res); expect(res.statusCode).toBe(400);
+  deps.revoke.mockRejectedValue(new Error('storage')); res = response(); await revokeAuthSessionController(request, res); expect(res.statusCode).toBe(503);
+});
+it('logout revokes the bearer session but still clears cookies on decoding or database errors', async () => {
+  for (const broken of [false, true]) {
+    if (broken) deps.decode.mockImplementation(() => {throw new Error('bad token');});
+    const res = response(); res.clearCookie = vi.fn();
+    await logoutController({get: (name: string) => name === 'authorization' ? 'Bearer token' : undefined} as any, res);
+    expect(res.statusCode).toBe(204); expect(res.clearCookie).toHaveBeenCalledTimes(2);
+  }
+  expect(deps.revoke).toHaveBeenCalledWith('u', 'existing-session', 'LOGOUT');
+});
+it('closes revoked SSE sessions and clears timers on disconnect', async () => {
+  vi.useFakeTimers();
+  try {
+    let close: () => void = () => {};
+    const res = response(); res.end = vi.fn(); res.on = (_name: string, fn: () => void) => {close = fn;};
+    const next = vi.fn(); guardAuthStream({user: {id: 'u', sessionId: 'session'}} as any, res, next);
+    deps.validateSession.mockResolvedValueOnce(true).mockResolvedValueOnce(false).mockRejectedValueOnce(new Error('offline'));
+    await vi.advanceTimersByTimeAsync(30_000); expect(res.end).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30_000); expect(res.end).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30_000); expect(res.end).toHaveBeenCalledTimes(2);
+    close(); expect(vi.getTimerCount()).toBe(0);
+    guardAuthStream({user: {id: 'legacy'}} as any, res, next); expect(vi.getTimerCount()).toBe(0);
+  } finally {vi.useRealTimers();}
+});
+
+
+it('reports failed server revocation while still clearing local API cookies', async () => {
+  deps.revoke.mockRejectedValue(new Error('storage offline'));
+  const res = response(); res.clearCookie = vi.fn();
+  await logoutController({get: (name: string) => name === 'authorization' ? 'Bearer token' : undefined} as any, res);
+  expect(res.statusCode).toBe(503); expect(res.clearCookie).toHaveBeenCalledTimes(2);
+});
+
+
+it('explicit invalid logout authorization never falls back to another account cookie', async () => {
+  const res = response(); res.clearCookie = vi.fn();
+  await logoutController({get: (name: string) => name === 'authorization' ? 'Bearer ' : undefined, cookies: {tx_a_t: 'other-account-token'}} as any, res);
+  expect(deps.decode).not.toHaveBeenCalled(); expect(deps.revoke).not.toHaveBeenCalled(); expect(res.statusCode).toBe(204);
+});
+it('cookie-only logout can revoke the historical API session safely', async () => {
+  const res = response(); res.clearCookie = vi.fn();
+  await logoutController({get: () => undefined, cookies: {tx_a_t: 'cookie-token'}} as any, res);
+  expect(deps.decode).toHaveBeenCalledWith('cookie-token', true); expect(deps.revoke).toHaveBeenCalledWith('u', 'existing-session', 'LOGOUT');
 });

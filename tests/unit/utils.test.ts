@@ -91,3 +91,11 @@ it('converts currency amounts with two-decimal rounding', () => {
   expect(get_tzx_usd_rate(100)).toBe(1.3); expect(get_usd_tzx_rate(1.3)).toBe(100);
   expect(get_usd_tzx_rate(1)).toBe(76.92); expect(get_tzx_usd_rate(0)).toBe(0);
 });
+
+it('an expired signed token can identify a logout target but cannot authenticate or refresh', () => {
+  const viewer = {id: 'owner', sessionId: 'session'};
+  const token = u.generateToken(viewer, {expiresIn: -1});
+  expect(() => u.getAuthTokenUser(token)).toThrow();
+  expect(u.getAuthTokenUser(token, true)).toEqual(viewer);
+  expect(() => u.getAuthTokenUser(token.slice(0, -1) + (token.endsWith('a') ? 'b' : 'a'), true)).toThrow();
+});

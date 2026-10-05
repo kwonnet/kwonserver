@@ -1,3 +1,4 @@
+import {authProxyTrust} from "@/utils/auth-security";
 import "dotenv/config";
 import * as express from "express";
 import http from "http";
@@ -32,7 +33,7 @@ app.use(express.urlencoded({ extended: true }));
 
 const server = http.createServer(app);
 // ip lookup
-app.set("trust proxy", true);
+app.set("trust proxy", authProxyTrust());
 
 // app.use(bigintConverterMiddleware())
 // set proper headers

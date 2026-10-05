@@ -1,3 +1,5 @@
+import {validateAuthSession} from "@/services/v1/auth";
+import {registerAuthNamespace} from "@/utils/auth-session-sockets";
 import { MessageModel, SessionModel } from "@/db/models";
 import logger from "@/logger";
 import { getAuthUser, getPublicUser } from "@/services/v1/utils";
@@ -52,6 +54,7 @@ const convoSocketIo = (
   // connect to namespace
   const io = _io.of("/conversations");
   // perform auth
+  registerAuthNamespace(io);
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
@@ -59,6 +62,7 @@ const convoSocketIo = (
       const user = getAuthTokenUser(token);
       // console.log("Authenticated Socket user ", user)
       if (!user) return next(new Error("Convo Error: Unauthenticated user"));
+      if (!await validateAuthSession(user)) return next(new Error("Session revoked or expired"));
       socket.data.user = { ...user, name: user.username };
       logger.info(`Convo Socket io Authenticated - ${socket.id}`);
       next();

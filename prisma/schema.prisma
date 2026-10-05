@@ -22,6 +22,9 @@ datasource db {
 }
 
 model User {
+  authIdentities AuthIdentity[]
+  authSessions UserSession[]
+  loginEvents LoginEvent[]
   id                    String             @id @default(cuid())
   name                  String
   username              String             @unique
@@ -1986,4 +1989,67 @@ model KwonnetAnalyticsSetup {
   completedAt DateTime? @db.Timestamptz(6)
   updatedAt   DateTime  @default(now()) @db.Timestamptz(6)
   @@ignore
+}
+
+
+enum AuthProvider {
+  PASSWORD
+  GOOGLE
+  LEGACY
+}
+
+model AuthIdentity {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider AuthProvider
+  providerAccountId String
+  createdAt DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  sessions UserSession[]
+  @@unique([provider, providerAccountId])
+  @@unique([userId, provider])
+}
+
+model UserSession {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identityId String?
+  identity AuthIdentity? @relation(fields: [identityId], references: [id], onDelete: SetNull)
+  provider AuthProvider
+  device Json
+  location Json?
+  ipAddress String?
+  ipHash String?
+  metadataSource String
+  createdAt DateTime @default(now())
+  lastActiveAt DateTime @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+  revokedReason String?
+  retainUntil DateTime
+  events LoginEvent[]
+  @@index([userId, revokedAt, expiresAt])
+  @@index([retainUntil])
+}
+
+model LoginEvent {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId String?
+  session UserSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  provider AuthProvider
+  kind String
+  device Json
+  location Json?
+  ipAddress String?
+  ipHash String?
+  metadataSource String
+  createdAt DateTime @default(now())
+  retainUntil DateTime
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([sessionId])
+  @@index([retainUntil])
 }

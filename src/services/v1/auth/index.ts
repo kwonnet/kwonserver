@@ -3,6 +3,7 @@ import {
   User as PrismaUser,
   SubStatusEnum,
   Country,
+  Prisma,
 } from "@prisma/client";
 import prisma from "@/db";
 import { getRandomNumber } from "@/utils";
@@ -11,6 +12,7 @@ import { randomUUID } from "crypto";
 import { LookupResult } from "ip-location-api";
 import { composeAuthUser, getUserStatusMessage } from "../utils";
 import logger from "@/logger";
+import {disconnectAuthSession} from "@/utils/auth-session-sockets";
 import { OAuth2Client } from "google-auth-library";
 import { getAuthUser } from "../utils";
 const googleVerifier = new OAuth2Client();
@@ -22,7 +24,7 @@ export const createUser = async (
     password?: string;
     refId?: string | null;
   },
-  location?: LookupResult | null,
+  location?: Partial<LookupResult> | null,
   googleIdentity?: { subject: string; avatar?: string }
 ) => {
   try {
@@ -314,4 +316,76 @@ export async function loginGoogleUser(idToken: string) {
     if (![UserStatus.ACTIVE, UserStatus.PRIVATE].some(status => status === account!.status) || account.deletedAt || account.deactivatedAt) return {status: 401, data: "Account unavailable"};
     return getAuthUser(account.id, {includeEmail: true});
   } catch { return {status: 500, data: "Unable to sign in with Google. Please try again"}; }
+}
+
+
+// Authentication identity fields remain in User for backward compatibility.
+export async function startAuthSession(userId: string, provider: import('@prisma/client').AuthProvider, metadata: Awaited<ReturnType<typeof import('@/utils/auth-security').authRequestMetadata>>, kind = 'SIGN_IN', id = randomUUID()) {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 30 * 86400000);
+  const retainUntil = new Date(now.getTime() + 90 * 86400000);
+  return prisma.$transaction(async tx => {
+    let identityId: string | undefined;
+    if (provider !== 'LEGACY') {
+      const user = await tx.user.findUniqueOrThrow({where: {id: userId}, select: {googleSubject: true}});
+      const providerAccountId = provider === 'GOOGLE' ? user.googleSubject : userId;
+      if (!providerAccountId) throw new Error('Authentication identity unavailable');
+      const identity = await tx.authIdentity.upsert({where: {userId_provider: {userId, provider}},
+        create: {userId, provider, providerAccountId, lastUsedAt: now}, update: {lastUsedAt: now}});
+      if (identity.providerAccountId !== providerAccountId) throw new Error('Authentication identity mismatch');
+      identityId = identity.id;
+    }
+    const {location, ...fields} = metadata;
+    const safeMetadata = {...fields, location: location ?? Prisma.DbNull};
+    const session = await tx.userSession.create({data: {id, userId, identityId, provider, ...safeMetadata, expiresAt, retainUntil}});
+    await tx.loginEvent.create({data: {userId, sessionId: session.id, provider, kind, ...safeMetadata, retainUntil}});
+    return session.id;
+  });
+}
+export async function validateAuthSession(user: {id: string; sessionId?: string}) {
+  // Pre-migration signed API tokens retain their existing expiry; their next refresh
+  // upgrades them to a LEGACY-attributed, revocable session without inventing a provider.
+  if (!user.sessionId) return true;
+  const session = await prisma.userSession.findFirst({where: {id: user.sessionId, userId: user.id, revokedAt: null, expiresAt: {gt: new Date()}, user: {status: {in: ['ACTIVE', 'PRIVATE']}, deletedAt: null, deactivatedAt: null}}, select: {id: true}});
+  return !!session;
+}
+export async function touchAuthSession(user: {id: string; sessionId?: string}) {
+  if (!user.sessionId) return;
+  const now = new Date();
+  await prisma.userSession.updateMany({where: {id: user.sessionId, userId: user.id, revokedAt: null, expiresAt: {gt: now}, lastActiveAt: {lt: new Date(now.getTime() - 60_000)}}, data: {lastActiveAt: now}});
+}
+export async function listAuthSessions(userId: string, currentId?: string, page = 1) {
+  const where = {userId, revokedAt: null, expiresAt: {gt: new Date()}};
+  const [sessions, count] = await prisma.$transaction([
+    prisma.userSession.findMany({where, orderBy: [{lastActiveAt: 'desc'}, {id: 'desc'}], take: 21, skip: (page - 1) * 21,
+      select: {id: true, provider: true, device: true, location: true, ipAddress: true, metadataSource: true, createdAt: true, lastActiveAt: true, expiresAt: true}}),
+    prisma.userSession.count({where}),
+  ]);
+  return {sessions: sessions.map(session => ({...session, current: session.id === currentId})), page, hasMore: page * 21 < count};
+}
+export async function listLoginEvents(userId: string, page = 1) {
+  const [events, count] = await prisma.$transaction([
+    prisma.loginEvent.findMany({where: {userId, retainUntil: {gt: new Date()}}, orderBy: [{createdAt: 'desc'}, {id: 'desc'}], take: 21, skip: (page - 1) * 21,
+      select: {id: true, provider: true, kind: true, device: true, location: true, ipAddress: true, metadataSource: true, createdAt: true}}),
+    prisma.loginEvent.count({where: {userId, retainUntil: {gt: new Date()}}}),
+  ]);
+  return {events, page, hasMore: page * 21 < count};
+}
+export async function revokeAuthSession(userId: string, sessionId: string, reason = 'USER_REVOKED') {
+  const result = await prisma.userSession.updateMany({where: {id: sessionId, userId, revokedAt: null}, data: {revokedAt: new Date(), revokedReason: reason}});
+  if (result.count) disconnectAuthSession(sessionId);
+  return result.count > 0;
+}
+export async function cleanupAuthHistory() {
+  const now = new Date();
+  const events = await prisma.loginEvent.deleteMany({where: {retainUntil: {lt: now}}});
+  const sessions = await prisma.userSession.deleteMany({where: {retainUntil: {lt: now}, OR: [{revokedAt: {not: null}}, {expiresAt: {lt: now}}]}});
+  return {events: events.count, sessions: sessions.count};
+}
+
+
+export async function sessionProvider(userId: string, id: string) {
+  const session = await prisma.userSession.findFirst({where: {id, userId, revokedAt: null, expiresAt: {gt: new Date()}}, select: {provider: true}});
+  if (!session) throw new Error('Session revoked or expired');
+  return session.provider;
 }

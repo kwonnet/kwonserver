@@ -40,7 +40,8 @@
     "redis:connections": "node scripts/redis-connections.cjs",
     "wallet:audit": "node scripts/wallet-audit.cjs",
     "db:extensions": "node scripts/database-analytics.cjs extensions",
-    "db:analytics": "node scripts/database-analytics.cjs setup"
+    "db:analytics": "node scripts/database-analytics.cjs setup",
+    "auth:cleanup": "node scripts/auth-retention.cjs"
   },
   "prisma": {
     "seed": "node dist-seed/seed.js"

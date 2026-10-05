@@ -174,6 +174,7 @@ import { UserPublic } from "./user";
   };
 
 export interface User {
+  sessionId?: string;
     id: string,
     name: string,
     username: string,    

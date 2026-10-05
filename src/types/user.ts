@@ -31,10 +31,11 @@ export interface UserInfo {
 }
 
 export interface SessionUser extends Pick<UserInfo, 'id' | 'avatar' | 'username' | 'name'| 'email' | 'role'> {
+    sessionId?: string;
     
 }
 
-export interface AuthUser extends UserInfo {}
+export interface AuthUser extends UserInfo {sessionId?: string}
 
 export interface MutualFollower {
     id: string;

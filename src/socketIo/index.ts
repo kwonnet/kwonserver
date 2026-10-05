@@ -1,3 +1,5 @@
+import {validateAuthSession} from "@/services/v1/auth";
+import {registerAuthNamespace} from "@/utils/auth-session-sockets";
 import { getAuthTokenUser } from "@/utils";
 import logger from "@/logger";
 import http from "http"
@@ -14,6 +16,7 @@ const socketIo = (httpServer: http.Server<typeof http.IncomingMessage, typeof ht
     },
   });
 
+  registerAuthNamespace(io.of("/"));
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token
@@ -21,6 +24,7 @@ const socketIo = (httpServer: http.Server<typeof http.IncomingMessage, typeof ht
       const user = getAuthTokenUser(token)
       // console.log("Authenticated Socket user ", user)
       if(!user) return next(new Error("Error: Unauthenticated user"));
+      if (!await validateAuthSession(user)) return next(new Error("Session revoked or expired"));
       socket.data.user = {...user, name: user.username};
       logger.info(`Socket io Authenticated - ${socket.id}`)
       next();

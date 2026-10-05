@@ -1,3 +1,5 @@
+import {authMiddleware} from "@/middleware";
+import {guardAuthStream} from "@/controllers/v1/auth";
 import express from 'express'
 import authRoutes from './auth';
 import userRoutes from './users';
@@ -53,7 +55,7 @@ router.use("/anonymous/", anonymousRoutes)
 
 router.use("/discover/", discoverRoutes)
 
-router.use("/stream", sseEmitter.init)
+router.use("/stream", authMiddleware(), guardAuthStream, sseEmitter.init)
 
 const v1Routes = router
 

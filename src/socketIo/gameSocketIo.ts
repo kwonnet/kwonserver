@@ -1,3 +1,5 @@
+import {validateAuthSession} from "@/services/v1/auth";
+import {registerAuthNamespace} from "@/utils/auth-session-sockets";
 import { createHash } from 'crypto';
 import { moneyJson, requestKey } from '@/services/walletLedger';
 import redisClient from '@/redis';
@@ -28,6 +30,7 @@ import { DefaultEventsMap, Server } from "socket.io";
 
 const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) => {
   const io = _io.of("/games");
+  registerAuthNamespace(io);
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token
@@ -35,6 +38,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
       const user = getAuthTokenUser(token)
       // console.log("Authenticated Socket user ", user)
       if(!user) return next(new Error("Game Error: Unauthenticated user"));
+      if (!await validateAuthSession(user)) return next(new Error("Session revoked or expired"));
       socket.data.user = {...user, name: user.username};
       logger.info(`Game Socket io Authenticated - ${socket.id}`)
       next();

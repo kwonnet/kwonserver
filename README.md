@@ -429,3 +429,79 @@ anonymous identities, and excludes refunded/expired gifts. Results use
 Legacy tips have no historical coin snapshot; their current package price is used
 only as an explicitly flagged estimate. New tips capture the package price inside
 the existing wallet transaction. Reporting never changes balances or settlements.
+
+### Login security history and revocable sessions
+
+Migration `20261005100000_login_security` is additive. It creates `AuthIdentity`,
+`UserSession`, and `LoginEvent`, with owner/date/expiry/retention indexes. It
+backfills PASSWORD identities from existing non-empty password hashes and GOOGLE
+identities from existing `googleSubject` values. Those User fields remain in place:
+no passwords, Google links, user IDs, wallets, or balances are replaced.
+
+Successful password signup/signin and Google signin issue encrypted API tokens
+containing a server session ID. The corresponding session and successful-login
+event are committed together. Failed authentication/signing/tracking does not
+return a usable new token. Refresh reuses the session and updates last activity
+with writes throttled to once per minute; it does not create another login event.
+Saved-account switches create a new session using the stored session's provider.
+Untracked pre-upgrade tokens keep their existing 24-hour maximum expiry and become
+LEGACY-attributed sessions on their next refresh. Their historical provider is
+not guessed; pre-upgrade tokens cannot be individually revoked until upgraded.
+
+Device/browser/OS are parsed from the user agent; raw agents, credentials, passwords,
+and OAuth/API tokens are not stored in telemetry. Location is an allowlisted JSON
+object from the existing optional IP lookup (country/region/city/timezone), never
+GPS coordinates, postal addresses, or the raw lookup payload. Lookup failure leaves
+location null. IPs are normalized and stored as IPv4 /24 or IPv6 /48 network prefixes.
+An optional independent `AUTH_IP_HASH_SECRET` (32+ chars) supplies a keyed IP hash;
+API history responses do not expose that hash or provider account identifiers.
+
+Express no longer trusts all proxies. `AUTH_TRUST_PROXY_IPS` controls trusted CIDRs
+(default `loopback,uniquelocal`; narrow it for production). Do not trust arbitrary
+internet clients or enable blanket trust. Socket peer/Express trust-chain metadata
+is used; arbitrary forwarding headers and client-posted locations are ignored.
+See [Express proxy trust](https://expressjs.com/en/guide/behind-proxies.html).
+
+NextAuth calls the API from the web server. Set the same new independent
+`AUTH_TELEMETRY_SHARED_SECRET` (32+ chars) in both runtimes to forward signed browser
+metadata. Signatures are checked with constant-time comparison and a 60-second
+clock window. Configure the web-only `AUTH_TRUSTED_WEB_IP_HEADER` ONLY when ingress
+overwrites that single-address header and direct origin bypass is restricted.
+Default web IP/location is unknown rather than trusting arbitrary X-Forwarded-For.
+Without the bridge, API_REQUEST metadata describes the API caller (possibly the
+web server), not necessarily the end user's browser. Device claims are user-agent
+observations, not proof of device identity and are never authorization factors.
+
+Owner-scoped endpoints (all private/no-store):
+
+- `GET /api/v1/auth/sessions?page=1`: active sessions, current-session flag, parsed
+  device, coarse location, masked IP, creation/last-activity/expiry timestamps.
+- `GET /api/v1/auth/login-events?page=1`: successful authentication audit history.
+- `DELETE /api/v1/auth/sessions/:id`: revoke an owned session (204; missing/foreign 404).
+- `GET /api/v1/auth/session-status`: lightweight authenticated session validation.
+
+API authorization/refresh and socket handshakes reject revoked/expired sessions.
+Socket packets recheck revocation; current-process sockets disconnect on revocation,
+and idle sockets/SSE streams recheck within 30 seconds on other replicas. No new
+Redis clients are introduced. Already-authorized in-flight operations may finish.
+SSE now requires authentication and web clients connect through `/api/events`,
+which puts the API token in the server Authorization header, not a URL.
+
+Logout revokes the active session; an expired but validly signed access token can
+identify only that logout target, never authorize access or refresh. API cookies
+are still cleared if storage is down; a 503 signals failed server revocation.
+The web logout response reports `serverRevoked:false` on failure while still clearing
+local cookies. Local logout remains usable offline, but remote revocation cannot
+be guaranteed while the API/database is unavailable. Database authorization checks
+fail closed. Revocation does not automatically log out the owner's other sessions.
+
+Sessions expire after 30 days. Telemetry is marked with 90-day `retainUntil`
+timestamps. Run `npm run auth:cleanup` from the built API runtime (or
+`docker exec kwonserver npm run auth:cleanup`) on a daily maintenance schedule to
+purge old events and expired/revoked sessions. Cleanup never deletes active
+sessions or user/identity/wallet records. This command is supplied; scheduling it
+on the host is an operator deployment step, not an automatically installed cron.
+
+Deploy backend migrations/API before the web changes, then configure the bridge
+and proxy trust. Live ingress/header trust and secret distribution must be checked
+in the deployment environment; local tests cannot prove production topology.

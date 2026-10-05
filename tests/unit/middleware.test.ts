@@ -1,15 +1,16 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response } from './fixtures';
-const deps = vi.hoisted(() => ({ token: vi.fn(), verify: vi.fn(), decrypt: vi.fn(), user: vi.fn(), info: vi.fn(), routes: vi.fn() }));
+const deps = vi.hoisted(() => ({ token: vi.fn(), verify: vi.fn(), decrypt: vi.fn(), user: vi.fn(), info: vi.fn(), routes: vi.fn(), session: vi.fn(), touch: vi.fn() }));
 vi.mock('@/utils', () => ({ jwtVerify: deps.verify, decryptString: deps.decrypt }));
 vi.mock('@/utils/helpers', () => ({ getAuthorizationToken: deps.token, getReqInfo: deps.info,
   removeProperty: (obj: any, key: string) => Object.fromEntries(Object.entries(obj).filter(([k]) => k !== key)) }));
+vi.mock('@/services/v1/auth', () => ({validateAuthSession: deps.session, touchAuthSession: deps.touch}));
 vi.mock('@/routes/v1', () => ({ default: deps.routes }));
 vi.mock('@/services/v1/utils', async importOriginal => ({ ...await importOriginal<any>(), getAuthUser: deps.user }));
 import { authMiddleware, detectBotMiddleware, bigintConverterMiddleware, versionMiddleware } from '@/middleware';
 beforeEach(() => {
   Object.values(deps).forEach(fn => fn.mockReset()); deps.token.mockReturnValue('token'); deps.verify.mockReturnValue({ data: 'encrypted' });
-  deps.decrypt.mockReturnValue({ id: 'u' }); deps.info.mockResolvedValue({ isBot: false });
+  deps.decrypt.mockReturnValue({ id: 'u' }); deps.session.mockResolvedValue(true); deps.touch.mockResolvedValue(undefined); deps.info.mockResolvedValue({ isBot: false });
 });
 it('rejects missing authentication by default', async () => {
   deps.token.mockReturnValue(null); const res = response(); const next = vi.fn();
@@ -67,4 +68,15 @@ it('serializes nested bigint response values without changing dates or input', (
 it('dispatches API version requests to the v1 router', () => {
   const req = { url: '/api/v1/posts' }; const res = response(); const next = vi.fn();
   versionMiddleware(req as any, res, next); expect(deps.routes).toHaveBeenCalledWith(req, res, next);
+});
+
+
+it('rejects revoked sessions and keeps valid session IDs when hydrating permissions', async () => {
+  deps.decrypt.mockReturnValue({id: 'u', sessionId: 'sid'});
+  deps.session.mockResolvedValue(false); let res = response(); const next = vi.fn();
+  await authMiddleware()({} as any, res, next); expect(res.statusCode).toBe(401); expect(next).not.toHaveBeenCalled();
+  deps.session.mockResolvedValue(true); deps.touch.mockRejectedValue(new Error('activity write unavailable'));
+  deps.user.mockResolvedValue({status: 200, data: {id: 'u', email: 'private@example.test'}});
+  const req: any = {}; res = response(); await authMiddleware({checkPermission: true})(req, res, next);
+  expect(req.user.sessionId).toBe('sid'); expect(req.user.email).toBeUndefined(); expect(next).toHaveBeenCalledOnce();
 });

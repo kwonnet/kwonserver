@@ -494,11 +494,12 @@ export const parseStringNumbers = (obj: StringNumberParser): Record<string, stri
   return parsed;
 };
 
-export const getAuthTokenUser = (token?: string) => {
+export const getAuthTokenUser = (token?: string, logoutOnly = false) => {
 
     if(!token) return null;
 
-    const payload = jwtVerify(token) as { token: string, [key: string]: any}
+    // Expired signatures can identify a session for revocation only, never for access.
+    const payload = (logoutOnly ? jwt.verify(token, jwtKey, {ignoreExpiration: true}) : jwtVerify(token)) as { token: string, [key: string]: any}
 
     if(!payload) return null;
     // decrypt the token

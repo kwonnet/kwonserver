@@ -1,3 +1,4 @@
+import {validateAuthSession, touchAuthSession} from "@/services/v1/auth";
 import { Request, Response, NextFunction } from "express";
 import { decryptString, jwtVerify } from "@/utils";
 import { encrytionKey } from "@/config";
@@ -56,7 +57,8 @@ export const authMiddleware =
         return res.status(401).send("Invalid auth token, please try again");
       // decrypt the token
       const user = decryptString<SessionUser>(payload.data, encrytionKey);
-      // logger.info(user, "Auth Middleware ");
+      if (!await validateAuthSession(user)) return res.status(401).send("Session revoked or expired");
+      void touchAuthSession(user).catch(() => {});
       if (checkPermission || checkPermWithEmail) {
         const result = await getAuthUser(user.id, { includeEmail: true });
 
@@ -66,7 +68,7 @@ export const authMiddleware =
         const _user = !checkPermWithEmail
           ? removeProperty(result.data, "email")
           : result.data;
-        req.user = _user;
+        req.user = {..._user, ...(user.sessionId && {sessionId: user.sessionId})};
       } else {
         req.user = user;
       }

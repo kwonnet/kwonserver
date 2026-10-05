@@ -1,6 +1,9 @@
+import {randomUUID} from "node:crypto";
+import {z} from "zod";
+import {authRequestMetadata} from "@/utils/auth-security";
 import { Request, Response } from "express";
 import { generateToken, getAuthTokenUser } from "@/utils";
-import { createUser, loginUser, loginGoogleUser } from "@/services/v1/auth";
+import { createUser, loginUser, loginGoogleUser, startAuthSession, validateAuthSession, touchAuthSession, listAuthSessions, listLoginEvents, revokeAuthSession, sessionProvider } from "@/services/v1/auth";
 import type { LookupResult } from 'ip-location-api';
 import { lookup } from '@/utils/ipLocation';
 import { SignInSchema, SignUpSchema } from "@/schema/auth";
@@ -10,11 +13,21 @@ import { SessionUser, AuthUser } from "@/types/user";
 import { getAuthUser } from "@/services/v1/utils";
 import { allowedOrigins } from "@/config";
 
-export const logoutController = (req: Request, res: Response) => {
+export const logoutController = async (req: Request, res: Response) => {
   const origin = req.get("origin");
   if (origin && !allowedOrigins.includes(origin)) return res.status(403).send("Invalid request origin");
+  let revocationFailed = false;
+  try {
+    const authorization = req.get?.("authorization");
+    const token = authorization !== undefined ? /^Bearer (\S+)$/i.exec(authorization)?.[1] : req.cookies?.tx_a_t;
+    const user = token ? getAuthTokenUser(token, true) : null;
+    if (user?.sessionId) {
+      try {await revokeAuthSession(user.id, user.sessionId, "LOGOUT");}
+      catch {revocationFailed = true;}
+    }
+  } catch { /* Local cookie removal must remain possible during API outages. */ }
   for (const name of ["tx_a_t", "x_a_t"]) res.clearCookie(name, { httpOnly: true, secure: true, sameSite: "none", path: "/" });
-  return res.status(204).send();
+  return res.status(revocationFailed ? 503 : 204).send();
 };
 
 const composeAuthUser = (user: AuthUser): SessionUser => {
@@ -30,26 +43,16 @@ export const signUpController = async (req: Request, res: Response) => {
 
     // console.log("Authenticating user")
 
-    const clientIp = req?.ip?.includes('::ffff:') ? req.ip.split('::ffff:')[1] : req?.ip ?? '';
-
-    // console.log("user clientIp Ip: ", clientIp)
-
-    const lookupIP = !clientIp || clientIp?.includes("::1") ? "8.8.8.8" : clientIp;
-
-    // console.log("user lookupIP Ip: ", lookupIP)
-
-    const location = await lookup(lookupIP)
-
-    // console.log("user Location: ", location)
+    const metadata = await authRequestMetadata(req);
+    const location = metadata.location;
 
     // create or login a user
-    const result = await createUser(body, location);
+    const result = await createUser(body, location as Partial<LookupResult> | null);
     if ( typeof result.data === "string" || result.status !== 200){
       return res.status(result.status).send(result.data);
     }
     const user = result.data
-    // generate access token
-    const accessToken = generateToken( composeAuthUser(user),{ expiresIn: "24h" });
+    const {accessToken, trackedUser} = await issueTrackedLogin(req, user, "PASSWORD", "SIGN_UP", metadata);
     // set cookies
     res.cookie("tx_a_t", accessToken, {
       httpOnly: true, // Prevents client-side JS from accessing the cookie
@@ -59,7 +62,7 @@ export const signUpController = async (req: Request, res: Response) => {
     });
     // res.cookie("token", token, { expires: new Date(Date.now() + 900000), httpOnly: true } )
     // return response
-    return res.send({ user: result.data, accessToken });
+    return res.send({ user: trackedUser, accessToken });
   } catch (error: any) {
     if(error instanceof ZodError) {
       const issues = error.issues
@@ -80,14 +83,6 @@ export const signInController = async (req: Request, res: Response) => {
     })
     const body = await LoginSchema.parseAsync(req.body)
 
-    const clientIp = req?.ip?.includes('::ffff:') ? req.ip.split('::ffff:')[1] : req?.ip ?? '';
-
-    // console.log("user Ip: ", clientIp)
-
-    // const location = await lookup(clientIp)
-
-    // console.log("user Location: ", location)
-
     // create or login a user
     const result = await loginUser(body);
     // console.log(result)
@@ -96,11 +91,8 @@ export const signInController = async (req: Request, res: Response) => {
       return res.status(result.status).send(result.data);
     }
     const user = result.data
-    // generate access token
-    const accessToken = generateToken(composeAuthUser(user), { expiresIn: "24h" });
+    const {accessToken, trackedUser} = await issueTrackedLogin(req, user, "PASSWORD");
 
-    // logger.info(user, "Signed in user")
-    
     // set cookies
     res.cookie("tx_a_t", accessToken, {
       httpOnly: true, // Prevents client-side JS from accessing the cookie
@@ -110,7 +102,7 @@ export const signInController = async (req: Request, res: Response) => {
     });
     // res.cookie("token", token, { expires: new Date(Date.now() + 900000), httpOnly: true } )
     // return response
-    return res.send({ user: result.data, accessToken });
+    return res.send({ user: trackedUser, accessToken });
   } catch (error: any) {
     if(error instanceof ZodError) {
       const issues = error.issues
@@ -148,6 +140,7 @@ export const refreshTokenController = async (req: Request, res: Response) => {
 
     if(!jwtUser) return res.status(401).send("Invalid auth token, please try again");
    
+    if (!await validateAuthSession(jwtUser)) return res.status(401).send("Session revoked or expired");
     const result = await getAuthUser(jwtUser?.id, {includeEmail: true});
 
     if ( typeof result.data === "string" || result.status !== 200){
@@ -156,10 +149,15 @@ export const refreshTokenController = async (req: Request, res: Response) => {
 
     const user = result.data
 
-    // generate access token
-    const accessToken = generateToken(composeAuthUser(user), { expiresIn: "24h" });
-
-    return res.status(200).send({ user, accessToken })
+    if (!jwtUser.sessionId || req.body?.newSession === true) {
+      // A saved-account switch is a new device session, retaining provider attribution.
+      const provider = jwtUser.sessionId ? await sessionProvider(jwtUser.id, jwtUser.sessionId) : "LEGACY";
+      const {accessToken, trackedUser} = await issueTrackedLogin(req, user, provider, jwtUser.sessionId ? "ACCOUNT_SWITCH" : "LEGACY_UPGRADE");
+      return res.status(200).send({user: trackedUser, accessToken});
+    }
+    await touchAuthSession(jwtUser);
+    const accessToken = generateToken({...composeAuthUser(user), sessionId: jwtUser.sessionId}, {expiresIn: "24h"});
+    return res.status(200).send({user: {...user, sessionId: jwtUser.sessionId}, accessToken});
 
   } catch (error: any) {
     return res.status(500).send("Error: Sorry an error occurred trying to process request. Please close this app & open again.");
@@ -177,9 +175,51 @@ export const googleSignInController = async (req: Request, res: Response) => {
     const result = await loginGoogleUser(idToken);
     if (result.status !== 200 || typeof result.data === "string") return res.status(result.status).send(result.data);
     const user = result.data;
-    const accessToken = generateToken(composeAuthUser(user), {expiresIn: "24h"});
-    return res.status(200).send({user, accessToken});
+    const {accessToken, trackedUser} = await issueTrackedLogin(req, user, "GOOGLE");
+    return res.status(200).send({user: trackedUser, accessToken});
   } catch {
     return res.status(500).send("Unable to sign in with Google. Please try again");
   }
+};
+
+
+async function issueTrackedLogin(req: Request, user: AuthUser, provider: import('@prisma/client').AuthProvider, kind = 'SIGN_IN', metadata?: Awaited<ReturnType<typeof authRequestMetadata>>) {
+  const sessionId = randomUUID();
+  // Sign before writing telemetry: signing failures create no successful login event.
+  const accessToken = generateToken({...composeAuthUser(user), sessionId}, {expiresIn: '24h'});
+  await startAuthSession(user.id, provider, metadata ?? await authRequestMetadata(req), kind, sessionId);
+  return {accessToken, trackedUser: {...user, sessionId}};
+}
+const authPageSchema = z.object({page: z.coerce.number().int().min(1).max(10000).default(1)});
+export const authSessionsController = async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  const query = authPageSchema.safeParse(req.query);
+  if (!query.success) return res.status(400).send('Invalid pagination');
+  try {return res.json(await listAuthSessions(req.user!.id, req.user!.sessionId, query.data.page));}
+  catch {return res.status(503).send('Session history unavailable');}
+};
+export const loginEventsController = async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  const query = authPageSchema.safeParse(req.query);
+  if (!query.success) return res.status(400).send('Invalid pagination');
+  try {return res.json(await listLoginEvents(req.user!.id, query.data.page));}
+  catch {return res.status(503).send('Login history unavailable');}
+};
+export const revokeAuthSessionController = async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (!z.string().uuid().safeParse(req.params.id).success) return res.status(400).send('Invalid session ID');
+  try {return await revokeAuthSession(req.user!.id, req.params.id) ? res.status(204).send() : res.status(404).send('Session not found');}
+  catch {return res.status(503).send('Unable to revoke session');}
+};
+
+export const guardAuthStream = (req: Request, res: Response, next: import('express').NextFunction) => {
+  const user = req.user!;
+  if (user.sessionId) {
+    const timer = setInterval(() => {
+      void validateAuthSession(user).then(active => {if (!active) res.end();}).catch(() => res.end());
+    }, 30_000);
+    timer.unref();
+    res.on('close', () => clearInterval(timer));
+  }
+  next();
 };
