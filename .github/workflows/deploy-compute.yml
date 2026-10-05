@@ -99,11 +99,12 @@ jobs:
       - name: Upload deployment over IAP
         id: upload
         run: |
+          # Reclaim unused images before staging files on a potentially full VM.
           # Create the destination explicitly before SCP/SFTP inspects it.
           # Copy its contents so deploy.sh stays directly inside the staging directory.
           gcloud compute ssh "$GCP_COMPUTE_ENGINE_NAME" --project="$GCP_COMPUTE_ENGINE_PROJECT" --zone="$GCP_COMPUTE_ENGINE_ZONE" \
             --tunnel-through-iap --quiet \
-            --command="mkdir -m 700 -- '$REMOTE_DEPLOY_DIR'"
+            --command="if command -v docker >/dev/null 2>&1; then sudo docker image prune --all --force; fi && mkdir -m 700 -- '$REMOTE_DEPLOY_DIR'"
           gcloud compute scp --recurse deploy/compute/* "$GCP_COMPUTE_ENGINE_NAME:$REMOTE_DEPLOY_DIR/" \
             --project="$GCP_COMPUTE_ENGINE_PROJECT" --zone="$GCP_COMPUTE_ENGINE_ZONE" --tunnel-through-iap --quiet
       - name: Install and deploy API and worker

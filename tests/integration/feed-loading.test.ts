@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 vi.mock('@/utils/webpush', () => ({ default: {} }));
-import { newsfeedQuery } from '@/services/v1/posts/feed-query';
+import { newsfeedQuery } from '@/services/v1/posts';
 import { getNewsfeed } from '@/services/v1/posts';
 
 const db = new PrismaClient({ log: [{ emit: 'event', level: 'query' }] });
@@ -71,4 +71,29 @@ it('keeps fresh visibility and reactions when ranking is reused, including neste
   expect(post.parent.parent.actions.hasReposted).toBe(true);
   await db.post.update({ where: { id: ids[0] }, data: { isHidden: true } });
   expect(await getNewsfeed([ids[0]], reader, { feed: 'foryou' })).toEqual({ status: 200, data: [] });
+});
+
+it('uses accepted follows, mutual follows and fresh visibility rather than recommendation IDs for each tab', async () => {
+  const now = new Date();
+  const names = ['following', 'friend', 'private', 'pending', 'stranger', 'blocked', 'muted'];
+  for (const name of names) {
+    const id = `tab-${name}`;
+    await db.user.create({ data: { id, username: id, name, email: `${id}@test.invalid`, ...(name === 'private' ? { isPrivate: true, status: 'PRIVATE' } : {}) } });
+    await db.post.create({ data: { id: `tab-post-${name}`, userId: id, type: 'CONTENT', kind: 'ROOT', content: name, createdAt: new Date(now.getTime() - 1000), ...(name === 'private' ? { scope: 'FOLLOWED' } : {}) } });
+    if (!['stranger'].includes(name)) await db.follow.create({ data: { followerId: viewer, followingId: id, status: name === 'pending' ? 'PENDING' : 'ACCEPTED' } });
+  }
+  await db.follow.create({ data: { followerId: 'tab-friend', followingId: viewer, status: 'ACCEPTED' } });
+  await db.blockUser.create({ data: { blockerId: viewer, blockedId: 'tab-blocked' } });
+  await db.muteUser.create({ data: { muterId: viewer, mutedId: 'tab-muted' } });
+  const read = async (feed: string, page = 1, limit = 100) => db.post.findMany(newsfeedQuery(viewer, ['tab-post-stranger'], { feed, page, limit }));
+  const following = await read('following');
+  expect(following.filter(p => p.id.startsWith('tab-')).map(p => p.id).sort()).toEqual(['tab-post-following', 'tab-post-friend', 'tab-post-private']);
+  expect((await read('friends')).map(p => p.id)).toEqual(['tab-post-friend']);
+  const latest = await read('latest');
+  expect(latest.some(p => p.id === 'tab-post-stranger')).toBe(true);
+  expect(latest.some(p => p.id === 'tab-post-private')).toBe(false);
+  const first = await read('following', 1, 2), second = await read('following', 2, 2);
+  expect(new Set([...first, ...second].map(p => p.id)).size).toBe(first.length + second.length);
+  await db.follow.updateMany({ where: { followerId: viewer, followingId: 'tab-private' }, data: { status: 'PENDING' } });
+  expect((await read('following')).some(p => p.id === 'tab-post-private')).toBe(false);
 });

@@ -16,6 +16,8 @@ function fixture(t) {
   fs.mkdirSync(path.join(root, 'bin')); fs.mkdirSync(path.join(root, 'deploy/compute'), { recursive: true });
   for (const name of ['deploy.sh', 'app.env', 'registry-token', 'diagnostics.py']) fs.writeFileSync(path.join(root, 'deploy/compute', name), 'test fixture');
   const remote = path.join(root, 'staging');
+  fs.writeFileSync(path.join(root, 'bin/sudo'), '#!/bin/sh\nexec "$@"\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(root, 'bin/docker'), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$PRUNE_LOG\"\nexit \"${FAIL_PRUNE:-0}\"\n", { mode: 0o755 });
   fs.writeFileSync(path.join(root, 'bin/gcloud'), `#!${process.execPath}\n` + String.raw`
 const fs = require('node:fs'), path = require('node:path'), { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
@@ -30,7 +32,7 @@ if (args[1] === 'ssh') {
   for (const source of args.filter(arg => arg.startsWith('deploy/compute/'))) fs.cpSync(source, path.join(target, path.basename(source)), { recursive: true });
 }
 `, { mode: 0o755 });
-  const env = { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, GCP_COMPUTE_ENGINE_NAME: 'test-vm', GCP_COMPUTE_ENGINE_PROJECT: 'test-project', GCP_COMPUTE_ENGINE_ZONE: 'test-zone', REMOTE_DEPLOY_DIR: remote, CALL_LOG: path.join(root, 'calls') };
+  const env = { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, GCP_COMPUTE_ENGINE_NAME: 'test-vm', GCP_COMPUTE_ENGINE_PROJECT: 'test-project', GCP_COMPUTE_ENGINE_ZONE: 'test-zone', REMOTE_DEPLOY_DIR: remote, PRUNE_LOG: path.join(root, 'prune-calls'), CALL_LOG: path.join(root, 'calls') };
   return { root, remote, env, calls: () => fs.readFileSync(env.CALL_LOG, 'utf8').trim().split('\n').map(JSON.parse), run: extra => spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step('Upload deployment over IAP')], { cwd: root, env: { ...env, ...extra }, encoding: 'utf8' }) };
 }
 test('workflow creates private staging first and uploads files directly into the deployment directory', t => {
@@ -52,4 +54,14 @@ test('existing staging directories are never reused for a new upload', t => {
   const f = fixture(t); fs.mkdirSync(f.remote);
   const result = f.run(); assert.notEqual(result.status, 0); assert.equal(f.calls().length, 1);
   assert.equal(fs.existsSync(path.join(f.remote, 'app.env')), false);
+});
+
+test('unused images are pruned before staging, without removing containers or volumes', t => {
+  const f = fixture(t), result = f.run(); assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.readFileSync(f.env.PRUNE_LOG, 'utf8').trim(), 'image prune --all --force');
+});
+test('cleanup failure prevents upload to a potentially full disk', t => {
+  const f = fixture(t), result = f.run({ FAIL_PRUNE: '23' });
+  assert.equal(result.status, 23); assert.equal(f.calls().length, 1);
+  assert.equal(fs.existsSync(f.remote), false);
 });

@@ -304,3 +304,16 @@ See [the GitHub Actions setup guide](deploy/compute/README.md) for the active
 server-only push-to-deploy workflow. It keeps kwonweb and kwonrec on their
 existing hosts, deploys the API and BullMQ worker together, and uses GitHub
 environment secrets plus Google Workload Identity Federation.
+
+### Newsfeed tabs
+
+The routes/controllers/services for posts are maintained in their existing
+`index.ts` files. `/api/v1/posts/feed/:feedType` binds the viewer to the
+authenticated account; client-supplied viewer IDs never select another account's
+relationships. `foryou` hydrates recommender-ranked IDs. `following` reads authors
+with an accepted follow from the viewer. `friends` requires accepted follows in
+both directions. `latest` reads visible public posts newest first. `trending`
+orders visible public posts from the last 72 hours by likes, replies, reposts,
+shares, and date. Non-recommendation tabs query PostgreSQL directly and paginate
+there, without requiring kwonrec. Privacy, block/mute, report, scheduling, and
+quoted/reposted parent visibility checks remain enforced by the API.

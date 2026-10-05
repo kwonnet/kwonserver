@@ -2,8 +2,12 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { response } from "./fixtures";
 const db = vi.hoisted(() => ({ post: { findMany: vi.fn() } }));
 vi.mock("@/db", () => ({ default: db }));
-import { publicPreviewQuery, getPublicPostPreview } from "@/services/v1/posts/public-preview";
-import { getPublicPostPreviewController } from "@/controllers/v1/posts/public-preview";
+vi.mock("@/utils/webpush", () => ({ default: {} }));
+vi.mock("@/db/clickhouse", () => ({ clickHouseClient: {} }));
+vi.mock("@/db/timescaleDb", () => ({ prismaAnalytics: {}, sequelizeAnalytics: {} }));
+vi.mock("@/utils/helpers", () => ({ AppError: class extends Error {} }));
+import { publicPreviewQuery, getPublicPostPreview } from "@/services/v1/posts";
+import { getPublicPostPreviewController } from "@/controllers/v1/posts";
 
 beforeEach(() => { db.post.findMany.mockReset(); });
 

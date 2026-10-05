@@ -57,3 +57,17 @@ it('binds valid post creation to the authenticated user', async () => {
   await createPostController({ body, user: { id: 'viewer' } } as any, res);
   expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ isDraft: false }), 'viewer'); expect(res.statusCode).toBe(201);
 });
+
+it.each(['following', 'friends', 'latest', 'trending'])('loads %s directly for the authenticated viewer without recommendations', async feed => {
+  const request = req(); request.params.feedType = feed;
+  request.query.page = '2'; request.query.userId = 'other-user';
+  const res = response(); await getNewsfeedController(request, res);
+  expect(deps.recommend).not.toHaveBeenCalled();
+  expect(deps.hydrate).toHaveBeenCalledWith([], request.user, expect.objectContaining({ feed, page: 2 }));
+  expect(res.headers).toMatchObject({ 'Cache-Control': 'private, no-store', 'X-Feed-Source': 'database' });
+});
+it.each([{ params: { feedType: 'unknown' } }, { query: { page: '0' } }, { query: { page: '1.5' } }, { query: { limit: '101' } }, { query: { limit: '-1' } }])('rejects unsupported tabs and invalid pagination: %j', changes => {
+  const res = response(); return getNewsfeedController({ ...req(), ...changes }, res).then(() => {
+    expect(res.statusCode).toBe(400); expect(deps.recommend).not.toHaveBeenCalled(); expect(deps.hydrate).not.toHaveBeenCalled();
+  });
+});

@@ -47,3 +47,29 @@ it('skips hydration completely for empty rankings', async () => {
   expect(await getNewsfeed([], user(), { feed: 'foryou' })).toEqual({ status: 200, data: [] });
   expect(findMany).not.toHaveBeenCalled();
 });
+
+it.each(['following', 'friends', 'latest', 'trending'])('queries %s with real pagination even when no recommendation IDs exist', async feed => {
+  findMany.mockResolvedValue([]);
+  await getNewsfeed([], user(), { feed, page: 3, limit: 10 });
+  const query = findMany.mock.calls[0][0];
+  expect(query.take).toBe(10); expect(query.skip).toBe(20); expect(query.where.id).toBeUndefined();
+  expect(query.orderBy.at(-1)).toEqual({ id: 'desc' });
+  if (feed === 'following' || feed === 'friends') {
+    const relation = query.where.AND[1].user;
+    expect(relation.followers).toEqual({ some: { followerId: 'user-1', status: 'ACCEPTED' } });
+    if (feed === 'friends') expect(relation.following).toEqual({ some: { followingId: 'user-1', status: 'ACCEPTED' } });
+    else expect(relation.following).toBeUndefined();
+    expect(query.where.AND[2].OR[1].parent.is.user.NOT).toEqual(expect.arrayContaining([
+      { blockedBy: { some: { blockerId: 'user-1' } } }, { mutedBy: { some: { muterId: 'user-1' } } },
+    ]));
+  }
+  if (feed === 'trending') {
+    expect(query.orderBy[0]).toEqual({ totalLikes: 'desc' });
+    expect(query.where.createdAt.gte).toBeInstanceOf(Date);
+  }
+});
+it('keeps database order for chronological tabs rather than recommendation order', async () => {
+  findMany.mockResolvedValue([{ ...post({ id: 'new' }), user: user() }, { ...post({ id: 'old' }), user: user() }]);
+  const result = await getNewsfeed(['old', 'new'], user(), { feed: 'latest' });
+  expect((result.data as any[]).map(p => p.id)).toEqual(['new', 'old']);
+});

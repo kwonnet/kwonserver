@@ -323,3 +323,17 @@ Images must come from the authenticated account's normalized R2 upload directory
 Country and date of birth each have an independent 30-day cooldown, including
 removal. First edits of existing accounts are allowed; unchanged values do not
 reset cooldowns. Email, passwords and account privileges are excluded.
+
+### Automatic VM image cleanup
+
+The GitHub workflow runs `sudo docker image prune --all --force` before uploading
+deployment files, freeing space even when the disk is too full to stage a release.
+A cleanup failure stops the upload. After the new API, worker and proxy pass
+validation, the deployment script prunes unused images again to remove old releases.
+Post-release cleanup failures log a warning without marking a healthy release failed.
+
+This cleanup affects unused images across the shared VM, including old kwonrec
+images. Images referenced by running or stopped containers are preserved; containers,
+networks and volumes are never pruned. Unused rollback images must be downloaded
+again from Artifact Registry. Retain the corresponding registry digests. No new
+GitHub secrets or environment variables are required.

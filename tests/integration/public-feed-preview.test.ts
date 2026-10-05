@@ -1,6 +1,7 @@
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
-import { getPublicPostPreview } from "@/services/v1/posts/public-preview";
+vi.mock("@/utils/webpush", () => ({ default: {} }));
+import { getPublicPostPreview } from "@/services/v1/posts";
 
 const db = new PrismaClient();
 const now = new Date("2040-01-04T12:00:00Z");

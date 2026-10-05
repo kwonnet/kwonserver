@@ -1,4 +1,3 @@
-import { newsfeedQuery } from "./feed-query";
 import { lockWallets, cents, WalletError, walletOperation, requestKey } from '@/services/walletLedger';
 import { recommendationVisibility, kwonrecClient } from "@/services/kwonrec";
 import prisma from "@/db";
@@ -1545,8 +1544,8 @@ export const getNewsfeed = async (recs: string[], user: AuthUser, args: { feed: 
   try {
 
     const userId = user.id;
-    if (recs.length === 0) return { data: [], status: 200 };
-    const feedPosts = await prisma.post.findMany(newsfeedQuery(userId, recs));
+    if (args.feed === "foryou" && recs.length === 0) return { data: [], status: 200 };
+    const feedPosts = await prisma.post.findMany(newsfeedQuery(userId, recs, args));
     // Reposts arrive in the same database read at every displayed nesting level.
     // These filtered children are action flags, not reply content.
     const attachRepostActions = (post: any): any => {
@@ -1569,7 +1568,7 @@ export const getNewsfeed = async (recs: string[], user: AuthUser, args: { feed: 
     });
 
   // --- Step 3: Sort the fetched posts based on the index map ---
-  const reorderedPosts = _posts.sort((a, b) => {
+  const reorderedPosts = args.feed !== "foryou" ? _posts : _posts.sort((a, b) => {
     const indexA = idToIndexMap[a.id];
     const indexB = idToIndexMap[b.id];
 
@@ -7078,3 +7077,1221 @@ const getContentKeywords = async() => {
 
 
 // getContentKeywords()
+
+
+export const PUBLIC_PREVIEW_LIMIT = 21;
+const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
+/** Public, recent posts ordered by real engagement; never personalized relations. */
+export function publicPreviewQuery(now = new Date(), older = false, take = PUBLIC_PREVIEW_LIMIT) {
+  const cutoff = new Date(now.getTime() - THREE_DAYS_MS);
+  return {
+    take,
+    relationLoadStrategy: "join",
+    where: {
+      status: "PUBLISHED", scope: "ANYONE", kind: "ROOT", type: "CONTENT",
+      deletedAt: null, isHidden: false, parentId: null, rootId: null,
+      createdAt: older ? { lt: cutoff } : { gte: cutoff, lte: now },
+      OR: [{ scheduleAt: null }, { scheduleAt: { lte: now } }],
+      user: { isPrivate: false, status: "ACTIVE", deletedAt: null, deactivatedAt: null },
+    },
+    orderBy: older
+      ? [{ createdAt: "desc" }, { id: "desc" }]
+      : [{ totalLikes: "desc" }, { totalReplies: "desc" }, { totalReposts: "desc" }, { totalShares: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+    select: {
+      id: true, content: true, createdAt: true, userId: true,
+      totalLikes: true, totalReplies: true, totalReposts: true, totalQuotes: true,
+      totalShares: true, totalBookmarks: true, totalImpressions: true, totalTips: true, totalViews: true,
+      user: { select: { id: true, name: true, username: true, avatar: true } },
+      media: {
+        take: 4, orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { id: true, fileId: true, url: true, thumbnailUrl: true, fileType: true, altText: true, width: true, height: true },
+      },
+    },
+  } satisfies Prisma.PostFindManyArgs;
+}
+
+export async function getPublicPostPreview(now = new Date()) {
+  const posts = await prisma.post.findMany(publicPreviewQuery(now));
+  // Small/new communities should still have a full preview. Only fill from older
+  // public posts after recent ones; the identical visibility filter applies.
+  if (posts.length < PUBLIC_PREVIEW_LIMIT) {
+    posts.push(...await prisma.post.findMany(publicPreviewQuery(now, true, PUBLIC_PREVIEW_LIMIT - posts.length)));
+  }
+  return posts.map(({ user, totalLikes, totalReplies, totalReposts, totalQuotes, totalShares,
+    totalBookmarks, totalImpressions, totalTips, totalViews, ...post }) => ({
+    ...post, author: user,
+    totalLikes: totalLikes.toString(), totalReplies: totalReplies.toString(), totalReposts: totalReposts.toString(),
+    totalQuotes: totalQuotes.toString(), totalShares: totalShares.toString(), totalBookmarks: totalBookmarks.toString(),
+    totalImpressions: totalImpressions.toString(), totalTips: totalTips.toString(), totalViews: totalViews.toString(),
+  }));
+}
+
+/** Keep all visibility and viewer-specific fields in the authoritative database read. */
+export function newsfeedQuery(userId: string, recs: string[], args: { feed?: string; limit?: number; page?: number } = {}): Prisma.PostFindManyArgs {
+  const viewerReposts = {
+    where: { userId, kind: "REPOST", status: "PUBLISHED", deletedAt: null },
+    select: { id: true, parentId: true },
+  } satisfies Prisma.Post$repliesArgs;
+  const ranked = !args.feed || args.feed === "foryou";
+  return {
+      ...(!ranked ? { take: args.limit ?? 21, skip: ((args.page ?? 1) - 1) * (args.limit ?? 21) } : {}),
+      // One database round trip for the complete page, including viewer reactions.
+      relationLoadStrategy: "join",
+      where: {
+        ...(ranked ? { ...recommendationVisibility(userId), id: { in: recs } } : getFeedVisibility(userId, args.feed!)),
+      },
+      include: {
+        replies: viewerReposts,
+        thread: false,
+        media: true,
+        replyContinents: true,
+        replyCountries: true,
+        root: {
+          select: {
+            id: true,
+            scope: true,
+            userId: true,
+            rootId: true,
+            replyContinents: true,
+            replyCountries: true,
+            user: {
+              select: {
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
+                },
+              },
+            },
+          },
+        },
+        pins: {
+          where: { userId: userId },
+          select: { id: true, userId: true },
+        },
+        highlights: {
+          where: { userId: userId },
+          select: { id: true, userId: true },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            avatar: true,
+            bio: true,
+            role: true,
+            userType: true,
+            meta: true,
+            isVerified: true,
+            metadata: true,
+            createdAt: true,
+            status: true,
+            followers: {
+              where: {
+                followerId: userId,
+              },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
+            },
+            following: {
+              where: {
+                followingId: userId,
+              },
+              select: {
+                id: true,
+                followerId: true,
+                followingId: true,
+                status: true,
+              },
+            },
+            // 1. if this target user blocked the current user
+            blockedUsers: {
+              where: { blockedId: userId },
+            },
+            // 2. if current user blocked the target user
+            blockedBy: {
+              where: { blockerId: userId },
+            },
+            // 1. if this target user blocked the current user
+            mutedUsers: {
+              where: { mutedId: userId },
+            },
+            // 2. if current user blocked the target user
+            mutedBy: {
+              where: { muterId: userId },
+            },
+            subscriptions: {
+              where: {
+                status: {
+                  in: [
+                    SubStatusEnum.ACTIVE,
+                    SubStatusEnum.TRIAL,
+                    SubStatusEnum.PAYMENT_ERROR,
+                  ],
+                },
+              },
+            },
+            country: {
+              select: {
+                id: true,
+                name: true,
+                iso2: true,
+                iso3: true,
+                emoji: true,
+                continentId: true,
+                continent: true,
+              },
+            },
+          },
+        },
+        tagUsers: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                avatar: true,
+                bio: true,
+                role: true,
+                userType: true,
+                meta: true,
+                isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
+                },
+                subscriptions: {
+                  where: {
+                    status: {
+                      in: [
+                        SubStatusEnum.ACTIVE,
+                        SubStatusEnum.TRIAL,
+                        SubStatusEnum.PAYMENT_ERROR,
+                      ],
+                    },
+                  },
+                },
+                country: {
+                  select: {
+                    id: true,
+                    name: true,
+                    iso2: true,
+                    iso3: true,
+                    emoji: true,
+                    continentId: true,
+                    continent: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        mentions: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                avatar: true,
+                bio: true,
+                role: true,
+                userType: true,
+                meta: true,
+                isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                _count: {
+                  select: {
+                    followers: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                    following: {
+                      where: { status: FollowStatus.ACCEPTED },
+                    },
+                  },
+                },
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
+                },
+                subscriptions: {
+                  where: {
+                    status: {
+                      in: [
+                        SubStatusEnum.ACTIVE,
+                        SubStatusEnum.TRIAL,
+                        SubStatusEnum.PAYMENT_ERROR,
+                      ],
+                    },
+                  },
+                },
+                country: {
+                  select: {
+                    id: true,
+                    name: true,
+                    iso2: true,
+                    iso3: true,
+                    emoji: true,
+                    continentId: true,
+                    continent: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        poll: {
+          include: {
+            options: {
+              include: {
+                voters: {
+                  where: {
+                    userId: userId,
+                  },
+                },
+              },
+            },
+            continents: true,
+            countries: true,
+          },
+        },
+        quiz: {
+          include: {
+            options: {
+              include: {
+                participants: {
+                  where: {
+                    userId: userId,
+                  },
+                },
+              },
+            },
+            continents: true,
+            countries: true,
+          },
+        },
+        parent: {
+          include: {
+            replies: viewerReposts,
+            media: true,
+            replyContinents: true,
+            replyCountries: true,
+            root: {
+              select: {
+                id: true,
+                scope: true,
+                userId: true,
+                rootId: true,
+                replyContinents: true,
+                replyCountries: true,
+                user: {
+                  select: {
+                    followers: {
+                      where: {
+                        followerId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    // 1. if this target user blocked the current user
+                    blockedUsers: {
+                      where: { blockedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    blockedBy: {
+                      where: { blockerId: userId },
+                    },
+                    // 1. if this target user blocked the current user
+                    mutedUsers: {
+                      where: { mutedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    mutedBy: {
+                      where: { muterId: userId },
+                    },
+                  },
+                },
+              },
+            },
+            pins: {
+              where: { userId: userId },
+              select: { id: true, userId: true },
+            },
+            highlights: {
+              where: { userId: userId },
+              select: { id: true, userId: true },
+            },
+            user: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                avatar: true,
+                bio: true,
+                role: true,
+                userType: true,
+                meta: true,
+                isVerified: true,
+                metadata: true,
+                createdAt: true,
+                status: true,
+                followers: {
+                  where: {
+                    followerId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                following: {
+                  where: {
+                    followingId: userId,
+                  },
+                  select: {
+                    id: true,
+                    followerId: true,
+                    followingId: true,
+                    status: true,
+                  },
+                },
+                // 1. if this target user blocked the current user
+                blockedUsers: {
+                  where: { blockedId: userId },
+                },
+                // 2. if current user blocked the target user
+                blockedBy: {
+                  where: { blockerId: userId },
+                },
+                // 1. if this target user blocked the current user
+                mutedUsers: {
+                  where: { mutedId: userId },
+                },
+                // 2. if current user blocked the target user
+                mutedBy: {
+                  where: { muterId: userId },
+                },
+                subscriptions: {
+                  where: {
+                    status: {
+                      in: [
+                        SubStatusEnum.ACTIVE,
+                        SubStatusEnum.TRIAL,
+                        SubStatusEnum.PAYMENT_ERROR,
+                      ],
+                    },
+                  },
+                },
+                country: {
+                  select: {
+                    id: true,
+                    name: true,
+                    iso2: true,
+                    iso3: true,
+                    emoji: true,
+                    continentId: true,
+                    continent: true,
+                  },
+                },
+              },
+            },
+            tagUsers: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    username: true,
+                    avatar: true,
+                    bio: true,
+                    role: true,
+                    userType: true,
+                    meta: true,
+                    isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
+                    _count: {
+                      select: {
+                        followers: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                        following: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                      },
+                    },
+                    followers: {
+                      where: {
+                        followerId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    // 1. if this target user blocked the current user
+                    blockedUsers: {
+                      where: { blockedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    blockedBy: {
+                      where: { blockerId: userId },
+                    },
+                    // 1. if this target user blocked the current user
+                    mutedUsers: {
+                      where: { mutedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    mutedBy: {
+                      where: { muterId: userId },
+                    },
+                    subscriptions: {
+                      where: {
+                        status: {
+                          in: [
+                            SubStatusEnum.ACTIVE,
+                            SubStatusEnum.TRIAL,
+                            SubStatusEnum.PAYMENT_ERROR,
+                          ],
+                        },
+                      },
+                    },
+                    country: {
+                      select: {
+                        id: true,
+                        name: true,
+                        iso2: true,
+                        iso3: true,
+                        emoji: true,
+                        continentId: true,
+                        continent: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            mentions: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    username: true,
+                    avatar: true,
+                    bio: true,
+                    role: true,
+                    userType: true,
+                    meta: true,
+                    isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
+                    _count: {
+                      select: {
+                        followers: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                        following: {
+                          where: { status: FollowStatus.ACCEPTED },
+                        },
+                      },
+                    },
+                    followers: {
+                      where: {
+                        followerId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    // 1. if this target user blocked the current user
+                    blockedUsers: {
+                      where: { blockedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    blockedBy: {
+                      where: { blockerId: userId },
+                    },
+                    // 1. if this target user blocked the current user
+                    mutedUsers: {
+                      where: { mutedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    mutedBy: {
+                      where: { muterId: userId },
+                    },
+                    subscriptions: {
+                      where: {
+                        status: {
+                          in: [
+                            SubStatusEnum.ACTIVE,
+                            SubStatusEnum.TRIAL,
+                            SubStatusEnum.PAYMENT_ERROR,
+                          ],
+                        },
+                      },
+                    },
+                    country: {
+                      select: {
+                        id: true,
+                        name: true,
+                        iso2: true,
+                        iso3: true,
+                        emoji: true,
+                        continentId: true,
+                        continent: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            quiz: {
+              include: {
+                options: {
+                  include: {
+                    participants: {
+                      where: {
+                        userId: userId,
+                      },
+                    },
+                  },
+                },
+                continents: true,
+                countries: true,
+              },
+            },
+            poll: {
+              include: {
+                options: {
+                  include: {
+                    voters: {
+                      where: {
+                        userId: userId,
+                      },
+                    },
+                  },
+                },
+                continents: true,
+                countries: true,
+              },
+            },
+            likes: {
+              where: {
+                userId: userId, // Check if the current user has liked the post
+              },
+              select: {
+                id: true, // Fetch only the like ID (or boolean flag)
+                userId: true,
+              },
+            },
+            bookmarks: {
+              where: {
+                userId: userId, // Check if the current user has liked the post
+              },
+              select: {
+                id: true, // Fetch only the like ID (or boolean flag)
+                userId: true,
+              },
+            },
+            parent: {
+              include: {
+                replies: viewerReposts,
+                media: true,
+                replyContinents: true,
+                replyCountries: true,
+                pins: {
+                  where: { userId: userId },
+                  select: { id: true, userId: true },
+                },
+                highlights: {
+                  where: { userId: userId },
+                  select: { id: true, userId: true },
+                },
+                root: {
+                  select: {
+                    id: true,
+                    scope: true,
+                    userId: true,
+                    rootId: true,
+                    replyContinents: true,
+                    replyCountries: true,
+                    user: {
+                      select: {
+                        followers: {
+                          where: {
+                            followerId: userId,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        following: {
+                          where: {
+                            followingId: userId,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        // 1. if this target user blocked the current user
+                        blockedUsers: {
+                          where: { blockedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        blockedBy: {
+                          where: { blockerId: userId },
+                        },
+                        // 1. if this target user blocked the current user
+                        mutedUsers: {
+                          where: { mutedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        mutedBy: {
+                          where: { muterId: userId },
+                        },
+                      },
+                    },
+                  },
+                },
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    username: true,
+                    avatar: true,
+                    bio: true,
+                    role: true,
+                    userType: true,
+                    meta: true,
+                    isVerified: true,
+                    metadata: true,
+                    createdAt: true,
+                    status: true,
+                    followers: {
+                      where: {
+                        followerId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    following: {
+                      where: {
+                        followingId: userId,
+                      },
+                      select: {
+                        id: true,
+                        followerId: true,
+                        followingId: true,
+                        status: true,
+                      },
+                    },
+                    // 1. if this target user blocked the current user
+                    blockedUsers: {
+                      where: { blockedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    blockedBy: {
+                      where: { blockerId: userId },
+                    },
+                    // 1. if this target user blocked the current user
+                    mutedUsers: {
+                      where: { mutedId: userId },
+                    },
+                    // 2. if current user blocked the target user
+                    mutedBy: {
+                      where: { muterId: userId },
+                    },
+                    subscriptions: {
+                      where: {
+                        status: {
+                          in: [
+                            SubStatusEnum.ACTIVE,
+                            SubStatusEnum.TRIAL,
+                            SubStatusEnum.PAYMENT_ERROR,
+                          ],
+                        },
+                      },
+                    },
+                    country: {
+                      select: {
+                        id: true,
+                        name: true,
+                        iso2: true,
+                        iso3: true,
+                        emoji: true,
+                        continentId: true,
+                        continent: true,
+                      },
+                    },
+                  },
+                },
+                tagUsers: {
+                  include: {
+                    user: {
+                      select: {
+                        id: true,
+                        name: true,
+                        username: true,
+                        avatar: true,
+                        bio: true,
+                        role: true,
+                        userType: true,
+                        meta: true,
+                        isVerified: true,
+                        metadata: true,
+                        createdAt: true,
+                        status: true,
+                        _count: {
+                          select: {
+                            followers: {
+                              where: { status: FollowStatus.ACCEPTED },
+                            },
+                            following: {
+                              where: { status: FollowStatus.ACCEPTED },
+                            },
+                          },
+                        },
+                        followers: {
+                          where: {
+                            followerId: userId,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        following: {
+                          where: {
+                            followingId: userId,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        // 1. if this target user blocked the current user
+                        blockedUsers: {
+                          where: { blockedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        blockedBy: {
+                          where: { blockerId: userId },
+                        },
+                        // 1. if this target user blocked the current user
+                        mutedUsers: {
+                          where: { mutedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        mutedBy: {
+                          where: { muterId: userId },
+                        },
+                        subscriptions: {
+                          where: {
+                            status: {
+                              in: [
+                                SubStatusEnum.ACTIVE,
+                                SubStatusEnum.TRIAL,
+                                SubStatusEnum.PAYMENT_ERROR,
+                              ],
+                            },
+                          },
+                        },
+                        country: {
+                          select: {
+                            id: true,
+                            name: true,
+                            iso2: true,
+                            iso3: true,
+                            emoji: true,
+                            continentId: true,
+                            continent: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                mentions: {
+                  include: {
+                    user: {
+                      select: {
+                        id: true,
+                        name: true,
+                        username: true,
+                        avatar: true,
+                        bio: true,
+                        role: true,
+                        userType: true,
+                        meta: true,
+                        isVerified: true,
+                        metadata: true,
+                        createdAt: true,
+                        status: true,
+                        _count: {
+                          select: {
+                            followers: {
+                              where: { status: FollowStatus.ACCEPTED },
+                            },
+                            following: {
+                              where: { status: FollowStatus.ACCEPTED },
+                            },
+                          },
+                        },
+                        followers: {
+                          where: {
+                            followerId: userId,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        following: {
+                          where: {
+                            followingId: userId,
+                          },
+                          select: {
+                            id: true,
+                            followerId: true,
+                            followingId: true,
+                            status: true,
+                          },
+                        },
+                        // 1. if this target user blocked the current user
+                        blockedUsers: {
+                          where: { blockedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        blockedBy: {
+                          where: { blockerId: userId },
+                        },
+                        // 1. if this target user blocked the current user
+                        mutedUsers: {
+                          where: { mutedId: userId },
+                        },
+                        // 2. if current user blocked the target user
+                        mutedBy: {
+                          where: { muterId: userId },
+                        },
+                        subscriptions: {
+                          where: {
+                            status: {
+                              in: [
+                                SubStatusEnum.ACTIVE,
+                                SubStatusEnum.TRIAL,
+                                SubStatusEnum.PAYMENT_ERROR,
+                              ],
+                            },
+                          },
+                        },
+                        country: {
+                          select: {
+                            id: true,
+                            name: true,
+                            iso2: true,
+                            iso3: true,
+                            emoji: true,
+                            continentId: true,
+                            continent: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                quiz: {
+                  include: {
+                    options: {
+                      include: {
+                        participants: {
+                          where: {
+                            userId: userId,
+                          },
+                        },
+                      },
+                    },
+                    continents: true,
+                    countries: true,
+                  },
+                },
+                poll: {
+                  include: {
+                    options: {
+                      include: {
+                        voters: {
+                          where: {
+                            userId: userId,
+                          },
+                        },
+                      },
+                    },
+                    continents: true,
+                    countries: true,
+                  },
+                },
+                likes: {
+                  where: {
+                    userId: userId, // Check if the current user has liked the post
+                  },
+                  select: {
+                    id: true, // Fetch only the like ID (or boolean flag)
+                    userId: true,
+                  },
+                },
+                bookmarks: {
+                  where: {
+                    userId: userId, // Check if the current user has liked the post
+                  },
+                  select: {
+                    id: true, // Fetch only the like ID (or boolean flag)
+                    userId: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        likes: {
+          where: {
+            userId: userId, // Check if the current user has liked the post
+          },
+          select: {
+            id: true, // Fetch only the like ID (or boolean flag)
+            userId: true,
+          },
+        },
+        bookmarks: {
+          where: {
+            userId: userId, // Check if the current user has liked the post
+          },
+          select: {
+            id: true, // Fetch only the like ID (or boolean flag)
+            userId: true,
+          },
+        },
+      },
+      orderBy: args.feed === "trending"
+        ? [{ totalLikes: "desc" }, { totalReplies: "desc" }, { totalReposts: "desc" }, { totalShares: "desc" }, { createdAt: "desc" }, { id: "desc" }]
+        : [{ createdAt: "desc" }, { id: "desc" }],
+    } satisfies Prisma.PostFindManyArgs;
+}
+
+/** Select each tab from the viewer's own relationships, never from global rankings. */
+export function getFeedVisibility(userId: string, feed: string): Prisma.PostWhereInput {
+  const now = new Date();
+  const visibility = recommendationVisibility(userId);
+  const schedules: Prisma.PostWhereInput = { createdAt: { lte: now }, OR: [{ scheduleAt: null }, { scheduleAt: { lte: now } }] };
+  if (feed === "following" || feed === "friends") {
+    const follows = { some: { followerId: userId, status: FollowStatus.ACCEPTED } };
+    // The author or an accepted follower may see private/followers-only posts.
+    // Apply the same rules to quoted/reposted parents and roots.
+    const visiblePost: Prisma.PostWhereInput = {
+      status: "PUBLISHED", deletedAt: null, isHidden: false,
+      disinterest: { none: { userId } }, reports: { none: { userId } },
+      AND: [schedules, { OR: [
+        { userId }, { scope: "ANYONE" },
+        { scope: "FOLLOWED", user: { followers: follows } },
+      ] }],
+      user: {
+        status: { in: ["ACTIVE", "PRIVATE"] }, deletedAt: null, deactivatedAt: null,
+        NOT: [{ blockedUsers: { some: { blockedId: userId } } }, { blockedBy: { some: { blockerId: userId } } }, { mutedBy: { some: { muterId: userId } } }],
+        OR: [{ id: userId }, { isPrivate: false, status: "ACTIVE" }, { followers: follows }],
+      },
+    };
+    return {
+      ...visiblePost, kind: { in: ["ROOT", "REPOST", "QUOTE"] },
+      AND: [visiblePost, { user: { followers: follows,
+        ...(feed === "friends" ? { following: { some: { followingId: userId, status: FollowStatus.ACCEPTED } } } : {}),
+      } }, { OR: [{ parentId: null }, { parent: { is: visiblePost } }] }, { OR: [{ rootId: null }, { root: { is: visiblePost } }] }],
+    };
+  }
+  return { ...visibility, AND: [visibility, schedules],
+    ...(feed === "trending" ? { createdAt: { gte: new Date(now.getTime() - THREE_DAYS_MS), lte: now } } : {}),
+  };
+}

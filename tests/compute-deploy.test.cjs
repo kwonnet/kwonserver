@@ -21,6 +21,7 @@ function fixture(t) {
 import json,os,sys
 args=sys.argv[1:]
 with open(os.environ['CALL_LOG'],'a') as log: log.write(json.dumps(args)+'\n')
+if args[:2]==['image','prune'] and os.environ.get('FAIL_PRUNE'): sys.exit(23)
 if args[0]=='login': sys.stdin.read()
 if args[:2]==['container','inspect']: sys.exit(1)
 if args[0]=='logs': print('Startup error: missing configuration; '+os.environ.get('LOG_SECRET',''))
@@ -100,4 +101,19 @@ test('all persistent containers forward logs with bounded nonblocking local cach
 test('logging permission failure leaves existing containers untouched',t=>{
   const f=fixture(t);assert.equal(f.run({FAIL_LOGGING:'1'}).status,1);
   assert.ok(!f.calls().some(a=>['stop','rm','run'].includes(a[0])));
+});
+
+test('image cleanup runs after release validation and never prunes volumes or containers', t => {
+  const f=fixture(t), r=f.run(); assert.equal(r.status,0,r.stderr);
+  const c=f.calls(); assert.deepEqual(c.at(-1),['image','prune','--all','--force']);
+  assert.ok(c.findIndex(a=>a[0]==='exec'&&a.includes('kwonserver-proxy')) < c.length-1);
+});
+test('failed migration does not run post-release cleanup', t => {
+  const f=fixture(t); assert.equal(f.run({FAIL_MIGRATION:'1'}).status,42);
+  assert.ok(!f.calls().some(a=>a[0]==='image'));
+});
+test('post-release cleanup failure warns without failing a healthy deployment', t => {
+  const f=fixture(t), r=f.run({FAIL_PRUNE:'1'}); assert.equal(r.status,0,r.stderr);
+  assert.match(r.stderr,/release succeeded, but unused image cleanup failed/);
+  assert.equal(fs.readFileSync(path.join(f.root,'runtime/image'),'utf8'),image+'\n');
 });

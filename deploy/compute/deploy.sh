@@ -99,4 +99,9 @@ docker run "${COMMON[@]}" --name kwonserver-proxy -p 80:80 -p 443:443 -v "$ROOT/
 docker exec kwonserver-proxy caddy validate --config /etc/caddy/Caddyfile
 if [[ -f "$ROOT/image" ]]; then cp "$ROOT/image" "$ROOT/history/$(date -u +%Y%m%dT%H%M%S)-image"; fi
 printf '%s\n' "$IMAGE" > "$ROOT/image"
+# Reclaim the old release only after the new containers have passed validation.
+# Image pruning preserves images referenced by any container and never prunes volumes.
+if ! docker image prune --all --force; then
+  echo 'Warning: release succeeded, but unused image cleanup failed; check VM disk space.' >&2
+fi
 echo 'API and worker deployed. Verify public HTTPS and authenticated Socket.IO flows after first deployment.'

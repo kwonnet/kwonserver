@@ -28,6 +28,7 @@ import {
   createPostView,
   deletePost,
   getNewsfeed,
+  getPublicPostPreview,
   getPostAnalytics,
   getPostFeedDetails,
   getPostQuotes,
@@ -89,20 +90,21 @@ export const getNewsfeedController = async (
 
     const zodData = zodResult.data;
 
-    if (!zodData || !feedType){
+    if (!zodData || !["foryou", "following", "friends", "trending", "latest"].includes(feedType) || !Number.isInteger(zodData.page) || zodData.page < 1 || !Number.isInteger(zodData.limit) || zodData.limit < 1 || zodData.limit > 100){
       return res
         .status(400)
-        .send(!feedType ? "Invalid feed type provided" : zodResult.message);
+        .send(!zodData ? zodResult.message : "Invalid feed type or pagination provided");
     }
 
     const { limit } = zodData
 
     const started = performance.now();
-    const resp = await getRecommendationResponse(user.id, limit, zodData.page);
+    const resp = feedType === "foryou" ? await getRecommendationResponse(user.id, limit, zodData.page) : null;
+    const source = resp ? (resp.data.degraded ? "fallback" : "kwonrec") : "database";
     const rankedAt = performance.now();
     res.setHeader("Cache-Control", "private, no-store");
-    res.setHeader("X-Feed-Source", resp.data.degraded ? "fallback" : "kwonrec");
-    const recs = resp.data.recommendations.map((item: { id: string }) => item.id);
+    res.setHeader("X-Feed-Source", source);
+    const recs = resp?.data.recommendations.map((item: { id: string }) => item.id) ?? [];
 
     const result = await getNewsfeed(recs, user, {feed:feedType, ...zodData });
 
@@ -111,7 +113,7 @@ export const getNewsfeedController = async (
     const hydrationMs = Math.round(finishedAt - rankedAt);
     res.setHeader("Server-Timing", `recommendations;dur=${recommendationMs}, hydration;dur=${hydrationMs}`);
     logger.info({ event: "newsfeed_load", feed: feedType, page: zodData.page,
-      source: resp.data.degraded ? "fallback" : "kwonrec", recommendationMs, hydrationMs,
+      source: source, recommendationMs, hydrationMs,
       totalMs: Math.round(finishedAt - started), status: result.status,
       posts: Array.isArray(result.data) ? result.data.length : 0 }, "Newsfeed loaded");
 
@@ -1020,5 +1022,17 @@ export const getContentTopicController = async(req: Request,
     
   } catch (error: any) {
     return res.status(400).send(error?.message);
+  }
+}
+
+export async function getPublicPostPreviewController(_req: Request, res: Response) {
+  // Re-evaluate visibility on every request, including immediately after a privacy change.
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    const posts = await getPublicPostPreview();
+    return res.status(200).json(posts);
+  } catch {
+    logger.warn("Public feed preview unavailable");
+    return res.status(503).json({ message: "The feed is temporarily unavailable." });
   }
 }
