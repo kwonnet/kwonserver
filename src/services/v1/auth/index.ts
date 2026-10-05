@@ -274,7 +274,7 @@ export const handleReferral = async (params: {
 
 
 // Verify signed Google claims before resolving the stable provider identity.
-export async function loginGoogleUser(idToken: string, resolveRegistrationLocation?: () => Promise<Partial<LookupResult> | null>) {
+export async function loginGoogleUser(idToken: string, registrationLocation?: Partial<LookupResult> | null) {
   const audience = process.env.AUTH_GOOGLE_ID;
   if (!audience) return {status: 503, data: "Google sign-in is not configured"};
   let claims;
@@ -308,8 +308,7 @@ export async function loginGoogleUser(idToken: string, resolveRegistrationLocati
           }
         }
       } else {
-        const registrationLocation = resolveRegistrationLocation ? await resolveRegistrationLocation() : null;
-        const created = await createUser({email, name: claims.name || email.split("@")[0]}, registrationLocation, {subject: claims.sub, avatar: claims.picture});
+        const created = await createUser({email, name: claims.name || email.split("@")[0]}, registrationLocation ?? null, {subject: claims.sub, avatar: claims.picture});
         // Concurrent callbacks must not create duplicate wallets/registration bonuses.
         account = await prisma.user.findUnique({where: {googleSubject: claims.sub}});
         if (!account) return created;

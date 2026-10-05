@@ -78,13 +78,13 @@ it('persists inferred country and returns it for new password and Google registr
  expect(passwordUser.status).toBe(200); expect(passwordUser.data).toMatchObject({country: {id: country.id, iso2: 'XR'}});
  expect(await db.user.findUnique({where: {id: (passwordUser.data as any).id}})).toMatchObject({countryId: country.id});
  verify.mockResolvedValue({getPayload: () => ({sub: prefix + 'country-google', email: prefix + 'country-google@gmail.com', name: 'Google Country', email_verified: true})});
- const resolveLocation = vi.fn(async () => ({country: 'XR', city: 'Test city'}));
- const first = await loginGoogleUser('verified-token', resolveLocation);
- expect(first.status).toBe(200); expect(first.data).toMatchObject({country: {id: country.id, iso2: 'XR'}}); expect(resolveLocation).toHaveBeenCalledOnce();
+ const location = {country: 'XR', city: 'Test city'};
+ const first = await loginGoogleUser('verified-token', location);
+ expect(first.status).toBe(200); expect(first.data).toMatchObject({country: {id: country.id, iso2: 'XR'}});
  expect(await db.user.findUnique({where: {id: (first.data as any).id}})).toMatchObject({countryId: country.id});
- const laterLocation = vi.fn(async () => ({country: 'US'}));
+ const laterLocation = {country: 'US'};
  expect((await loginGoogleUser('verified-token', laterLocation)).data).toMatchObject({country: {id: country.id}});
- expect(laterLocation).not.toHaveBeenCalled();
+
  const unknown = await createUser({name: 'Unknown Country', email: prefix + 'country-missing@example.invalid', password: 'test-only-password'}, null);
  expect(unknown.status).toBe(200); expect(await db.user.findUnique({where: {id: (unknown.data as any).id}})).toMatchObject({countryId: null});
 });

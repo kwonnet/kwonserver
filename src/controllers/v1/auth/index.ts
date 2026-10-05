@@ -172,14 +172,13 @@ export const googleSignInController = async (req: Request, res: Response) => {
   const idToken = req.body?.idToken;
   if (typeof idToken !== "string" || idToken.length < 20 || idToken.length > 16_384) return res.status(400).send("Invalid Google token");
   try {
-    // Resolve once after Google verification, sharing the trusted location
-    // snapshot between new-account country inference and authentication history.
-    let metadataPromise: Promise<Awaited<ReturnType<typeof authRequestMetadata>>> | undefined;
-    const getMetadata = () => metadataPromise ??= authRequestMetadata(req);
-    const result = await loginGoogleUser(idToken, async () => (await getMetadata()).location as Partial<LookupResult> | null);
+    // Match password signup: one trusted lookup object feeds account creation
+    // and authentication history. Existing-account signin never updates its profile.
+    const metadata = await authRequestMetadata(req);
+    const result = await loginGoogleUser(idToken, metadata.location as Partial<LookupResult> | null);
     if (result.status !== 200 || typeof result.data === "string") return res.status(result.status).send(result.data);
     const user = result.data;
-    const {accessToken, trackedUser} = await issueTrackedLogin(req, user, "GOOGLE", "SIGN_IN", await getMetadata());
+    const {accessToken, trackedUser} = await issueTrackedLogin(req, user, "GOOGLE", "SIGN_IN", metadata);
     return res.status(200).send({user: trackedUser, accessToken});
   } catch {
     return res.status(500).send("Unable to sign in with Google. Please try again");

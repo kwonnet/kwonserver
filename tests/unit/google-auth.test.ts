@@ -137,16 +137,14 @@ it('infers country for a new Google account before committing normal registratio
   mocks.db.country.findFirst.mockResolvedValue({id: 'nigeria'});
   mocks.db.$transaction.mockImplementation(async work => work(mocks.db));
   mocks.db.user.create.mockResolvedValue(account); mocks.db.wallet.findUniqueOrThrow.mockResolvedValue({id: 'wallet'});
-  const resolve = vi.fn(async () => ({country: 'NG', city: 'Lagos'}));
-  expect((await loginGoogleUser('token', resolve)).status).toBe(200);
-  expect(resolve).toHaveBeenCalledOnce();
+  expect((await loginGoogleUser('token', {country: 'NG', city: 'Lagos'})).status).toBe(200);
   expect(mocks.db.user.create).toHaveBeenCalledWith(expect.objectContaining({data: expect.objectContaining({country: {connect: {id: 'nigeria'}}, location: {create: {latitude: 0, longitude: 0, meta: {country: 'NG', city: 'Lagos'}}}})}));
 });
 it('never infers or overwrites an existing account country during Google signin/linking', async () => {
-  const resolve = vi.fn(async () => ({country: 'NG'}));
+  const location = {country: 'NG'};
   mocks.db.user.findUnique.mockResolvedValue({...account, countryId: 'chosen-country'});
-  expect((await loginGoogleUser('token', resolve)).status).toBe(200); expect(resolve).not.toHaveBeenCalled();
+  expect((await loginGoogleUser('token', location)).status).toBe(200); expect(mocks.db.country.findFirst).not.toHaveBeenCalled();
   mocks.db.user.findUnique.mockResolvedValue(null); mocks.db.user.findFirst.mockResolvedValue({...account, googleSubject: null, countryId: 'chosen-country'});
-  expect((await loginGoogleUser('token', resolve)).status).toBe(200); expect(resolve).not.toHaveBeenCalled();
+  expect((await loginGoogleUser('token', location)).status).toBe(200); expect(mocks.db.country.findFirst).not.toHaveBeenCalled();
   expect(mocks.db.user.updateMany).toHaveBeenCalledWith(expect.objectContaining({data: {googleSubject: 'google-sub', isVerified: true}}));
 });
