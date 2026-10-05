@@ -173,9 +173,13 @@ export const googleSignInController = async (req: Request, res: Response) => {
   res.setHeader("Cache-Control", "private, no-store");
   const idToken = req.body?.idToken;
   if (typeof idToken !== "string" || idToken.length < 20 || idToken.length > 16_384) return res.status(400).send("Invalid Google token");
-  const result = await loginGoogleUser(idToken);
-  if (result.status !== 200 || typeof result.data === "string") return res.status(result.status).send(result.data);
-  const user = result.data;
-  const accessToken = generateToken(composeAuthUser(user), {expiresIn: "24h"});
-  return res.status(200).send({user, accessToken});
+  try {
+    const result = await loginGoogleUser(idToken);
+    if (result.status !== 200 || typeof result.data === "string") return res.status(result.status).send(result.data);
+    const user = result.data;
+    const accessToken = generateToken(composeAuthUser(user), {expiresIn: "24h"});
+    return res.status(200).send({user, accessToken});
+  } catch {
+    return res.status(500).send("Unable to sign in with Google. Please try again");
+  }
 };

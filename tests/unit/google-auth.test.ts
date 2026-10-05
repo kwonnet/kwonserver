@@ -6,7 +6,7 @@ vi.mock('@/db', () => ({default: mocks.db}));
 vi.mock('@/services/v1/utils', () => ({getAuthUser: mocks.identity, composeAuthUser: mocks.compose, getUserStatusMessage: () => 'Unavailable'}));
 vi.mock('@/utils', () => ({getRandomNumber: () => 12}));
 vi.mock('bcrypt', () => ({default: {hash: mocks.hash}}));
-import {loginGoogleUser} from '@/services/v1/auth';
+import {loginGoogleUser, createUser} from '@/services/v1/auth';
 const claims = {sub: 'google-sub', email: 'ada@gmail.com', email_verified: true, name: 'Ada', picture: 'https://google.test/avatar'};
 const account = {id: 'kwon-id', status: 'ACTIVE', googleSubject: 'google-sub', deletedAt: null, deactivatedAt: null};
 beforeEach(() => {
@@ -68,4 +68,64 @@ it('uses existing transactional registration and creates a passwordless account 
   expect(mocks.db.user.create).toHaveBeenCalledWith(expect.objectContaining({data: expect.objectContaining({password: null, googleSubject: 'google-sub', isVerified: true, wallet: {create: {bonus: 12}}})}));
   expect(mocks.db.transaction.create).toHaveBeenCalledOnce();
   expect(mocks.hash).not.toHaveBeenCalled();
+});
+
+
+it.each([undefined, {...claims, sub: ''}, {...claims, email: ''}])('rejects missing identity claims without database access', async payload => {
+  mocks.verify.mockResolvedValue({getPayload: () => payload});
+  expect((await loginGoogleUser('token')).status).toBe(401);
+  expect(mocks.db.user.findUnique).not.toHaveBeenCalled();
+});
+it.each([{deletedAt: new Date()}, {deactivatedAt: new Date()}])('rejects unavailable linked accounts %j', async state => {
+  mocks.db.user.findUnique.mockResolvedValue({...account, ...state});
+  expect((await loginGoogleUser('token')).status).toBe(401); expect(mocks.identity).not.toHaveBeenCalled();
+});
+it.each(['BANNED', 'SUSPENDED'])('does not link an existing %s password account', async status => {
+  mocks.db.user.findUnique.mockResolvedValue(null);
+  mocks.db.user.findFirst.mockResolvedValue({...account, googleSubject: null, status});
+  expect((await loginGoogleUser('token')).status).toBe(401); expect(mocks.db.user.updateMany).not.toHaveBeenCalled();
+});
+it.each([{deletedAt: new Date()}, {deactivatedAt: new Date()}])('does not link a closed existing email account %j', async state => {
+  mocks.db.user.findUnique.mockResolvedValue(null);
+  mocks.db.user.findFirst.mockResolvedValue({...account, googleSubject: null, ...state});
+  expect((await loginGoogleUser('token')).status).toBe(401); expect(mocks.db.user.updateMany).not.toHaveBeenCalled();
+});
+it('accepts an existing private account without changing its established Google link', async () => {
+  mocks.db.user.findUnique.mockResolvedValue(null);
+  mocks.db.user.findFirst.mockResolvedValue({...account, status: 'PRIVATE'});
+  expect((await loginGoogleUser('token')).status).toBe(200); expect(mocks.db.user.updateMany).not.toHaveBeenCalled();
+});
+it('allows authoritative Workspace email linking', async () => {
+  mocks.verify.mockResolvedValue({getPayload: () => ({...claims, email: 'ada@workspace.test', hd: 'workspace.test'})});
+  mocks.db.user.findUnique.mockResolvedValue(null);
+  mocks.db.user.findFirst.mockResolvedValue({...account, status: 'PRIVATE', googleSubject: null});
+  expect((await loginGoogleUser('token')).status).toBe(200); expect(mocks.db.user.updateMany).toHaveBeenCalledOnce();
+});
+it('recovers a concurrent successful link without creating another account or bonus', async () => {
+  mocks.db.user.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(account);
+  mocks.db.user.findFirst.mockResolvedValue({...account, googleSubject: null});
+  mocks.db.user.updateMany.mockResolvedValue({count: 0});
+  expect((await loginGoogleUser('token')).status).toBe(200); expect(mocks.db.user.create).not.toHaveBeenCalled();
+});
+it('fails closed when a link race cannot resolve the verified subject', async () => {
+  mocks.db.user.findUnique.mockResolvedValue(null);
+  mocks.db.user.findFirst.mockResolvedValue({...account, googleSubject: null});
+  mocks.db.user.updateMany.mockResolvedValue({count: 0});
+  expect((await loginGoogleUser('token')).status).toBe(409); expect(mocks.identity).not.toHaveBeenCalled();
+});
+it('returns registration failures without constructing an authenticated identity', async () => {
+  mocks.verify.mockResolvedValue({getPayload: () => ({...claims, name: undefined, picture: undefined})});
+  mocks.db.user.findUnique.mockResolvedValue(null); mocks.db.user.findFirst.mockResolvedValue(null);
+  mocks.db.$transaction.mockRejectedValue(new Error('database secret'));
+  expect(await loginGoogleUser('token')).toEqual({status: 500, data: 'Error occurred, please try again'});
+  expect(mocks.identity).not.toHaveBeenCalled();
+});
+it('masks account lookup errors', async () => {
+  mocks.db.user.findUnique.mockRejectedValue(new Error('database secret'));
+  expect(await loginGoogleUser('token')).toEqual({status: 500, data: 'Unable to sign in with Google. Please try again'});
+});
+it('requires a password when registration is not a verified Google registration', async () => {
+  mocks.db.user.findFirst.mockResolvedValue(null);
+  expect(await createUser({name: 'Ada', email: 'ada@example.test'})).toEqual({status: 400, data: 'Password required'});
+  expect(mocks.db.user.create).not.toHaveBeenCalled();
 });

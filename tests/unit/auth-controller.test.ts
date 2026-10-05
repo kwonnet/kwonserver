@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response, user } from './fixtures';
-const deps = vi.hoisted(() => ({ create: vi.fn(), login: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn() }));
-vi.mock('@/services/v1/auth', () => ({ createUser: deps.create, loginUser: deps.login }));
+const deps = vi.hoisted(() => ({ create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn() }));
+vi.mock('@/services/v1/auth', () => ({ createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google }));
 vi.mock('@/services/v1/utils', () => ({ getAuthUser: deps.getUser }));
 vi.mock('@/utils', () => ({ generateToken: deps.generate, getAuthTokenUser: deps.decode }));
 vi.mock('@/utils/ipLocation', () => ({ lookup: deps.lookup }));
-import { signInController, signUpController, refreshTokenController, getMeController, logoutController } from '@/controllers/v1/auth';
+import { signInController, signUpController, refreshTokenController, getMeController, logoutController, googleSignInController } from '@/controllers/v1/auth';
 const body = { name: 'Ada', email: 'ADA@example.test', password: 'password123' };
 it('logout clears both historical API cookies even without a working authenticated session', () => {
   const res = response(); res.clearCookie = vi.fn(() => res);
@@ -74,4 +74,40 @@ it('handles decoder exceptions without issuing tokens', async () => {
   deps.decode.mockImplementation(() => { throw new Error('invalid signature'); }); const res = response();
   await refreshTokenController({ body: { token: 'bad' } } as any, res);
   expect(res.statusCode).toBe(500); expect(deps.generate).not.toHaveBeenCalled();
+});
+
+
+it.each([undefined, null, 42, '', 'short', 'a'.repeat(16385)])('Google rejects invalid token input before authentication', async idToken => {
+  const res = response();
+  await googleSignInController({body: {idToken}} as any, res);
+  expect(res.statusCode).toBe(400);
+  expect(res.headers['Cache-Control']).toBe('private, no-store');
+  expect(deps.google).not.toHaveBeenCalled(); expect(deps.generate).not.toHaveBeenCalled();
+});
+it('Google rejects a request with no body', async () => {
+  const res = response(); await googleSignInController({} as any, res);
+  expect(res.statusCode).toBe(400); expect(deps.google).not.toHaveBeenCalled();
+});
+it('Google issues a Kwonnet token containing only the trusted API identity', async () => {
+  const identity = user(); deps.google.mockResolvedValue({status: 200, data: identity});
+  const res = response(); const idToken = 'signed-google-id-token';
+  await googleSignInController({body: {idToken, id: 'attacker', role: 'ADMIN'}} as any, res);
+  expect(deps.google).toHaveBeenCalledWith(idToken);
+  expect(deps.generate).toHaveBeenCalledWith({id: 'user-1', name: 'Ada', email: 'ada@example.test', username: 'ada', role: 'USER'}, {expiresIn: '24h'});
+  expect(res.body).toEqual({user: identity, accessToken: 'signed-token'});
+  expect(res.cookie).not.toHaveBeenCalled();
+});
+it.each([{status: 401, data: 'Invalid token'}, {status: 503, data: {reason: 'Unavailable'}}, {status: 200, data: 'Invalid identity'}])('Google never issues tokens for a rejected service result %j', async result => {
+  deps.google.mockResolvedValue(result); const res = response();
+  await googleSignInController({body: {idToken: 'signed-google-id-token'}} as any, res);
+  expect(res.statusCode).toBe(result.status); expect(res.body).toEqual(result.data);
+  expect(deps.generate).not.toHaveBeenCalled();
+});
+it.each(['verification', 'signing'])('Google masks unexpected %s errors without issuing credentials', async stage => {
+  deps.google.mockResolvedValue({status: 200, data: user()});
+  if (stage === 'verification') deps.google.mockRejectedValue(new Error('private verification detail'));
+  else deps.generate.mockImplementation(() => {throw new Error('private signing secret');});
+  const res = response(); await googleSignInController({body: {idToken: 'signed-google-id-token'}} as any, res);
+  expect(res.statusCode).toBe(500); expect(res.body).not.toContain('private');
+  expect(res.body).not.toHaveProperty('accessToken');
 });
