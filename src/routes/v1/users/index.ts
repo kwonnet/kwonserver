@@ -11,7 +11,7 @@ router.patch("/me/profile", authMiddleware(), editableProfileController);
 
 router.post("/search", detectBotMiddleware(), authMiddleware(), searchUserController)
 
-router.get("/search", detectBotMiddleware(), authMiddleware(), searchUsersController)
+router.get("/search", detectBotMiddleware(), authMiddleware({required: false}), searchUsersController)
 
 router.get("/:id/achievements", detectBotMiddleware(), authMiddleware(), userAchievementsController)
 

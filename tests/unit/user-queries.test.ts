@@ -22,7 +22,7 @@ it('returns public paginated search results', async () => {
   expect(result.status).toBe(200); expect((result.data as any[])[0]).not.toHaveProperty('email');
   expect(db.user.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 20, take: 10 }));
 });
-it('reports empty searches', async () => { db.user.findMany.mockResolvedValue([]); expect((await service.searchUsers({ query: 'none', page: 1, limit: 10 })).status).toBe(404); });
+it('reports empty searches', async () => { db.user.findMany.mockResolvedValue([]); expect((await service.searchUsers({ query: 'none', page: 1, limit: 10 })).status).toBe(200); });
 it.each([{ rows: [], status: 404 }, { rows: [{ id: 'n' }], status: 200 }])('scopes notification pagination to the recipient', async ({ rows, status }) => {
   db.notification.findMany.mockResolvedValue(rows); expect((await service.getUserNotifications(user(), { page: 2, limit: 10 })).status).toBe(status);
   expect(db.notification.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { recipientId: 'user-1' }, skip: 10, take: 10, orderBy: [{ createdAt: 'desc' }] }));

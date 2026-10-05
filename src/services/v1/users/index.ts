@@ -69,41 +69,19 @@ export const searchUser = async (query: string) => {
   }
 };
 
-export const searchUsers = async ({
-  query,
-  limit,
-  page,
-}: {
-  query: string;
-  limit: number;
-  page: number;
+export const searchUsers = async ({ query, limit, page, viewerId = '' }: {
+  query: string; limit: number; page: number; viewerId?: string;
 }) => {
   try {
     const users = await prisma.user.findMany({
-      where: {
-        OR: [
-          { username: { search: query, mode: "insensitive" } },
-          { name: { search: query, mode: "insensitive" } },
-        ],
-      },
-      skip: (page - 1) * limit,
-      take: limit,
+      where: { status: 'ACTIVE', deletedAt: null, deactivatedAt: null, isPrivate: false,
+        OR: [{ username: { contains: query.replace(/^[@#]/, ''), mode: 'insensitive' } }, { name: { contains: query.replace(/^[@#]/, ''), mode: 'insensitive' } }],
+        NOT: [{ blockedUsers: { some: { blockedId: viewerId } } }, { blockedBy: { some: { blockerId: viewerId } } }, { mutedBy: { some: { muterId: viewerId } } }],
+      }, select: { id: true, username: true, avatar: true, name: true, bio: true },
+      orderBy: [{ username: 'asc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit,
     });
-    if (users.length === 0) {
-      return { data: "Not found", status: 404 };
-    }
-    return {
-      data: users.map((user) => ({
-        id: user.id,
-        username: user.username,
-        avatar: user.avatar,
-        name: user.name,
-      })),
-      status: 200,
-    };
-  } catch (error) {
-    return { data: "Error occurred, please try again", status: 500 };
-  }
+    return { data: users.map(({ id, name, username, avatar, bio }) => ({ id, name, username, avatar, bio })), status: 200 };
+  } catch { return { data: 'Unable to search people', status: 500 }; }
 };
 
 export const getUserNotifications = async (

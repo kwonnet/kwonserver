@@ -362,3 +362,32 @@ the model from Hugging Face; subsequent jobs/releases reuse it. Monitor worker
 memory, `postTopicQueue` backlog/failures and pending `Post.topic IS NULL` rows.
 Deploy kwonserver before kwonweb. Category pages can be empty until classification
 has caught up; that is displayed as an empty state rather than a placeholder.
+
+### Trend and hashtag search
+
+Trend links use `/search?q=...&src=trend_click&vertical=trends&tab=top`;
+post hashtags use the same page with `src=hashtag_click` and a `#` query.
+The web page supports Top, Latest and People tabs, server-rendered first results,
+identity-scoped SWR pagination and the existing feed interactions.
+
+`GET /api/v1/posts/search?q=...&tab=top|latest&page=1&limit=21` returns
+`{ posts, hasMore }`. Public posts are searched against rendered Draft.js/plain
+text with PostgreSQL full-text search; all query words must match. Top orders by
+likes, replies and reposts before recency; Latest orders by recency. Hashtag
+queries match the exact indexed hashtag, excluding longer tags and plain text.
+Drafts, hidden/deleted/private/restricted/future posts are excluded. Authenticated
+search also applies block/mute/report/disinterest rules and hydrates viewer
+reaction flags from the existing feed service. Anonymous responses use the small
+public post DTO. People uses the existing paginated `/users/search` endpoint with
+public profile fields only and authenticated block/mute filtering.
+
+The normal migration deployment adds `Post_public_search_idx`, a GIN index over
+the existing rendered-text extractor; it indexes existing content as well as new
+posts without an external search service or extra database extension. Deploy
+kwonserver and its migrations before kwonweb. Search is keyword matching rather
+than semantic similarity; Media and Lists tabs are outside this implementation.
+
+After a successful profile save, the web editor explicitly triggers the Auth.js
+update callback to refetch identity from the authenticated backend. Cached public
+identity fields and linked-account metadata are refreshed without accepting
+client-provided session identity or requiring another login.

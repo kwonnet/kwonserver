@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { performance } from "node:perf_hooks";
 import logger from "@/logger";
 import {
@@ -15,6 +16,7 @@ import {
 } from "@/schema";
 import { PostCreateSchema } from "@/schema/post";
 import {
+  searchPosts,
   createAndUpdatePostShares,
   createPost,
   createPostClick,
@@ -1035,4 +1037,15 @@ export async function getPublicPostPreviewController(_req: Request, res: Respons
     logger.warn("Public feed preview unavailable");
     return res.status(503).json({ message: "The feed is temporarily unavailable." });
   }
+}
+
+export async function searchPostsController(req: Request, res: Response) {
+  const input = z.object({ q: z.string().trim().min(1).max(200), tab: z.enum(['top', 'latest']).default('top'),
+    page: z.coerce.number().int().min(1).max(500).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) }).safeParse(req.query);
+  if (!input.success) return res.status(400).send({ error: 'Invalid search parameters' });
+  res.setHeader('Cache-Control', 'private, no-store');
+  try {
+    const { q, tab, page, limit } = input.data;
+    return res.send(await searchPosts(q, tab, page, limit, req.user as AuthUser | undefined));
+  } catch { return res.status(500).send({ error: 'Unable to load search results' }); }
 }

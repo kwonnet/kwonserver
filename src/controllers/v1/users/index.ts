@@ -60,14 +60,14 @@ export const searchUserController = async (req: Request, res: Response) => {
 export const searchUsersController = async (req: Request, res: Response) => {
   try {
     const SearchSchema = z.object({
-      query: z.string(),
-      page: z.number().optional().default(1),
-      limit: z.number().optional().default(50),
+      query: z.string().trim().min(1).max(200),
+      page: z.coerce.number().int().min(1).max(500).default(1),
+      limit: z.coerce.number().int().min(1).max(50).default(20),
     });
     const { query, limit, page } = await SearchSchema.parseAsync({
-      query: req.query.q,
+      query: req.query.q, page: req.query.page, limit: req.query.limit,
     });
-    const result = await searchUsers({ query, limit, page });
+    const result = await searchUsers({ query, limit, page, viewerId: req.user?.id });
     return res.status(result.status).send(result.data);
   } catch (error: any) {
     if (error instanceof z.ZodError) {

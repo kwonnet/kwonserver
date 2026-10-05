@@ -8322,3 +8322,41 @@ export async function inferPostTopic(id: string, expectedHash?: string) {
   // Do not let an old inference overwrite an edit, deletion or unpublished post.
   await prisma.post.updateMany({ where: { id, content: post.content, deletedAt: null, status: { in: [PostStatus.PUBLISHED, PostStatus.SCHEDULED] } }, data: { topic } });
 }
+
+/** Search rendered text only; metadata and private posts never become search hits. */
+export async function searchPosts(query: string, tab: 'top' | 'latest', page: number, limit: number, viewer?: AuthUser) {
+  const terms = query.trim().replace(/^#/, '').split(/\s+/).filter(Boolean);
+  if (!terms.length) return { posts: [], hasMore: false };
+  const viewerId = viewer?.id ?? '';
+  const matches = query.trim().startsWith('#')
+    ? [Prisma.sql`EXISTS (SELECT 1 FROM "PostTrendingEvent" e WHERE e."postId" = p.id AND e."isHashtag" = true AND e.keyword = lower(${terms.join(' ')}))`]
+    : [Prisma.sql`to_tsvector('simple', kwonnet_trend_text(p.content)) @@ plainto_tsquery('simple', ${terms.join(' ')})`];
+  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+    SELECT p.id FROM "Post" p JOIN "User" u ON u.id = p."userId"
+    WHERE p.status = 'PUBLISHED' AND p.scope = 'ANYONE' AND p.kind = 'ROOT'
+      AND p."parentId" IS NULL AND p."rootId" IS NULL AND p."deletedAt" IS NULL AND NOT p."isHidden"
+      AND p."createdAt" <= NOW() AND (p."scheduleAt" IS NULL OR p."scheduleAt" <= NOW() AT TIME ZONE 'UTC')
+      AND u.status = 'ACTIVE' AND NOT u."isPrivate" AND u."deletedAt" IS NULL AND u."deactivatedAt" IS NULL
+      AND NOT EXISTS (SELECT 1 FROM "BlockUser" b WHERE
+        (b."blockerId" = ${viewerId} AND b."blockedId" = u.id) OR (b."blockedId" = ${viewerId} AND b."blockerId" = u.id))
+      AND NOT EXISTS (SELECT 1 FROM "MuteUser" m WHERE m."muterId" = ${viewerId} AND m."mutedId" = u.id)
+      AND NOT EXISTS (SELECT 1 FROM "PostDisinterest" d WHERE d."postId" = p.id AND d."userId" = ${viewerId})
+      AND NOT EXISTS (SELECT 1 FROM "PostReport" r WHERE r."postId" = p.id AND r."userId" = ${viewerId})
+      AND ${Prisma.join(matches, ' AND ')}
+    ORDER BY ${tab === 'top' ? Prisma.sql`p."totalLikes" DESC, p."totalReplies" DESC, p."totalReposts" DESC,` : Prisma.empty}
+      p."createdAt" DESC, p.id DESC
+    LIMIT ${limit + 1} OFFSET ${(page - 1) * limit}
+  `);
+  const ids = rows.slice(0, limit).map(row => row.id);
+  if (!ids.length) return { posts: [], hasMore: false };
+  if (viewer) {
+    const result = await getNewsfeed(ids, viewer, { feed: 'foryou' });
+    if (result.status !== 200 || !Array.isArray(result.data)) throw new Error('Unable to load search results');
+    return { posts: result.data, hasMore: rows.length > limit };
+  }
+  const base = publicPreviewQuery();
+  const posts = await prisma.post.findMany({ ...base, take: limit,
+    where: { ...base.where, createdAt: { lte: new Date() }, id: { in: ids } } });
+  const ordered = ids.flatMap(id => posts.filter(post => post.id === id));
+  return { posts: ordered.map(({ user, ...post }) => serializeBigInts({ ...post, author: user })), hasMore: rows.length > limit };
+}
