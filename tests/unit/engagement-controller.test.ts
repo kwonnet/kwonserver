@@ -1,0 +1,10 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+import {response} from './fixtures';
+const deps=vi.hoisted(()=>({list:vi.fn(),claim:vi.fn(),configure:vi.fn()}));
+vi.mock('@/services/v1/tasks',()=>({getEngagementTasks:deps.list,claimEngagementTask:deps.claim,configureEngagementTask:deps.configure}));
+import {engagementTasksController,engagementClaimController,engagementAdminController} from '@/controllers/v1/task';
+import {WalletError} from '@/services/walletLedger';
+beforeEach(()=>vi.clearAllMocks());
+it('uses the authenticated owner for progress and rewards, ignoring forged counters and reward amounts',async()=>{const res=response();deps.list.mockResolvedValue([]);await engagementTasksController({user:{id:'owner'}} as any,res);expect(deps.list).toHaveBeenCalledWith('owner');deps.claim.mockResolvedValue({reward:10});await engagementClaimController({user:{id:'owner'},params:{id:'like'},get:()=> 'safe-request',body:{userId:'attacker',reward:1000,progress:999}} as any,res);expect(deps.claim).toHaveBeenCalledWith('owner','like','safe-request');});
+it('preserves actionable task errors and rejects invalid identifiers',async()=>{const res=response();await engagementClaimController({params:{id:'bad$'}} as any,res);expect(res.statusCode).toBe(400);deps.claim.mockRejectedValue(new WalletError('Need more actions',422));await engagementClaimController({user:{id:'owner'},params:{id:'like'},get:()=> 'key'} as any,res);expect(res.statusCode).toBe(422);});
+it('enforces real admin controls and rejects browser-supplied reward overrides',async()=>{const res=response();await engagementAdminController({user:{role:'USER'}} as any,res);expect(res.statusCode).toBe(403);await engagementAdminController({user:{role:'ADMIN'},params:{id:'like'},body:{reward:100}} as any,res);expect(res.statusCode).toBe(400);await engagementAdminController({user:{role:'SUPER'},params:{id:'like'},body:{enabled:false,target:20}} as any,res);expect(deps.configure).toHaveBeenCalledWith('like',{enabled:false,target:20});});

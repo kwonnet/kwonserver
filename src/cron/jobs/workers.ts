@@ -1,3 +1,4 @@
+import {deliverEmailMessage} from '@/services/email';
 import { inferPostTopic } from '@/services/v1/posts';
 import prisma from "@/db";
 import { Worker } from "bullmq";
@@ -9,7 +10,7 @@ import { PostStatus, SubStatusEnum } from "@prisma/client";
 import IORedis from "ioredis";
 import logger from "@/logger";
 import { insertSubscriptionJob } from "../utils";
-import { APP_SUBSCRIPTION_QUEUE, APP_SUBSCRIPTION_REMINDER_QUEUE, POST_EMBEDDING_QUEUE, POST_KEYWORDS_QUEUE, POST_LABELS, POST_TOPIC_QUEUE } from "../helpers";
+import { EMAIL_DELIVERY_QUEUE, APP_SUBSCRIPTION_QUEUE, APP_SUBSCRIPTION_REMINDER_QUEUE, POST_EMBEDDING_QUEUE, POST_KEYWORDS_QUEUE, POST_LABELS, POST_TOPIC_QUEUE } from "../helpers";
 import { cleanTextContent, generateEmbedding } from "@/utils/helpers";
 import { kwonrecClient } from "@/services/kwonrec";
 
@@ -198,3 +199,5 @@ export const postKeywordsWorker = new Worker(
   },
   { connection: workerConnection, autorun: false }
 );
+
+export const emailDeliveryWorker = new Worker(EMAIL_DELIVERY_QUEUE, async job=>{await deliverEmailMessage(job.data.id);},{connection:workerConnection,autorun:false,concurrency:2});

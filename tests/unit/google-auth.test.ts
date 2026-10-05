@@ -1,6 +1,6 @@
 import {beforeEach, afterEach, expect, it, vi} from 'vitest';
 const mocks = vi.hoisted(() => ({verify: vi.fn(), identity: vi.fn(), compose: vi.fn(), hash: vi.fn(),
-  db: {user: {findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), create: vi.fn()}, country: {findFirst: vi.fn()}, wallet: {findUniqueOrThrow: vi.fn()}, transaction: {create: vi.fn()}, $transaction: vi.fn()}}));
+  db: {user: {findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), create: vi.fn()}, country: {findFirst: vi.fn()}, wallet: {findUniqueOrThrow: vi.fn()}, emailMessage: {create: vi.fn()}, transaction: {create: vi.fn()}, $transaction: vi.fn()}}));
 vi.mock('google-auth-library', () => ({OAuth2Client: class {verifyIdToken = mocks.verify;}}));
 vi.mock('@/db', () => ({default: mocks.db}));
 vi.mock('@/services/v1/utils', () => ({getAuthUser: mocks.identity, composeAuthUser: mocks.compose, getUserStatusMessage: () => 'Unavailable'}));

@@ -19,3 +19,5 @@ export const POST_TOPIC_MODEL_REVISION = 'c5dca3bda16d30337e493e3e3e5caa19a3e7c8
 export const POST_TOPIC_HYPOTHESIS = 'This example is about {}';
 export const POST_TOPIC_MODEL_VERSION = `${POST_TOPIC_MODEL}@${POST_TOPIC_MODEL_REVISION}`;
 export const POST_TOPIC_SESSION_OPTIONS = {intraOpNumThreads: 2, interOpNumThreads: 1};
+
+export const EMAIL_DELIVERY_QUEUE = "emailDeliveryQueue";

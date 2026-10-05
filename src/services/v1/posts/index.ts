@@ -1,3 +1,5 @@
+import {randomInt, randomUUID} from 'node:crypto';
+import boostRedis from '@/redis';
 import {POST_TOPIC_MODEL_VERSION} from '@/cron/helpers';
 import { createHash } from 'node:crypto';
 import { POST_LABELS } from '@/cron/helpers';
@@ -1254,6 +1256,7 @@ export async function createPostImpression(args: {
         where: { id: args.postId },
         data: { totalImpressions: { increment: 1 } },
       });
+      await recordBoostView(tx, args.postId, args.userId);
       return { data: { id: args.postId, userId: args.userId }, status: 200 };
     });
     return result;
@@ -8251,4 +8254,68 @@ export async function getPublicPostMetadata(id: string) {
 }
 export async function getPublicPostMetadataIndex() {
   return prisma.post.findMany({where: {status: 'PUBLISHED', scope: 'ANYONE', kind: 'ROOT', deletedAt: null, isHidden: false, parentId: null, rootId: null, createdAt: {gte: new Date(Date.now() - 30 * 86400_000), lte: new Date()}, OR: [{scheduleAt: null}, {scheduleAt: {lte: new Date()}}], user: {status: 'ACTIVE', isPrivate: false, deletedAt: null, deactivatedAt: null}}, orderBy: [{createdAt: 'desc'}, {id: 'desc'}], take: 1000, select: {id: true, updatedAt: true, user: {select: {username: true}}}});
+}
+
+
+async function boostCandidateIds(): Promise<string[]> {
+  let cached: string | null = null;
+  try {if (boostRedis.isReady) cached = await Promise.race([boostRedis.get('post-boost:candidates:v1'), new Promise<null>(resolve => setTimeout(() => resolve(null), 40))]);} catch { /* PostgreSQL remains authoritative. */ }
+  if (cached) {try {const ids = JSON.parse(cached); if (Array.isArray(ids) && ids.length <= 128 && ids.every(id => typeof id === 'string')) return ids;} catch {}}
+  const rows = await prisma.$queryRaw<{postId: string}[]>`SELECT b."postId" FROM "PostBoost" b JOIN "Post" p ON p.id=b."postId" JOIN "User" u ON u.id=p."userId"
+    WHERE b."expiresAt">NOW() AND b.confirmed<b.target AND p.status='PUBLISHED' AND p.scope='ANYONE' AND p.kind='ROOT'
+      AND p."deletedAt" IS NULL AND NOT p."isHidden" AND u.status='ACTIVE' AND NOT u."isPrivate" AND u."deletedAt" IS NULL AND u."deactivatedAt" IS NULL
+    ORDER BY (b.confirmed::numeric/b.target), random() LIMIT 128`;
+  const ids = rows.map(row => row.postId);
+  try {if (boostRedis.isReady) void boostRedis.set('post-boost:candidates:v1',JSON.stringify(ids),{EX:15}).catch(()=>{});} catch {}
+  return ids;
+}
+/** A delivery is not an impression; goals advance only from viewport acknowledgements. */
+export async function injectPostBoosts(organic: unknown[], user: AuthUser, count = 4) {
+  const organicIds = organic.map(post => (post as {id: string}).id);
+  const ids = (await boostCandidateIds()).filter(id => !organicIds.includes(id));
+  if (!ids.length) return organic;
+  const now = new Date(); const lease = new Date(now.getTime()-120_000);
+  const candidates = await prisma.postBoost.findMany({where: {postId: {in: ids}, expiresAt: {gt: now}, confirmed: {lt: prisma.postBoost.fields.target},
+    post: {...recommendationVisibility(user.id), kind:'ROOT', userId: {not: user.id}},
+    deliveries: {none: {viewerId:user.id, OR:[{deliveredAt:{not:null}},{reservedAt:{gte:lease}}]}}, views:{none:{userId:user.id}}}, select:{postId:true,target:true,expiresAt:true}, take:128});
+  for (let i=candidates.length-1;i>0;i--) {const j=randomInt(i+1); [candidates[i],candidates[j]]=[candidates[j],candidates[i]];}
+  const chosen = candidates.slice(0, Math.min(4,count));
+  if (!chosen.length) return organic;
+  const selected = chosen.map(post=>post.postId); const reservationKey=randomUUID();
+  const reservations = await prisma.$transaction(async tx => {
+    // Two tabs can pick the same random set in a different order. Serialize this
+    // viewer's short reservation phase; otherwise unique-key conflicts can deadlock.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`boost-viewer:${user.id}`},0))`;
+    await tx.postBoostDelivery.deleteMany({where:{postId:{in:selected},viewerId:user.id,deliveredAt:null,reservedAt:{lt:lease}}});
+    await tx.postBoostDelivery.createMany({data:chosen.map(post=>({postId:post.postId,viewerId:user.id,reservationKey,reservedAt:now})).sort((a,b)=>a.postId.localeCompare(b.postId)),skipDuplicates:true});
+    return tx.postBoostDelivery.findMany({where:{viewerId:user.id,reservationKey},select:{postId:true}});
+  });
+  if (!reservations.length) return organic;
+  // Recheck visibility during ordinary authoritative hydration; bypass Following's
+  // author filter only for these clearly marked community discovery slots.
+  const hydrated = await getNewsfeed(reservations.map(row=>row.postId),user,{feed:'foryou',page:1,limit:4});
+  if (hydrated.status!==200 || !Array.isArray(hydrated.data)) return organic;
+  const allowed = await prisma.post.findMany({where:{...recommendationVisibility(user.id),kind:'ROOT',id:{in:reservations.map(row=>row.postId)}},select:{id:true}});
+  const boosts = hydrated.data.filter(post=>allowed.some(row=>row.id===post.id)&&reservations.some(row=>row.postId===post.id)).map(post=>({...post,boost:{label:'Community boost',target:chosen.find(row=>row.postId===post.id)!.target}}));
+  await prisma.postBoostDelivery.updateMany({where:{viewerId:user.id,reservationKey,postId:{in:boosts.map(post=>post.id)}},data:{deliveredAt:new Date()}});
+  const merged=[...organic];
+  for (let i=0;i<boosts.length;i++) merged.splice(Math.min(2+i*5,merged.length),0,boosts[i]);
+  return merged;
+}
+async function recordBoostView(tx: Prisma.TransactionClient, postId: string, userId: string) {
+  const boost = await tx.postBoost.findFirst({where:{postId,startsAt:{lte:new Date()},expiresAt:{gt:new Date()},confirmed:{lt:tx.postBoost.fields.target},post:{...recommendationVisibility(userId),kind:'ROOT',userId:{not:userId}}},select:{postId:true}});
+  if (!boost) return;
+  const previous=await tx.postBoostView.findUnique({where:{postId_userId:{postId,userId}}});
+  // Organic repeats are allowed, but a server-clock cooldown blocks refresh spam.
+  if (previous && previous.createdAt.getTime()>Date.now()-150000) return;
+  let counted=1;
+  if (previous) await tx.postBoostView.update({where:{postId_userId:{postId,userId}},data:{createdAt:new Date()}});
+  else counted=(await tx.postBoostView.createMany({data:{postId,userId},skipDuplicates:true})).count;
+  if (counted) await tx.postBoost.update({where:{postId},data:{confirmed:{increment:1}}});
+}
+export async function getPostBoostStatus(postId:string,userId:string) {
+  const post=await prisma.post.findUnique({where:{id:postId},select:{userId:true}});
+  if (!post || post.userId!==userId) return null;
+  const boost=await prisma.postBoost.findUnique({where:{postId}});
+  return boost?{...boost,state:boost.confirmed>=boost.target?'COMPLETED':boost.expiresAt.getTime()<Date.now()?'EXPIRED':'ACTIVE'}:null;
 }

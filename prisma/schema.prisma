@@ -22,6 +22,10 @@ datasource db {
 }
 
 model User {
+  engagementClaims EngagementClaim[]
+  engagementCredits EngagementCredit[]
+  boostViews PostBoostView[]
+  emailMessages EmailMessage[]
   passwordChangedAt DateTime?
   authIdentities AuthIdentity[]
   authSessions UserSession[]
@@ -458,6 +462,7 @@ enum StoryType {
 }
 
 model Post {
+  boost PostBoost?
   topicModel String?
   scheduledEffectsPending Boolean @default(false)
   id               String        @id @default(cuid())
@@ -1098,6 +1103,7 @@ model Country {
 }
 
 model SubscriptionPlan {
+  postBoostTarget Int @default(150)
   id            String         @id @default(cuid()) // Unique subscription plan ID
   name          String
   ngnPrice      Decimal @db.Decimal(20, 2) // Price in Nigerian Naira (NGN)
@@ -2063,4 +2069,97 @@ model LoginEvent {
   @@index([userId, createdAt(sort: Desc), id(sort: Desc)])
   @@index([sessionId])
   @@index([retainUntil])
+}
+
+
+enum EngagementAction {
+  LIKE
+  COMMENT
+  REPOST
+  QUOTE
+  FOLLOW
+  FOLLOWERS
+  BOOKMARK
+  PUBLISH
+  LIKES_RECEIVED
+  COMMENTS_RECEIVED
+}
+model EngagementTask {
+  id String @id
+  action EngagementAction @unique
+  title String
+  target Int
+  reward Int
+  enabled Boolean @default(true)
+  rewardDay DateTime @db.Date
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  claims EngagementClaim[]
+  credits EngagementCredit[]
+}
+model EngagementClaim {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId String
+  task EngagementTask @relation(fields: [taskId], references: [id])
+  reward Int
+  target Int
+  verifiedCount Int
+  windowStart DateTime
+  claimedAt DateTime @default(now())
+  @@index([userId, taskId, claimedAt])
+}
+model EngagementCredit {
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId String
+  task EngagementTask @relation(fields: [taskId], references: [id])
+  targetId String
+  claimedAt DateTime @default(now())
+  @@id([userId, taskId, targetId])
+}
+model PostBoost {
+  postId String @id
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  target Int @default(150)
+  confirmed Int @default(0)
+  startsAt DateTime @default(now())
+  expiresAt DateTime
+  deliveries PostBoostDelivery[]
+  views PostBoostView[]
+  @@index([expiresAt, confirmed])
+}
+model PostBoostDelivery {
+  postId String
+  boost PostBoost @relation(fields: [postId], references: [postId], onDelete: Cascade)
+  viewerId String
+  reservationKey String
+  reservedAt DateTime @default(now())
+  deliveredAt DateTime?
+  @@id([postId, viewerId])
+  @@index([viewerId, reservedAt])
+}
+model PostBoostView {
+  postId String
+  boost PostBoost @relation(fields: [postId], references: [postId], onDelete: Cascade)
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@id([postId, userId])
+}
+model EmailMessage {
+  id String @id @default(cuid())
+  eventKey String @unique
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind String @default("WELCOME")
+  status String @default("PENDING")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  leaseUntil DateTime?
+  sentAt DateTime?
+  lastErrorCode String?
+  createdAt DateTime @default(now())
+  @@index([status, nextAttemptAt])
 }

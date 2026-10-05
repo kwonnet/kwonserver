@@ -1,4 +1,6 @@
 export const recurringJobs = [
+  {name:'recover_email_messages',pattern:'* * * * *',load:()=>import('./recover_email_messages')},
+  {name:'rotate_engagement_rewards',pattern:'0 0 * * *',tz:'UTC',load:()=>import('./rotate_engagement_rewards')},
   { name: 'publish_scheduled_posts', pattern: '* * * * *', load: () => import('./publish_scheduled_posts') },
   { name: 'deliver_push_notifications', pattern: '* * * * *', load: () => import('./deliver_push_notifications') },
   { name: 'infer_pending_post_topics', pattern: '* * * * *', load: () => import('./infer_pending_post_topics') },
@@ -38,7 +40,7 @@ export async function registerRecurringJobs(queue: {
       await queue.removeJobScheduler(job.name);
       continue;
     }
-    await queue.upsertJobScheduler(job.name, { pattern: job.pattern, tz }, {
+    await queue.upsertJobScheduler(job.name, { pattern: job.pattern, tz: "tz" in job ? job.tz : tz }, {
       name: job.name, data: {},
       // Reward routines are not guaranteed idempotent after partial success.
       // Retain failures for inspection; do not automatically repeat payouts.

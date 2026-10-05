@@ -2,7 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { user, resetMocks } from './fixtures';
 const db = vi.hoisted(() => ({ user: { findFirst: vi.fn(), create: vi.fn() },
   country: { findFirst: vi.fn() }, referral: { findFirst: vi.fn(), create: vi.fn() },
-  wallet: { findUniqueOrThrow: vi.fn(), update: vi.fn() }, transaction: { create: vi.fn() }, $transaction: vi.fn() }));
+  wallet: { findUniqueOrThrow: vi.fn(), update: vi.fn() }, emailMessage: {create: vi.fn()}, transaction: { create: vi.fn() }, $transaction: vi.fn() }));
 const passwords = vi.hoisted(() => ({ hash: vi.fn(), compare: vi.fn() }));
 vi.mock('@/db', () => ({ default: db }));
 vi.mock('bcrypt', () => ({ default: passwords }));

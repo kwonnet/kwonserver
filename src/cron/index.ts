@@ -1,3 +1,4 @@
+import {closeEmailTransport} from '@/services/email';
 import logger from '@/logger';
 import { closeCacheStore } from '@/store';
 import * as queues from './jobs/queue';
@@ -17,9 +18,10 @@ export async function startCronJobs() {
     // autorun:false does not prevent BullMQ from opening blocking connections.
     // Import only in the process that actually executes jobs.
     await queues.postTopicQueue.setGlobalConcurrency(1);
+    await queues.emailQueue.setGlobalConcurrency(2);
     workers = await import('./jobs/workers');
     activeWorkers = [workers.appSubscriptionWorker, workers.appSubReminderWorker,
-      workers.postEmbeddingWorker, workers.postTopicWorker, workers.postKeywordsWorker];
+      workers.emailDeliveryWorker, workers.postEmbeddingWorker, workers.postTopicWorker, workers.postKeywordsWorker];
     for (const worker of activeWorkers) {
       worker.on('error', () => logger.error('BullMQ worker connection error'));
       worker.on('failed', (job, error) => logger.error({ job: job?.name, error: error.message }, 'BullMQ job failed'));
@@ -39,6 +41,7 @@ async function closeCronJobs() {
   if (recurring) await recurring.close();
   if (quiz) await quiz.close();
   await closeQuestionInventory();
+  await closeEmailTransport();
   await Promise.all([workers?.workerConnection.quit(), queues.closeJobQueues(), closeCacheStore()]);
   started = false;
 }

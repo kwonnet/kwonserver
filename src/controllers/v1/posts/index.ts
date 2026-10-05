@@ -1,3 +1,4 @@
+import {injectPostBoosts, getPostBoostStatus} from '@/services/v1/posts';
 import {getEmbedPost, getPublicPostMetadata, getPublicPostMetadataIndex} from "@/services/v1/posts";
 import { z } from 'zod';
 import { performance } from "node:perf_hooks";
@@ -113,6 +114,10 @@ export const getNewsfeedController = async (
 
     const result = await getNewsfeed(recs, user, {feed:feedType, ...zodData });
 
+    if (result.status === 200 && Array.isArray(result.data)) {
+      res.setHeader('X-Feed-Organic-Count',String(result.data.length));
+      try {result.data = await injectPostBoosts(result.data,user) as typeof result.data;} catch { /* Feed remains available when promotion storage is unhealthy. */ }
+    }
     const finishedAt = performance.now();
     const recommendationMs = Math.round(rankedAt - started);
     const hydrationMs = Math.round(finishedAt - rankedAt);
@@ -1083,3 +1088,9 @@ export const publicPostMetadataIndexController = async (_req: Request, res: Resp
   try {return res.json(await getPublicPostMetadataIndex());}
   catch {return res.status(503).json({error: 'Metadata unavailable'});}
 };
+
+export async function postBoostStatusController(req: Request,res: Response) {
+ res.setHeader('Cache-Control','private, no-store');
+ try {const status=await getPostBoostStatus(req.params.id,req.user!.id); return status ? res.json(status) : res.status(404).json({error:'Boost status unavailable'});}
+ catch {return res.status(503).json({error:'Boost status unavailable'});}
+}

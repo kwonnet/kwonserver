@@ -633,3 +633,202 @@ To reproduce without reading application credentials, database rows or Redis:
 writable persistent directory to reuse weights. The default local `.model-cache`
 is git-ignored. Run evaluation where RAM is available for an additional model
 instance, rather than duplicating inference blindly on a busy production worker.
+
+## Engagement rewards, community boosts and welcome-email delivery
+
+These features extend the existing routes → controllers → services architecture.
+Task API queries and claims live in `src/services/v1/tasks/index.ts`; feed promotion
+and impression accounting live in the existing posts module. All coin credits use
+`walletOperation`, the locked PostgreSQL wallet, and the immutable transaction ledger.
+Redis is a candidate cache/queue transport, not the authority for rewards or reach.
+
+### Deployment and configuration
+
+Apply `20261006000000_engagement_boost_email` before restarting the API and worker.
+The normal `npm run db:deploy` deployment stage already applies it. It adds task
+configuration/claim/anti-replay tables, boost delivery/view records, a registration
+email outbox, and a baseline reach setting on subscription plans. Existing wallets,
+legacy tasks and registration bonuses are preserved. Only eligible posts created
+within the last 24 hours are backfilled into boosts. Existing users do not receive
+retroactive welcome emails.
+
+Keep the worker enabled (`RUN_BACKGROUND_JOBS=true` in the worker; false in the API).
+There are now 16 recurring schedules by default, 17 with ClickHouse sync enabled,
+plus the existing specialized queues and the new email queue. Daily task rewards
+rotate at **00:00 UTC**, regardless of `JOBS_TIMEZONE`; email recovery runs every
+minute. API task reads/claims also repair missed daily rotations under a distributed
+PostgreSQL advisory lock. Restarting replicas does not reroll an already-rotated day.
+
+For email, add these entries to the existing **KWONSERVER_ENV GitHub environment
+secret** (and local `.env` when developing):
+
+| Variable | Purpose |
+| --- | --- |
+| `SMTP_HOST` | SMTP provider hostname |
+| `SMTP_PORT` | Usually 587 for STARTTLS or 465 for TLS |
+| `SMTP_SECURE` | `true` for implicit TLS, otherwise `false` with required STARTTLS |
+| `SMTP_USER` | SMTP login |
+| `SMTP_PASSWORD` | SMTP credential; keep in secrets |
+| `SMTP_FROM` | Provider-verified sender email address, without a display name |
+| `WEB_APP_URL` | Public HTTPS origin, default `https://kwonnet.com` |
+
+The existing deployment copies KWONSERVER_ENV to both containers. No additional
+Redis instance or SMTP credential in kwonweb is needed. Docker now includes the
+`templates` directory. Configure your provider's sender/domain verification and
+SPF/DKIM/DMARC for inbox delivery; SMTP acceptance alone does not prove delivery to
+the inbox. Actual provider sending needs a configured SMTP account; automated tests
+use a capture transport and never send to real recipients.
+
+### Daily engagement tasks
+
+The new authenticated `/tasks` web page shows live progress, the day's reward,
+eligibility, disabled state, and a countdown to the next claim. The check button
+**checks and claims** when eligible; incomplete checks explain how many qualifying
+actions remain. Rewards are random integers from **1 to 15 bonus coins per task per
+UTC day**. They are credited to `Wallet.bonus`, not cash/credit. A daily rotation does
+not reset the user's claim cooldown: each task unlocks **24 hours after that user's
+successful claim**. The response's reward is authoritative if midnight occurs while
+the page is open. Bonuses may legitimately repeat across days by random chance.
+
+| Task | Default goal | Verified targets |
+| --- | ---: | --- |
+| Like | 20 | Different other-author public posts with a current like |
+| Comment | 20 | Different other-author public parent posts with a published reply |
+| Repost | 10 | Different other-author public originals with a published repost |
+| Quote | 5 | Different other-author public originals with a published quote |
+| Follow | 5 | Different active accounts with accepted follows |
+| Gain followers | 3 | Different active accepted followers |
+| Bookmark | 10 | Different other-author public posts with a current bookmark |
+| Publish | 2 | Own published, public, visible root posts |
+| Receive likes | 10 | Different active people liking own public posts |
+| Receive comments | 5 | Different active people commenting on own public posts |
+
+Progress uses server-stored timestamps in the last 24 hours, starting no earlier
+than the previous claim. Follow tasks use acceptance/update time, not a client date.
+Draft/scheduled/unpublished, hidden/deleted and self-engagement records are excluded.
+Repeated comments on one parent count once; repeated likes from one person count
+once for incoming tasks. Once a target has funded a reward for that user/task it
+cannot fund another reward, even after the cooldown (stored in EngagementCredit).
+This deliberately prevents undo/recreate farming; recurring completion requires new
+qualifying targets. Unique account IDs do not prove unique humans. Collusion/Sybil
+abuse still needs moderation and operational monitoring; do not interpret these
+checks as fraud-proof identity verification. Negative actions, arbitrary external
+share clicks and spending/tipping loops are not rewarded.
+
+API contract (bearer authentication, current user inferred from the verified token):
+
+| Method and path | Behavior |
+| --- | --- |
+| `GET /api/v1/tasks/engagement` | Own progress/cooldowns; no shared cache |
+| `POST /api/v1/tasks/engagement/:id/claim` | Check and atomically credit; requires `Idempotency-Key` |
+| `PATCH /api/v1/tasks/engagement/:id` | ADMIN/SUPER only; `{enabled?: boolean, target?: integer}` |
+
+Task IDs are `like`, `comment`, `repost`, `quote`, `follow`, `followers`, `bookmark`,
+`publish`, `likes-received` and `comments-received`. Admins can change the required
+count (1–1000) or disable a task in the same Tasks page. They cannot supply a reward
+from the browser; the scheduler/DB cap controls it. Legacy task creation is now also
+administrator-only to close a pre-existing self-issued reward path.
+
+A missing/disabled task returns 404; an active cooldown returns 409; insufficient
+progress returns 422 with a progress message. A locked wallet cannot receive the
+claim. The frontend keeps the request key across uncertain network failures and
+clears it after a confirmed outcome. Replaying a successful key returns the receipt
+without minting more coins; a different key inside the same cooldown still cannot
+pay. Claim history, used-target credits, wallet balance and APP_TASK ledger entry
+commit together. Wallet caches refresh after confirmed credit.
+
+### Community amplification
+
+A PostgreSQL publication trigger queues **public, visible original root posts** from
+active public authors. Drafts, restricted posts, private authors, hidden/deleted
+posts and replies/reposts are not promoted. Scheduled originals enter when the
+publisher transitions them to PUBLISHED. Each boost has an immutable 24-hour window
+and a stored target; edits do not restart an expired window. Initial backfill covers
+only the remaining portion of eligible recent posts' first 24 hours.
+
+Each authenticated load of For You, Following, Friends, Trending or Latest may insert
+**up to four** random eligible community slots. These are marked "Community boost".
+Following/Friends organic selection stays intact; community slots are explicitly
+outside its following relationship filter. Organic rows are preserved, so a page
+can contain the requested organic limit plus four slots; there is no offset gap from
+trimming organic rows. Search/profile feeds and the unauthenticated public preview
+are not promotion insertion surfaces in this version.
+
+Redis caches up to 128 candidate IDs for 15 seconds. Selection prefers lower
+completed fractions and randomizes within the candidate pool. PostgreSQL rechecks
+publication/author visibility, block/mute/report/disinterest rules and current
+eligibility before selection and after hydration. Own posts are excluded. A unique
+post/viewer reservation prevents concurrent feeds or different feed tabs from
+inserting the same boost twice. Failed/unhydrated reservations can be retried after
+a two-minute lease; delivered community slots remain suppressed for that viewer.
+An organic appearance is allowed even after a boosted appearance.
+
+**No impression is invented on queueing or delivery.** The viewport tracker requires
+at least 50% visibility for one second while the document is visible. It sends an
+authenticated keepalive request using an Authorization header, never a token in the
+URL. Qualifying acknowledgements from signed-in non-owners advance the boost count;
+server time and a 150-second per-viewer/post cooldown prevent refresh bursts from
+inflating it. Organic repeat impressions beyond the cooldown may count toward the
+goal. Replays, owners, expired windows and currently-ineligible posts do not advance
+reach. Client visibility signals are not a cryptographic proof of human attention;
+bot checks, cooldowns and authenticated identities reduce simple inflation.
+
+150 is a **traffic-dependent target**, not a guaranteed number. Enough eligible
+users, feed loads and actual viewport views must exist to serve every post's demand.
+The system reports an expired shortfall instead of extending the window or counting
+synthetic views. Post-owner Analytics displays qualified progress and deadline;
+`GET /api/v1/posts/:id/boost` is owner-only. Delivery records and PostBoostView markers
+are durable across Redis loss. If the promotion subsystem fails, organic feed data
+still returns. Cache IDs are never an authorization decision.
+
+`SubscriptionPlan.postBoostTarget` defaults to 150 and accepts 150–10000. Publication
+captures the highest eligible ACTIVE/TRIAL primary plan target into the new boost.
+This prepares tier-specific reach without changing billing/tiers in this release.
+A later plan change affects future posts, not existing windows. Higher targets still
+require audience capacity; setting a number is not an audience-delivery guarantee.
+
+### Registration welcome email
+
+`createUser` writes one `EmailMessage` event (`welcome:<userId>`) in the same database
+transaction as the user, wallet and registration bonus. Both password registration
+and a genuinely new Google account use that service. An existing Google link/login
+or duplicate signup never creates another welcome event. A rolled-back registration
+cannot leave an email to a nonexistent account. Registration does not wait on Redis,
+template compilation or SMTP.
+
+Every minute the recovery job publishes due outbox IDs to `emailDeliveryQueue`.
+Redis job data contains the outbox ID only, not email addresses, content or secrets.
+The dedicated worker has global concurrency two and a leased database claim. It
+renders `templates/email/welcome.mjml`, greets the user, introduces **Kelvin Torver
+Peter as Founder and CEO**, explains platform features and encourages continued
+content creation. It includes a responsive HTML design, plain-text alternative,
+one creation CTA and public legal links. Names are escaped; links use the configured
+HTTPS origin; filesystem/URL mail attachments are disabled. SMTP always uses TLS
+and credentials remain server-side.
+
+Normal success is marked SENT only after SMTP acceptance. Disabled/deleted accounts
+are cancelled. Missing configuration remains pending every five minutes without
+consuming send attempts. Transient failures retry with exponential backoff; five
+failed attempts become FAILED for operator review. Error storage contains sanitized
+codes only, never the provider's credential-bearing message. Stable Message-ID and
+unique events stop ordinary duplicate queueing. SMTP cannot guarantee exactly-once
+sending across a crash after provider acceptance but before the SENT database write;
+a retry in that narrow window can produce a duplicate depending on the provider.
+
+Monitor EmailMessage status/attempts/lastErrorCode and BullMQ failed jobs. After fixing
+configuration or a provider error, requeue a specific reviewed failed message:
+`UPDATE "EmailMessage" SET status='PENDING', attempts=0, "leaseUntil"=NULL,
+"nextAttemptAt"=CURRENT_TIMESTAMP WHERE id='<outbox-id>' AND status='FAILED';`
+Do not reset SENT rows. Email jobs continue after Redis recovery from the durable
+outbox. Templates are compiled locally; user content is not sent to an email-template
+service.
+
+### Verification
+
+Regression coverage includes parallel/replayed wallet claims, cooldown boundaries,
+disabled tasks, action target exclusions and ledger consistency; boost reservations,
+visibility, owners, repeat/cooldown accounting and expiry; and first-registration
+outbox uniqueness, template escaping, TLS, missing configuration, SMTP failures,
+leases and recovery. Tests use disposable infrastructure or capture transports.
+Validate SMTP inbox delivery and realistic audience capacity after configuring the
+deployed environment; unit counts alone are not a delivery/capacity benchmark.

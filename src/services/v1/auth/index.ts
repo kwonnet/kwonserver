@@ -109,6 +109,7 @@ export const createUser = async (
         category: 'COIN_RECEIVED', txnRef: randomUUID(), description: 'Registration bonus',
         metadata: { reason: 'REGISTRATION', bonus: amount },
       } });
+      await tx.emailMessage.create({data: {eventKey: `welcome:${created.id}`, userId: created.id}});
       return created;
     });
 

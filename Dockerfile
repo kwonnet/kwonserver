@@ -11,6 +11,7 @@ COPY tsconfig*.json ./
 COPY prisma ./prisma
 COPY src ./src
 COPY scripts ./scripts
+COPY templates ./templates
 # Generates a client for this image and compiles the app + seed; no database writes.
 RUN npm run build
 RUN npm prune --omit=dev
@@ -24,6 +25,7 @@ COPY --from=builder --chown=kwonserver:kwonserver /app/dist ./dist
 COPY --from=builder --chown=kwonserver:kwonserver /app/dist-seed ./dist-seed
 COPY --from=builder --chown=kwonserver:kwonserver /app/prisma ./prisma
 COPY --from=builder --chown=kwonserver:kwonserver /app/scripts ./scripts
+COPY --from=builder --chown=kwonserver:kwonserver /app/templates ./templates
 COPY --from=builder --chown=kwonserver:kwonserver /app/package.json ./package.json
 RUN mkdir -p /app/model-cache && chown kwonserver:kwonserver /app/model-cache
 USER kwonserver
