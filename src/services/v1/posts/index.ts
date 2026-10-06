@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { POST_LABELS } from '@/cron/helpers';
 import { enqueuePostTopic } from '@/cron/utils';
 import { lockWallets, cents, WalletError, walletOperation, requestKey } from '@/services/walletLedger';
-import { recommendationVisibility, kwonrecClient } from "@/services/kwonrec";
+import { getRecommendationResponse, recommendationVisibility, kwonrecClient } from "@/services/kwonrec";
 import prisma from "@/db";
 import logger from "@/logger";
 import { FeedPost } from "@/types";
@@ -8322,7 +8322,23 @@ export async function getPostBoostStatus(postId:string,userId:string) {
 }
 
 /** A bounded, viewer-scoped freshness window; never broadcast private post IDs. */
-export async function getAvailableNewsfeedSnapshot(userId: string, feed: string, since: Date) {
+export async function getAvailableNewsfeedSnapshot(userId: string, feed: string, since: Date, known: string[] = []) {
+  if (feed === 'foryou') {
+    const delivered = new Set(known);
+    try {
+      if (redisClient.isReady) {
+        const previous = await boundedRecommendationState(redisClient.zRange(`feed:recommended:${userId}`, -2000, -1));
+        for (const id of previous ?? []) delivered.add(id);
+      }
+    } catch { /* Client baseline still suppresses currently delivered recommendations. */ }
+    const shared = await sharedAvailableRecommendations(userId);
+    if (shared.degraded) return {ids: [], authors: [], degraded: true};
+    const ranked = shared.ids.filter(id => !delivered.has(id));
+    const rows = await prisma.post.findMany({where: {...getFeedVisibility(userId, feed), id: {in: ranked}}, select: {id: true, user: {select: {id: true, name: true, avatar: true}}}});
+    const byId = new Map(rows.map(row => [row.id, row]));
+    const ordered = ranked.map(id => byId.get(id)).filter((row): row is NonNullable<typeof row> => !!row).slice(0, 50);
+    return {ids: ordered.map(row => row.id), authors: ordered.map(row => ({postId: row.id, ...row.user})), degraded: false};
+  }
   const now = new Date();
   const rows = await prisma.post.findMany({
     where: {AND: [getFeedVisibility(userId, feed), {OR: [
@@ -8340,5 +8356,85 @@ export async function getAvailableNewsfeedIds(userId: string, feed: string, sinc
 }
 export async function getAvailableNewsfeedPosts(user: AuthUser, feed: string, ids: string[]) {
   // Recheck tab membership at consumption time, including deletes, blocks and unfollows.
-  return getNewsfeed(ids, user, {feed, limit: 50, page: 1, postIds: ids});
+  const result = await getNewsfeed(ids, user, {feed, limit: 50, page: 1, postIds: ids});
+  if (feed === 'foryou' && result.status === 200 && Array.isArray(result.data)) await rememberDeliveredRecommendations(user.id, result.data.map(post => post.id));
+  return result;
+}
+
+async function boundedRecommendationState<T>(operation: Promise<T>): Promise<T|undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {return await Promise.race([operation, new Promise<undefined>(resolve => {timer = setTimeout(() => resolve(undefined), 150);timer.unref();})]);}
+  finally {if (timer) clearTimeout(timer);}
+}
+/** Track only recommendations actually delivered, never merely announced. */
+export async function rememberDeliveredRecommendations(userId: string, ids: string[]) {
+  if (!ids.length) return;
+  try {
+    if (!redisClient.isReady) return;
+    const key = `feed:recommended:${userId}`;
+    await boundedRecommendationState(redisClient.multi()
+      .zAdd(key, ids.map(value => ({score: Date.now(), value})))
+      .zRemRangeByRank(key, 0, -2001).expire(key, 86400).exec());
+  } catch { /* Availability history cannot break the normal newsfeed. */ }
+}
+
+const AVAILABLE_RECOMMENDATION_WINDOW_MS = 180000;
+const publishAvailableRecommendationsScript = `
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3])
+redis.call('DEL', KEYS[1])
+return 1`;
+const releaseAvailableRecommendationsScript = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+return 0`;
+type SharedAvailableRecommendations = {ids: string[]; degraded: boolean};
+
+/** One bounded recommendation computation per viewer/window across tabs and replicas. */
+async function sharedAvailableRecommendations(userId: string): Promise<SharedAvailableRecommendations> {
+  const unavailable: SharedAvailableRecommendations = {ids: [], degraded: true};
+  const leaseKey = `feed:availability:{${userId}}:lease`;
+  const snapshotKey = `feed:availability:{${userId}}:snapshot`;
+  const read = async (): Promise<SharedAvailableRecommendations|undefined> => {
+    const raw = await boundedRecommendationState(redisClient.get(snapshotKey));
+    if (!raw) return;
+    try {
+      const value = JSON.parse(raw);
+      if (typeof value.degraded === 'boolean' && Array.isArray(value.ids) && value.ids.length <= 100 && value.ids.every((id: unknown) => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(id))) return value;
+    } catch { /* Rebuild malformed/obsolete cache values under the lease. */ }
+  };
+  try {
+    // Fail closed for this optional notification when coordination is unavailable.
+    if (!redisClient.isReady) return unavailable;
+    const cached = await read();
+    if (cached) return cached;
+    const owner = randomUUID();
+    const checkStartedAt = Date.now();
+    const acquired = await boundedRecommendationState(redisClient.set(leaseKey, owner, {NX: true, PX: 15000}));
+    if (acquired !== 'OK') {
+      // A concurrent tab can receive the winning snapshot without invoking inference.
+      for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const ready = await read();
+        if (ready) return ready;
+      }
+      return unavailable;
+    }
+    try {
+      // Close the cache-read/acquisition race if another owner just finished.
+      const ready = await read();
+      if (ready) return ready;
+      let snapshot = unavailable;
+      try {
+        const response = await getRecommendationResponse(userId, 100, 1);
+        if (!response.data.degraded) snapshot = {ids: [...new Set<string>(response.data.recommendations.map((item: {id: string}) => item.id))].slice(0,100), degraded: false};
+      } catch { /* Cache an unavailable window instead of stampeding a failing model. */ }
+      const published = await boundedRecommendationState(redisClient.eval(publishAvailableRecommendationsScript, {
+        keys: [leaseKey, snapshotKey], arguments: [owner, JSON.stringify(snapshot), String(Math.max(1, AVAILABLE_RECOMMENDATION_WINDOW_MS - (Date.now() - checkStartedAt)))],
+      }));
+      // Expired owners cannot overwrite a newer snapshot or return unfenced results.
+      return published === 1 ? snapshot : (await read() ?? unavailable);
+    } finally {
+      await boundedRecommendationState(redisClient.eval(releaseAvailableRecommendationsScript, {keys: [leaseKey], arguments: [owner]})).catch(() => undefined);
+    }
+  } catch {return unavailable;}
 }

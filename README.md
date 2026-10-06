@@ -839,22 +839,49 @@ deployed environment; unit counts alone are not a delivery/capacity benchmark.
 
 Authenticated home tabs (`foryou`, `following`, `friends`, `trending`, `latest`)
 expose `GET /v1/posts/feed/:feedType/available/stream?since=<ISO date>`.
-The stream checks PostgreSQL immediately and every 30 seconds, sends a heartbeat
-at 15 seconds, and renews the connection after 55 minutes. The existing auth stream
+The stream checks every three minutes while the browser page is visible. For You
+waits three minutes before its first check; other tabs also perform an initial
+check. The stream sends a heartbeat at 15 seconds, and renews the connection after 55 minutes. The existing auth stream
 guard closes revoked sessions. Disconnects release timers; queries do not overlap
 and responses respect stream backpressure. No global broadcaster or worker-local
 state is needed, so scheduled publication and multiple API replicas are supported.
 
-`feed_available` events contain `{feed, ids, authors}`, at most 50 IDs, ordered newest
-first. Each author preview contains only post ID, user ID, display name and avatar;
+`feed_available` events contain `{feed, ids, authors}`, at most 50 IDs, ordered by
+personalized rank for For You and newest first for other tabs. Each author preview contains only post ID, user ID, display name and avatar;
 the floating button stacks up to three distinct profiles from pending posts.
 Queries use the same authoritative tab visibility filters as ordinary feeds:
 Following/Friends retain accepted relationship requirements; blocks, mutes,
 reports, hidden/deleted posts, future schedules and private scopes are excluded as
 appropriate. The bounded freshness window includes creation, due scheduled posts,
-and the existing public-root publication/boost start marker. For You notifications
-provide fresh visible discovery posts; they do not rerun or replace the personalized
-recommendation ranking. Trending retains its existing three-day visibility window.
+and the existing public-root publication/boost start marker for chronological tabs.
+For You calls the existing personalized recommender with the authenticated user ID,
+then removes recommendations already delivered to that user. Redis keeps a bounded
+sorted history of the last 2,000 delivered organic recommendations per user, with
+24-hour expiry, updated on normal feed loads and successful snapshot hydration.
+It never marks merely announced/unclaimed posts delivered. The browser's `known`
+parameter supplies up to 200 currently seen IDs as a supplementary baseline.
+New recommendations can include older relevant posts, so For You uses rank/history
+rather than a generic creation-time cutoff. Database visibility is checked before
+sending IDs/profile previews. If the recommender returns degraded chronological
+fallback, no For You event is sent; existing pending posts remain available.
+For You availability checks share a Redis-backed snapshot across tabs/devices and
+API replicas. `feed:availability:{userId}:lease` uses atomic `SET NX PX` with a
+15-second recovery lease. Only its owner calls the recommender; concurrent callers
+wait up to two seconds for the shared snapshot or defer their notification. A Lua
+compare-and-publish operation stores the raw ranked IDs for the remainder of the
+three-minute window and releases the lease. Ownership-token checks prevent expired
+owners from overwriting a newer owner or deleting its lease. Ranking failures are
+cached as unavailable for the same window to avoid retry stampedes.
+
+Each connection independently removes its own baseline and the current delivered
+history, then rechecks database visibility and builds fresh author previews. One
+tab's baseline cannot hide candidates from another tab's shared ranking. The shared
+snapshot does not mark posts delivered or award coins/impressions. Closing/logout
+removes connection timers; Redis entries simply expire and no background queue is
+created. The cache may remain briefly for other authenticated sessions on the same
+account. If Redis coordination is unavailable, optional For You notifications pause
+rather than start duplicate inference; ordinary feed loads continue normally.
+Trending retains its existing three-day visibility window.
 
 The browser keeps posts pending and does not modify the feed until the user clicks
 “new posts available”. `GET /v1/posts/feed/:feedType/available?ids=id1,id2` validates
@@ -875,7 +902,9 @@ way to read older posts. Guest preview, profile feeds and search do not open thi
 additional authenticated stream.
 
 Operationally, allow long-lived unbuffered HTTP responses in the reverse proxy.
-Each active home tab adds one lightweight stream and one bounded database query
-per 30 seconds, alongside the existing interaction stream. Monitor connection and
+Each visible home tab adds one stream and a bounded check per three minutes,
+alongside the existing interaction stream. For You additionally calls the existing
+recommender; other tabs query the database. Hidden pages close this extra stream
+and reopen it when visible, carrying their latest delivered baseline. Monitor connection and
 query volume before substantially reducing this interval. No new environment
 variables or database migrations are required beyond the existing boost migration.

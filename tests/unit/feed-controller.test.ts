@@ -108,9 +108,9 @@ it('streams personalized bounded IDs periodically and releases timers on disconn
     const since=new Date(Date.now()-1000).toISOString();
     availableNewsfeedStreamController({...req(),params:{feedType:'following'},query:{since,userId:'attacker'}} as any,res);
     await vi.advanceTimersByTimeAsync(1);
-    expect(deps.availableIds).toHaveBeenCalledWith('viewer','following',new Date(since));
+    expect(deps.availableIds).toHaveBeenCalledWith('viewer','following',new Date(since),[]);
     expect(res.write).toHaveBeenCalledWith(expect.stringContaining('event: feed_available'));
-    await vi.advanceTimersByTimeAsync(30000);expect(deps.availableIds).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(180000);expect(deps.availableIds).toHaveBeenCalledTimes(2);
     close();await vi.advanceTimersByTimeAsync(60000);expect(deps.availableIds).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
   } finally {vi.useRealTimers();}
@@ -118,4 +118,18 @@ it('streams personalized bounded IDs periodically and releases timers on disconn
 it('rejects malformed stream windows before querying or opening a stream', () => {
   const res=response();availableNewsfeedStreamController({...req(),query:{since:'invalid'}} as any,res);
   expect(res.statusCode).toBe(400);expect(deps.availableIds).not.toHaveBeenCalled();
+});
+
+it('waits three minutes before rechecking For You against the supplied delivered baseline', async () => {
+  vi.useFakeTimers();
+  try {
+    deps.availableIds.mockResolvedValue({ids:[],authors:[],degraded:false});
+    const res=response();let close=()=>{};
+    res.flushHeaders=vi.fn();res.write=vi.fn();res.on=vi.fn((_event,callback)=>{close=callback;});res.end=vi.fn();
+    const since=new Date().toISOString();
+    availableNewsfeedStreamController({...req(),query:{since,known:'last-recommended,older'}} as any,res);
+    await vi.advanceTimersByTimeAsync(179999);expect(deps.availableIds).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);expect(deps.availableIds).toHaveBeenCalledWith('viewer','foryou',new Date(since),['last-recommended','older']);
+    close();expect(vi.getTimerCount()).toBe(0);
+  } finally {vi.useRealTimers();}
 });

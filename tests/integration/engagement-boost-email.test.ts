@@ -1,9 +1,12 @@
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {PrismaClient} from '@prisma/client';
+const ranking=vi.hoisted(()=>vi.fn());
+vi.mock('@/services/kwonrec',async()=>({...await vi.importActual<typeof import('@/services/kwonrec')>('@/services/kwonrec'),getRecommendationResponse:ranking}));
 vi.mock('@/utils/webpush',()=>({default:{}}));
 import {claimEngagementTask,getEngagementTasks,configureEngagementTask,rotateEngagementRewards} from '@/services/v1/tasks';
-import {getAvailableNewsfeedIds,getAvailableNewsfeedPosts,injectPostBoosts,createPostImpression} from '@/services/v1/posts';
+import {rememberDeliveredRecommendations,getAvailableNewsfeedSnapshot,getAvailableNewsfeedIds,getAvailableNewsfeedPosts,injectPostBoosts,createPostImpression} from '@/services/v1/posts';
 import {createUser} from '@/services/v1/auth';
+import redis from '@/redis';
 const db=new PrismaClient();const prefix='engagement-fixture-';let actor:string,author:string,viewer:string;
 async function user(name:string){return (await db.user.create({data:{name,username:prefix+name,email:prefix+name+'@test.invalid',wallet:{create:{bonus:0}}}})).id;}
 async function post(userId:string,extra:any={}){return db.post.create({data:{userId,kind:'ROOT',type:'CONTENT',content:'A community post with real content',...extra}});}
@@ -73,4 +76,32 @@ it('aggregates only visible posts and rechecks pending snapshots at consumption'
  expect(result.status).toBe(200);expect((result.data as any[]).map(post=>post.id)).toEqual([visible.id]);
  await db.post.update({where:{id:visible.id},data:{isHidden:true}});
  const hidden=await getAvailableNewsfeedPosts(person,'latest',[visible.id]);expect(hidden.data).toEqual([]);
+});
+
+it('filters personalized recommendations against delivered viewer history and current visibility',async()=>{
+ const delivered=await post(author),fresh=await post(author),privatePost=await post(author,{scope:'FOLLOWED'});
+ await rememberDeliveredRecommendations(viewer,[delivered.id]);
+ ranking.mockResolvedValue({data:{recommendations:[{id:delivered.id},{id:privatePost.id},{id:fresh.id}]}});
+ const snapshot=await getAvailableNewsfeedSnapshot(viewer,'foryou',new Date(),[]);
+ expect(snapshot.ids).toEqual([fresh.id]);expect(snapshot.authors.map(author=>author.postId)).toEqual([fresh.id]);
+ const other=await getAvailableNewsfeedSnapshot(actor,'foryou',new Date(),[]);expect(other.ids).toEqual([delivered.id,fresh.id]);
+ await redis.del(`feed:availability:{${viewer}}:snapshot`);
+ ranking.mockResolvedValue({data:{degraded:true,recommendations:[{id:delivered.id}]}});
+ expect(await getAvailableNewsfeedSnapshot(viewer,'foryou',new Date())).toMatchObject({degraded:true,ids:[]});
+});
+
+it('coalesces active tabs on real Redis while preserving independent baselines and live visibility',async()=>{
+ const person=await user('shared-tabs');const one=await post(author),two=await post(author);
+ ranking.mockClear();ranking.mockResolvedValue({data:{recommendations:[{id:one.id},{id:two.id}]}});
+ const [first,second]=await Promise.all([getAvailableNewsfeedSnapshot(person,'foryou',new Date(),[one.id]),getAvailableNewsfeedSnapshot(person,'foryou',new Date(),[two.id])]);
+ expect(ranking).toHaveBeenCalledTimes(1);expect(first.ids).toEqual([two.id]);expect(second.ids).toEqual([one.id]);
+ expect(await redis.pTTL(`feed:availability:{${person}}:snapshot`)).toBeGreaterThan(170000);
+ await db.post.update({where:{id:one.id},data:{isHidden:true}});
+ expect((await getAvailableNewsfeedSnapshot(person,'foryou',new Date())).ids).toEqual([two.id]);expect(ranking).toHaveBeenCalledTimes(1);
+});
+it('prevents an expired lease owner from overwriting a newer owner on real Redis',async()=>{
+ const person=await user('lost-lease');const one=await post(author);const key=`feed:availability:{${person}}:lease`;
+ ranking.mockImplementationOnce(async()=>{await redis.set(key,'replacement-owner',{PX:15000});return {data:{recommendations:[{id:one.id}]}};});
+ expect(await getAvailableNewsfeedSnapshot(person,'foryou',new Date())).toMatchObject({degraded:true,ids:[]});
+ expect(await redis.get(key)).toBe('replacement-owner');expect(await redis.get(`feed:availability:{${person}}:snapshot`)).toBeNull();await redis.del(key);
 });

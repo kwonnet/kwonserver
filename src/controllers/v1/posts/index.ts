@@ -35,6 +35,7 @@ import {
   deletePost,
   getNewsfeed,
   getAvailableNewsfeedSnapshot,
+  rememberDeliveredRecommendations,
   getAvailableNewsfeedPosts,
   getPublicPostPreview,
   getPostAnalytics,
@@ -118,6 +119,7 @@ export const getNewsfeedController = async (
 
     if (result.status === 200 && Array.isArray(result.data)) {
       res.setHeader('X-Feed-Organic-Count',String(result.data.length));
+      if (feedType === 'foryou') {try {await rememberDeliveredRecommendations(user.id, result.data.map(post => post.id));} catch { /* History storage cannot delay availability of organic posts. */ }}
       try {result.data = await injectPostBoosts(result.data,user) as typeof result.data;} catch { /* Feed remains available when promotion storage is unhealthy. */ }
     }
     const finishedAt = performance.now();
@@ -1111,6 +1113,8 @@ export const availableNewsfeedStreamController = (req: Request, res: Response) =
   const feed = req.params.feedType;
   let since = typeof req.query.since === 'string' ? new Date(req.query.since) : new Date();
   const now = Date.now();
+  const known = typeof req.query.known === 'string' && req.query.known ? [...new Set(req.query.known.split(','))] : [];
+  if (known.length > 200 || known.some(id => !/^[a-zA-Z0-9_-]{1,100}$/.test(id))) return res.status(400).send('Invalid recommendation baseline');
   if (!availableFeedTypes.includes(feed) || !Number.isFinite(since.getTime()) || since.getTime() > now + 60000)
     return res.status(400).send('Invalid feed window');
   since = new Date(Math.max(since.getTime(), now - 86400000));
@@ -1125,15 +1129,15 @@ export const availableNewsfeedStreamController = (req: Request, res: Response) =
     if (busy || closed || res.writableNeedDrain) return;
     busy = true;
     try {
-      const snapshot = await getAvailableNewsfeedSnapshot(req.user!.id, feed, since);
-      if (!closed) res.write(`event: feed_available\ndata: ${JSON.stringify({feed, ...snapshot})}\n\n`);
+      const snapshot = await getAvailableNewsfeedSnapshot(req.user!.id, feed, since, known);
+      if (!closed && !('degraded' in snapshot && snapshot.degraded)) res.write(`event: feed_available\ndata: ${JSON.stringify({feed, ...snapshot})}\n\n`);
     } catch {if (!closed) res.write(': feed temporarily unavailable\n\n');}
     finally {busy = false;}
   };
-  const timer = setInterval(() => void tick(), 30000);
+  const timer = setInterval(() => void tick(), 180000);
   const heartbeat = setInterval(() => {if (!closed && !res.writableNeedDrain) res.write(': heartbeat\n\n');}, 15000);
   // Renew auth on reconnect; keep stream windows bounded.
   const lifetime = setTimeout(() => res.end(), 55 * 60000);
   res.on('close', () => {closed = true;clearInterval(timer);clearInterval(heartbeat);clearTimeout(lifetime);});
-  void tick();
+  if (feed !== 'foryou') void tick();
 };
