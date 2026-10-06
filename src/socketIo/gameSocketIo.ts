@@ -331,17 +331,16 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
       }
     });
     // listen to socket disconnect event and remove player from game room
-    socket.on("disconnect", () => {
-      console.log("socket disconnect event fired");
+    socket.on("disconnect", (reason) => {
+      logger.info({event: 'game_socket_disconnected', socketId: socket.id, roomId: socket.data.room?.id, reason}, 'Game socket disconnected');
       disconnectGameRoomPlayer(socket, io)
     });
     // listen to emitted disconnected event and remove player from game room
     socket.on("disconnected", () => {
-      console.log("socket disconnected event fired");
+      logger.info({event: 'game_room_leave_requested', socketId: socket.id, roomId: socket.data.room?.id}, 'Player requested room leave');
       disconnectGameRoomPlayer(socket, io)
     });
   });
 };
 
 export default gameSocketIo;
-

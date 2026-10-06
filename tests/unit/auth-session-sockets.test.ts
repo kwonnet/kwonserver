@@ -14,7 +14,9 @@ it('guards socket packets and idle sockets, joins only its session room and clea
   connection(socket); expect(socket.join).toHaveBeenCalledWith('auth-session:sid');
   valid.mockResolvedValue(true); const next = vi.fn(); await packet([], next); expect(next).toHaveBeenCalledWith();
   valid.mockResolvedValue(false); await packet([], next); expect(socket.disconnect).toHaveBeenCalledWith(true);
-  valid.mockRejectedValue(new Error('offline')); await vi.advanceTimersByTimeAsync(30_000); expect(socket.disconnect).toHaveBeenCalledTimes(2);
+  valid.mockRejectedValue(new Error('offline')); await vi.advanceTimersByTimeAsync(30_000); expect(socket.disconnect).toHaveBeenCalledTimes(1);
+  await packet([], next); expect(next).toHaveBeenLastCalledWith(expect.objectContaining({message:'Session verification temporarily unavailable'})); expect(socket.disconnect).toHaveBeenCalledTimes(1);
+  valid.mockResolvedValue(true);await packet([],next);expect(next).toHaveBeenLastCalledWith();
   disconnectAuthSession('sid'); expect(namespace.in).toHaveBeenCalledWith('auth-session:sid'); expect(disconnect).toHaveBeenCalledWith(true);
   close(); expect(vi.getTimerCount()).toBe(0);
   connection({data: {user: {id: 'legacy'}}, join: vi.fn()}); expect(vi.getTimerCount()).toBe(0);

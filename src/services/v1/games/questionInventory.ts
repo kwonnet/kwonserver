@@ -10,7 +10,7 @@ export async function getInventoryRoomQuestion(inventory: QuestionInventoryServi
   for (let attempt = 0; attempt < 3; attempt++) {
     const seen = await inventory.redis.smembers(key);
     try { await inventory.recordDemand(room.catId, room.roomId, seen.length); }
-    catch { logger.warn({ categoryId: room.catId }, 'Quiz room demand metric unavailable'); }
+    catch (error) { logger.warn({event: 'game_service_error', operation: 'getInventoryRoomQuestion.recordDemand', roomId: room.roomId, categoryId: room.catId, err: error}, 'Quiz room demand metric unavailable'); }
     const candidates = await inventory.getCandidates(room.catId, seen);
     // Redis SADD is an atomic claim even when two API instances select together.
     while (candidates.length) {

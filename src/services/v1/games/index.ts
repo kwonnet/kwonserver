@@ -107,12 +107,14 @@ export async function deductGameCoins(params: {
           const wallet=await prisma.wallet.findUniqueOrThrow({where:{userId:params.playerId}});
           return {message:action.reason || 'Action refunded',isError:true,data:{amount:cents(wallet.coins,true)/100,bonus:cents(wallet.bonus,true)/100}};
         }
-      } catch {
+      } catch (error) {
+        logGameError('deductGameCoins', error, params);
         return {message:'Action saved; delivery is pending recovery',isError:false,data:{...data,pending:true}};
       }
     }
     return { message: "success", isError: false, data };
   } catch (error: any) {
+    logGameError('deductGameCoins', error, params);
     return { message: error?.message || 'Game charge failed', isError: true, data: null };
   }
 }
@@ -121,6 +123,7 @@ export const getUserWallet = async (userId: string) => {
   try {
     return await prisma.wallet.findUniqueOrThrow({ where: { userId } });
   } catch (error) {
+    logGameError('getUserWallet', error, {userId});
     return null;
   }
 };
@@ -134,6 +137,7 @@ export const getUserData = async (userId: string, catId: string) => {
     if (!result.wallet || !result.gameEnergies) return null;
     return { wallet: result.wallet, energy: result.gameEnergies[0] };
   } catch (error) {
+    logGameError('getUserData', error, {userId,catId});
     return null;
   }
 };
@@ -164,6 +168,7 @@ export const checkUserGameEnergy = async (userId: string, catId: string) => {
     console.log("Join room - player energy - created ", gameEnergy);
     return gameEnergy;
   } catch (error) {
+    logGameError('checkUserGameEnergy', error, {userId,catId});
     return null;
   }
 };
@@ -173,7 +178,8 @@ export const checkUserGameWallet = async (userId: string) => {
     const wallet = await getUserWallet(userId);
     const isError = !wallet || !!wallet.isLocked || cents(wallet.coins, true) + cents(wallet.bonus, true) < 1000;
     return { message: isError ? "Wallet unavailable or insufficient coins" : "success", isError, data: isError ? null : wallet };
-  } catch { return { message: "Wallet unavailable", isError: true, data: null }; }
+  } catch (error) {
+    logGameError('checkUserGameWallet', error, {userId}); return { message: "Wallet unavailable", isError: true, data: null }; }
 };
 
 async function syncUserRedisGameEnergyToPrisma(
@@ -197,7 +203,8 @@ async function syncUserRedisGameEnergyToPrisma(
     });
     console.log("User redis game energy synced to prisma successfully >>>");
   } catch (error: any) {
-    logger.error(`Error syncing player energy to prisma:  ${error?.message}`);
+    logGameError('syncUserRedisGameEnergyToPrisma', error, {playerId,catId});
+
   } finally {
     await redisClient.del(playerKeys.energy);
   }
@@ -218,6 +225,7 @@ export const storeGameRoomQuestion = async (
     await redisClient.set(uniqueKey, JSON.stringify(stored));
     return stored as unknown as ThemedGameQuestion;
   } catch (error) {
+    logGameError('storeGameRoomQuestion', error, params);
     return null;
   }
 };
@@ -228,6 +236,7 @@ export const retrieveGameRoomQuestion = async (roomId: string) => {
     if (!result) return null;
     return JSON.parse(result) as ThemedGameQuestion;
   } catch (error) {
+    logGameError('retrieveGameRoomQuestion', error, {roomId});
     return null;
   }
 };
@@ -268,6 +277,7 @@ export async function insertWordMakerGameRoomAnswer(params: ThemedGameAnswer) {
     }
     return { isError: false, message: "Guess saved successfully" };
   } catch (error) {
+    logGameError('insertWordMakerGameRoomAnswer', error, params);
     return { isError: true, message: `Error saving answer` };
   }
 }
@@ -296,6 +306,7 @@ export async function insertAcronymGameRoomAnswer(params: AcronymGameAnswer) {
 
     return { isError: false, message: "Answer saved successfully" };
   } catch (error) {
+    logGameError('insertAcronymGameRoomAnswer', error, params);
     return { isError: true, message: `Error saving answer` };
   }
 }
@@ -361,6 +372,7 @@ export async function insertGameRoomVote({
 
     return { isError: false, message: "Answer voted successfully" };
   } catch (error) {
+    logGameError('insertGameRoomVote', error, {roomId,playerId});
     return { isError: true, message: `Error voting answer` };
   }
 }
@@ -404,7 +416,8 @@ export const deleteGameRoomQuestionAndAnswers = async (roomId: string) => {
     ]);
     const pattern = `room:${roomId}:player:*`;
     await clearRedisKeysByPattern(pattern);
-  } catch (error) {}
+  } catch (error) {
+    logGameError('deleteGameRoomQuestionAndAnswers', error, {roomId});}
 };
 
 // Function to retrieve all answers, check correctness, and assign points
@@ -656,7 +669,8 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
       message: "success",
     };
   } catch (error: any) {
-    logger.info(error?.message);
+    logGameError('addGameRoomPlayer', error, params);
+
     return { data: null, message: "Error occured, please try again later" };
   }
 };
@@ -706,6 +720,7 @@ export async function getGameRoomPlayers(roomId: string) {
     );
     return players as unknown as GameRoomPlayer[];
   } catch (error) {
+    logGameError('getGameRoomPlayers', error, {roomId});
     return [];
   }
 }
@@ -873,8 +888,9 @@ export async function removeGameRoomPlayer(roomId: string, playerId: string, mod
       }
       return participantCount
     }
-    
+
   } catch (error) {
+    logGameError('removeGameRoomPlayer', error, {roomId,playerId});
     return 0;
   }
 }
@@ -893,7 +909,8 @@ export async function cleanUpGameRoom(roomId: string) {
     ];
     await Promise.all(keys.map((key) => redisClient.del(key)));
   } catch (error: any) {
-    logger.error(error?.message);
+    logGameError('cleanUpGameRoom', error, {roomId});
+
   }
 }
 
@@ -906,6 +923,7 @@ export const getGameRoomPlayer = async (playerId: string) => {
     }
     return user as unknown as GameRoomPlayer;
   } catch (error) {
+    logGameError('getGameRoomPlayer', error, {playerId});
     return null;
   }
 };
@@ -968,7 +986,8 @@ export const disconnectGameRoomPlayer = async (socket: Socket, io: GameIoNamespa
     syncUserRedisWalletToPrisma(user.id);
     // disconnect the socket
     // socket.disconnect();
-  } catch (error) {}
+  } catch (error) {
+    logGameError('disconnectGameRoomPlayer', error, {});}
 };
 
 export const getGameRoom = async (roomId: string) => {
@@ -980,6 +999,7 @@ export const getGameRoom = async (roomId: string) => {
     }
     return result as unknown as TempGameRoom;
   } catch (error) {
+    logGameError('getGameRoom', error, {roomId});
     return null;
   }
 };
@@ -1131,7 +1151,8 @@ async function updateWinningStreak(
       // Set the new leader and reset their streak to 1
       await redisClient.hSet(streakKey, { playerId, catId, streak: 1 });
     }
-  } catch (error) {logger.error({event: 'game_streak_reward_failed', roomId, error: error instanceof Error ? error.message : 'Unknown failure'});}
+  } catch (error) {
+    logGameError('updateWinningStreak', error, {catId,roomId,playerId,mode});}
 }
 
 async function resetRoomStreak(roomId: string): Promise<void> {
@@ -1149,7 +1170,8 @@ async function backupGamePlayersScores(data: ThemedGameScoreStat[]) {
       await redisClient.json.arrAppend(uniqueKey, "$", ...backup);
     }
   } catch (error: any) {
-    logger.error(error?.message);
+    logGameError('backupGamePlayersScores', error, {});
+
   }
 }
 
@@ -1179,6 +1201,7 @@ async function updateGamePlayersScoresDb(data: ThemedGameScoreStat[]) {
       )
     );
   } catch (error) {
+    logGameError('updateGamePlayersScoresDb', error, {});
     backupGamePlayersScores(data);
   }
 }
@@ -1225,7 +1248,8 @@ export const updateGamePlayersScores = async (scores: ThemedGameScore[]) => {
     );
     // update db
     updateGamePlayersScoresDb(persistData);
-  } catch (error) {}
+  } catch (error) {
+    logGameError('updateGamePlayersScores', error, {});}
 };
 
 export const updatePlayerGameEnergy = async (
@@ -1245,9 +1269,8 @@ export const updatePlayerGameEnergy = async (
     socket.emit(GameEventEnum.GAME_PLAYER_ENERGY, params);
     logger.info(`Redis game room player's energy updated`);
   } catch (error: any) {
-    logger.error(
-      `Error: Updating redis game room player's energy failed: ${error?.message}`
-    );
+    logGameError('updatePlayerGameEnergy', error, params);
+
   }
 };
 
@@ -1305,9 +1328,8 @@ export const updatePlayersGameEnergy = async (
 
     logger.info(`Redis game room players' energy updated`);
   } catch (error: any) {
-    logger.error(
-      `Error: Updating redis game room players energy failed: ${error?.message}`
-    );
+    logGameError('updatePlayersGameEnergy', error, {});
+
   }
 };
 
@@ -1316,6 +1338,7 @@ export const isGameRoomExists = async (roomId: string) => {
     const exists = await redisClient.exists(`room:${roomId}`);
     return exists === 1;
   } catch (error) {
+    logGameError('isGameRoomExists', error, {roomId});
     return false;
   }
 };
@@ -1361,10 +1384,11 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
   let gameQuestion: ThemedGameQuestion | undefined;
   try { gameQuestion = await generateRoomQuestion(room); }
   catch (error) {
+    logGameError('checkGameNumPlayers', error, room);
     if (error instanceof InventoryEmptyError) {
-      logger.info({ categoryId: room.catId, roomId: room.roomId, code: error.code }, 'Quiz inventory warming or room exhausted');
+
     } else {
-      logger.error({ categoryId: room.catId, roomId: room.roomId }, 'Question selection failed');
+
     }
   }
   const gameType = getGameType(room.gameName);
@@ -1476,12 +1500,12 @@ export const getGameResult = async (roomId: string, io: GameIoNamespace) => {
   // chat again
   await gameChatTime(roomId, io, true);
   // if(room.mode === GameMode.MULTI){
-   
+
   // }
   // else{
   //   checkGameNumPlayers(room, io);
   // }
-  
+
 };
 
 // when it's play time
@@ -1536,8 +1560,9 @@ export const gamePlayTime = async (
       }
     }
     })().catch(error => {
+      logGameError('gamePlayTime', error, {roomId});
       clearInterval(interval);
-      logger.error({event: 'game_room_timer_failed', roomId: room.roomId, error: error instanceof Error ? error.message : 'Unknown failure'});
+
       io.to(room.roomId).emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This round could not continue. Please rejoin the room.');
     }).finally(() => {ticking = false;});
   }, 1000);
@@ -1583,8 +1608,9 @@ export const gameChatTime = async (
       await checkGameNumPlayers(room, io);
     }
     })().catch(error => {
+      logGameError('gameChatTime', error, {roomId});
       clearInterval(interval);
-      logger.error({event: 'game_room_timer_failed', roomId: room.roomId, error: error instanceof Error ? error.message : 'Unknown failure'});
+
       io.to(room.roomId).emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This round could not continue. Please rejoin the room.');
     }).finally(() => {ticking = false;});
   }, 1000);
@@ -1639,8 +1665,9 @@ const gameVoteTime = async (room: TempGameRoom, io: GameIoNamespace) => {
       await getGameResult(room.roomId, io);
     }
     })().catch(error => {
+      logGameError('gameVoteTime', error, room);
       clearInterval(interval);
-      logger.error({event: 'game_room_timer_failed', roomId: room.roomId, error: error instanceof Error ? error.message : 'Unknown failure'});
+
       io.to(room.roomId).emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This round could not continue. Please rejoin the room.');
     }).finally(() => {ticking = false;});
   }, 1000);
@@ -1656,6 +1683,7 @@ export const createGame = async (args: {
     const result = await prisma.game.create({ data: args });
     return { status: 200, data: result, message: "success" };
   } catch (error: any) {
+    logGameError('createGame', error, args);
     return { status: 500, data: null, message: error?.message };
   }
 };
@@ -1665,6 +1693,7 @@ export const getGames = async () => {
     const result = await prisma.game.findMany({});
     return { status: 200, data: result, message: "success" };
   } catch (error: any) {
+    logGameError('getGames', error, {});
     return { status: 500, data: null, message: error?.message };
   }
 };
@@ -1680,6 +1709,7 @@ export const createGameCategory = async (args: {
     const result = await prisma.gameCategory.create({ data: args });
     return { status: 200, data: result, message: "success" };
   } catch (error: any) {
+    logGameError('createGameCategory', error, args);
     return { status: 500, data: null, message: error?.message };
   }
 };
@@ -1695,6 +1725,7 @@ export const createGameCategoryRoom = async (args: {
     const result = await prisma.gameRoom.create({ data: args });
     return { status: 200, data: result };
   } catch (error: any) {
+    logGameError('createGameCategoryRoom', error, args);
     return { status: 500, data: error?.message };
   }
 };
@@ -1705,6 +1736,7 @@ export const getGameCategories = async (gameId: string) => {
     const categories = await prisma.gameCategory.findMany({ where: { gameId } });
     return { status: 200, data: {game, categories}, message: "success" };
   } catch (error: any) {
+    logGameError('getGameCategories', error, {gameId});
     return { status: 500, data: null, message: error?.message };
   }
 };
@@ -1724,6 +1756,7 @@ export const getGameCategoryRooms = async (catId: string, mode: string) => {
     );
     return { status: 200, data: result, message: "success" };
   } catch (error: any) {
+    logGameError('getGameCategoryRooms', error, {catId});
     return { status: 500, data: null, message: error?.message };
   }
 };
@@ -1735,6 +1768,7 @@ export const getGameCategoryRoom = async (roomId: string) => {
     });
     return { status: 200, data: result };
   } catch (error: any) {
+    logGameError('getGameCategoryRoom', error, {roomId});
     return { status: 500, data: error?.message };
   }
 };
@@ -1747,6 +1781,7 @@ export const checkGameRoom = async (roomId: string) => {
       include: { category: { include: { game: true } } },
     });
   } catch (error: any) {
+    logGameError('checkGameRoom', error, {roomId});
     return null;
   }
 };
@@ -1816,6 +1851,7 @@ export const getGamePlayerRankings = async (
 
     return { status: 200, data: rankings };
   } catch (error: any) {
+    logGameError('getGamePlayerRankings', error, {userId});
     return {
       status: 500,
       data: "Sorry an error occurred, please try again later.",
@@ -1888,6 +1924,7 @@ export const getGameWinnersStats = async () => {
     }
     return { status: 200, data: rankingStats };
   } catch (error: any) {
+    logGameError('getGameWinnersStats', error, {});
     console.error("Error fetching game winners' stats:", error);
     return {
       status: 500,
@@ -1939,6 +1976,7 @@ export const getGameWinners = async ({
       data: data.length > 0 ? data : "Not found",
     };
   } catch (error: any) {
+    logGameError('getGameWinners', error, {catId});
     return {
       status: 500,
       data: "Sorry an error occurred, please try again later.",
@@ -1983,6 +2021,7 @@ export const getGameCategoriesRankings = async (
     }
     return { status: 200, data: rankings };
   } catch (error: any) {
+    logGameError('getGameCategoriesRankings', error, {});
     return {
       status: 500,
       data: "Sorry an error occurred, please try again later.",
@@ -2048,6 +2087,7 @@ export const getGamesRankingArchiveStats = async () => {
     }
     return { status: 200, data: rankingStats };
   } catch (error: any) {
+    logGameError('getGamesRankingArchiveStats', error, {});
     console.error("Error fetching ranking stats:", error);
     return {
       status: 500,
@@ -2090,6 +2130,7 @@ export const getGamesRankingArchiveData = async ({
       data: data.length > 0 ? data : "Not found",
     };
   } catch (error: any) {
+    logGameError('getGamesRankingArchiveData', error, {catId});
     return {
       status: 500,
       data: "Sorry an error occurred, please try again later.",
@@ -2123,6 +2164,7 @@ export const getUserGamesRankingArchiveStats = async (userId: string) => {
     );
     return { status: 200, data };
   } catch (error: any) {
+    logGameError('getUserGamesRankingArchiveStats', error, {userId});
     return {
       status: 500,
       data: "Sorry an error occurred, please try again later.",
@@ -2158,6 +2200,7 @@ export const getUserGameRankingArchiveData = async ({
     const { player, ...rest } = result;
     return { status: 200, data: { ...rest, name: player.name } };
   } catch (error: any) {
+    logGameError('getUserGameRankingArchiveData', error, {catId,userId});
     return {
       status: 500,
       data: "Sorry an error occurred, please try again later.",
@@ -2207,7 +2250,8 @@ export const createDummyUsers = async () => {
     }
     logger.info(`Created ${counter} dummy users `);
   } catch (error: any) {
-    logger.info(`Error: Dummy users failed ${error?.message}`);
+    logGameError('createDummyUsers', error, {});
+
   }
 };
 
@@ -2323,7 +2367,8 @@ async function clearRedisKeysByPattern(pattern: string) {
 
     logger.info(`All matching ${keyCounts} keys have been deleted.`);
   } catch (error: any) {
-    logger.info("Error: Deleting players month stats failed.", error?.message);
+    logGameError('clearRedisKeysByPattern', error, {});
+
   }
 }
 
@@ -2451,6 +2496,7 @@ const insertPlanFeatures = async () => {
     });
     console.log("Inserted plan features");
   } catch (error: any) {
+    logGameError('insertPlanFeatures', error, {});
     console.log("Error: Plan Features ", error?.message);
   }
 };
@@ -5446,3 +5492,16 @@ const executeRecords = async () => {
 };
 
 executeRecords();
+
+/** Log failures with operation/IDs only; never serialize game answers, chat or user payloads. */
+function logGameError(operation: string, error: unknown, context: unknown = {}) {
+  const ids: Record<string,string> = {};
+  if (context && typeof context === 'object') for (const key of ['roomId','playerId','userId','catId','gameId','qId','mode']) {
+    const value = (context as Record<string,unknown>)[key];
+    if (typeof value === 'string') ids[key] = value.slice(0,150);
+  }
+  const err = error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Non-Error game operation failure');
+  const details = {event: 'game_service_error', operation, ...ids, err};
+  if (error instanceof InventoryEmptyError) logger.warn(details, 'Game inventory temporarily unavailable');
+  else logger.error(details, 'Game service operation failed');
+}

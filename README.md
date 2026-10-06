@@ -950,3 +950,35 @@ its errors, releasing its timer and notifying the affected room if it cannot
 continue. The global exception diagnostics now retain stacks and no longer print
 an inaccurate “shutting down” message when that handler does not terminate the
 process. No migration or new configuration is required.
+
+### Game failure diagnostics and reconnect causes
+
+All catch handlers in `src/services/v1/games` now emit contextual structured logs
+through the existing Pino logger. `game_service_error` includes `operation`, the
+original error/stack, and available room/player/user/category/game/question IDs.
+Expected unavailable inventory is warning severity; other failures are errors.
+Only identifier context is selected; game answers, chat payloads and full user
+objects are not passed as logging context. Existing Redis command-argument redaction
+remains enabled. This does not change wallet commit/rollback or recovery behavior.
+
+Game disconnect logs use `game_socket_disconnected` with Socket.IO's reason and
+room ID; explicit room departure uses `game_room_leave_requested`. A temporary
+session-verification database error is logged as
+`socket_session_verification_unavailable`: protected packets are rejected until
+verification recovers, but the connection remains open. Confirmed revocation or
+expiry still disconnects the socket. The browser keeps its sockets alive when the
+API token renews within the same tracked session; new handshakes use the latest
+token. Account/session changes and logout still close the old sockets.
+
+The web SSE proxy records `sse_upstream_interrupted` for unexpected upstream body
+failures, with feed, error type and transport code. Normal downstream cancellation
+is not logged as an upstream failure. Interrupted responses and reconnects alone do
+not establish that the API process crashed. On the VM, inspect container evidence:
+
+```sh
+sudo docker inspect kwonserver --format 'RestartCount={{.RestartCount}} OOMKilled={{.State.OOMKilled}} StartedAt={{.State.StartedAt}} ExitCode={{.State.ExitCode}}'
+```
+
+Correlate restart/start timestamps with the game/transport events. Container
+replacement during deployment resets its restart counter, so compare the deployed
+container's start time too. No migration or new configuration is required.
