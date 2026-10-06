@@ -2,7 +2,7 @@ import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {PrismaClient} from '@prisma/client';
 vi.mock('@/utils/webpush',()=>({default:{}}));
 import {claimEngagementTask,getEngagementTasks,configureEngagementTask,rotateEngagementRewards} from '@/services/v1/tasks';
-import {injectPostBoosts,createPostImpression} from '@/services/v1/posts';
+import {getAvailableNewsfeedIds,getAvailableNewsfeedPosts,injectPostBoosts,createPostImpression} from '@/services/v1/posts';
 import {createUser} from '@/services/v1/auth';
 const db=new PrismaClient();const prefix='engagement-fixture-';let actor:string,author:string,viewer:string;
 async function user(name:string){return (await db.user.create({data:{name,username:prefix+name,email:prefix+name+'@test.invalid',wallet:{create:{bonus:0}}}})).id;}
@@ -30,7 +30,9 @@ it('verifies distinct actions, protects parallel claims and credits exactly one 
  await configureEngagementTask('like',{enabled:true});
 });
 it('rolls daily reward snapshots once, including disabled tasks, bounded at fifteen',async()=>{
- await db.engagementTask.updateMany({data:{rewardDay:new Date('2020-01-01')}});await rotateEngagementRewards();const first=await db.engagementTask.findMany();await rotateEngagementRewards();expect(await db.engagementTask.findMany()).toEqual(first);expect(first.every(task=>task.reward>=1&&task.reward<=15)).toBe(true);
+ await db.engagementTask.update({where:{id:'like'},data:{reward:2,rewardDay:new Date(new Date().toISOString().slice(0,10)+'T00:00:00Z')}});
+ await rotateEngagementRewards();expect((await db.engagementTask.findUniqueOrThrow({where:{id:'like'}})).reward).toBeGreaterThanOrEqual(5);
+ await db.engagementTask.updateMany({data:{rewardDay:new Date('2020-01-01')}});await rotateEngagementRewards();const first=await db.engagementTask.findMany();await rotateEngagementRewards();expect(await db.engagementTask.findMany()).toEqual(first);expect(first.every(task=>task.reward>=5&&task.reward<=15)).toBe(true);
 });
 it('reserves boosts once per viewer, excludes private/own posts and counts genuine acknowledgements once',async()=>{
  const publicPost=await post(author),privatePost=await post(author,{scope:'FOLLOWED'}),hidden=await post(author,{isHidden:true}),own=await post(viewer);
@@ -58,4 +60,17 @@ it('allows organic repeats only after the server cooldown and never counts a fee
  const root=await post(author);const args:any={device:{},meta:null,postId:root.id,userId:viewer,sessionId:'viewport',timestamp:new Date().toISOString()};
  await createPostImpression(args);await db.postBoostView.update({where:{postId_userId:{postId:root.id,userId:viewer}},data:{createdAt:new Date(Date.now()-151000)}});
  await createPostImpression(args);expect(await db.postBoost.findUnique({where:{postId:root.id}})).toMatchObject({confirmed:2});
+});
+
+it('aggregates only visible posts and rechecks pending snapshots at consumption',async()=>{
+ const since=new Date(Date.now()-1000);
+ const visible=await post(author),privatePost=await post(author,{scope:'FOLLOWED'}),draft=await post(author,{status:'DRAFT'});
+ const ids=await getAvailableNewsfeedIds(viewer,'latest',since);
+ expect(ids).toContain(visible.id);expect(ids).not.toContain(privatePost.id);expect(ids).not.toContain(draft.id);
+ expect(await getAvailableNewsfeedIds(viewer,'following',since)).not.toContain(visible.id);
+ const person:any={id:viewer,name:'Viewer',username:prefix+'viewer',role:'USER'};
+ const result=await getAvailableNewsfeedPosts(person,'latest',[visible.id,privatePost.id,draft.id]);
+ expect(result.status).toBe(200);expect((result.data as any[]).map(post=>post.id)).toEqual([visible.id]);
+ await db.post.update({where:{id:visible.id},data:{isHidden:true}});
+ const hidden=await getAvailableNewsfeedPosts(person,'latest',[visible.id]);expect(hidden.data).toEqual([]);
 });

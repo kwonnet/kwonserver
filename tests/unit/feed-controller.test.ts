@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response } from './fixtures';
-const deps = vi.hoisted(() => ({ recommend: vi.fn(), hydrate: vi.fn(), create: vi.fn(), gifters: vi.fn() }));
+const deps = vi.hoisted(() => ({ recommend: vi.fn(), hydrate: vi.fn(), create: vi.fn(), gifters: vi.fn(), availableIds: vi.fn(), availablePosts: vi.fn() }));
 vi.mock('@/services/kwonrec', () => ({ getRecommendationResponse: deps.recommend }));
-vi.mock('@/services/v1/posts', () => ({ getNewsfeed: deps.hydrate, createPost: deps.create, getPostGifters: deps.gifters }));
+vi.mock('@/services/v1/posts', () => ({ getNewsfeed: deps.hydrate, createPost: deps.create, getPostGifters: deps.gifters, getAvailableNewsfeedIds: deps.availableIds, getAvailableNewsfeedPosts: deps.availablePosts }));
 vi.mock('@/sseEmitter', () => ({ default: {} }));
 vi.mock('@/utils/helpers', () => ({ getReqInfo: vi.fn() }));
-import { getNewsfeedController, createPostController, getPostGiftersController } from '@/controllers/v1/posts';
+import { availableNewsfeedController, availableNewsfeedStreamController, getNewsfeedController, createPostController, getPostGiftersController } from '@/controllers/v1/posts';
 beforeEach(() => {
   Object.values(deps).forEach(fn => fn.mockReset());
   deps.recommend.mockResolvedValue({ data: { recommendations: [{ id: 'p2' }, { id: 'p1' }] } });
@@ -86,4 +86,36 @@ it.each([{page: "0"}, {limit: "51"}, {page: "1.5"}])('rejects invalid gift pagin
   await getPostGiftersController({params: {id: "post"}, query, user: {id: "owner"}} as any, res);
   expect(res.statusCode).toBe(400);
   expect(deps.gifters).not.toHaveBeenCalled();
+});
+
+it('hydrates pending snapshots for the session viewer, ignoring supplied viewer IDs', async () => {
+  deps.availablePosts.mockResolvedValue({status:200,data:[{id:'p1'}]});
+  const request = {...req(),query:{ids:'p1,p1,p2',userId:'attacker'}};
+  const res=response();await availableNewsfeedController(request,res);
+  expect(deps.availablePosts).toHaveBeenCalledWith(request.user,'foryou',['p1','p2']);
+  expect(res.headers['Cache-Control']).toBe('private, no-store');expect(res.body).toEqual([{id:'p1'}]);
+});
+it.each(['', '../private', Array.from({length:51},(_,i)=>'p'+i).join(',')])('rejects invalid snapshot IDs %s', async ids => {
+  const res=response();await availableNewsfeedController({...req(),query:{ids}} as any,res);
+  expect(res.statusCode).toBe(400);expect(deps.availablePosts).not.toHaveBeenCalled();
+});
+it('streams personalized bounded IDs periodically and releases timers on disconnect', async () => {
+  vi.useFakeTimers();
+  try {
+    deps.availableIds.mockResolvedValue(['p1']);
+    const res=response();let close=()=>{};
+    res.flushHeaders=vi.fn();res.write=vi.fn();res.on=vi.fn((_event,callback)=>{close=callback;});res.end=vi.fn();
+    const since=new Date(Date.now()-1000).toISOString();
+    availableNewsfeedStreamController({...req(),params:{feedType:'following'},query:{since,userId:'attacker'}} as any,res);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(deps.availableIds).toHaveBeenCalledWith('viewer','following',new Date(since));
+    expect(res.write).toHaveBeenCalledWith(expect.stringContaining('event: feed_available'));
+    await vi.advanceTimersByTimeAsync(30000);expect(deps.availableIds).toHaveBeenCalledTimes(2);
+    close();await vi.advanceTimersByTimeAsync(60000);expect(deps.availableIds).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {vi.useRealTimers();}
+});
+it('rejects malformed stream windows before querying or opening a stream', () => {
+  const res=response();availableNewsfeedStreamController({...req(),query:{since:'invalid'}} as any,res);
+  expect(res.statusCode).toBe(400);expect(deps.availableIds).not.toHaveBeenCalled();
 });

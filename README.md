@@ -684,11 +684,13 @@ use a capture transport and never send to real recipients.
 The new authenticated `/tasks` web page shows live progress, the day's reward,
 eligibility, disabled state, and a countdown to the next claim. The check button
 **checks and claims** when eligible; incomplete checks explain how many qualifying
-actions remain. Rewards are random integers from **1 to 15 bonus coins per task per
+actions remain. Rewards are random integers from **5 to 15 bonus coins per task per
 UTC day**. They are credited to `Wallet.bonus`, not cash/credit. A daily rotation does
 not reset the user's claim cooldown: each task unlocks **24 hours after that user's
 successful claim**. The response's reward is authoritative if midnight occurs while
 the page is open. Bonuses may legitimately repeat across days by random chance.
+Existing daily rewards below five are regenerated on the next task read or claim;
+already claimed rewards are preserved.
 
 | Task | Default goal | Verified targets |
 | --- | ---: | --- |
@@ -832,3 +834,46 @@ outbox uniqueness, template escaping, TLS, missing configuration, SMTP failures,
 leases and recovery. Tests use disposable infrastructure or capture transports.
 Validate SMTP inbox delivery and realistic audience capacity after configuring the
 deployed environment; unit counts alone are not a delivery/capacity benchmark.
+
+### Available newsfeed snapshots over SSE
+
+Authenticated home tabs (`foryou`, `following`, `friends`, `trending`, `latest`)
+expose `GET /v1/posts/feed/:feedType/available/stream?since=<ISO date>`.
+The stream checks PostgreSQL immediately and every 30 seconds, sends a heartbeat
+at 15 seconds, and renews the connection after 55 minutes. The existing auth stream
+guard closes revoked sessions. Disconnects release timers; queries do not overlap
+and responses respect stream backpressure. No global broadcaster or worker-local
+state is needed, so scheduled publication and multiple API replicas are supported.
+
+`feed_available` events contain `{feed, ids}` only, at most 50 IDs, ordered newest
+first. Queries use the same authoritative tab visibility filters as ordinary feeds:
+Following/Friends retain accepted relationship requirements; blocks, mutes,
+reports, hidden/deleted posts, future schedules and private scopes are excluded as
+appropriate. The bounded freshness window includes creation, due scheduled posts,
+and the existing public-root publication/boost start marker. For You notifications
+provide fresh visible discovery posts; they do not rerun or replace the personalized
+recommendation ranking. Trending retains its existing three-day visibility window.
+
+The browser keeps posts pending and does not modify the feed until the user clicks
+“new posts available”. `GET /v1/posts/feed/:feedType/available?ids=id1,id2` validates
+up to 50 IDs and hydrates exactly that requested snapshot through the existing
+newsfeed query. It **rechecks visibility and tab membership at click time**. A
+supplied viewer/user ID never determines the actor. Both endpoints require auth and
+use private/no-store responses. A feed load or notification never counts as an
+impression or reserves community boost delivery.
+
+Next.js proxies the stream through the existing `/api/events?feed=...&since=...`
+route using the server session's bearer header, so URLs contain no credentials.
+The server-rendered page supplies the initial timestamp to cover the gap before
+hydration. EventSource automatically reconnects against that same window (capped
+at the last 24 hours). Loaded/consumed IDs are suppressed locally; a failed click
+keeps the pending button available for retry. The freshest 50-post snapshot is
+bounded rather than an unlimited offline inbox. Ordinary pagination remains the
+way to read older posts. Guest preview, profile feeds and search do not open this
+additional authenticated stream.
+
+Operationally, allow long-lived unbuffered HTTP responses in the reverse proxy.
+Each active home tab adds one lightweight stream and one bounded database query
+per 30 seconds, alongside the existing interaction stream. Monitor connection and
+query volume before substantially reducing this interval. No new environment
+variables or database migrations are required beyond the existing boost migration.

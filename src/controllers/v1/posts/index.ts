@@ -34,6 +34,8 @@ import {
   createPostView,
   deletePost,
   getNewsfeed,
+  getAvailableNewsfeedIds,
+  getAvailableNewsfeedPosts,
   getPublicPostPreview,
   getPostAnalytics,
   getPostFeedDetails,
@@ -1094,3 +1096,44 @@ export async function postBoostStatusController(req: Request,res: Response) {
  try {const status=await getPostBoostStatus(req.params.id,req.user!.id); return status ? res.json(status) : res.status(404).json({error:'Boost status unavailable'});}
  catch {return res.status(503).json({error:'Boost status unavailable'});}
 }
+
+const availableFeedTypes = ['foryou', 'following', 'friends', 'trending', 'latest'];
+export const availableNewsfeedController = async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  const feed = req.params.feedType;
+  const ids = typeof req.query.ids === 'string' ? [...new Set(req.query.ids.split(','))] : [];
+  if (!availableFeedTypes.includes(feed) || !ids.length || ids.length > 50 || ids.some(id => !/^[a-zA-Z0-9_-]{1,100}$/.test(id)))
+    return res.status(400).json({error: 'Invalid feed snapshot'});
+  try {const result = await getAvailableNewsfeedPosts(req.user as AuthUser, feed, ids);return res.status(result.status).json(result.data);}
+  catch {return res.status(503).json({error: 'New posts unavailable'});}
+};
+export const availableNewsfeedStreamController = (req: Request, res: Response) => {
+  const feed = req.params.feedType;
+  let since = typeof req.query.since === 'string' ? new Date(req.query.since) : new Date();
+  const now = Date.now();
+  if (!availableFeedTypes.includes(feed) || !Number.isFinite(since.getTime()) || since.getTime() > now + 60000)
+    return res.status(400).send('Invalid feed window');
+  since = new Date(Math.max(since.getTime(), now - 86400000));
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  res.write('retry: 5000\n\n');
+  let busy = false;
+  let closed = false;
+  const tick = async () => {
+    if (busy || closed || res.writableNeedDrain) return;
+    busy = true;
+    try {
+      const ids = await getAvailableNewsfeedIds(req.user!.id, feed, since);
+      if (!closed) res.write(`event: feed_available\ndata: ${JSON.stringify({feed, ids})}\n\n`);
+    } catch {if (!closed) res.write(': feed temporarily unavailable\n\n');}
+    finally {busy = false;}
+  };
+  const timer = setInterval(() => void tick(), 30000);
+  const heartbeat = setInterval(() => {if (!closed && !res.writableNeedDrain) res.write(': heartbeat\n\n');}, 15000);
+  // Renew auth on reconnect; keep stream windows bounded.
+  const lifetime = setTimeout(() => res.end(), 55 * 60000);
+  res.on('close', () => {closed = true;clearInterval(timer);clearInterval(heartbeat);clearTimeout(lifetime);});
+  void tick();
+};

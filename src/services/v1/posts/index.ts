@@ -1551,7 +1551,7 @@ export async function insertImpressionQueue(args: {
   }
 }
 
-export const getNewsfeed = async (recs: string[], user: AuthUser, args: { feed: string; limit?: number; page?: number }) => {
+export const getNewsfeed = async (recs: string[], user: AuthUser, args: { feed: string; limit?: number; page?: number; postIds?: string[] }) => {
   try {
 
     const userId = user.id;
@@ -6959,7 +6959,7 @@ export async function getPublicPostPreview(now = new Date()) {
 }
 
 /** Keep all visibility and viewer-specific fields in the authoritative database read. */
-export function newsfeedQuery(userId: string, recs: string[], args: { feed?: string; limit?: number; page?: number } = {}): Prisma.PostFindManyArgs {
+export function newsfeedQuery(userId: string, recs: string[], args: { feed?: string; limit?: number; page?: number; postIds?: string[] } = {}): Prisma.PostFindManyArgs {
   const viewerReposts = {
     where: { userId, kind: "REPOST", status: "PUBLISHED", deletedAt: null },
     select: { id: true, parentId: true },
@@ -6971,6 +6971,7 @@ export function newsfeedQuery(userId: string, recs: string[], args: { feed?: str
       relationLoadStrategy: "join",
       where: {
         ...(ranked ? { ...recommendationVisibility(userId), id: { in: recs } } : getFeedVisibility(userId, args.feed!)),
+        ...(args.postIds ? {id: {in: args.postIds}} : {}),
       },
       include: {
         replies: viewerReposts,
@@ -8318,4 +8319,23 @@ export async function getPostBoostStatus(postId:string,userId:string) {
   if (!post || post.userId!==userId) return null;
   const boost=await prisma.postBoost.findUnique({where:{postId}});
   return boost?{...boost,state:boost.confirmed>=boost.target?'COMPLETED':boost.expiresAt.getTime()<Date.now()?'EXPIRED':'ACTIVE'}:null;
+}
+
+/** A bounded, viewer-scoped freshness window; never broadcast private post IDs. */
+export async function getAvailableNewsfeedIds(userId: string, feed: string, since: Date) {
+  const now = new Date();
+  const rows = await prisma.post.findMany({
+    where: {AND: [getFeedVisibility(userId, feed), {OR: [
+      {createdAt: {gt: since, lte: now}},
+      {scheduleAt: {gt: since, lte: now}},
+      {boost: {startsAt: {gt: since, lte: now}}},
+    ]}]},
+    select: {id: true}, take: 50,
+    orderBy: [{createdAt: 'desc'}, {id: 'desc'}],
+  });
+  return rows.map(row => row.id);
+}
+export async function getAvailableNewsfeedPosts(user: AuthUser, feed: string, ids: string[]) {
+  // Recheck tab membership at consumption time, including deletes, blocks and unfollows.
+  return getNewsfeed(ids, user, {feed, limit: 50, page: 1, postIds: ids});
 }

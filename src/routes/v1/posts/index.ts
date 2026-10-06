@@ -1,7 +1,8 @@
 
 import express from "express";
 import { authMiddleware } from "@/middleware";
-import { postBoostStatusController, publicPostMetadataController, publicPostMetadataIndexController, getPostEngagementsOverviewController, getPostGiftersController, searchPostsController, getPublicPostPreviewController, createPostClickController, createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostTipController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostAnalyticsController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, getTagUsersOrMentionsController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController, getRecommendationsController } from "@/controllers/v1/posts";
+import {guardAuthStream} from "@/controllers/v1/auth";
+import { availableNewsfeedController, availableNewsfeedStreamController, postBoostStatusController, publicPostMetadataController, publicPostMetadataIndexController, getPostEngagementsOverviewController, getPostGiftersController, searchPostsController, getPublicPostPreviewController, createPostClickController, createPostController, createPostHightlightController, createPostImpressionController, createPostMediaLogController, createPostPinController, createPostQuoteController, createPostReplyController, createPostTipController, createPostViewController, deletePostController, getEmbedPostController, getNewsfeedController, getPostAnalyticsController, getPostDetailsController, getPostQuotesController, getPostRepliesController, getPostRepostersController, getTagUsersOrMentionsController, hidePostReplyController, notInterestedPostController, reportPostController, restorePostController, updatePostBookmarksController, updatePostReactionsController, updatePostSharesController, updateRepostsController, votePollPostController, voteQuizPostController, getRecommendationsController } from "@/controllers/v1/posts";
 
 
 
@@ -14,6 +15,9 @@ router.get("/search", authMiddleware({required: false}), searchPostsController);
 router.get("/preview", getPublicPostPreviewController);
 
 router.post("/", authMiddleware({checkPermission: true}), createPostController)
+
+router.get("/feed/:feedType/available/stream", authMiddleware({checkPermission: true}), guardAuthStream, availableNewsfeedStreamController);
+router.get("/feed/:feedType/available", authMiddleware({checkPermission: true}), availableNewsfeedController);
 
 router.get("/feed/:feedType", authMiddleware({checkPermission: true}), getNewsfeedController)
 

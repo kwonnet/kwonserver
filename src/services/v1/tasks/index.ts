@@ -163,8 +163,8 @@ export async function rotateEngagementRewards(now = new Date()) {
   const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   return prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('engagement-reward-day',0))`;
-    const tasks = await tx.engagementTask.findMany({where: {rewardDay: {lt: day}}, select: {id: true}});
-    for (const task of tasks) await tx.engagementTask.update({where: {id: task.id}, data: {reward: randomInt(1,16), rewardDay: day}});
+    const tasks = await tx.engagementTask.findMany({where: {OR: [{rewardDay: {lt: day}}, {reward: {lt: 5}}]}, select: {id: true}});
+    for (const task of tasks) await tx.engagementTask.update({where: {id: task.id}, data: {reward: randomInt(5,16), rewardDay: day}});
     return tasks.length;
   });
 }
