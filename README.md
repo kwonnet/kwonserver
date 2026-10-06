@@ -845,8 +845,10 @@ guard closes revoked sessions. Disconnects release timers; queries do not overla
 and responses respect stream backpressure. No global broadcaster or worker-local
 state is needed, so scheduled publication and multiple API replicas are supported.
 
-`feed_available` events contain `{feed, ids}` only, at most 50 IDs, ordered newest
-first. Queries use the same authoritative tab visibility filters as ordinary feeds:
+`feed_available` events contain `{feed, ids, authors}`, at most 50 IDs, ordered newest
+first. Each author preview contains only post ID, user ID, display name and avatar;
+the floating button stacks up to three distinct profiles from pending posts.
+Queries use the same authoritative tab visibility filters as ordinary feeds:
 Following/Friends retain accepted relationship requirements; blocks, mutes,
 reports, hidden/deleted posts, future schedules and private scopes are excluded as
 appropriate. The bounded freshness window includes creation, due scheduled posts,

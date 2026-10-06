@@ -8322,7 +8322,7 @@ export async function getPostBoostStatus(postId:string,userId:string) {
 }
 
 /** A bounded, viewer-scoped freshness window; never broadcast private post IDs. */
-export async function getAvailableNewsfeedIds(userId: string, feed: string, since: Date) {
+export async function getAvailableNewsfeedSnapshot(userId: string, feed: string, since: Date) {
   const now = new Date();
   const rows = await prisma.post.findMany({
     where: {AND: [getFeedVisibility(userId, feed), {OR: [
@@ -8330,10 +8330,13 @@ export async function getAvailableNewsfeedIds(userId: string, feed: string, sinc
       {scheduleAt: {gt: since, lte: now}},
       {boost: {startsAt: {gt: since, lte: now}}},
     ]}]},
-    select: {id: true}, take: 50,
+    select: {id: true, user: {select: {id: true, name: true, avatar: true}}}, take: 50,
     orderBy: [{createdAt: 'desc'}, {id: 'desc'}],
   });
-  return rows.map(row => row.id);
+  return {ids: rows.map(row => row.id), authors: rows.map(row => ({postId: row.id, ...row.user}))};
+}
+export async function getAvailableNewsfeedIds(userId: string, feed: string, since: Date) {
+  return (await getAvailableNewsfeedSnapshot(userId, feed, since)).ids;
 }
 export async function getAvailableNewsfeedPosts(user: AuthUser, feed: string, ids: string[]) {
   // Recheck tab membership at consumption time, including deletes, blocks and unfollows.

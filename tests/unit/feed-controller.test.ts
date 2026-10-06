@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { response } from './fixtures';
 const deps = vi.hoisted(() => ({ recommend: vi.fn(), hydrate: vi.fn(), create: vi.fn(), gifters: vi.fn(), availableIds: vi.fn(), availablePosts: vi.fn() }));
 vi.mock('@/services/kwonrec', () => ({ getRecommendationResponse: deps.recommend }));
-vi.mock('@/services/v1/posts', () => ({ getNewsfeed: deps.hydrate, createPost: deps.create, getPostGifters: deps.gifters, getAvailableNewsfeedIds: deps.availableIds, getAvailableNewsfeedPosts: deps.availablePosts }));
+vi.mock('@/services/v1/posts', () => ({ getNewsfeed: deps.hydrate, createPost: deps.create, getPostGifters: deps.gifters, getAvailableNewsfeedSnapshot: deps.availableIds, getAvailableNewsfeedPosts: deps.availablePosts }));
 vi.mock('@/sseEmitter', () => ({ default: {} }));
 vi.mock('@/utils/helpers', () => ({ getReqInfo: vi.fn() }));
 import { availableNewsfeedController, availableNewsfeedStreamController, getNewsfeedController, createPostController, getPostGiftersController } from '@/controllers/v1/posts';
@@ -102,7 +102,7 @@ it.each(['', '../private', Array.from({length:51},(_,i)=>'p'+i).join(',')])('rej
 it('streams personalized bounded IDs periodically and releases timers on disconnect', async () => {
   vi.useFakeTimers();
   try {
-    deps.availableIds.mockResolvedValue(['p1']);
+    deps.availableIds.mockResolvedValue({ids:['p1'],authors:[{postId:'p1',id:'author',name:'Ada',avatar:null}]});
     const res=response();let close=()=>{};
     res.flushHeaders=vi.fn();res.write=vi.fn();res.on=vi.fn((_event,callback)=>{close=callback;});res.end=vi.fn();
     const since=new Date(Date.now()-1000).toISOString();

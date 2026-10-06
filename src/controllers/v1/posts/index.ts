@@ -34,7 +34,7 @@ import {
   createPostView,
   deletePost,
   getNewsfeed,
-  getAvailableNewsfeedIds,
+  getAvailableNewsfeedSnapshot,
   getAvailableNewsfeedPosts,
   getPublicPostPreview,
   getPostAnalytics,
@@ -1125,8 +1125,8 @@ export const availableNewsfeedStreamController = (req: Request, res: Response) =
     if (busy || closed || res.writableNeedDrain) return;
     busy = true;
     try {
-      const ids = await getAvailableNewsfeedIds(req.user!.id, feed, since);
-      if (!closed) res.write(`event: feed_available\ndata: ${JSON.stringify({feed, ids})}\n\n`);
+      const snapshot = await getAvailableNewsfeedSnapshot(req.user!.id, feed, since);
+      if (!closed) res.write(`event: feed_available\ndata: ${JSON.stringify({feed, ...snapshot})}\n\n`);
     } catch {if (!closed) res.write(': feed temporarily unavailable\n\n');}
     finally {busy = false;}
   };
