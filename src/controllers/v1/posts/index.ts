@@ -1134,7 +1134,7 @@ export const availableNewsfeedStreamController = (req: Request, res: Response) =
     } catch {if (!closed) res.write(': feed temporarily unavailable\n\n');}
     finally {busy = false;}
   };
-  const timer = setInterval(() => void tick(), 180000);
+  const timer = setInterval(() => void tick(), 60000);
   const heartbeat = setInterval(() => {if (!closed && !res.writableNeedDrain) res.write(': heartbeat\n\n');}, 15000);
   // Renew auth on reconnect; keep stream windows bounded.
   const lifetime = setTimeout(() => res.end(), 55 * 60000);

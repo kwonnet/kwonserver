@@ -844,8 +844,8 @@ deployed environment; unit counts alone are not a delivery/capacity benchmark.
 
 Authenticated home tabs (`foryou`, `following`, `friends`, `trending`, `latest`)
 expose `GET /v1/posts/feed/:feedType/available/stream?since=<ISO date>`.
-The stream checks every three minutes while the browser page is visible. For You
-waits three minutes before its first check; other tabs also perform an initial
+The stream checks every one minute while the browser page is visible. For You
+waits one minute before its first check; other tabs also perform an initial
 check. The stream sends a heartbeat at 15 seconds, and renews the connection after 55 minutes. The existing auth stream
 guard closes revoked sessions. Disconnects release timers; queries do not overlap
 and responses respect stream backpressure. No global broadcaster or worker-local
@@ -874,7 +874,7 @@ API replicas. `feed:availability:{userId}:lease` uses atomic `SET NX PX` with a
 15-second recovery lease. Only its owner calls the recommender; concurrent callers
 wait up to two seconds for the shared snapshot or defer their notification. A Lua
 compare-and-publish operation stores the raw ranked IDs for the remainder of the
-three-minute window and releases the lease. Ownership-token checks prevent expired
+one-minute window and releases the lease. Ownership-token checks prevent expired
 owners from overwriting a newer owner or deleting its lease. Ranking failures are
 cached as unavailable for the same window to avoid retry stampedes.
 
@@ -907,7 +907,7 @@ way to read older posts. Guest preview, profile feeds and search do not open thi
 additional authenticated stream.
 
 Operationally, allow long-lived unbuffered HTTP responses in the reverse proxy.
-Each visible home tab adds one stream and a bounded check per three minutes,
+Each visible home tab adds one stream and a bounded check per one minute,
 alongside the existing interaction stream. For You additionally calls the existing
 recommender; other tabs query the database. Hidden pages close this extra stream
 and reopen it when visible, carrying their latest delivered baseline. Monitor connection and

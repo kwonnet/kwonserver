@@ -52,13 +52,13 @@ it('coalesces simultaneous tabs and reuses the same ranked snapshot without shar
  expect(first.ids).toEqual(['two']);expect(second.ids).toEqual(['one']);expect(deps.recommend).toHaveBeenCalledTimes(1);
  await getAvailableNewsfeedSnapshot('ada','foryou',new Date());expect(deps.recommend).toHaveBeenCalledTimes(1);
 });
-it('refreshes after the shared three-minute window and does not restart inference on model failures',async()=>{
+it('refreshes after the shared one-minute window and does not restart inference on model failures',async()=>{
  vi.useFakeTimers();
  try {
   deps.history.mockResolvedValue([]);deps.findMany.mockResolvedValue([]);deps.recommend.mockRejectedValue(Error('model down'));
   expect(await getAvailableNewsfeedSnapshot('ada','foryou',new Date())).toMatchObject({degraded:true});
   await getAvailableNewsfeedSnapshot('ada','foryou',new Date());expect(deps.recommend).toHaveBeenCalledTimes(1);
-  await vi.advanceTimersByTimeAsync(180001);await getAvailableNewsfeedSnapshot('ada','foryou',new Date());expect(deps.recommend).toHaveBeenCalledTimes(2);
+  await vi.advanceTimersByTimeAsync(60001);await getAvailableNewsfeedSnapshot('ada','foryou',new Date());expect(deps.recommend).toHaveBeenCalledTimes(2);
  } finally {vi.useRealTimers();}
 });
 it('does not publish results after losing lease ownership',async()=>{

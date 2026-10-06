@@ -8377,7 +8377,7 @@ export async function rememberDeliveredRecommendations(userId: string, ids: stri
   } catch { /* Availability history cannot break the normal newsfeed. */ }
 }
 
-const AVAILABLE_RECOMMENDATION_WINDOW_MS = 180000;
+const AVAILABLE_RECOMMENDATION_WINDOW_MS = 60000;
 const publishAvailableRecommendationsScript = `
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
 redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3])
