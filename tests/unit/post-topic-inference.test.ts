@@ -1,4 +1,3 @@
-import {POST_TOPIC_MODEL_VERSION} from '@/cron/helpers';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 const deps = vi.hoisted(() => ({ post: { findFirst: vi.fn(), updateMany: vi.fn() }, classifier: vi.fn() }));
@@ -16,7 +15,7 @@ beforeEach(() => {
 it('classifies in the background and guards against stale edits/deletions when saving', async () => {
   await inferPostTopic('post');
   expect(deps.classifier).toHaveBeenCalledWith('Champions league match tonight');
-  expect(deps.post.updateMany).toHaveBeenCalledWith({ where: { id: 'post', content: 'Champions league match tonight', deletedAt: null, status: { in: ['PUBLISHED', 'SCHEDULED'] } }, data: { topic: 'sports', topicModel: POST_TOPIC_MODEL_VERSION } });
+  expect(deps.post.updateMany).toHaveBeenCalledWith({ where: { id: 'post', content: 'Champions league match tonight', deletedAt: null, status: { in: ['PUBLISHED', 'SCHEDULED'] } }, data: { topic: 'sports' } });
 });
 it('extracts visible Draft.js text without metadata or mentions', async () => {
   deps.post.findFirst.mockResolvedValue({ id: 'post', content: JSON.stringify({ blocks: [{ text: 'Champions league match @someone https://private.test/' }], entityMap: { 0: { data: { secret: 'not visible' } } } }) });

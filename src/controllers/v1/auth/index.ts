@@ -2,7 +2,7 @@ import {randomUUID} from "node:crypto";
 import {z} from "zod";
 import {authRequestMetadata} from "@/utils/auth-security";
 import { Request, Response } from "express";
-import { generateToken, getAuthTokenUser } from "@/utils";
+import { generateToken, getAuthTokenUser, getRefreshAuthTokenUser } from "@/utils";
 import { getAccountSettings, updateAccountPassword, createUser, loginUser, loginGoogleUser, startAuthSession, validateAuthSession, touchAuthSession, listAuthSessions, listLoginEvents, revokeAuthSession, sessionProvider } from "@/services/v1/auth";
 import type { LookupResult } from 'ip-location-api';
 import { lookup } from '@/utils/ipLocation';
@@ -136,7 +136,8 @@ export const refreshTokenController = async (req: Request, res: Response) => {
     if (!authToken)
       return res.status(401).send("Invalid auth token, please try again");
 
-    const jwtUser = getAuthTokenUser(authToken)
+    let jwtUser;
+    try {jwtUser = getRefreshAuthTokenUser(authToken);} catch {return res.status(401).send("Invalid auth token, please try again");}
 
     if(!jwtUser) return res.status(401).send("Invalid auth token, please try again");
    

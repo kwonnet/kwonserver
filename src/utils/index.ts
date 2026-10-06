@@ -535,3 +535,10 @@ export function extractId(input: string) {
 export function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+/** Expired access JWTs may refresh only a still-active tracked server session. */
+export function getRefreshAuthTokenUser(token: string) {
+  const user = getAuthTokenUser(token, true);
+  // Legacy tokens have no revocable server session and retain strict JWT expiry.
+  return user?.sessionId ? user : getAuthTokenUser(token);
+}

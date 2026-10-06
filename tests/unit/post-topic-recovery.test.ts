@@ -1,4 +1,3 @@
-import {POST_TOPIC_MODEL_VERSION} from '@/cron/helpers';
 import { beforeEach, expect, it, vi } from 'vitest';
 const deps = vi.hoisted(() => ({ findMany: vi.fn(), enqueue: vi.fn(), counts: vi.fn() }));
 vi.mock('@/db', () => ({ default: { post: { findMany: deps.findMany } } }));
@@ -10,7 +9,7 @@ it('rotates bounded pending pages, recovers missed enqueue, and resets after rea
   deps.findMany.mockResolvedValueOnce([{ id: 'a', content: 'content' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
   await run(); await run(); await run();
   expect(deps.enqueue).toHaveBeenCalledWith('a', 'content', 10);
-  expect(deps.findMany.mock.calls[0][0]).toMatchObject({ take: 50, where: { OR: [{topic: null}, {topicModel: null}, {topicModel: {not: POST_TOPIC_MODEL_VERSION}}], deletedAt: null } });
+  expect(deps.findMany.mock.calls[0][0]).toMatchObject({ take: 50, where: { topic: null, deletedAt: null } });
   expect(deps.findMany.mock.calls[1][0].where.id).toEqual({ gt: 'a' });
   expect(deps.findMany.mock.calls[2][0].where.id).toBeUndefined();
 });

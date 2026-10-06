@@ -610,14 +610,19 @@ independent relevance scoring (`multi_label: true`), top-label selection and 0.5
 minimum remain unchanged. Scores are not calibrated probabilities. The model was
 trained on English; assess non-English/Pidgin posts separately before claiming quality.
 
-Deploy migration `20261005190000_post_topic_model_version` before restarting the
-API/worker. It adds `Post.topicModel` and a sparse recovery index for this revision.
-The existing recovery job scans old/null model versions in batches of 50, preserves
-current labels during the backlog, and stamps successful processing with the new
-model version. Failure leaves the previous label/version intact for retry. Content
-hashes still prevent stale edits being overwritten; job IDs now include the model
-version so old failures cannot block the replacement classifier. Changing the model
-revision later should also refresh the recovery index predicate in a migration.
+Deploy migration `20261006100000_remove_post_topic_model` with the updated API and
+worker. It removes the obsolete per-post model-version column and its revision
+index, preserving existing `Post.topic` values and the existing null-topic recovery
+index. Drain/stop old API and worker instances before applying this drop-column
+migration; old Prisma clients still expect the removed column. Generate the updated
+Prisma client, apply migrations, then start the updated processes.
+
+Recovery now scans only unlabeled published/scheduled posts in batches of 50.
+Content edits still clear their topic through the existing database trigger;
+content hashes prevent stale inference from overwriting newer edits. Classifier
+model revision remains part of queue job IDs, without being stored on every Post.
+Model upgrades no longer automatically reclassify already labeled posts; an
+explicit reassessment/backfill can be scheduled when needed.
 
 Model loading remains lazy in the background worker. Existing deployment cache
 volume/settings are reused. The first download is approximately 643 MB; allow RAM
@@ -908,3 +913,21 @@ recommender; other tabs query the database. Hidden pages close this extra stream
 and reopen it when visible, carrying their latest delivered baseline. Monitor connection and
 query volume before substantially reducing this interval. No new environment
 variables or database migrations are required beyond the existing boost migration.
+
+### Session recovery after idle periods and across tabs
+
+NextAuth refreshes an expiring/expired API access token **before** checking session
+status. Refresh and status timeouts, network failures and 5xx errors retain the
+browser session rather than throwing from the JWT callback and clearing cookies.
+Confirmed 401/403 responses still invalidate the session. Permission middleware
+returns 503 for unexpected service/database failures and 401 for invalid or expired
+JWTs, so infrastructure failures cannot masquerade as confirmed revocation.
+
+The refresh endpoint verifies the JWT signature even after access-token expiry,
+and permits renewal only when it contains a still-active, unexpired, non-revoked
+tracked server session owned by that user. Legacy tokens without a tracked session
+retain strict access-JWT expiry. Expired access tokens remain invalid on all normal
+API endpoints. The tracked session's existing absolute 30-day expiry, revocation,
+account bans/deletion and password-change session invalidation remain enforced.
+Parallel tabs can refresh the same tracked session without creating new login
+records or revoking each other. Axios retries both 401 and 403 once after refreshing.

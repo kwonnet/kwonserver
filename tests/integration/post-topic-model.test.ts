@@ -11,23 +11,23 @@ const db = new PrismaClient(); let owner: string;
 const content = 'AI art is changing creativity. Machines can inspire ideas, but your human touch gives it meaning and emotion.';
 beforeAll(async () => {owner = (await db.user.create({data: {name: 'Topic fixture', username: 'topic-model-fixture', email: 'topic-model-fixture@test.invalid'}})).id;});
 afterAll(async () => {await db.post.deleteMany({where: {userId: owner}}); await db.user.delete({where: {id: owner}}); await postTopicQueue.obliterate({force: true}); await postTopicQueue.close(); await db.$disconnect();});
-it('requeues old model labels without clearing them and records the new model when classification succeeds', async () => {
- const post = await db.post.create({data: {userId: owner, type: 'CONTENT', kind: 'ROOT', content, topic: 'learning'}});
+it('recovers unclassified posts and saves their inferred topic', async () => {
+ const post = await db.post.create({data: {userId: owner, type: 'CONTENT', kind: 'ROOT', content, topic: null}});
  await run();
- expect(await db.post.findUnique({where: {id: post.id}})).toMatchObject({topic: 'learning', topicModel: null});
+ expect(await db.post.findUnique({where: {id: post.id}})).toMatchObject({topic: null});
  const versionHash = createHash('sha256').update(POST_TOPIC_MODEL_VERSION).update('\0').update(content).digest('hex');
  const job = await postTopicQueue.getJob(`topic-${post.id}-${versionHash}`);
  expect(job?.data).toEqual({id: post.id, contentHash: createHash('sha256').update(content).digest('hex')});
  classify.mockResolvedValue({labels: ['technology','learning'], scores: [0.998,0.982]});
  await inferPostTopic(post.id, job!.data.contentHash);
- expect(await db.post.findUnique({where: {id: post.id}})).toMatchObject({topic: 'technology', topicModel: POST_TOPIC_MODEL_VERSION});
+ expect(await db.post.findUnique({where: {id: post.id}})).toMatchObject({topic: 'technology'});
 });
 it('preserves an existing label if the new model fails and does not overwrite an edited post', async () => {
  const post = await db.post.create({data: {userId: owner, type: 'CONTENT', kind: 'ROOT', content, topic: 'learning'}});
  classify.mockRejectedValueOnce(new Error('Model unavailable'));
  await expect(inferPostTopic(post.id)).rejects.toThrow('Model unavailable');
- expect(await db.post.findUnique({where: {id: post.id}})).toMatchObject({topic: 'learning', topicModel: null});
+ expect(await db.post.findUnique({where: {id: post.id}})).toMatchObject({topic: 'learning'});
  classify.mockImplementationOnce(async () => {await db.post.update({where: {id: post.id}, data: {content: 'Edited tutorial text'}}); return {labels: ['technology'], scores: [0.99]};});
  await inferPostTopic(post.id);
- expect(await db.post.findUnique({where: {id: post.id}})).toMatchObject({content: 'Edited tutorial text', topic: null, topicModel: null});
+ expect(await db.post.findUnique({where: {id: post.id}})).toMatchObject({content: 'Edited tutorial text', topic: null});
 });

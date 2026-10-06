@@ -76,9 +76,9 @@ export const authMiddleware =
       next();
     } catch (error: any) {
       logger.error(error?.message);
-      return res
-        .status(403)
-        .send("Authorization failed, please logout & login to try again");
+      if (['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError', 'SyntaxError'].includes(error?.name))
+        return res.status(401).send("Invalid or expired auth token");
+      return res.status(503).send("Session verification temporarily unavailable");
     }
   };
 

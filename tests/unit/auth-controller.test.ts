@@ -3,7 +3,7 @@ import { response, user } from './fixtures';
 const deps = vi.hoisted(() => ({ create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn(), startSession: vi.fn(), validateSession: vi.fn(), touch: vi.fn(), provider: vi.fn(), revoke: vi.fn(), sessions: vi.fn(), events: vi.fn(), account: vi.fn(), password: vi.fn() }));
 vi.mock('@/services/v1/auth', () => ({ getAccountSettings: deps.account, updateAccountPassword: deps.password, createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google, startAuthSession: deps.startSession, validateAuthSession: deps.validateSession, touchAuthSession: deps.touch, sessionProvider: deps.provider, revokeAuthSession: deps.revoke, listAuthSessions: deps.sessions, listLoginEvents: deps.events }));
 vi.mock('@/services/v1/utils', () => ({ getAuthUser: deps.getUser }));
-vi.mock('@/utils', () => ({ generateToken: deps.generate, getAuthTokenUser: deps.decode }));
+vi.mock('@/utils', () => ({ generateToken: deps.generate, getAuthTokenUser: deps.decode, getRefreshAuthTokenUser: deps.decode }));
 vi.mock('@/utils/ipLocation', () => ({ lookup: deps.lookup }));
 import { accountSettingsController, passwordUpdateController, signInController, signUpController, refreshTokenController, getMeController, logoutController, googleSignInController, authSessionsController, loginEventsController, revokeAuthSessionController, guardAuthStream } from '@/controllers/v1/auth';
 const body = { name: 'Ada', email: 'ADA@example.test', password: 'password123' };
@@ -74,7 +74,7 @@ it('refreshes a valid token from current account data', async () => {
 it('handles decoder exceptions without issuing tokens', async () => {
   deps.decode.mockImplementation(() => { throw new Error('invalid signature'); }); const res = response();
   await refreshTokenController({ body: { token: 'bad' } } as any, res);
-  expect(res.statusCode).toBe(500); expect(deps.generate).not.toHaveBeenCalled();
+  expect(res.statusCode).toBe(401); expect(deps.generate).not.toHaveBeenCalled();
 });
 
 
@@ -225,4 +225,9 @@ it('validates password updates and binds the active session to the authenticated
  deps.password.mockResolvedValue({status: 200, data: {updated: true}}); await passwordUpdateController({user: {id: 'owner', sessionId: 'current'}, body: {currentPassword: 'old-password', newPassword: 'new-password'}} as any, res); expect(deps.password).toHaveBeenCalledWith('owner', 'current', {currentPassword: 'old-password', newPassword: 'new-password'});
  deps.password.mockResolvedValue({status: 403, data: 'Incorrect'}); await passwordUpdateController({user: {id: 'owner'}, body: {newPassword: 'new-password'}} as any, res); expect(res.statusCode).toBe(403);
  deps.password.mockRejectedValue(new Error('private')); await passwordUpdateController({user: {id: 'owner'}, body: {newPassword: 'new-password'}} as any, res); expect(res.statusCode).toBe(500);
+});
+
+it('returns a service failure rather than revoking identity when refresh session verification fails',async()=>{
+ deps.validateSession.mockRejectedValue(new Error('database down'));
+ const res=response();await refreshTokenController({body:{token:'signed'}} as any,res);expect(res.statusCode).toBe(500);expect(deps.generate).not.toHaveBeenCalled();
 });

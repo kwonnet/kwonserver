@@ -99,3 +99,12 @@ it('an expired signed token can identify a logout target but cannot authenticate
   expect(u.getAuthTokenUser(token, true)).toEqual(viewer);
   expect(() => u.getAuthTokenUser(token.slice(0, -1) + (token.endsWith('a') ? 'b' : 'a'), true)).toThrow();
 });
+
+it('refresh accepts expired signed tracked identities but never expired legacy or forged tokens',()=>{
+ const tracked={id:'tracked',sessionId:'tracked-session'};
+ const expired=u.generateToken(tracked,{expiresIn:-1});expect(u.getRefreshAuthTokenUser(expired)).toEqual(tracked);
+ expect(()=>u.getAuthTokenUser(expired)).toThrow('jwt expired');
+ expect(()=>u.getRefreshAuthTokenUser(u.generateToken({id:'legacy'},{expiresIn:-1}))).toThrow('jwt expired');
+ expect(u.getRefreshAuthTokenUser(u.generateToken({id:'legacy'},{expiresIn:'1h'}))).toEqual({id:'legacy'});
+ expect(()=>u.getRefreshAuthTokenUser(expired+'tampered')).toThrow();
+});

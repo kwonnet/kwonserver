@@ -4,6 +4,9 @@ const verify = vi.hoisted(() => vi.fn());
 vi.mock('google-auth-library', () => ({OAuth2Client: class {verifyIdToken = verify;}}));
 vi.mock('@/utils/webpush', () => ({default: {}}));
 import {createUser, loginUser, loginGoogleUser, startAuthSession, validateAuthSession, touchAuthSession, revokeAuthSession, listAuthSessions, listLoginEvents, cleanupAuthHistory} from '@/services/v1/auth';
+import {refreshTokenController} from '@/controllers/v1/auth';
+import {generateToken,getAuthTokenUser} from '@/utils';
+import {response} from '../unit/fixtures';
 const db = new PrismaClient();
 const prefix = 'login-security-fixture-';
 let owner = '', googleOnly = '', sid = '';
@@ -87,4 +90,18 @@ it('persists inferred country and returns it for new password and Google registr
 
  const unknown = await createUser({name: 'Unknown Country', email: prefix + 'country-missing@example.invalid', password: 'test-only-password'}, null);
  expect(unknown.status).toBe(200); expect(await db.user.findUnique({where: {id: (unknown.data as any).id}})).toMatchObject({countryId: null});
+});
+
+it('renews expired access tokens only for live tracked sessions and never resurrects revoked or expired sessions',async()=>{
+ const sessionId=await startAuthSession(owner,'PASSWORD',metadata);
+ const token=generateToken({id:owner,sessionId},{expiresIn:-1});
+ expect(()=>getAuthTokenUser(token)).toThrow('jwt expired');
+ const res=response();await refreshTokenController({body:{token}} as any,res);
+ expect(res.statusCode).toBe(200);expect(res.body.user.sessionId).toBe(sessionId);expect(getAuthTokenUser(res.body.accessToken)).toMatchObject({id:owner,sessionId});
+ await revokeAuthSession(owner,sessionId);const revoked=response();await refreshTokenController({body:{token}} as any,revoked);expect(revoked.statusCode).toBe(401);
+ const expiredSid=await startAuthSession(owner,'PASSWORD',metadata);await db.userSession.update({where:{id:expiredSid},data:{expiresAt:new Date(0)}});
+ const ended=response();await refreshTokenController({body:{token:generateToken({id:owner,sessionId:expiredSid},{expiresIn:-1})}} as any,ended);expect(ended.statusCode).toBe(401);
+ for(const bad of [generateToken({id:owner},{expiresIn:-1}),token+'tampered']){
+  const invalid=response();await refreshTokenController({body:{token:bad}} as any,invalid);expect(invalid.statusCode).toBe(401);
+ }
 });

@@ -49,7 +49,7 @@ it.each(['verify', 'decrypt', 'user'])('fails closed on %s exceptions', async ke
   deps[key as 'verify' | 'decrypt' | 'user'].mockImplementation(() => { throw new Error('invalid'); });
   const res = response(); const next = vi.fn();
   await authMiddleware({ checkPermission: true })({} as any, res, next);
-  expect(res.statusCode).toBe(403); expect(next).not.toHaveBeenCalled();
+  expect(res.statusCode).toBe(503); expect(next).not.toHaveBeenCalled();
 });
 it.each([[true, true, 400], [true, false, 200], [false, true, 200]])('bot=%s required=%s gives %s', async (bot, required, status) => {
   deps.info.mockResolvedValue({ isBot: bot }); const res = response(); const next = vi.fn();
@@ -79,4 +79,13 @@ it('rejects revoked sessions and keeps valid session IDs when hydrating permissi
   deps.user.mockResolvedValue({status: 200, data: {id: 'u', email: 'private@example.test'}});
   const req: any = {}; res = response(); await authMiddleware({checkPermission: true})(req, res, next);
   expect(req.user.sessionId).toBe('sid'); expect(req.user.email).toBeUndefined(); expect(next).toHaveBeenCalledOnce();
+});
+
+it.each(['TokenExpiredError','JsonWebTokenError','NotBeforeError','SyntaxError'])('rejects %s as authentication failure rather than a service outage',async name=>{
+ deps.verify.mockImplementation(()=>{throw Object.assign(new Error('invalid token'),{name});});
+ const res=response();const next=vi.fn();await authMiddleware()({} as any,res,next);expect(res.statusCode).toBe(401);expect(next).not.toHaveBeenCalled();
+});
+it('does not classify database session-validation outages as revocation',async()=>{
+ deps.session.mockRejectedValue(new Error('database unavailable'));const res=response();const next=vi.fn();
+ await authMiddleware()({} as any,res,next);expect(res.statusCode).toBe(503);expect(next).not.toHaveBeenCalled();
 });

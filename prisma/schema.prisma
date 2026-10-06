@@ -463,7 +463,6 @@ enum StoryType {
 
 model Post {
   boost PostBoost?
-  topicModel String?
   scheduledEffectsPending Boolean @default(false)
   id               String        @id @default(cuid())
   content          String?
