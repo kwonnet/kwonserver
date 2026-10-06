@@ -931,3 +931,22 @@ API endpoints. The tracked session's existing absolute 30-day expiry, revocation
 account bans/deletion and password-change session invalidation remain enforced.
 Parallel tabs can refresh the same tracked session without creating new login
 records or revoking each other. Axios retries both 401 and 403 once after refreshing.
+
+### Game join and timer fault handling
+
+The `player_joined` Socket.IO event requires `{roomId, mode}` where mode is SINGLE
+or MULTI (case-insensitive). Bare room strings, absent/unknown modes and invalid
+room IDs receive `INVALID_JOIN` before any room mutation. Optional acknowledgement
+callbacks are checked before calling them. Lookup/join failures use
+`JOIN_UNAVAILABLE`; delayed initialization failures emit `GAME_ERROR_NOTIFY` for
+that socket. Delayed initialization is cancelled on disconnect.
+
+Score mode comes from the authoritative Redis room for all scoring branches,
+including older answer records without a mode. Streak rewards validate the mode
+before wallet work and log reward failures rather than silently swallowing them.
+Existing transactional/idempotent reward logic remains in use. Async round
+transitions are awaited; each room countdown prevents overlapping ticks and owns
+its errors, releasing its timer and notifying the affected room if it cannot
+continue. The global exception diagnostics now retain stacks and no longer print
+an inaccurate “shutting down” message when that handler does not terminate the
+process. No migration or new configuration is required.

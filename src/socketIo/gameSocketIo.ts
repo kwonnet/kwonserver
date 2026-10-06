@@ -62,7 +62,18 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           code?: string;
         }) => void
       ) => {
-        console.log("Player joined ", args )
+        let acknowledged = false;
+        const respond = (payload: {isError: boolean; message: string; code?: string}) => {
+          if (acknowledged) return;
+          acknowledged = true;
+          if (typeof ackCallback === 'function') ackCallback(payload);
+          else if (payload.isError) socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, payload.message);
+        };
+        try {
+        if (!args || typeof args !== 'object' || typeof args.roomId !== 'string' || !/^[a-zA-Z0-9_-]{1,150}$/.test(args.roomId) || typeof args.mode !== 'string' || !['SINGLE','MULTI'].includes(args.mode.toUpperCase())) {
+          respond({isError: true, message: 'Provide a valid room and game mode. Please reopen the game room.', code: 'INVALID_JOIN'});
+          return;
+        }
         // get room details
         // const roomId = args.roomId
         const shortPlayerId = socket.data.user.id.slice(-10)
@@ -73,7 +84,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         // check if the room exists
         const room = await checkGameRoom(args.roomId);
         if (!room) {
-          return ackCallback({
+          return respond({
             isError: true,
             message: "Room does not exist",
             code: "ER-1",
@@ -99,7 +110,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           mode
         });
         if (!result?.data) {
-          return ackCallback({
+          return respond({
             isError: true,
             message: result?.message,
             code: "ER-2",
@@ -117,7 +128,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         // join the player id to a room to receive personal messages
         socket.join(socket.data.user.id);
         // acknowledge
-        ackCallback({ isError: false, message: "User joined room" });
+        respond({ isError: false, message: "User joined room" });
         // count players
         const roomArr = roomId.split("_"); //roomId = mode_roomId or mode_roomId_UID
         const parentRoomId = roomArr[0]
@@ -128,7 +139,11 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         // update room participants
         io.emit(GameEventEnum.GAME_ROOM_PARTICIPANTS, { roomId: parentRoomId, count: totalParticipants });
         // emit room data
+        const cancelInitialization = () => clearTimeout(timeout);
         const timeout = setTimeout(async () => {
+          socket.off('disconnect', cancelInitialization);
+          if (!socket.connected) return;
+          try {
           //  emit player wallet and game energy
           socket.emit(GameEventEnum.GAME_PLAYER_DATA, moneyJson(result.data) );
           // emit room info
@@ -152,7 +167,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
               roomId,
               mode,
               status: GameStatusEnum.CHAT });
-            gameChatTime(roomId, io, true);
+            await gameChatTime(roomId, io, true);
           }
           // emitting a welcome message to a new player
           socket.emit(
@@ -186,10 +201,20 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         const countPlayers = await getCountGamePlayers(room.catId, mode)
         io.to(roomId).emit(GameEventEnum.GAME_TOTAL_PLAYERS, countPlayers)
           // broadcasting to the room the total number of participants
-          notifyGameRoomPlayers({roomId, totalPlayers, mode, io} )
-          clearTimeout(timeout)
+          await notifyGameRoomPlayers({roomId, totalPlayers, mode, io} )
+          } catch (error) {
+            logger.error({event: 'game_join_initialization_failed', roomId, error: error instanceof Error ? error.message : 'Unknown failure'});
+            socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, 'Unable to initialize this game room. Please rejoin.');
+          }
         }, 500);
+        socket.once('disconnect', cancelInitialization);
 
+        } catch (error) {
+          logger.error({event: 'game_join_failed', error: error instanceof Error ? error.message : 'Unknown failure'});
+          const alreadyAcknowledged = acknowledged;
+          respond({isError: true, message: 'Unable to join this game room. Please retry.', code: 'JOIN_UNAVAILABLE'});
+          if (alreadyAcknowledged) socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, 'Unable to join this game room. Please retry.');
+        }
       }
     );
     // Paid messages are stored durably and replayed from Redis; IDs deduplicate retries.

@@ -424,7 +424,7 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
     const totalAnswers = arrAnswers.length;
 
     // delete game question & user answers
-    deleteGameRoomQuestionAndAnswers(room.roomId);
+    await deleteGameRoomQuestionAndAnswers(room.roomId);
 
     // calculate score
     return arrAnswers
@@ -446,7 +446,7 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
           playerId: item.playerId,
           answer: calc.answer,
           timer: item.timer,
-          mode: item.mode
+          mode: room.mode
         };
       })
       .sort((a, b) => b.score - a.score);
@@ -460,7 +460,7 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
   const totalAnswers = answers.length;
 
   // delete game question & user answers
-  deleteGameRoomQuestionAndAnswers(room.roomId);
+  await deleteGameRoomQuestionAndAnswers(room.roomId);
 
   if (gameType === GameType.ACRONYM) {
     const roomAnswers = answers as AcronymGameAnswer[];
@@ -480,7 +480,7 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
           playerId: item.playerId,
           answer: item.answer,
           timer: item.timer,
-          mode: item.mode
+          mode: room.mode
         };
       })
       .sort((a, b) => b.score - a.score);
@@ -502,6 +502,7 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
         : 0;
       return {
         ...item,
+        mode: room.mode,
         score: idx === 0 && score > 0 ? score + 10 : score,
       };
     })
@@ -1017,6 +1018,10 @@ async function updateWinningStreak(
   io: GameIoNamespace
 ): Promise<void> {
   try {
+    if (typeof mode !== 'string' || !['SINGLE', 'MULTI'].includes(mode.toUpperCase())) {
+      logger.error({event: 'game_streak_invalid_mode', roomId});
+      return;
+    }
     const streakKey = `room:${roomId}:streak`;
     // Get the current leader and their streak
     const currentLeader = await getRedisHashKey<{
@@ -1126,7 +1131,7 @@ async function updateWinningStreak(
       // Set the new leader and reset their streak to 1
       await redisClient.hSet(streakKey, { playerId, catId, streak: 1 });
     }
-  } catch (error) {}
+  } catch (error) {logger.error({event: 'game_streak_reward_failed', roomId, error: error instanceof Error ? error.message : 'Unknown failure'});}
 }
 
 async function resetRoomStreak(roomId: string): Promise<void> {
@@ -1180,6 +1185,7 @@ async function updateGamePlayersScoresDb(data: ThemedGameScoreStat[]) {
 
 export const updateGamePlayersScores = async (scores: ThemedGameScore[]) => {
   // get utc month & date to track player score by month, year and overall
+  if (!scores.length) return;
   const mode = getGameMode(scores[0].mode)
   const stat = getCurrentDataInfo();
   const persistData: ThemedGameScoreStat[] = scores.map((item) => ({
@@ -1346,9 +1352,9 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
   console.log("checkGameNumPlayers totalPlayers ", totalPlayers, " room ", room);
   if (totalPlayers === 0) return;
   if (totalPlayers < 2 && room.mode === GameMode.MULTI) {
-    notifyGameRoomPlayers({roomId: room.roomId, mode: room.mode, totalPlayers, io});
-    updateGameRoom({ ...room, status: GameStatusEnum.CHAT });
-    gameChatTime(room.roomId, io);
+    await notifyGameRoomPlayers({roomId: room.roomId, mode: room.mode, totalPlayers, io});
+    await updateGameRoom({ ...room, status: GameStatusEnum.CHAT });
+    await gameChatTime(room.roomId, io);
     return;
   }
   // Persistent quiz inventory; existing local word/luck generators are unchanged.
@@ -1369,7 +1375,7 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
       "Swen says, you can chat now"
     );
     await updateGameRoom({ ...room, status: GameStatusEnum.CHAT });
-    gameChatTime(room.roomId, io);
+    await gameChatTime(room.roomId, io);
     return;
   }
   //   store in redis based on the game room
@@ -1429,6 +1435,11 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
 export const getGameResult = async (roomId: string, io: GameIoNamespace) => {
   const room = await getGameRoom(roomId);
   if (!room) return;
+  if (!['SINGLE','MULTI'].includes(room.mode)) {
+    logger.error({event: 'game_room_invalid_mode', roomId});
+    io.to(roomId).emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This room has invalid game settings. Please rejoin.');
+    return;
+  }
   // // get all the game answers for a particular room when answering is done
   // calculate players points
   const gameRoomScore = await calculateGameRoomPoints(room);
@@ -1438,19 +1449,19 @@ export const getGameResult = async (roomId: string, io: GameIoNamespace) => {
       GameEventEnum.MESSAGE,
       composeMessage({ content: "Please don't forget to always play!" })
     );
-    resetRoomStreak(room.roomId);
+    await resetRoomStreak(room.roomId);
   }
   // check if gamePoints is not empty
   if (gameRoomScore.length > 0) {
     // update game room streak and game achievement or set game room streak
     const item = gameRoomScore[0];
     if(item.score > 0){
-      updateWinningStreak(item, io)
+      await updateWinningStreak({...item, mode: room.mode}, io)
     }else{
-      resetRoomStreak(item.roomId);
+      await resetRoomStreak(item.roomId);
     } 
     // update players game energy
-    updatePlayersGameEnergy(gameRoomScore, io);
+    await updatePlayersGameEnergy(gameRoomScore, io);
     //   emit event to client
     io.to(roomId).emit(GameEventEnum.GAME_ROOM_SCORE, gameRoomScore);
     // update game points
@@ -1460,10 +1471,10 @@ export const getGameResult = async (roomId: string, io: GameIoNamespace) => {
     io.to(roomId).emit(GameEventEnum.GAME_ROOM_PLAYERS, players);
   } else {
     // reset game room streak
-    resetRoomStreak(room.roomId);
+    await resetRoomStreak(room.roomId);
   }
   // chat again
-  gameChatTime(roomId, io, true);
+  await gameChatTime(roomId, io, true);
   // if(room.mode === GameMode.MULTI){
    
   // }
@@ -1487,11 +1498,15 @@ export const gamePlayTime = async (
     message: "Swen says, it's play time!",
     question,
   });
-  const interval = setInterval(async () => {
+  let ticking = false;
+  const interval = setInterval(() => {
+    if (ticking) return;
+    ticking = true;
+    void (async () => {
     --countdown;
     const isExists = await isGameRoomExists(roomId);
     if (!isExists) return clearInterval(interval);
-    updateGameRoom({
+    await updateGameRoom({
       ...room,
       status,
       roomId,
@@ -1509,7 +1524,7 @@ export const gamePlayTime = async (
           roomId,
           catId: room.catId,
         });
-        gameVoteTime({ ...room, status: GameStatusEnum.VOTE }, io);
+        await gameVoteTime({ ...room, status: GameStatusEnum.VOTE }, io);
       } else {
         await updateGameRoom({
           ...room,
@@ -1517,9 +1532,14 @@ export const gamePlayTime = async (
           roomId,
           catId: room.catId,
         });
-        getGameResult(roomId, io);
+        await getGameResult(roomId, io);
       }
     }
+    })().catch(error => {
+      clearInterval(interval);
+      logger.error({event: 'game_room_timer_failed', roomId: room.roomId, error: error instanceof Error ? error.message : 'Unknown failure'});
+      io.to(room.roomId).emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This round could not continue. Please rejoin the room.');
+    }).finally(() => {ticking = false;});
   }, 1000);
 };
 
@@ -1538,7 +1558,11 @@ export const gameChatTime = async (
     io.to(roomId).emit(GameEventEnum.NOTIFY_MESSAGE, isSolo ? "Get ready!" : "You can chat now!");
   }
   // set interval
-  const interval = setInterval(async () => {
+  let ticking = false;
+  const interval = setInterval(() => {
+    if (ticking) return;
+    ticking = true;
+    void (async () => {
     --countdown;
     const isExists = await isGameRoomExists(roomId);
     if (!isExists) return clearInterval(interval);
@@ -1556,8 +1580,13 @@ export const gameChatTime = async (
       clearInterval(interval);
       // delete any previous game question & user answers
       await deleteGameRoomQuestionAndAnswers(room.roomId);
-      checkGameNumPlayers(room, io);
+      await checkGameNumPlayers(room, io);
     }
+    })().catch(error => {
+      clearInterval(interval);
+      logger.error({event: 'game_room_timer_failed', roomId: room.roomId, error: error instanceof Error ? error.message : 'Unknown failure'});
+      io.to(room.roomId).emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This round could not continue. Please rejoin the room.');
+    }).finally(() => {ticking = false;});
   }, 1000);
 };
 
@@ -1566,11 +1595,11 @@ const gameVoteTime = async (room: TempGameRoom, io: GameIoNamespace) => {
   // get all the game answers for a particular room when answering is done
   const answers = await retrieveGameRoomAnswers<AcronymGameAnswer>(room.roomId);
   if (answers.length === 0) {
-    updateGameRoom({
+    await updateGameRoom({
       ...room,
       status: GameStatusEnum.CHAT,
     });
-    getGameResult(room.roomId, io);
+    await getGameResult(room.roomId, io);
     return;
   }
   io.to(room.roomId).emit(
@@ -1585,7 +1614,11 @@ const gameVoteTime = async (room: TempGameRoom, io: GameIoNamespace) => {
   const roomAnswers = answers.sort((a, b) => b.timer - a.timer);
   io.to(room.roomId).emit(GameEventEnum.GAME_ROOM_ANSWERS, roomAnswers);
   // interval
-  const interval = setInterval(async () => {
+  let ticking = false;
+  const interval = setInterval(() => {
+    if (ticking) return;
+    ticking = true;
+    void (async () => {
     countdown--;
     // emit to the client side
     io.to(room.roomId).emit(GameEventEnum.GAME_ROOM_STATE, {
@@ -1603,8 +1636,13 @@ const gameVoteTime = async (room: TempGameRoom, io: GameIoNamespace) => {
         ...room,
         status: GameStatusEnum.CHAT,
       });
-      getGameResult(room.roomId, io);
+      await getGameResult(room.roomId, io);
     }
+    })().catch(error => {
+      clearInterval(interval);
+      logger.error({event: 'game_room_timer_failed', roomId: room.roomId, error: error instanceof Error ? error.message : 'Unknown failure'});
+      io.to(room.roomId).emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This round could not continue. Please rejoin the room.');
+    }).finally(() => {ticking = false;});
   }, 1000);
 };
 
