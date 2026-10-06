@@ -95,7 +95,8 @@ it('coalesces active tabs on real Redis while preserving independent baselines a
  ranking.mockClear();ranking.mockResolvedValue({data:{recommendations:[{id:one.id},{id:two.id}]}});
  const [first,second]=await Promise.all([getAvailableNewsfeedSnapshot(person,'foryou',new Date(),[one.id]),getAvailableNewsfeedSnapshot(person,'foryou',new Date(),[two.id])]);
  expect(ranking).toHaveBeenCalledTimes(1);expect(first.ids).toEqual([two.id]);expect(second.ids).toEqual([one.id]);
- expect(await redis.pTTL(`feed:availability:{${person}}:snapshot`)).toBeGreaterThan(170000);
+ const remaining=await redis.pTTL(`feed:availability:{${person}}:snapshot`);
+ expect(remaining).toBeGreaterThan(50000);expect(remaining).toBeLessThanOrEqual(60000);
  await db.post.update({where:{id:one.id},data:{isHidden:true}});
  expect((await getAvailableNewsfeedSnapshot(person,'foryou',new Date())).ids).toEqual([two.id]);expect(ranking).toHaveBeenCalledTimes(1);
 });
