@@ -3,6 +3,7 @@ import { getPublicUser } from "../utils";
 import { IOneTimePreKey } from "@/db/models/DeviceModel";
 import { IMessage } from "@/db/models/MessageModel";
 import { ConvoKind } from "@/types";
+import {logServiceError} from '@/logger/events';
 
 export const createConversation = async (body: {
   senderId: string;
@@ -42,6 +43,8 @@ export const createConversation = async (body: {
     });
     return { data: result.toJSON(), status: 201 };
   } catch (error) {
+    logServiceError("v1/conversations/index", "createConversation", error);
+
     return { data: "Error initiating conversation ", status: 500 };
   }
 };
@@ -82,6 +85,8 @@ export const registerUserChatDevice = async (body: {
 
     return { data: null, status: 201 };
   } catch (error) {
+    logServiceError("v1/conversations/index", "registerUserChatDevice", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -125,6 +130,8 @@ export const getUserChatDevices = async (userId: string) => {
 
     return { data: outputs, status: 200 };
   } catch (error) {
+    logServiceError("v1/conversations/index", "getUserChatDevices", error);
+
     return {
       data: "Error occurred trying to get devices, please try again",
       status: 500,
@@ -271,7 +278,9 @@ export const getUserConversations = async (args: {
 
     return { data: conversations, status: 200 };
   } catch (error) {
-    console.log(error);
+    logServiceError("v1/conversations/index", "getUserConversations", error);
+
+
     return {
       data: "Error occurred trying to user chat conversations, please try again",
       status: 500,
@@ -302,6 +311,8 @@ const composeConvoMessages = async (
 
     return messages.map((m) => m.toJSON());
   } catch (error) {
+    logServiceError("v1/conversations/index", "composeConvoMessages", error);
+
     throw error;
   }
 };
@@ -416,6 +427,8 @@ export const getUserAndRecipientMessages = async (
       status: 200,
     };
   } catch (error) {
+    logServiceError("v1/conversations/index", "getUserAndRecipientMessages", error);
+
     return {
       data: "Error occurred trying to user chat conversations, please try again",
       status: 500,
@@ -457,6 +470,8 @@ export const getConvoMessages = async (
 
     return { data: { messages: result, nextCursor }, status: 200 };
   } catch (error) {
+    logServiceError("v1/conversations/index", "getConvoMessages", error);
+
     return {
       data: "Error occurred trying to get conversation messages, please try again",
       status: 500,
@@ -479,6 +494,8 @@ export const revokeUserChatDevice = async ({
 
     return { data: null, status: 200 };
   } catch (error) {
+    logServiceError("v1/conversations/index", "revokeUserChatDevice", error);
+
     return {
       data: "Error occurred trying to revoke device, please try again",
       status: 500,
@@ -526,7 +543,9 @@ export const updateUserConversations = async (args: {
     await MessageModel.updateMany(filter, query);
     return { data: args, status: 200 };
   } catch (error) {
-    console.log(error);
+    logServiceError("v1/conversations/index", "updateUserConversations", error);
+
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };

@@ -2,6 +2,7 @@ import { Job, UnrecoverableError } from 'bullmq';
 import type { QuestionGenerator } from './generator';
 import type { QuestionInventoryService, GenerationJob } from './service';
 import logger from '@/logger';
+import {logServiceError} from '@/logger/events';
 export function generationProcessor(inventory: QuestionInventoryService, generator: QuestionGenerator) {
   return async (job: Job<GenerationJob>) => {
     const start = Date.now();
@@ -15,7 +16,9 @@ export function generationProcessor(inventory: QuestionInventoryService, generat
         const demand = await inventory.demand(categoryId);
         if (demand.peakRoomConsumption > 0) target = Math.min(inventory.config.maxTarget,
           Math.max(target, inventory.calculateTargetInventory(current, demand.peakRoomConsumption)));
-      } catch { logger.warn({ categoryId }, 'Quiz worker demand metrics unavailable'); }
+      } catch (serviceError) {
+    logServiceError("questionInventory/processor", "generationProcessor", serviceError);
+ logger.warn({ categoryId }, 'Quiz worker demand metrics unavailable'); }
       if (current >= target) return;
       const count = Math.min(inventory.config.batchSize, target - current);
       const generationStart = Date.now();

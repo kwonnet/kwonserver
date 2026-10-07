@@ -4,6 +4,7 @@ import type { Queue } from 'bullmq';
 import { createHash } from 'crypto';
 import { inventoryConfig, InventoryConfig } from './config';
 import { validateBatch } from './validation';
+import {logServiceError} from '@/logger/events';
 
 export class InventoryEmptyError extends Error {
   readonly code = 'QUIZ_INVENTORY_EMPTY';
@@ -62,7 +63,9 @@ export class QuestionInventoryService {
     const current = await this.count(categoryId);
     let peak = roomSeenCount;
     try { peak = Math.max(peak, (await this.demand(categoryId)).peakRoomConsumption); }
-    catch { this.log.warn({ categoryId }, 'Quiz demand metrics unavailable'); }
+    catch (serviceError) {
+    logServiceError("questionInventory/service", "inspect", serviceError, true);
+ this.log.warn({ categoryId }, 'Quiz demand metrics unavailable'); }
     const target = this.calculateTargetInventory(current, peak);
     const state = current === 0 ? 'EMPTY' : current <= this.config.critical ? 'CRITICAL' : current <= this.config.low ? 'LOW' : 'HEALTHY';
     const job = await this.queue.getJob(generationJobId(categoryId));
@@ -76,7 +79,9 @@ export class QuestionInventoryService {
     const current = await this.count(categoryId);
     let peak = roomSeenCount;
     try { peak = Math.max(peak, (await this.demand(categoryId)).peakRoomConsumption); }
-    catch { this.log.warn({ categoryId }, 'Quiz demand metrics unavailable'); }
+    catch (serviceError) {
+    logServiceError("questionInventory/service", "ensureInventory", serviceError, true);
+ this.log.warn({ categoryId }, 'Quiz demand metrics unavailable'); }
     const target = this.calculateTargetInventory(current, peak);
     const eligible = Math.max(0, current - peak);
     if (current >= target || (current > this.config.low && eligible > this.config.low)) return;
@@ -92,7 +97,9 @@ export class QuestionInventoryService {
       }
       if (Date.now() - (existing.finishedOn ?? Date.now()) < this.config.cooldownSeconds * 1000) return existing;
       // Concurrent removers may race; BullMQ's job ID still makes add atomic.
-      try { await existing.remove(); } catch { return existing; }
+      try { await existing.remove(); } catch (serviceError) {
+    logServiceError("questionInventory/service", "ensureInventory", serviceError, true);
+ return existing; }
     }
     return this.queue.add('replenish', { categoryId, target }, {
       jobId: id, priority: current === 0 ? 1 : eligible <= this.config.critical ? 2 : 5,
@@ -122,7 +129,9 @@ export class QuestionInventoryService {
     await this.category(categoryId);
     // Replenishment failure must not take existing PostgreSQL inventory offline.
     try { await this.ensureInventory(categoryId, excludedIds.length); }
-    catch { this.log.warn({ categoryId }, 'Quiz replenishment unavailable; using stored questions'); }
+    catch (serviceError) {
+    logServiceError("questionInventory/service", "getCandidates", serviceError, true);
+ this.log.warn({ categoryId }, 'Quiz replenishment unavailable; using stored questions'); }
     try {
       if (!await this.redis.exists(poolKey(categoryId)) || !await this.redis.exists(poolKey(categoryId) + ':ready')) await this.rebuildCategoryInventory(categoryId);
       const ids = await this.redis.srandmember(poolKey(categoryId), 40);
@@ -131,7 +140,9 @@ export class QuestionInventoryService {
         const rows = await this.db.quizQuestion.findMany({ where: { categoryId, id: { in: allowed } } });
         if (rows.length) return rows;
       }
-    } catch { this.log.warn({ categoryId }, 'Quiz cache unavailable; reading PostgreSQL'); }
+    } catch (serviceError) {
+    logServiceError("questionInventory/service", "getCandidates", serviceError, true);
+ this.log.warn({ categoryId }, 'Quiz cache unavailable; reading PostgreSQL'); }
     const where = { categoryId, id: { notIn: excludedIds } };
     const eligible = await this.db.quizQuestion.count({ where });
     if (!eligible) {
@@ -153,7 +164,9 @@ export class QuestionInventoryService {
       try {
         await this.redis.sadd(poolKey(categoryId), ...inserted.map(q => q.id));
         await this.redis.expire(poolKey(categoryId), this.config.cacheSeconds);
-      } catch { this.log.warn({ categoryId }, 'Quiz questions saved; cache will rebuild on demand'); }
+      } catch (serviceError) {
+    logServiceError("questionInventory/service", "insertBatch", serviceError, true);
+ this.log.warn({ categoryId }, 'Quiz questions saved; cache will rebuild on demand'); }
     }
     return { generatedCount: batch.length, invalidCount,
       duplicateCount: duplicateCount + valid.length - inserted.length, insertedCount: inserted.length };

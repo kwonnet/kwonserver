@@ -15,6 +15,7 @@ import {
 import { flwAPI } from "@/utils/flutterwave";
 import { TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum } from "@prisma/client";
 import axios from "axios";
+import {logServiceError} from '@/logger/events';
 
 const flwAxiosAPI = axios.create({
   baseURL: "https://api.flutterwave.com/v3",
@@ -36,6 +37,8 @@ export const generateFlutterwavePaymentLink = async (
     });
     return { data: response.data.data.link, status: 200 };
   } catch (error: any) {
+    logServiceError("v1/payments/index", "generateFlutterwavePaymentLink", error);
+
     const status = error?.status ?? 500;
     let message = error?.message;
     if (error?.response?.data) {
@@ -150,6 +153,8 @@ export const verifyFlutterwavePayment = async (arg: {
     return { status: 200, message: 'success', data: markVerifiedPayment(payload, String(txnData.id)) };
 
   } catch (error: any) {
+    logServiceError("v1/payments/index", "verifyFlutterwavePayment", error);
+
     const status = error?.status ?? 500;
     let message: string = error?.message;
     if (error?.response?.data) {
@@ -202,6 +207,8 @@ const getSubscriptionsPlan = async () => {
     });
     return { plans, flatPlans: paymentPlans };
   } catch (error) {
+    logServiceError("v1/payments/index", "getSubscriptionsPlan", error);
+
     throw error;
   }
 };
@@ -221,6 +228,8 @@ const createFlwPaymentPlans = async (flatMap: SubPaymentPlan[]) => {
             flw: response?.data?.data as FlutterwavePaymentPlanResponse,
           };
         } catch (error: any) {
+    logServiceError("v1/payments/index", "createFlwPaymentPlans", error);
+
           // Handle error for individual plan, adding failure response
           return { ...plan, flw: null };
         }
@@ -236,6 +245,8 @@ const createFlwPaymentPlans = async (flatMap: SubPaymentPlan[]) => {
             );
             return response?.data?.data;
           } catch (error: any) {
+    logServiceError("v1/payments/index", "createFlwPaymentPlans", error);
+
             return null;
           }
         })
@@ -244,6 +255,8 @@ const createFlwPaymentPlans = async (flatMap: SubPaymentPlan[]) => {
     }
     return succeededItems;
   } catch (error) {
+    logServiceError("v1/payments/index", "createFlwPaymentPlans", error);
+
     throw error;
   }
 };
@@ -298,6 +311,8 @@ export const syncFlwSubscriptionPlans = async () => {
     );
     return { data: result, status: 200 };
   } catch (error: any) {
+    logServiceError("v1/payments/index", "syncFlwSubscriptionPlans", error);
+
     return { data: "Sorry an error occurred, please try again later", status: 500 };
   }
 };

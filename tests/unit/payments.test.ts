@@ -78,3 +78,8 @@ it('cancels successful external plans if another plan fails and does not persist
 it('handles database failure during plan synchronization', async () => {
   deps.plans.mockRejectedValue(new Error('db')); expect((await syncFlwSubscriptionPlans()).status).toBe(500);
 });
+it('reports cancellation failures without persisting partially created payment plans',async()=>{
+ deps.plans.mockResolvedValue([plan]);deps.planPost.mockResolvedValueOnce({data:{data:{id:123}}}).mockRejectedValueOnce(new Error('Creation failed'));
+ deps.cancel.mockRejectedValue(new Error('Provider cancellation unavailable'));
+ expect((await syncFlwSubscriptionPlans()).status).toBe(402);expect(deps.update).not.toHaveBeenCalled();
+});

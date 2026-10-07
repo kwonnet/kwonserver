@@ -65,6 +65,7 @@ import { SessionUser, AuthUser } from "@/types/user";
 import { clickHouseClient } from "@/db/clickhouse";
 import axios from "axios";
 import { removeStopwords, eng, fra } from 'stopword'
+import {logServiceError,logServiceTrace} from '@/logger/events';
 
 // Precompute script — GOLD STANDARD 2025
 
@@ -581,7 +582,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
     });
 
     for (const post of [result, ...result.thread]) {
-      void enqueuePostTopic(post.id, post.content).catch(() => console.warn('Topic enqueue failed; background scan will retry'));
+      void enqueuePostTopic(post.id, post.content).catch((serviceError) => { logServiceError("v1/posts/index", "createPost", serviceError); return logServiceTrace("v1/posts/index", "createPost", "Topic enqueue failed; background scan will retry"); });
     }
 
 
@@ -591,7 +592,9 @@ export const createPost = async (body: PostCreate, userId: string) => {
 
     return { data: serializeBigInts(result), status: 200 };
   } catch (error: any) {
-    console.log(error?.message)
+    logServiceError("v1/posts/index", "createPost", error);
+
+
     return {
       data: "Error occurred trying to create post, please try again",
       status: 500,
@@ -884,6 +887,8 @@ export const createPostQuote = async (
     });
     return { data: result, status: 200 };
   } catch (error) {
+    logServiceError("v1/posts/index", "createPostQuote", error);
+
     return {
       data: "Error occurred while processing request, please try again",
       status: 500,
@@ -1058,7 +1063,9 @@ export const createPostReply = async (
     }
     return { data: serializeBigInts(rest), status: 200 };
   } catch (error: any) {
-    logger.error(error?.message);
+    logServiceError("v1/posts/index", "createPostReply", error);
+
+
     return { data: "Error occurred reposting, please try again", status: 500 };
   }
 };
@@ -1096,6 +1103,8 @@ export const reportPost = async (body: ReportSchema, user: SessionUser) => {
     });
     return { data: { id: post.id, userId: user.id }, status: 200 };
   } catch (error) {
+    logServiceError("v1/posts/index", "reportPost", error);
+
     return { data: "Error ocurred, please try again", status: 500 };
   }
 };
@@ -1152,6 +1161,8 @@ export const createPostPin = async (
       status: 200,
     };
   } catch (error) {
+    logServiceError("v1/posts/index", "createPostPin", error);
+
     return { data: "Error ocurred, please try again", status: 500 };
   }
 };
@@ -1207,6 +1218,8 @@ export const createPostHighlight = async (
       status: 200,
     };
   } catch (error) {
+    logServiceError("v1/posts/index", "createPostHighlight", error);
+
     return { data: "Error ocurred, please try again", status: 500 };
   }
 };
@@ -1231,7 +1244,9 @@ export const notInterestedPost = async (postId: string, userId: string) => {
       return { data: { id: postId, userId, interested: true }, status: 200 };
     }
   } catch (error: any) {
-    logger.error(" Not interested error " + error.message);
+    logServiceError("v1/posts/index", "notInterestedPost", error);
+
+
     return { data: "Error ocurred, please try again", status: 500 };
   }
 };
@@ -1260,6 +1275,8 @@ export async function createPostImpression(args: {
     });
     return result;
   } catch (error) {
+    logServiceError("v1/posts/index", "createPostImpression", error);
+
     return { data: "Sorry an error occurred to process request ", status: 500 };
   }
 }
@@ -1288,6 +1305,8 @@ export async function createPostView(args: {
     });
     return result;
   } catch (error) {
+    logServiceError("v1/posts/index", "createPostView", error);
+
     return { data: "Sorry an error occurred to process request ", status: 500 };
   }
 }
@@ -1314,6 +1333,8 @@ export async function createPostClick(args: {
     });
     return result;
   } catch (error: any) {
+    logServiceError("v1/posts/index", "createPostClick", error);
+
     return { data: "Sorry an error occurred to process request ", status: 500 };
   }
 }
@@ -1365,6 +1386,8 @@ export async function createPostMediaLog(args: {
     });
     return result;
   } catch (error) {
+    logServiceError("v1/posts/index", "createPostMediaLog", error);
+
     return { data: "Sorry an error occurred to process request ", status: 500 };
   }
 }
@@ -1517,6 +1540,8 @@ export async function createPostTip(
     });
     return result;
   } catch (error) {
+    logServiceError("v1/posts/index", "createPostTip", error);
+
     if (error instanceof WalletError) return { data: error.message, status: error.status };
     if (error instanceof AppError) {
       return { data: error.message, status: error.statusCode };
@@ -1546,6 +1571,8 @@ export async function insertImpressionQueue(args: {
     }
     return { data: "Too frequent & depublicated event", status: 400 };
   } catch (error) {
+    logServiceError("v1/posts/index", "insertImpressionQueue", error);
+
     return { data: "Sorry an error occurred to process request ", status: 500 };
   }
 }
@@ -1598,7 +1625,9 @@ export const getNewsfeed = async (recs: string[], user: AuthUser, args: { feed: 
       status: 200,
     };
   } catch (error: any) {
-    console.log(error?.message);
+    logServiceError("v1/posts/index", "getNewsfeed", error);
+
+
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -1625,6 +1654,8 @@ export const getPostTagUsersOrMentions = async (
     }
     return { data: "Invalid query provided, try again", status: 400 };
   } catch (error) {
+    logServiceError("v1/posts/index", "getPostTagUsersOrMentions", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -1727,6 +1758,8 @@ export const getPostTagUsers = async (
       }));
     return { status: 200, data };
   } catch (error) {
+    logServiceError("v1/posts/index", "getPostTagUsers", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -1829,6 +1862,8 @@ export const getPostMentionUsers = async (
       }));
     return { status: 200, data };
   } catch (error) {
+    logServiceError("v1/posts/index", "getPostMentionUsers", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -1865,7 +1900,9 @@ export const getEmbedPost = async (postId: string, userId?: string) => {
     return {status: 200, data: serializeBigInts(transformPost({...post, user: author(post.user),
       tagUsers: post.tagUsers.map(item => author(item.user)), mentions: post.mentions.map(item => author(item.user)),
     }))};
-  } catch {return {status: 503, data: 'Post temporarily unavailable'};}
+  } catch (serviceError) {
+    logServiceError("v1/posts/index", "getEmbedPost", serviceError);
+return {status: 503, data: 'Post temporarily unavailable'};}
 };
 
 export const getPostReplies = async (
@@ -1911,6 +1948,8 @@ export const getPostReplies = async (
       status: 200,
     };
   } catch (error: any) {
+    logServiceError("v1/posts/index", "getPostReplies", error);
+
     return {
       data: "Error occurred trying to get post replies, please try again",
       status: 500,
@@ -2485,6 +2524,8 @@ export const getPostQuotes = async (
     // const data = result.map(p => transformPost(p, false, user))
     return { data: "Not found", status: 404 };
   } catch (error: any) {
+    logServiceError("v1/posts/index", "getPostQuotes", error);
+
     return {
       data: "Error trying to process request, please try again",
       status: 500,
@@ -2601,6 +2642,8 @@ export const getPostReposters = async (
       status: reposters.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
+    logServiceError("v1/posts/index", "getPostReposters", error);
+
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -2639,7 +2682,9 @@ export const getPostFeedDetails = async (postId: string, user?: AuthUser) => {
       status: 200,
     };
   } catch (error: any) {
-    console.log(error?.message);
+    logServiceError("v1/posts/index", "getPostFeedDetails", error);
+
+
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -3351,6 +3396,8 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
     }
     return thread;
   } catch (error) {
+    logServiceError("v1/posts/index", "getFeedPostThread", error);
+
     throw error;
   }
 };
@@ -4071,7 +4118,9 @@ export const fetchFeedPostReplies = async ({
     }
     return replies;
   } catch (error: any) {
-    console.log(error?.message);
+    logServiceError("v1/posts/index", "fetchFeedPostReplies", error);
+
+
     throw error;
   }
 };
@@ -4632,7 +4681,9 @@ export const getPostAnalytics = async (
       status: 200,
     };
   } catch (error: any) {
-    console.log(error?.message);
+    logServiceError("v1/posts/index", "getPostAnalytics", error);
+
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -4704,6 +4755,8 @@ export const updatePostReactions = async (postId: string, user: AuthUser) => {
     });
     return { data: result, status: 200 };
   } catch (error) {
+    logServiceError("v1/posts/index", "updatePostReactions", error);
+
     return {
       data: "Error occurred reacting to post, please try again",
       status: 500,
@@ -4744,6 +4797,8 @@ export const updatePostBookmarks = async (postId: string, userId: string) => {
     });
     return { data, status: 200 };
   } catch (error) {
+    logServiceError("v1/posts/index", "updatePostBookmarks", error);
+
     return {
       data: "Error occurred updating post bookmarks, please try again",
       status: 500,
@@ -4770,6 +4825,8 @@ export const createAndUpdatePostShares = async (body: {
     ]);
     return { data: { id: body.postId, userId: body.userId }, status: 200 };
   } catch (error) {
+    logServiceError("v1/posts/index", "createAndUpdatePostShares", error);
+
     return {
       data: "Error occurred updating post shares, please try again",
       status: 500,
@@ -4866,6 +4923,8 @@ export const updateReposts = async (postId: string, user: AuthUser) => {
     });
     return { data, status: 200 };
   } catch (error: any) {
+    logServiceError("v1/posts/index", "updateReposts", error);
+
     return { data: "Error occurred reposting, please try again", status: 500 };
   }
 };
@@ -4906,6 +4965,8 @@ export const deletePost = async (postId: string, user: SessionUser) => {
       status: 200,
     };
   } catch (error) {
+    logServiceError("v1/posts/index", "deletePost", error);
+
     return { data: "Error occurred reposting, please try again", status: 500 };
   }
 };
@@ -4946,6 +5007,8 @@ export const restorePost = async (postId: string, user: SessionUser) => {
       status: 200,
     };
   } catch (error) {
+    logServiceError("v1/posts/index", "restorePost", error);
+
     return { data: "Error occurred reposting, please try again", status: 500 };
   }
 };
@@ -4987,7 +5050,9 @@ export const hidePostReply = async (postId: string, user: SessionUser) => {
       status: 200,
     };
   } catch (error: any) {
-    logger.error(error.message);
+    logServiceError("v1/posts/index", "hidePostReply", error);
+
+
     return {
       data: "Error occurred processing request, please try again",
       status: 500,
@@ -5053,6 +5118,8 @@ export const votePollPost = async (
       status: 200,
     };
   } catch (error: any) {
+    logServiceError("v1/posts/index", "votePollPost", error);
+
     return { data: "Error occurred reposting, please try again", status: 500 };
   }
 };
@@ -5107,6 +5174,8 @@ export const voteQuizPost = async (
       status: 200,
     };
   } catch (error: any) {
+    logServiceError("v1/posts/index", "voteQuizPost", error);
+
     logger.error({data: error?.message}, "Voting option error ");
     return { data: "Error occurred reposting, please try again", status: 500 };
   }
@@ -5471,6 +5540,8 @@ const getSinglePost = async (postId: string, userId?: string) => {
     }
     return post;
   } catch (error) {
+    logServiceError("v1/posts/index", "getSinglePost", error);
+
     throw error;
   }
 };
@@ -6348,7 +6419,9 @@ export const retriveUserRecommendationModelData = async (userId: string) => {
     // console.log(interactions);
     return { data: { user_id: userId, interactions }, status: 200 };
   } catch (error) {
-    logger.error(error);
+    logServiceError("v1/posts/index", "retriveUserRecommendationModelData", error);
+
+
     return { data: "Sorry an error occurred", status: 500 };
   }
 };
@@ -6386,7 +6459,9 @@ const convertPostContentToEmbedding = async () => {
   //     })
   //   )
   // }
-  } catch (error) {}
+  } catch (error) {
+    logServiceError("v1/posts/index", "convertPostContentToEmbedding", error);
+}
 };
 
 // convertPostContentToEmbedding()
@@ -6419,6 +6494,8 @@ export const getRecommendedPosts = async(userId: string, recs: string[]) => {
   });
     return { data: reorderedPosts, status: 200}
   } catch (error) {
+    logServiceError("v1/posts/index", "getRecommendedPosts", error);
+
     return { data: "Error getting posts ", status: 500}
   }
 }
@@ -6470,6 +6547,8 @@ async function getLastSyncTime(): Promise<Date> {
       return new Date(ts);
     }
   } catch (err) {
+    logServiceError("v1/posts/index", "getLastSyncTime", err);
+
     logger.warn(
       "sync_timestamp table missing or empty — starting from 7 days ago"
     );
@@ -6777,6 +6856,8 @@ async function syncUsersInteractionsToClickHouse() {
             const embedding = await generateEmbedding(post_content);
             return { ...rest, embedding, timestamp: new Date(rest.timestamp), post_created_at: new Date(rest.post_created_at) };
           } catch (e) {
+    logServiceError("v1/posts/index", "syncUsersInteractionsToClickHouse", e);
+
             logger.error({data: e}, `Embedding failed for post ${row.post_id}`);
             return null;
           }
@@ -6798,6 +6879,8 @@ async function syncUsersInteractionsToClickHouse() {
       logger.info(`SUCCESS: Synced ${rowsForInsert.length} interactions`);
     }
   } catch (error: any) {
+    logServiceError("v1/posts/index", "syncUsersInteractionsToClickHouse", error);
+
     logger.error({data: error?.message}, "Sync failed");
     throw error;
   }
@@ -6815,15 +6898,15 @@ Maybe life hit you hard and paused everything.
 That doesn’t make you broken. That makes you human.
 Everyone’s story is uniquely messy, beautiful, unpredictable. That’s what makes it worth telling. The timeline you’re on? It’s not behind. It’s yours.
 Own it.`
-    console.log("Sending request...")
+    logServiceTrace("v1/posts/index", "getContentTopic", "Sending request...");
     const start = performance.now()
     const resp = await kwonrecClient.post("/classify", { labels, text })
     const result = resp.data
     const end = performance.now()
 
-    console.log("Performance measure ", ((end - start) / 1000))
+    logServiceTrace("v1/posts/index", "getContentTopic", "Performance measure ");
     
-    console.log("API response ", result)
+    logServiceTrace("v1/posts/index", "getContentTopic", "API response ");
     
     // const result = await topicClassifier("Hello world this, what will be today's UCL outcome?")
     // console.log(result)
@@ -6839,7 +6922,9 @@ Own it.`
     //   }
     // }
   } catch (error: any) {
-    console.log(error?.message)
+    logServiceError("v1/posts/index", "getContentTopic", error);
+
+
   }
 }
 
@@ -6888,9 +6973,9 @@ const getContentKeywords = async() => {
 
   const cleaned = cleanTextContentWithHashtag(text)
 
-  console.log(cleaned)
+  logServiceTrace("v1/posts/index", "getContentKeywords", "Service diagnostic");
 
-    console.log("Sending request...")
+    logServiceTrace("v1/posts/index", "getContentKeywords", "Sending request...");
     // const start = performance.now()
     // const resp = await axios.post(`http://localhost:8003/keywords`, { text })
     // const result = resp.data
@@ -6901,7 +6986,9 @@ const getContentKeywords = async() => {
     // console.log("API response ", result)
     
   } catch (error: any) {
-    console.log(error?.message)
+    logServiceError("v1/posts/index", "getContentKeywords", error);
+
+
   }
 }
 
@@ -8135,7 +8222,9 @@ export async function inferPostTopic(id: string, expectedHash?: string) {
   try {
     const raw = JSON.parse(text);
     if (Array.isArray(raw.blocks)) text = raw.blocks.map((block: { text?: string }) => typeof block.text === 'string' ? block.text : '').join(' ');
-  } catch { /* Plain text is already rendered content. */ }
+  } catch (serviceError) {
+    logServiceError("v1/posts/index", "inferPostTopic", serviceError, true);
+ /* Plain text is already rendered content. */ }
   text = text.replace(/https?:\/\/\S+|@[\w]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 2000);
   let topic = 'generic';
   if (text.length >= 10) {
@@ -8269,14 +8358,22 @@ export async function getPublicPostSitemapCount() {
 
 async function boostCandidateIds(): Promise<string[]> {
   let cached: string | null = null;
-  try {if (boostRedis.isReady) cached = await Promise.race([boostRedis.get('post-boost:candidates:v1'), new Promise<null>(resolve => setTimeout(() => resolve(null), 40))]);} catch { /* PostgreSQL remains authoritative. */ }
-  if (cached) {try {const ids = JSON.parse(cached); if (Array.isArray(ids) && ids.length <= 128 && ids.every(id => typeof id === 'string')) return ids;} catch {}}
+  try {if (boostRedis.isReady) cached = await Promise.race([boostRedis.get('post-boost:candidates:v1'), new Promise<null>(resolve => setTimeout(() => resolve(null), 40))]);} catch (serviceError) {
+    logServiceError("v1/posts/index", "boostCandidateIds", serviceError, true);
+ /* PostgreSQL remains authoritative. */ }
+  if (cached) {try {const ids = JSON.parse(cached); if (Array.isArray(ids) && ids.length <= 128 && ids.every(id => typeof id === 'string')) return ids;} catch (serviceError) {
+    logServiceError("v1/posts/index", "boostCandidateIds", serviceError, true);
+}}
   const rows = await prisma.$queryRaw<{postId: string}[]>`SELECT b."postId" FROM "PostBoost" b JOIN "Post" p ON p.id=b."postId" JOIN "User" u ON u.id=p."userId"
     WHERE b."expiresAt">NOW() AND b.confirmed<b.target AND p.status='PUBLISHED' AND p.scope='ANYONE' AND p.kind='ROOT'
       AND p."deletedAt" IS NULL AND NOT p."isHidden" AND u.status='ACTIVE' AND NOT u."isPrivate" AND u."deletedAt" IS NULL AND u."deactivatedAt" IS NULL
     ORDER BY (b.confirmed::numeric/b.target), random() LIMIT 128`;
   const ids = rows.map(row => row.postId);
-  try {if (boostRedis.isReady) void boostRedis.set('post-boost:candidates:v1',JSON.stringify(ids),{EX:15}).catch(()=>{});} catch {}
+  try {if (boostRedis.isReady) void boostRedis.set('post-boost:candidates:v1',JSON.stringify(ids),{EX:15}).catch((serviceError)=>{
+    logServiceError("v1/posts/index", "boostCandidateIds", serviceError, true);
+});} catch (serviceError) {
+    logServiceError("v1/posts/index", "boostCandidateIds", serviceError, true);
+}
   return ids;
 }
 /** A delivery is not an impression; goals advance only from viewport acknowledgements. */
@@ -8339,7 +8436,9 @@ export async function getAvailableNewsfeedSnapshot(userId: string, feed: string,
         const previous = await boundedRecommendationState(redisClient.zRange(`feed:recommended:${userId}`, -2000, -1));
         for (const id of previous ?? []) delivered.add(id);
       }
-    } catch { /* Client baseline still suppresses currently delivered recommendations. */ }
+    } catch (serviceError) {
+    logServiceError("v1/posts/index", "getAvailableNewsfeedSnapshot", serviceError, true);
+ /* Client baseline still suppresses currently delivered recommendations. */ }
     const shared = await sharedAvailableRecommendations(userId);
     if (shared.degraded) return {ids: [], authors: [], degraded: true};
     const ranked = shared.ids.filter(id => !delivered.has(id));
@@ -8384,7 +8483,9 @@ export async function rememberDeliveredRecommendations(userId: string, ids: stri
     await boundedRecommendationState(redisClient.multi()
       .zAdd(key, ids.map(value => ({score: Date.now(), value})))
       .zRemRangeByRank(key, 0, -2001).expire(key, 86400).exec());
-  } catch { /* Availability history cannot break the normal newsfeed. */ }
+  } catch (serviceError) {
+    logServiceError("v1/posts/index", "rememberDeliveredRecommendations", serviceError, true);
+ /* Availability history cannot break the normal newsfeed. */ }
 }
 
 const AVAILABLE_RECOMMENDATION_WINDOW_MS = 60000;
@@ -8409,7 +8510,9 @@ async function sharedAvailableRecommendations(userId: string): Promise<SharedAva
     try {
       const value = JSON.parse(raw);
       if (typeof value.degraded === 'boolean' && Array.isArray(value.ids) && value.ids.length <= 100 && value.ids.every((id: unknown) => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(id))) return value;
-    } catch { /* Rebuild malformed/obsolete cache values under the lease. */ }
+    } catch (serviceError) {
+    logServiceError("v1/posts/index", "read", serviceError, true);
+ /* Rebuild malformed/obsolete cache values under the lease. */ }
   };
   try {
     // Fail closed for this optional notification when coordination is unavailable.
@@ -8436,14 +8539,18 @@ async function sharedAvailableRecommendations(userId: string): Promise<SharedAva
       try {
         const response = await getRecommendationResponse(userId, 100, 1);
         if (!response.data.degraded) snapshot = {ids: [...new Set<string>(response.data.recommendations.map((item: {id: string}) => item.id))].slice(0,100), degraded: false};
-      } catch { /* Cache an unavailable window instead of stampeding a failing model. */ }
+      } catch (serviceError) {
+    logServiceError("v1/posts/index", "sharedAvailableRecommendations", serviceError, true);
+ /* Cache an unavailable window instead of stampeding a failing model. */ }
       const published = await boundedRecommendationState(redisClient.eval(publishAvailableRecommendationsScript, {
         keys: [leaseKey, snapshotKey], arguments: [owner, JSON.stringify(snapshot), String(Math.max(1, AVAILABLE_RECOMMENDATION_WINDOW_MS - (Date.now() - checkStartedAt)))],
       }));
       // Expired owners cannot overwrite a newer snapshot or return unfenced results.
       return published === 1 ? snapshot : (await read() ?? unavailable);
     } finally {
-      await boundedRecommendationState(redisClient.eval(releaseAvailableRecommendationsScript, {keys: [leaseKey], arguments: [owner]})).catch(() => undefined);
+      await boundedRecommendationState(redisClient.eval(releaseAvailableRecommendationsScript, {keys: [leaseKey], arguments: [owner]})).catch((serviceError) => { logServiceError("v1/posts/index", "sharedAvailableRecommendations", serviceError, true); return undefined; });
     }
-  } catch {return unavailable;}
+  } catch (serviceError) {
+    logServiceError("v1/posts/index", "sharedAvailableRecommendations", serviceError, true);
+return unavailable;}
 }

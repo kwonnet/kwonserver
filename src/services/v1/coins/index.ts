@@ -19,6 +19,7 @@ import {
 } from "../../helper";
 import { generateUniqueRef } from "@/utils";
 import logger from "@/logger";
+import {logServiceError} from '@/logger/events';
 
 export const getCoinPackages = async () => {
   return cachedCatalogRead("coin-packages", 60000, async () => {
@@ -32,6 +33,8 @@ export const getCoinPackages = async () => {
         status: 200,
       };
     } catch (error) {
+    logServiceError("v1/coins/index", "getCoinPackages", error);
+
       return { data: "Error: Failed to fetch packages", status: 500 };
     }
   });
@@ -47,6 +50,8 @@ user: User) => {
     const result = await prisma.transactionLogs.create({ data: { userId: user.id, coinPackageId: item.id, meta: { currency: item.currency, coinId: item.id, ...item.meta}  }})
     return { data: result, status: 200 };
   } catch (error: any) {
+    logServiceError("v1/coins/index", "saveTxnLog", error);
+
     return { data: `Error occurred: ${error?.message}`, status: 500 };
   }
 };
@@ -78,7 +83,9 @@ export const purchaseCoinsWithWallet = async (
           source: bonus ? TxnSourceEnum.COINS_BONUS : TxnSourceEnum.COINS, type: TxnTypeEnum.CREDIT, description: 'Coin package and bonus credited' } });
         return { status: 200, data: updated };
       });
-  } catch (error) { return walletFailure(error); }
+  } catch (error) {
+    logServiceError("v1/coins/index", "purchaseCoinsWithWallet", error);
+ return walletFailure(error); }
 };
 
 // A gateway/source enum and client-supplied transaction reference are not proof of payment.
@@ -107,5 +114,7 @@ export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase
       await tx.transaction.create({ data: { ...common, amount: (amount + bonus) / 100, currency: TxnCurrencyEnum.COINS, source: bonus ? TxnSourceEnum.COINS_BONUS : TxnSourceEnum.COINS, type: TxnTypeEnum.CREDIT, description: 'Verified coin package credited' } });
       return { status: 200, data: updated };
     });
-  } catch (error) { return walletFailure(error); }
+  } catch (error) {
+    logServiceError("v1/coins/index", "purchaseCoinsWithFlutterwave", error);
+ return walletFailure(error); }
 };

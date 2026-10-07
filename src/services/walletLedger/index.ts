@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import prisma from '@/db';
+import {logServiceError} from '@/logger/events';
 
 export class WalletError extends Error {
   constructor(message: string, public status = 400) { super(message); }
@@ -52,6 +53,8 @@ export async function walletOperation<T>(scope: string, key: string | undefined,
         return moneyJson(result) as T;
       }, { maxWait: 10000, timeout: 15000 });
     } catch (error: any) {
+    logServiceError("walletLedger/index", "walletOperation", error);
+
       if (error.code !== 'P2034' || attempt >= 2) throw error;
     }
   }

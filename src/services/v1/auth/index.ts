@@ -12,9 +12,11 @@ import { randomUUID } from "crypto";
 import { LookupResult } from "ip-location-api";
 import { composeAuthUser, getUserStatusMessage } from "../utils";
 import logger from "@/logger";
+import {enqueueEmailMessage} from '@/services/email';
 import {disconnectAuthSession} from "@/utils/auth-session-sockets";
 import { OAuth2Client } from "google-auth-library";
 import { getAuthUser } from "../utils";
+import {logServiceError} from '@/logger/events';
 const googleVerifier = new OAuth2Client();
 
 export const createUser = async (
@@ -28,6 +30,7 @@ export const createUser = async (
   googleIdentity?: { subject: string; avatar?: string }
 ) => {
   try {
+    let welcomeMessageId: string | undefined;
     const dbUser = await prisma.user.findFirst({
       where: { email: { mode: "insensitive", equals: body.email } },
     });
@@ -109,9 +112,16 @@ export const createUser = async (
         category: 'COIN_RECEIVED', txnRef: randomUUID(), description: 'Registration bonus',
         metadata: { reason: 'REGISTRATION', bonus: amount },
       } });
-      await tx.emailMessage.create({data: {eventKey: `welcome:${created.id}`, userId: created.id}});
+      const welcome = await tx.emailMessage.create({data: {eventKey: `welcome:${created.id}`, userId: created.id}});
+      welcomeMessageId = welcome.id;
       return created;
     });
+
+    logger.info({event:'account_registered',userId:newUser.id,emailMessageId:welcomeMessageId,provider:googleIdentity?'GOOGLE':'PASSWORD'},'New account and welcome email outbox committed');
+    if(welcomeMessageId) {
+      try {await enqueueEmailMessage(welcomeMessageId);}
+      catch(err) {logger.error({event:'welcome_email_enqueue_deferred',userId:newUser.id,emailMessageId:welcomeMessageId,err},'Welcome email remains in outbox; recovery will enqueue it');}
+    }
 
     if (body.refId && !newUser.id.endsWith(body.refId)) {
       // the new user is the referee
@@ -124,6 +134,8 @@ export const createUser = async (
       status: 200,
     };
   } catch (error) {
+    logServiceError("v1/auth/index", "createUser", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -185,7 +197,9 @@ export const loginUser = async (body: { email: string; password: string }) => {
       status: 200,
     };
   } catch (error: any) {
-    console.log(error?.message)
+    logServiceError("v1/auth/index", "loginUser", error);
+
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -267,7 +281,9 @@ export const handleReferral = async (params: {
       return result;
     }
   } catch (error: any) {
-    logger.error(`Referrer reward error - ${error?.message}`);
+    logServiceError("v1/auth/index", "handleReferral", error);
+
+
     return "Sorry an error ocurred, try again";
   }
 };
@@ -282,7 +298,9 @@ export async function loginGoogleUser(idToken: string, registrationLocation?: Pa
   try {
     const ticket = await googleVerifier.verifyIdToken({idToken, audience});
     claims = ticket.getPayload();
-  } catch { return {status: 401, data: "Invalid Google sign-in token"}; }
+  } catch (serviceError) {
+    logServiceError("v1/auth/index", "loginGoogleUser", serviceError);
+ return {status: 401, data: "Invalid Google sign-in token"}; }
   if (!claims?.sub || !claims.email || claims.email_verified !== true) {
     return {status: 401, data: "Google email verification is required"};
   }
@@ -317,7 +335,9 @@ export async function loginGoogleUser(idToken: string, registrationLocation?: Pa
     }
     if (![UserStatus.ACTIVE, UserStatus.PRIVATE].some(status => status === account!.status) || account.deletedAt || account.deactivatedAt) return {status: 401, data: "Account unavailable"};
     return getAuthUser(account.id, {includeEmail: true});
-  } catch { return {status: 500, data: "Unable to sign in with Google. Please try again"}; }
+  } catch (serviceError) {
+    logServiceError("v1/auth/index", "loginGoogleUser", serviceError);
+ return {status: 500, data: "Unable to sign in with Google. Please try again"}; }
 }
 
 

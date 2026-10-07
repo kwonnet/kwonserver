@@ -11,6 +11,7 @@ import {
   UserStatus,
 } from "@prisma/client";
 import { AppError } from "@/utils/helpers";
+import {logServiceError} from '@/logger/events';
 
 export const getUserStatusMessage = (
   user: User,
@@ -551,6 +552,8 @@ export const getAuthUser = async (
       status: 200,
     };
   } catch (error) {
+    logServiceError("v1/utils", "getAuthUser", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -597,6 +600,8 @@ export const getPublicUser = async (
     // response
     return composeAuthUser(user, includeEmail);
   } catch (error) {
+    logServiceError("v1/utils", "getPublicUser", error);
+
     throw error;
   }
 };

@@ -18,7 +18,8 @@ import {
   parseStringNumbers,
 } from "@/utils";
 import { GameMode, Wallet } from "@prisma/client";
-import wordlist from 'wordlist-english'; // ES Modules
+import wordlist from 'wordlist-english';
+import {logServiceError,logServiceTrace} from '@/logger/events'; // ES Modules
 
 
 export const getRedisHashKey = async <T = any>(key: string) => {
@@ -41,7 +42,9 @@ export const syncPrismaUserWalletToRedis = async (userId: string, _wallet: Walle
     // Invalidation avoids out-of-order asynchronous snapshots overwriting newer ones.
     await redisClient.del(`user:${userId}:wallet`);
     return { message: "Wallet cache invalidated", isError: false };
-  } catch {
+  } catch (serviceError) {
+    logServiceError("helper", "syncPrismaUserWalletToRedis", serviceError);
+
     // A committed payment must not be reported as failed because its cache is down.
     return { message: "Wallet committed; cache invalidation unavailable", isError: true };
   }
@@ -259,17 +262,17 @@ export const calculateWordMakerPlayerScore = (baseWord:string,entries: {
   timer: number;
   text: string;
 }[]) => {
-    console.log("Base word: ", baseWord)
+    logServiceTrace("helper", "calculateWordMakerPlayerScore", "Base word: ");
     const words:string[] = wordlist['english'];
     // filter words with length greater than 2
     const playerEntries = entries.filter(w => w.text.length > 2)
-    console.log("playerEntries: ", playerEntries);
+    logServiceTrace("helper", "calculateWordMakerPlayerScore", "playerEntries: ");
     // get valid words from base word
     const validBaseWords =  filterWordsFromBaseWord(baseWord.toLocaleLowerCase(), playerEntries)
-    console.log("valid words ", validBaseWords )
+    logServiceTrace("helper", "calculateWordMakerPlayerScore", "valid words ");
     // check if english words exist
     const validEnglishWords = validBaseWords.filter(w => words.includes(w.text))
-    console.log("englishWords: ", validEnglishWords)
+    logServiceTrace("helper", "calculateWordMakerPlayerScore", "englishWords: ");
     // calculate score
     const score =  validEnglishWords.reduce((total, item) => {
       return total + (item.text.length * 5) + item.timer; // Sum up scores for all guesses

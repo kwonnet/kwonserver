@@ -18,5 +18,5 @@ it('retains generation failure causes with category and retry context', async ()
  const handler=m.worker.on.mock.calls.find(([event])=>event==='failed')![1];
  const err=new Error('Provider unavailable');
  handler({data:{categoryId:'cat'},id:'job',attemptsMade:2},err);
- expect(errorLog).toHaveBeenCalledWith({err,categoryId:'cat',jobId:'job',attempt:2},expect.any(String));
+ expect(errorLog).toHaveBeenCalledWith(expect.objectContaining({event:'job_failed',err:expect.objectContaining({message:err.message}),categoryId:'cat',jobId:'job',attempt:2}),expect.any(String));
 });

@@ -2,6 +2,7 @@ import axios from "axios";
 import logger from "@/logger";
 import prisma from "@/db";
 import { recommendationVisibility } from "./recommendation-visibility";
+import {logServiceError} from '@/logger/events';
 export { recommendationVisibility } from "./recommendation-visibility";
 
 /** Private service client. Never expose KWONREC_API_KEY to a browser. */
@@ -34,7 +35,9 @@ export async function getRecommendationResponse(userId: string, requestedLimit: 
       throw new Error("Invalid recommendation response");
     }
     return response;
-  } catch {
+  } catch (serviceError) {
+    logServiceError("kwonrec", "getRecommendationResponse", serviceError);
+
     logger.warn('Recommendation service unavailable or invalid; using chronological fallback');
     // Bounded, authoritative chronological fallback on timeout or service failure.
     const posts = await prisma.post.findMany({

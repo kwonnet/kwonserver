@@ -1,6 +1,7 @@
 import {beforeEach, afterEach, expect, it, vi} from 'vitest';
 const mocks = vi.hoisted(() => ({verify: vi.fn(), identity: vi.fn(), compose: vi.fn(), hash: vi.fn(),
   db: {user: {findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), create: vi.fn()}, country: {findFirst: vi.fn()}, wallet: {findUniqueOrThrow: vi.fn()}, emailMessage: {create: vi.fn()}, transaction: {create: vi.fn()}, $transaction: vi.fn()}}));
+vi.mock('@/services/email',()=>({enqueueEmailMessage:vi.fn()}));
 vi.mock('google-auth-library', () => ({OAuth2Client: class {verifyIdToken = mocks.verify;}}));
 vi.mock('@/db', () => ({default: mocks.db}));
 vi.mock('@/services/v1/utils', () => ({getAuthUser: mocks.identity, composeAuthUser: mocks.compose, getUserStatusMessage: () => 'Unavailable'}));
@@ -11,6 +12,7 @@ const claims = {sub: 'google-sub', email: 'ada@gmail.com', email_verified: true,
 const account = {id: 'kwon-id', status: 'ACTIVE', googleSubject: 'google-sub', deletedAt: null, deactivatedAt: null};
 beforeEach(() => {
   vi.resetAllMocks(); vi.stubEnv('AUTH_GOOGLE_ID', 'client-id');
+  mocks.db.emailMessage.create.mockResolvedValue({id:'welcome-event'});
   mocks.verify.mockResolvedValue({getPayload: () => claims});
   mocks.identity.mockResolvedValue({status: 200, data: {id: 'kwon-id'}});
   mocks.db.user.updateMany.mockResolvedValue({count: 1});

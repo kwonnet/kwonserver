@@ -37,6 +37,7 @@ import { LookupResult } from "ip-location-api";
 import { MessageModel } from "@/db/models";
 import { cleanTextContent, commentClassifier} from "@/utils/helpers";
 import logger from "@/logger";
+import {logServiceError} from '@/logger/events';
 
 export const searchUser = async (query: string) => {
   try {
@@ -65,6 +66,8 @@ export const searchUser = async (query: string) => {
       status: 200,
     };
   } catch (error) {
+    logServiceError("v1/users/index", "searchUser", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -81,7 +84,9 @@ export const searchUsers = async ({ query, limit, page, viewerId = '' }: {
       orderBy: [{ username: 'asc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit,
     });
     return { data: users.map(({ id, name, username, avatar, bio }) => ({ id, name, username, avatar, bio })), status: 200 };
-  } catch { return { data: 'Unable to search people', status: 500 }; }
+  } catch (serviceError) {
+    logServiceError("v1/users/index", "searchUsers", serviceError);
+ return { data: 'Unable to search people', status: 500 }; }
 };
 
 export const getUserNotifications = async (
@@ -162,6 +167,8 @@ export const getUserNotifications = async (
       status: 200,
     };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserNotifications", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -199,6 +206,8 @@ export const getUserAchievements = async (query: RewardQuery) => {
     }
     return { data: result, status: 200 };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserAchievements", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -298,7 +307,9 @@ export const getUserStats = async (id: string) => {
       status: 200,
     };
   } catch (error: any) {
-    console.log(error?.message);
+    logServiceError("v1/users/index", "getUserStats", error);
+
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -315,6 +326,8 @@ export const updateUserNotifications = async (args: {
     });
     return { data: null, status: 200 };
   } catch (error) {
+    logServiceError("v1/users/index", "updateUserNotifications", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -344,6 +357,8 @@ export const getUserActiveSubscription = async (userId: string) => {
     }
     return { data: sub, status: 200 };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserActiveSubscription", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -358,6 +373,8 @@ export const getUserTaskSettings = async (userId: string) => {
     }
     return { data: settings, status: 200 };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserTaskSettings", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -471,6 +488,8 @@ export const followUser = async (
     });
     return { data: { ...result, ...params }, status: 200 };
   } catch (error: any) {
+    logServiceError("v1/users/index", "followUser", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -525,6 +544,8 @@ export const blockUser = async (blockedId: string, user: SessionUser) => {
     });
     return { data: data, status: 200 };
   } catch (error: any) {
+    logServiceError("v1/users/index", "blockUser", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -565,6 +586,8 @@ export const muteUser = async (mutedId: string, user: SessionUser) => {
     });
     return { data: data, status: 200 };
   } catch (error: any) {
+    logServiceError("v1/users/index", "muteUser", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -602,6 +625,8 @@ export const reportUser = async (body: ReportSchema, user: SessionUser) => {
     });
     return { data: { id: reported.id, userId: user.id }, status: 200 };
   } catch (error) {
+    logServiceError("v1/users/index", "reportUser", error);
+
     return { data: "Error ocurred, please try again", status: 500 };
   }
 };
@@ -641,6 +666,8 @@ export const updateAccountStatus = async (
 
     return { data: body, status: 200 };
   } catch (error) {
+    logServiceError("v1/users/index", "updateAccountStatus", error);
+
     return { data: "Error ocurred, please try again", status: 500 };
   }
 };
@@ -685,6 +712,8 @@ export const profileVisit = async (
     });
     return { data: args, status: 200 };
   } catch (error: any) {
+    logServiceError("v1/users/index", "profileVisit", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -704,6 +733,8 @@ export const logUserLocation = async (
     });
     return { data: result, status: 200 };
   } catch (error) {
+    logServiceError("v1/users/index", "logUserLocation", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -727,6 +758,8 @@ export const getConnections = async (
     }
     return getSuggestedConnections(userId, args.limit);
   } catch (error) {
+    logServiceError("v1/users/index", "getConnections", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -904,6 +937,8 @@ export const getSuggestedConnections = async (
       status: notFound ? 404 : 200,
     };
   } catch (error) {
+    logServiceError("v1/users/index", "getSuggestedConnections", error);
+
     throw error;
   }
 };
@@ -1071,6 +1106,8 @@ export async function getMutualFollowsSuggestions(
       status: notFound ? 404 : 200,
     };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getMutualFollowsSuggestions", error);
+
     throw error;
   }
 }
@@ -1218,6 +1255,8 @@ export async function getPopularCreatorsSuggestions(
       status: notFound ? 404 : 200,
     };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getPopularCreatorsSuggestions", error);
+
     throw error;
   }
 }
@@ -1394,6 +1433,8 @@ export async function getEngagementAndInterestSuggestions(
       status: notFound ? 404 : 200,
     };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getEngagementAndInterestSuggestions", error);
+
     throw error;
   }
 }
@@ -1556,6 +1597,8 @@ export async function getNearYouSuggestions(
       status: notFound ? 404 : 200,
     };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getNearYouSuggestions", error);
+
     throw error;
   }
 }
@@ -1731,6 +1774,8 @@ export async function getUserProfileOverview(
     };
     return { data, status: 200 };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserProfileOverview", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 }
@@ -1821,6 +1866,8 @@ export const getMutualFollowings = async (
 
     return { followers, count };
   } catch (error) {
+    logServiceError("v1/users/index", "getMutualFollowings", error);
+
     throw error;
   }
 };
@@ -1924,6 +1971,8 @@ export const getUserFollowers = async ({
     }));
     return { status: 200, data };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserFollowers", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -2027,6 +2076,8 @@ export const getUserFollowing = async ({
     }));
     return { status: 200, data };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserFollowing", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -2141,6 +2192,8 @@ export const getUserFriends = async ({
     }));
     return { status: 200, data };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getUserFriends", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -2264,6 +2317,8 @@ export const getUserVerifiedFollowers = async ({
     }));
     return { status: 200, data };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserVerifiedFollowers", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -2368,6 +2423,8 @@ export const getUserFollowRequests = async ({
     }));
     return { status: 200, data };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserFollowRequests", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -2470,6 +2527,8 @@ export const getUserBlockedUsers = async ({
     }));
     return { status: 200, data };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserBlockedUsers", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -2572,6 +2631,8 @@ export const getUserMutedUsers = async ({
     }));
     return { status: 200, data };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserMutedUsers", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -3637,6 +3698,8 @@ export const getUserPosts = async (
       status: _posts.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getUserPosts", error);
+
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -4706,6 +4769,8 @@ export const getUserScheduledPosts = async (
       status: _posts.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getUserScheduledPosts", error);
+
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -5775,6 +5840,8 @@ export const getUserReplies = async (
       status: _posts.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getUserReplies", error);
+
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -6852,6 +6919,8 @@ export const getUserLikedPosts = async (
       status: _posts.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getUserLikedPosts", error);
+
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -7931,6 +8000,8 @@ export const getUserBookmarkPosts = async (
       status: _posts.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getUserBookmarkPosts", error);
+
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -9010,6 +9081,8 @@ export const getUserHighlightPosts = async (
       status: _posts.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getUserHighlightPosts", error);
+
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -10077,6 +10150,8 @@ export const getUserMediaPosts = async (
       status: _posts.length > 0 ? 200 : 404,
     };
   } catch (error: any) {
+    logServiceError("v1/users/index", "getUserMediaPosts", error);
+
     return {
       data: "Error occurred trying to get feed, please try again",
       status: 500,
@@ -10604,6 +10679,8 @@ export const getUserAccountAnalytics = async (
       status: 200,
     };
   } catch (error) {
+    logServiceError("v1/users/index", "getUserAccountAnalytics", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -10921,6 +10998,8 @@ export async function getUserInteractionHistory(userId: string) {
     return { data: filter, status: 200}
     
   } catch (error: any) {
+    logServiceError("v1/users/index", "getUserInteractionHistory", error);
+
     logger.error({data: error?.message}, "Getting history failed");
     return { data: "Getting history failed", status: 500}
   }

@@ -3,6 +3,7 @@ import { BonusTypeEnum, User } from '@/types';
 import prisma from '@/db';
 import { randomUUID } from 'crypto';
 import { cents, requestKey, WalletError, walletFailure, walletOperation } from '@/services/walletLedger';
+import {logServiceError} from '@/logger/events';
 
 const creditRecord = (userId: string, amount: number, category: TxnCategoryEnum) => ({
   userId, recipientId: userId, amount, category, txnRef: randomUUID(), currency: TxnCurrencyEnum.COINS,
@@ -12,7 +13,9 @@ const creditRecord = (userId: string, amount: number, category: TxnCategoryEnum)
 export const getUserCoinsWallet = async (userId: string) => {
   try { const data = await prisma.wallet.findUnique({ where: { userId } });
     return { status: data ? 200 : 404, data: data ?? 'Wallet not found' };
-  } catch (error) { return walletFailure(error); }
+  } catch (error) {
+    logServiceError("v1/wallets/index", "getUserCoinsWallet", error);
+ return walletFailure(error); }
 };
 export const transferCoins = async (arg: { senderId: string; recipientId: string; amount: number; idempotencyKey?: string }) => {
   try {
@@ -38,7 +41,9 @@ export const transferCoins = async (arg: { senderId: string; recipientId: string
           amount: amount / 100, category: TxnCategoryEnum.COIN_RECEIVED, type: TxnTypeEnum.CREDIT, description: 'Coins received' } });
         return { status: 200, data: 'Transfer successful' };
       });
-  } catch (error) { return walletFailure(error); }
+  } catch (error) {
+    logServiceError("v1/wallets/index", "transferCoins", error);
+ return walletFailure(error); }
 };
 export const fundCoins = async (arg: { userId: string; amount: number; bonus: number; idempotencyKey?: string }, currUser: User & { role?: string }) => {
   if (!['ADMIN', 'SUPER'].includes(currUser.role ?? '')) return { status: 403, data: 'Only administrators can fund wallets' };
@@ -54,14 +59,18 @@ export const fundCoins = async (arg: { userId: string; amount: number; bonus: nu
           walletId: wallet.id, senderId: currUser.id, source: amount && bonus ? TxnSourceEnum.COINS_BONUS : amount ? TxnSourceEnum.COINS : TxnSourceEnum.BONUS, metadata: { coins: amount / 100, bonus: bonus / 100 } } });
         return { status: 200, data: 'Funding successful' };
       });
-  } catch (error) { return walletFailure(error); }
+  } catch (error) {
+    logServiceError("v1/wallets/index", "fundCoins", error);
+ return walletFailure(error); }
 };
 export const getTxnHistory = async ({ userId, page, limit }: { userId: string; page: number; limit: number }) => {
   try {
     if (!Number.isInteger(page) || page < 1 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new WalletError('Invalid pagination');
     const data = await prisma.transaction.findMany({ where: { userId }, skip: (page - 1) * limit, take: limit, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
     return { status: data.length ? 200 : 404, data: data.length ? data : 'No transaction history' };
-  } catch (error) { return walletFailure(error); }
+  } catch (error) {
+    logServiceError("v1/wallets/index", "getTxnHistory", error);
+ return walletFailure(error); }
 };
 export const updateWalletBonus = async (arg: { userId: string; amount: number; type: BonusTypeEnum; isTask: boolean; date: string; meta?: any }) => {
   try {
@@ -82,7 +91,9 @@ export const updateWalletBonus = async (arg: { userId: string; amount: number; t
       await tx.userTaskSettings.upsert({ where: { userId: arg.userId }, create: { userId: arg.userId, [field]: next }, update: { [field]: next } });
       return { status: 200, data: 'Success' };
     });
-  } catch (error) { return walletFailure(error); }
+  } catch (error) {
+    logServiceError("v1/wallets/index", "updateWalletBonus", error);
+ return walletFailure(error); }
 };
 export const rewardDailyTask = async ({ id: taskId, code, userId }: { id: string; code?: string; userId: string }) => {
   try {
@@ -102,5 +113,7 @@ export const rewardDailyTask = async ({ id: taskId, code, userId }: { id: string
       await tx.userTask.create({ data: { userId, taskId, status: TaskStatus.COMPLETED } });
       return { status: 200, data: 'Success' };
     });
-  } catch (error) { return walletFailure(error); }
+  } catch (error) {
+    logServiceError("v1/wallets/index", "rewardDailyTask", error);
+ return walletFailure(error); }
 };

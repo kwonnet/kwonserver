@@ -4,6 +4,7 @@ import webpush from '@/utils/webpush';
 import { Prisma } from '@prisma/client';
 import logger from '@/logger';
 import { postNotificationVisibility } from '@/services/recommendation-visibility';
+import {logServiceError} from '@/logger/events';
 
 export function publicationNotificationVisibility(userId: string): Prisma.NotificationWhereInput {
   return { OR: [
@@ -86,13 +87,19 @@ export function validatePushSubscription(body: unknown) {
 }
 export async function subscribePushNotification(body: unknown, user: Pick<AuthUser, 'id' | 'sessionId'>) {
   let config;
-  try { config = validatePushSubscription(body); } catch {return {status: 400, data: 'Invalid or unsupported push subscription'};}
-  try {webpush.configure?.();} catch {return {status: 503, data: 'Push notifications are not configured on the server'};}
+  try { config = validatePushSubscription(body); } catch (serviceError) {
+    logServiceError("v1/notifications/index", "subscribePushNotification", serviceError);
+return {status: 400, data: 'Invalid or unsupported push subscription'};}
+  try {webpush.configure?.();} catch (serviceError) {
+    logServiceError("v1/notifications/index", "subscribePushNotification", serviceError);
+return {status: 503, data: 'Push notifications are not configured on the server'};}
   try {
     // A browser endpoint belongs to the currently selected account, never both accounts.
     await prisma.pushNotification.upsert({where: {endpoint: config.endpoint}, create: {endpoint: config.endpoint, config, userId: user.id, sessionId: user.sessionId ?? null}, update: {config, userId: user.id, sessionId: user.sessionId ?? null}});
     return {status: 200, data: {subscribed: true}};
-  } catch {return {status: 500, data: 'Unable to enable notifications'};}
+  } catch (serviceError) {
+    logServiceError("v1/notifications/index", "subscribePushNotification", serviceError);
+return {status: 500, data: 'Unable to enable notifications'};}
 }
 export async function unsubscribePushNotification(endpoint: string, user: Pick<AuthUser, 'id' | 'sessionId'>) {
   await prisma.pushNotification.deleteMany({where: {endpoint, userId: user.id}});
@@ -126,6 +133,8 @@ export async function deliverPendingPushNotifications() {
         await webpush.sendNotification(config, JSON.stringify({title: notification.title, body: notification.message, tag: notification.id, url: target}), {TTL: 3600, timeout: 5_000});
         await prisma.notification.update({where: {id: notification.id}, data: {pushDeliveredSubscriptionIds: {push: subscription.id}}});
       } catch (error: any) {
+    logServiceError("v1/notifications/index", "deliver", error);
+
         if (error?.statusCode === 404 || error?.statusCode === 410) await prisma.pushNotification.deleteMany({where: {id: subscription.id}});
         else {retry = true; logger.warn({notificationId: notification.id, subscriptionId: subscription.id, statusCode: error?.statusCode}, 'Push delivery failed; retry scheduled');}
       }

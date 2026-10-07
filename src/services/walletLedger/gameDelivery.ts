@@ -3,6 +3,7 @@ import prisma from '@/db';
 import redis from '@/redis';
 import { cents, walletOperation } from './index';
 import { gameDeliveryScript } from './gameDeliveryScript';
+import {logServiceError} from '@/logger/events';
 
 export interface GameDelivery {
   kind: 'ANSWER' | 'ACRONYM' | 'WORDMAKER' | 'VOTE' | 'CHAT';
@@ -43,6 +44,8 @@ export async function recoverGameActions() {
   // One bad record must not prevent independent users' recovery.
   const actions=await prisma.gameWalletAction.findMany({where:{status:'PENDING'},orderBy:{createdAt:'asc'},take:200});
   let failures=0;
-  for(const action of actions){try{await dispatchGameAction(action.id);}catch{failures++;}}
+  for(const action of actions){try{await dispatchGameAction(action.id);}catch (serviceError){
+    logServiceError("walletLedger/gameDelivery", "recoverGameActions", serviceError);
+failures++;}}
   if(failures) throw new Error(`${failures} game actions remain pending delivery`);
 }

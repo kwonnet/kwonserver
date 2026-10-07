@@ -1,5 +1,6 @@
 import prisma from '@/db';
 import { cents, walletOperation } from './index';
+import {logServiceError} from '@/logger/events';
 
 // Historical pending tips are deliberately excluded until reconciled.
 export async function settleTip(id: string, userId: string) {
@@ -22,6 +23,8 @@ export async function settleDueTips() {
     transaction: { status: 'PENDING', metadata: { path: ['settlementVersion'], equals: 1 } } },
     orderBy: [{ availableAt: 'asc' }, { id: 'asc' }], take: 100 });
   const errors: unknown[] = [];
-  for (const tip of tips) { try { await settleTip(tip.id, tip.userId); } catch (error) { errors.push(error); } }
+  for (const tip of tips) { try { await settleTip(tip.id, tip.userId); } catch (error) {
+    logServiceError("walletLedger/tips", "settleDueTips", error);
+ errors.push(error); } }
   if (errors.length) throw new Error(`${errors.length} tip settlements failed; pending records retained`);
 }

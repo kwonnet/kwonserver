@@ -2,6 +2,7 @@ import prisma from "@/db";
 import {randomInt, randomUUID} from "node:crypto";
 import {walletOperation, WalletError, requestKey} from "@/services/walletLedger";
 import { Prisma, EngagementAction, RewardTypeEnum } from "@prisma/client";
+import {logServiceError} from '@/logger/events';
 
 export const checkUserTask = async (userId: string, taskId: string) => {
   try {
@@ -21,6 +22,8 @@ export const checkUserTask = async (userId: string, taskId: string) => {
 
     return { data: task, status: 200 };
   } catch (error) {
+    logServiceError("v1/tasks/index", "checkUserTask", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -31,6 +34,8 @@ export const insertUserTask = async (userId: string, taskId: string) => {
 
     return { data: task, status: 200 };
   } catch (error) {
+    logServiceError("v1/tasks/index", "insertUserTask", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -51,6 +56,8 @@ export const createTask = async (
 
     return { data: result, status: 200 };
   } catch (error) {
+    logServiceError("v1/tasks/index", "createTask", error);
+
     return { data: "Error occurred, please try again", status: 500 };
   }
 };
@@ -85,6 +92,8 @@ export const getTasks = async (
       ? { status: 404, data: "Not found" }
       : { status: 200, data: result };
   } catch (error: any) {
+    logServiceError("v1/tasks/index", "getTasks", error);
+
     return {
       status: 500,
       data: "Sorry an error occurred, please try again later.",
@@ -102,6 +111,8 @@ export const getTask = async (id: string) => {
 
     return { status: 200, data: result };
   } catch (error: any) {
+    logServiceError("v1/tasks/index", "getTask", error);
+
     return {
       status: 500,
       data: "Sorry an error occurred, please try again later.",
@@ -151,6 +162,8 @@ export const getUserCompletedTasks = async (
         ? { status: 404, data: "Not found" }
         : { status: 200, data: result.map(r => r.task)};
     } catch (error: any) {
+    logServiceError("v1/tasks/index", "getUserCompletedTasks", error);
+
       return {
         status: 500,
         data: "Sorry an error occurred, please try again later.",

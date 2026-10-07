@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod/v3';
+import {logServiceError} from '@/logger/events';
 
 export const PROFILE_CHANGE_INTERVAL = 30 * 24 * 60 * 60 * 1000;
 export class ProfileError extends Error {
@@ -34,7 +35,9 @@ export function assertProfileImage(value: string | null | undefined, userId: str
   const owner = createHash('sha256').update(userId).digest('hex');
   const base = new URL(baseUrl);
   let url: URL;
-  try { url = new URL(value); } catch { throw new ProfileError('Upload a valid profile image.'); }
+  try { url = new URL(value); } catch (serviceError) {
+    logServiceError("v1/profile/policy", "assertProfileImage", serviceError);
+ throw new ProfileError('Upload a valid profile image.'); }
   const prefix = `${base.pathname.replace(/\/$/, '')}/${kind === 'avatar' ? 'profiles' : 'banners'}/${owner}/`;
   if (url.origin !== base.origin || url.protocol !== 'https:' || url.username || url.password || url.search || url.hash ||
       !url.pathname.startsWith(prefix) || !/^[a-f0-9-]{36}\.webp$/i.test(url.pathname.slice(prefix.length))) {

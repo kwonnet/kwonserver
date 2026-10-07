@@ -1,6 +1,8 @@
 import express from 'express';
+import {requestLoggingMiddleware} from '@/logger/events';
 
 const app = express();
+app.use(requestLoggingMiddleware);
 // Preserve nested query parsing used by existing API filters.
 app.set("query parser", "extended");
 

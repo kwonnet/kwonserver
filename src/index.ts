@@ -14,6 +14,7 @@ import gameSocketIo from "./socketIo/gameSocketIo";
 import convoSocketIo from "./socketIo/convoSocketIo";
 import { bigintConverterMiddleware } from "./middleware";
 import { startCronJobs, stopCronJobs } from "./cron";
+import logger from '@/logger';
 
 const port = process.env.PORT || 8000;
 
@@ -57,25 +58,25 @@ app.get("/", (req: express.Request, res: express.Response) => {
 app.use("/api/v1/", bigintConverterMiddleware, v1Routes);
 
 server.listen(port, () => {
-  console.log(`listening on port: ${port}`);
+  logger.info({event:'server_started',port},'API server listening');
   // Warm the existing geo database in the background, outside the login deadline.
   void ipLookup.warmup();
   // start mongo db
   startMongodb();
   // start cron jobs
   void startCronJobs().catch(error => {
-    console.error("Background job startup failed; check database and Redis availability");
+    logger.error({event:'worker_startup_failed',err:error},'Background job startup failed');
     server.close();
     process.exit(1);
   });
 });
 
 process.on("uncaughtException", (err) => {
-  console.error("Uncaught exception", err);
+  logger.error({event:'uncaught_exception',err},'Uncaught exception');
 });
 
 process.on("unhandledRejection", (err: any) => {
-  console.error("Unhandled promise rejection", err);
+  logger.error({event:'unhandled_rejection',err},'Unhandled promise rejection');
 });
 
 
@@ -88,6 +89,6 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     const timeout = setTimeout(() => process.exit(1), 30000);
     timeout.unref();
     server.close();
-    void stopCronJobs().then(() => process.exit(0), () => process.exit(1));
+    void stopCronJobs().then(() => process.exit(0), err => {logger.error({event:'shutdown_failed',err},'API background shutdown failed');process.exit(1);});
   });
 }

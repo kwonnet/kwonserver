@@ -32,9 +32,11 @@ export const postKeywordsQueue = new Queue(POST_KEYWORDS_QUEUE, {
 });
 export const emailQueue = new Queue(EMAIL_DELIVERY_QUEUE,{connection:queueConnection});
 // Never log raw Redis errors: AUTH command arguments may contain credentials.
-queueConnection.on('error', () => logger.warn('Redis queue connection unavailable'));
+queueConnection.on('ready',()=>logger.info({event:'queue_connection_ready'},'Redis queue connection ready'));
+queueConnection.on('error', err => logger.error({event:'queue_connection_error',err},'Redis queue connection unavailable'));
 for (const queue of [appSubscriptionQueue, appSubReminderQueue, postEmbeddingQueue, postTopicQueue, postKeywordsQueue, emailQueue]) {
-  queue.on('error', () => logger.warn({ queue: queue.name }, 'Redis queue unavailable'));
+  queue.on('error', err => logger.error({event:'queue_error',queue:queue.name,err},'Redis queue unavailable'));
+  queue.on('waiting', job => logger.info({event:'job_queued',queue:queue.name,job:job.name,jobId:job.id},'Queue job queued'));
 }
 
 export async function closeJobQueues() {

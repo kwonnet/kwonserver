@@ -4,6 +4,8 @@ const db = vi.hoisted(() => ({ user: { findFirst: vi.fn(), create: vi.fn() },
   country: { findFirst: vi.fn() }, referral: { findFirst: vi.fn(), create: vi.fn() },
   wallet: { findUniqueOrThrow: vi.fn(), update: vi.fn() }, emailMessage: {create: vi.fn()}, transaction: { create: vi.fn() }, $transaction: vi.fn() }));
 const passwords = vi.hoisted(() => ({ hash: vi.fn(), compare: vi.fn() }));
+const enqueue = vi.hoisted(()=>vi.fn());
+vi.mock('@/services/email',()=>({enqueueEmailMessage:enqueue}));
 vi.mock('@/db', () => ({ default: db }));
 vi.mock('bcrypt', () => ({ default: passwords }));
 vi.mock('@/utils', () => ({ getRandomNumber: () => 12 }));
@@ -12,6 +14,7 @@ import { createUser, loginUser, handleReferral } from '@/services/v1/auth';
 
 beforeEach(() => {
   resetMocks(db); resetMocks(passwords);
+  enqueue.mockReset();db.emailMessage.create.mockResolvedValue({id:'welcome-event'});
   passwords.hash.mockResolvedValue('salted-hash');
   passwords.compare.mockResolvedValue(true);
   db.$transaction.mockImplementation((work: any) => typeof work === "function" ? work(db) : Promise.all(work));
@@ -41,6 +44,7 @@ describe('login', () => {
     const result = await loginUser(credentials);
     expect(result).toMatchObject({ status: 200, data: { id: 'user-1', email: credentials.email } });
     expect(result.data).not.toHaveProperty('password');
+    expect(enqueue).not.toHaveBeenCalled();
     expect(db.user.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { OR: [
       { email: { equals: credentials.email, mode: 'insensitive' } },
       { username: { equals: credentials.email, mode: 'insensitive' } },
@@ -68,6 +72,7 @@ describe('registration', () => {
       location: { create: { latitude: 0, longitude: 0, meta: undefined } },
     }) }));
     expect(result.data).not.toHaveProperty('password');
+    expect(enqueue).toHaveBeenCalledWith('welcome-event');
   });
   it('disambiguates a taken username and connects the resolved country', async () => {
     db.user.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(user());
@@ -80,6 +85,11 @@ describe('registration', () => {
     db.user.findFirst.mockResolvedValue(null); passwords.hash.mockRejectedValue(new Error('hash failure'));
     expect((await createUser({ ...credentials, name: 'Ada' })).status).toBe(500);
     expect(db.user.create).not.toHaveBeenCalled();
+  });
+  it('keeps successful registration and its durable outbox when Redis enqueue fails',async()=>{
+    db.user.findFirst.mockResolvedValue(null);db.user.create.mockResolvedValue(user());enqueue.mockRejectedValue(new Error('Redis offline'));
+    expect((await createUser({...credentials,name:'Ada'})).status).toBe(200);
+    expect(db.emailMessage.create).toHaveBeenCalledWith({data:{eventKey:'welcome:user-1',userId:'user-1'}});
   });
 });
 

@@ -1,5 +1,6 @@
 import prisma from "@/db";
 import { POST_LABELS } from "@/cron/helpers";
+import {logServiceError} from '@/logger/events';
 
 export async function getTrendingTopics(
   countryId: string | null = null,
@@ -101,7 +102,9 @@ export async function getTrendingTopics(
 
     return { data: trends, status: 200}
   } catch (error: any) {
-    console.error("Error fetching trending topics:", error?.message ?? error);
+    logServiceError("v1/discover/index", "getTrendingTopics", error);
+
+
     return { data: "Error occurred trying to get latest trends", status: 500}
   }
 }

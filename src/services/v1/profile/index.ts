@@ -1,6 +1,7 @@
 import prisma from '@/db';
 import { Prisma, UserStatus } from '@prisma/client';
 import { assertChangeAllowed, assertProfileImage, ProfileError, profileUpdateSchema, PROFILE_CHANGE_INTERVAL } from './policy';
+import {logServiceError} from '@/logger/events';
 
 export const editableProfileSelect = {
   id: true, name: true, username: true, bio: true, phone: true, avatar: true,
@@ -57,6 +58,8 @@ export async function updateEditableProfile(userId: string, body: unknown) {
       return profileWithPolicy(await tx.user.update({ where: { id: userId }, data, select: editableProfileSelect }));
     });
   } catch (error) {
+    logServiceError("v1/profile/index", "updateEditableProfile", error);
+
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ProfileError('This username is already taken.', 409);
     throw error;
   }

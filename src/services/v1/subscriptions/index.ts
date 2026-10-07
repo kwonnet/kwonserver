@@ -22,6 +22,7 @@ import { syncPrismaUserWalletToRedis } from "../../helper";
 import { syncUserRedisWalletToPrisma } from "../games";
 
 import { addSubscriptionCronJob, removeSubscriptionCronJob } from "@/cron/utils";
+import {logServiceError} from '@/logger/events';
 
 export const getPlans = async () => {
   return cachedCatalogRead("subscription-plans", 60000, async () => {
@@ -34,6 +35,8 @@ export const getPlans = async () => {
 
       return { data: isFound ? data : "Not found", status: isFound ? 200 : 404 };
     } catch (error) {
+    logServiceError("v1/subscriptions/index", "getPlans", error);
+
       return { data: "Error occurred, please try again", status: 500 };
     }
   });
@@ -193,16 +196,18 @@ export const purchaseAppSubscriptionWithWallet = async (
     });
     // add subscription to cron job
     if (result.subscription.isRecurring) {
-      await addSubscriptionCronJob(result.subscription.id).catch(() => logger.error('Subscription scheduling failed; recurring sweep will retry'));
+      await addSubscriptionCronJob(result.subscription.id).catch((serviceError) => { logServiceError("v1/subscriptions/index", "purchaseAppSubscriptionWithWallet", serviceError); return logger.error('Subscription scheduling failed; recurring sweep will retry'); });
     }
     else{
-      await removeSubscriptionCronJob({userId: user.id, subId: result.subscription.id}).catch(() => logger.error('Subscription job cleanup failed'))
+      await removeSubscriptionCronJob({userId: user.id, subId: result.subscription.id}).catch((serviceError) => { logServiceError("v1/subscriptions/index", "purchaseAppSubscriptionWithWallet", serviceError); return logger.error('Subscription job cleanup failed'); })
     }
 
     // sync prisma wallet to redis
     await syncPrismaUserWalletToRedis(user.id, result.wallet);
     return { data: item, status: 200 };
   } catch (error: any) {
+    logServiceError("v1/subscriptions/index", "purchaseAppSubscriptionWithWallet", error);
+
     if (error instanceof WalletError) return { data: error.message, status: error.status };
     return {
       data: "Error: Failed to process transaction, please contact support",
@@ -397,6 +402,8 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
       isError: false,
     };
   } catch (error: any) {
+    logServiceError("v1/subscriptions/index", "renewAppSubscriptionWithWallet", error);
+
     return {
       message:
         "App subscription renewal failed, ensure you have sufficient wallet balance.",
@@ -552,9 +559,11 @@ export const purchaseAppSubscription = async (
       return { subscription}
     });
     // remove subscription cron job if payment method has changed
-    await removeSubscriptionCronJob({userId: user.id, subId: result.subscription.id}).catch(() => logger.error('Subscription job cleanup failed'))
+    await removeSubscriptionCronJob({userId: user.id, subId: result.subscription.id}).catch((serviceError) => { logServiceError("v1/subscriptions/index", "purchaseAppSubscription", serviceError); return logger.error('Subscription job cleanup failed'); })
     return { data: item, status: 200 };
   } catch (error: any) {
+    logServiceError("v1/subscriptions/index", "purchaseAppSubscription", error);
+
     if (error instanceof WalletError) return { data: error.message, status: error.status };
     return {
       data: "Error: Failed to process transaction, please contact support",
@@ -596,9 +605,11 @@ export const cancelAppSubscription = async (arg: {
       return updated;
     });
     // remove subscription cron job if subscription is cancelled
-    await removeSubscriptionCronJob({userId: user.id, subId: arg.subId}).catch(() => logger.error('Subscription cleanup failed'))
+    await removeSubscriptionCronJob({userId: user.id, subId: arg.subId}).catch((serviceError) => { logServiceError("v1/subscriptions/index", "cancelAppSubscription", serviceError); return logger.error('Subscription cleanup failed'); })
     return { data: result, status: 200 };
   } catch (error) {
+    logServiceError("v1/subscriptions/index", "cancelAppSubscription", error);
+
     return {
       data: "Error: Failed to process request, please try again later",
       status: 500,

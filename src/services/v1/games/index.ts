@@ -68,6 +68,7 @@ import {
   syncRedisUserWalletToPrisma,
 } from "../../helper";
 import { faker } from "@faker-js/faker";
+import {logServiceTrace} from '@/logger/events';
 
 interface GameIoNamespace extends Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any> {}
 
@@ -154,7 +155,7 @@ export const checkUserGameEnergy = async (userId: string, catId: string) => {
     const energy = await getRedisHashKey<GameEnergy>(uKey);
 
     if (energy) {
-      console.log("Join room - player energy - redis ", energy);
+      logServiceTrace("v1/games/index", "checkUserGameEnergy", "Join room - player energy - redis ");
       return energy;
     }
     // check prisma
@@ -162,14 +163,14 @@ export const checkUserGameEnergy = async (userId: string, catId: string) => {
       where: { playerId: userId, catId },
     });
     if (result) {
-      console.log("Join room - player energy - prisma ", result);
+      logServiceTrace("v1/games/index", "checkUserGameEnergy", "Join room - player energy - prisma ");
       return result;
     }
     // create energy
     const gameEnergy = await prisma.gameEnergy.create({
       data: { amount: 2500, gauge: 50, turbo: 50, playerId: userId, catId },
     });
-    console.log("Join room - player energy - created ", gameEnergy);
+    logServiceTrace("v1/games/index", "checkUserGameEnergy", "Join room - player energy - created ");
     return gameEnergy;
   } catch (error) {
     logGameError('checkUserGameEnergy', error, {userId,catId});
@@ -196,7 +197,7 @@ async function syncUserRedisGameEnergyToPrisma(
     const result = await getRedisHashKey<GameEnergy>(playerKeys.energy);
     if (!result) return;
     // perform prisma update
-    console.log("Player Energy ", result);
+    logServiceTrace("v1/games/index", "syncUserRedisGameEnergyToPrisma", "Player Energy ");
     await prisma.gameEnergy.update({
       where: { id: result.id },
       data: {
@@ -205,7 +206,7 @@ async function syncUserRedisGameEnergyToPrisma(
         turbo: result.turbo < 0 ? 10 : result.turbo,
       },
     });
-    console.log("User redis game energy synced to prisma successfully >>>");
+    logServiceTrace("v1/games/index", "syncUserRedisGameEnergyToPrisma", "User redis game energy synced to prisma successfully >>>");
   } catch (error: any) {
     logGameError('syncUserRedisGameEnergyToPrisma', error, {playerId,catId});
 
@@ -298,7 +299,7 @@ export async function insertAcronymGameRoomAnswer(params: AcronymGameAnswer) {
     // remove
     const prevRecord = await redisClient.hGet(answersKey, params.playerId);
     if (prevRecord) {
-      console.log("prevRecord ", prevRecord);
+      logServiceTrace("v1/games/index", "insertAcronymGameRoomAnswer", "prevRecord ");
       // as AcronymGameAnswer | null
       const record = JSON.parse(prevRecord) as AcronymGameAnswer;
       await redisClient.sRem(uAnswersKey, record.answer);
@@ -327,13 +328,13 @@ export async function insertGameRoomVote({
   playerId: string;
 }) {
   try {
-    console.log("Voting function called");
+    logServiceTrace("v1/games/index", "insertGameRoomVote", "Voting function called");
     const answersKey = `room:${roomId}:answers`;
     const voteHashKey = `room:${roomId}:votes`;
     // Check if the player has already voted and remove the vote
     const previousVote = await redisClient.hGet(voteHashKey, playerId);
     if (previousVote) {
-      console.log("previousVote ", previousVote);
+      logServiceTrace("v1/games/index", "insertGameRoomVote", "previousVote ");
       // Decrement vote count for the previously voted answer
       const prevAnswer = await redisClient.hGet(answersKey, previousVote);
       if (prevAnswer) {
@@ -403,7 +404,7 @@ export async function retrieveGameRoomAnswers<T = any>(
       const entries = Object.entries(guesses).map(([_key, value]) =>
         JSON.parse(value)
       ) as { timer: number; text: string }[];
-      console.log("entries: ", entries);
+      logServiceTrace("v1/games/index", "retrieveGameRoomAnswers", "entries: ");
       return { ...ans, answers: entries };
     })
   );
@@ -947,7 +948,7 @@ export const disconnectGameRoomPlayer = async (socket: Socket, io: GameIoNamespa
     // check if game room player exists
     const player = await getGameRoomPlayer(socket.data.user.id);
     if (!player) return;
-    console.log("Disconnected socket rooms", socket.rooms);
+    logServiceTrace("v1/games/index", "disconnectGameRoomPlayer", "Disconnected socket rooms");
     // remove user from all rooms
     const socketRooms = Array.from(socket.rooms);
     for (let r = 0; r < socketRooms.length; r++) {
@@ -967,12 +968,7 @@ export const disconnectGameRoomPlayer = async (socket: Socket, io: GameIoNamespa
     const totalParticipants = await removeGameRoomPlayer(room.id, user.id, room.mode);
     const roomStrArr = room?.id.split("_");
     const parentRoomId = roomStrArr[0]
-    console.log(
-      "Discon totalParticipants ",
-      totalParticipants,
-      " parentRoomId ",
-      parentRoomId
-    );
+    logServiceTrace("v1/games/index", "disconnectGameRoomPlayer", "Discon totalParticipants ");
     io.emit(GameEventEnum.GAME_ROOM_PARTICIPANTS, {
       roomId: parentRoomId,
       count: totalParticipants,
@@ -1262,7 +1258,7 @@ export const updatePlayerGameEnergy = async (
   params: PlayerGameEnergy
 ) => {
   try {
-    console.log("Game energy incoming request ", params);
+    logServiceTrace("v1/games/index", "updatePlayerGameEnergy", "Game energy incoming request ");
     // const playerKeys = getPlayerRedisKeys(params.playerId, params.catId);
     const uKey = `player:${params.playerId}:cat:${params.catId}:energy`
     await Promise.all([
@@ -1311,7 +1307,7 @@ export const updatePlayersGameEnergy = async (
           "turbo",
           -turbo
         );
-        console.log("Generated energy", { amount, gauge, turbo });
+        logServiceTrace("v1/games/index", "updatePlayersGameEnergy", "Generated energy");
         return {
           playerId: item.playerId,
           catId: item.catId,
@@ -1322,8 +1318,8 @@ export const updatePlayersGameEnergy = async (
       })
     );
     //
-    console.log("Updated players game energy after game round");
-    console.log(result);
+    logServiceTrace("v1/games/index", "updatePlayersGameEnergy", "Updated players game energy after game round");
+    logServiceTrace("v1/games/index", "updatePlayersGameEnergy", "Service diagnostic");
     // emit to game players
     await Promise.all(
       result.map((item) => {
@@ -1377,7 +1373,7 @@ const composeTimerKey = (name: string) => {
 // this function checks if the number of players in the room are up 3
 export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespace) => {
   const totalPlayers = await getTotalRoomPlayers(room.roomId);
-  console.log("checkGameNumPlayers totalPlayers ", totalPlayers, " room ", room);
+  logServiceTrace("v1/games/index", "checkGameNumPlayers", "checkGameNumPlayers totalPlayers ");
   if (totalPlayers === 0) return;
   if (totalPlayers < 2 && room.mode === GameMode.MULTI) {
     await notifyGameRoomPlayers({roomId: room.roomId, mode: room.mode, totalPlayers, io});
@@ -1930,7 +1926,7 @@ export const getGameWinnersStats = async () => {
     return { status: 200, data: rankingStats };
   } catch (error: any) {
     logGameError('getGameWinnersStats', error, {});
-    console.error("Error fetching game winners' stats:", error);
+
     return {
       status: 500,
       data: "Sorry an error occurred, please try again later.",
@@ -2001,13 +1997,13 @@ export const getGameCategoriesRankings = async (
         : rankType === "week"
         ? keyPatterns.week
         : keyPatterns.month;
-     console.log("ranking key patterns ", pattern)
+     logServiceTrace("v1/games/index", "getGameCategoriesRankings", "ranking key patterns ");
     // Use SCAN to fetch a batch of keys
     const { keys } = await redisClient.scan('0', {
       COUNT: 50000,
       MATCH: pattern,
     });
-    console.log("found keys ", keys)
+    logServiceTrace("v1/games/index", "getGameCategoriesRankings", "found keys ");
     // ranking store
     const rankings = [];
     // loop through keys and get player rank for each category
@@ -2093,7 +2089,7 @@ export const getGamesRankingArchiveStats = async () => {
     return { status: 200, data: rankingStats };
   } catch (error: any) {
     logGameError('getGamesRankingArchiveStats', error, {});
-    console.error("Error fetching ranking stats:", error);
+
     return {
       status: 500,
       data: "Sorry an error occurred, please try again later.",

@@ -1,5 +1,6 @@
 import {closeEmailTransport} from '@/services/email';
 import logger from '@/logger';
+import {logWorkerLifecycle} from '@/logger/events';
 import { closeCacheStore } from '@/store';
 import * as queues from './jobs/queue';
 import { startRecurringJobs } from './recurring';
@@ -23,10 +24,9 @@ export async function startCronJobs() {
     activeWorkers = [workers.appSubscriptionWorker, workers.appSubReminderWorker,
       workers.emailDeliveryWorker, workers.postEmbeddingWorker, workers.postTopicWorker, workers.postKeywordsWorker];
     for (const worker of activeWorkers) {
-      worker.on('error', () => logger.error('BullMQ worker connection error'));
-      worker.on('failed', (job, error) => logger.error({ job: job?.name, error: error.message }, 'BullMQ job failed'));
+      logWorkerLifecycle(worker);
       // run() lasts for the worker lifetime; never await workers sequentially.
-      if (!worker.isRunning()) void worker.run().catch(error => logger.error('BullMQ worker stopped'));
+      if (!worker.isRunning()) void worker.run().catch(err => logger.error({event:'queue_stopped',queue:worker.name,err},'BullMQ worker stopped'));
     }
     recurring = await startRecurringJobs();
     quiz = await startQuizGeneration();

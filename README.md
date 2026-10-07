@@ -967,6 +967,15 @@ worker fans out in batches and delivers browser push with retries and visibility
 checks. See [author post notification documentation](docs/post-notifications.md)
 for API contracts, delivery guarantees, deployment and operational checks.
 
+### Welcome email queue and diagnostics
+
+New password/Google registrations immediately enqueue their committed welcome
+outbox event into `emailDeliveryQueue`. The worker sends the message to the
+registered address; failures are logged, fail the job and remain recoverable.
+Queue lifecycle, contextual service errors and API request outcomes use safe
+structured logs. See [welcome email and logging](docs/welcome-email-logging.md)
+for event names, retry guarantees and production inspection commands.
+
 ### Quiz question routing and inventory
 
 `generateRoomQuestion` selects the generator using the room's game family name,
