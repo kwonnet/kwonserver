@@ -951,6 +951,30 @@ continue. The global exception diagnostics now retain stacks and no longer print
 an inaccurate “shutting down” message when that handler does not terminate the
 process. No migration or new configuration is required.
 
+### Quiz question routing and inventory
+
+`generateRoomQuestion` selects the generator using the room's game family name,
+never its topic text. Trivia & Quiz, Academia Adventure, Sports & Games, and
+Country Mania use the permanent quiz inventory. Subjects such as mathematics,
+biology, geography, or football do not change that routing. Acronym Arcade and
+MindMash retain their local generators even when topics mention sports or trivia.
+
+Live quiz rounds read stored PostgreSQL questions through the Redis category pool
+and track question history per room to avoid repeats. Low or empty inventory
+queues one deduplicated replenishment job per category. The separate background
+worker (`npm run start:worker`) generates and validates batches, persists them,
+and adds their IDs to Redis. The worker needs `REDIS_URL`, database access, and
+the configured OpenAI credentials; `RUN_BACKGROUND_JOBS` must not be `false`.
+An empty/exhausted inventory keeps the room in its existing chat/retry cycle until
+questions are available, rather than calling the AI provider inside a live round.
+
+After building, inspect or request inventory for a category with
+`npm run quiz:inventory -- status <categoryId>` or
+`npm run quiz:inventory -- ensure <categoryId>`. Queue failures now include the
+original error/stack, category ID, job ID, and attempt in worker logs. Check these
+logs if status remains empty or failed; routing alone cannot repair unavailable
+provider credentials, Redis, or a stopped worker. No migration is required.
+
 ### Game failure diagnostics and reconnect causes
 
 All catch handlers in `src/services/v1/games` now emit contextual structured logs

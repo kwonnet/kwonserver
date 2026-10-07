@@ -874,8 +874,10 @@ export const generateRoomQuestion = async (room: TempGameRoom) => {
     const name = room.gameName.toLowerCase();
     const topics = room?.topics ? room.topics : `${room.catName} current affairs`;
     const quizzes = ["trivia", "academia", "sports", "country"];
+    // Topics describe the subject, not the game family. Math/history quizzes
+    // still need inventory, while word games may also have sports topics.
     const isQuiz = quizzes.some((item) =>
-      topics.toLowerCase().includes(item.toLowerCase())
+      name.includes(item)
     );
 
     if(isQuiz){

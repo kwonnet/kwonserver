@@ -6,8 +6,35 @@ vi.mock('@/services/helper',()=>({getGameCatType:vi.fn()}));
 vi.mock('wordlist-english',()=>({default:{}}));
 vi.mock('@/services/questionInventory/runtime',()=>({getQuestionInventory:()=>({})}));
 vi.mock('@/services/v1/games/questionInventory',()=>({getInventoryRoomQuestion:selectQuestion}));
-import { generateTriviaBatch, generateTriviaQuestion } from '@/utils/ai';
+import { generateRoomQuestion, generateTriviaBatch, generateTriviaQuestion } from '@/utils/ai';
+import { getGameCatType } from '@/services/helper';
+import { GameCatType, GameType } from '@/types';
 import type { TempGameRoom } from '@/types';
+it.each([
+ ['Trivia & Quiz', 'General Knowledge', 'History and science'],
+ ['Academia Adventure', 'Mathematics', 'Arithmetic'],
+ ['Sports & Games', 'Football', 'Rules and players'],
+ ['Country Mania', 'Nigeria', 'Geography and culture'],
+])('routes %s to stored quiz questions regardless of subject', async (gameName, catName, topics) => {
+ selectQuestion.mockResolvedValue({id:'stored-id',question:'Stored question',answer:'A',options:['A','B','C','D'],type:GameType.TRIVIA});
+ const room={roomId:'room',catId:'cat',gameName,catName,topics} as TempGameRoom;
+ expect((await generateRoomQuestion(room))?.id).toBe('stored-id');
+ expect(selectQuestion).toHaveBeenCalledOnce();
+ expect(selectQuestion).toHaveBeenCalledWith(expect.anything(),room);
+ expect(parse).not.toHaveBeenCalled();
+});
+it('routes quizzes without topics using category context', async () => {
+ selectQuestion.mockResolvedValue({id:'stored-id',question:'Q',answer:'A',options:['A','B','C','D'],type:GameType.TRIVIA});
+ await generateRoomQuestion({roomId:'room',catId:'cat',gameName:'Academia Adventure',catName:'Physics'} as TempGameRoom);
+ expect(selectQuestion).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({topics:'Physics current affairs'}));
+});
+it.each(['Acronym Arcade','MindMash'])('keeps %s local even with trivia-related topics', async gameName => {
+ vi.mocked(getGameCatType).mockReturnValue(GameCatType.TYPEMANIA);
+ const question=await generateRoomQuestion({gameName,catName:'Typing Mania',topics:'sports, country, trivia'} as TempGameRoom);
+ expect(question?.type).toBe(gameName==='MindMash'?GameType.MINDMASH:GameType.ACRONYM);
+ expect(selectQuestion).not.toHaveBeenCalled();
+ expect(parse).not.toHaveBeenCalled();
+});
 it('serves the live quiz path from inventory without contacting the provider',async()=>{
  selectQuestion.mockResolvedValue({id:'stored-id',question:'Stored question',answer:'A',options:['A','B','C','D'],type:'trivia'});
  const question=await generateTriviaQuestion({roomId:'room',catId:'cat'} as TempGameRoom);
