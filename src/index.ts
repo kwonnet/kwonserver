@@ -79,8 +79,6 @@ process.on("unhandledRejection", (err: any) => {
 });
 
 
-
-
 // Let BullMQ finish active jobs before a deployment replaces this process.
 let stopping = false;
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
