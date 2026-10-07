@@ -14,7 +14,15 @@ beforeAll(async () => {
  const metadata = {device: {browser: null, browserVersion: null, os: null, osVersion: null, type: 'unknown'}, location: null, ipAddress: null, ipHash: null, metadataSource: 'API_REQUEST'};
  current = await startAuthSession(owner, 'PASSWORD', metadata); other = await startAuthSession(owner, 'PASSWORD', metadata);
 });
-afterAll(async () => {await db.post.deleteMany({where: {userId: {in: [owner, privateUser]}}}); await db.user.deleteMany({where: {id: {in: [owner, privateUser]}}}); await db.$disconnect();});
+afterAll(async () => {
+ try {
+  // Keep dependent fixture removal atomic: never delete an author if its posts remain.
+  await db.$transaction([
+   db.post.deleteMany({where: {userId: {in: [owner, privateUser]}}}),
+   db.user.deleteMany({where: {id: {in: [owner, privateUser]}}}),
+  ]);
+ } finally {await db.$disconnect();}
+});
 it('verifies password changes, preserves current login, invalidates other logins and supports the new password', async () => {
  expect((await updateAccountPassword(owner, current, {currentPassword: 'wrong-password', newPassword: 'new-password'})).status).toBe(403);
  expect((await updateAccountPassword(owner, current, {currentPassword: 'old-password', newPassword: 'new-password'})).status).toBe(200);
@@ -53,10 +61,15 @@ it('requires genuine recent Google sign-in rather than saved-account switching t
 });
 
 it('paginates sitemap inventory beyond 1000 public posts without omitting older content',async()=>{
- await db.post.createMany({data:Array.from({length:1001},(_,index)=>({id:`seo-sitemap-${index.toString().padStart(4,'0')}`,userId:owner,type:'CONTENT' as const,kind:'ROOT' as const,content:'Public sitemap content',createdAt:new Date('2020-01-01')}))});
+ // This test covers inventory paging, not keyword extraction. Empty content avoids
+ // generating thousands of irrelevant trend rows through the real DB triggers.
+ // Bound each insert while retaining all publication/visibility triggers.
+ for(let offset=0;offset<1001;offset+=100){
+  await db.post.createMany({data:Array.from({length:Math.min(100,1001-offset)},(_,index)=>({id:`seo-sitemap-${(offset+index).toString().padStart(4,'0')}`,userId:owner,type:'CONTENT' as const,kind:'ROOT' as const,content:'',createdAt:new Date('2020-01-01')}))});
+ }
  const first=await getPublicPostMetadataIndex(0),second=await getPublicPostMetadataIndex(1);
  expect(first).toHaveLength(1000);expect(second.length).toBeGreaterThan(0);
  const ids=[...first,...second].map(post=>post.id);expect(new Set(ids).size).toBe(ids.length);
  for(let index=0;index<1001;index++) expect(ids).toContain(`seo-sitemap-${index.toString().padStart(4,'0')}`);
  expect(await getPublicPostSitemapCount()).toEqual({pages:2});
-});
+},60000);
