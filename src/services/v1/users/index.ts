@@ -89,9 +89,11 @@ export const getUserNotifications = async (
   { limit, page }: { limit: number; page: number }
 ) => {
   try {
+    const {publicationNotificationVisibility} = await import('@/services/v1/notifications');
     const result = await prisma.notification.findMany({
       where: {
         recipientId: user.id,
+        ...publicationNotificationVisibility(user.id),
       },
       skip: (page - 1) * limit,
       take: limit,
@@ -203,6 +205,7 @@ export const getUserAchievements = async (query: RewardQuery) => {
 
 export const getUserStats = async (id: string) => {
   try {
+    const {publicationNotificationVisibility} = await import('@/services/v1/notifications');
     const [
       totalInvites,
       earned,
@@ -238,8 +241,8 @@ export const getUserStats = async (id: string) => {
       prisma.userTask.count({ where: { userId: id } }),
 
       // get total unread notifications
-      prisma.notification.count({ where: { recipientId: id, isRead: false } }),
-      prisma.notification.count({ where: { recipientId: id, isSeen: false } }),
+      prisma.notification.count({ where: { recipientId: id, isRead: false, ...publicationNotificationVisibility(id) } }),
+      prisma.notification.count({ where: { recipientId: id, isSeen: false, ...publicationNotificationVisibility(id) } }),
     ]);
 
     // get message count from

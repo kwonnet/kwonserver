@@ -951,6 +951,14 @@ continue. The global exception diagnostics now retain stacks and no longer print
 an inaccurate “shutting down” message when that handler does not terminate the
 process. No migration or new configuration is required.
 
+### Author post notifications
+
+The profile bell persists per-author notifications. Publication writes a durable
+database event, including when scheduled posts go live. The existing notification
+worker fans out in batches and delivers browser push with retries and visibility
+checks. See [author post notification documentation](docs/post-notifications.md)
+for API contracts, delivery guarantees, deployment and operational checks.
+
 ### Quiz question routing and inventory
 
 `generateRoomQuestion` selects the generator using the room's game family name,

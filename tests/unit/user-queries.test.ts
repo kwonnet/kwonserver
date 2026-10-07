@@ -25,7 +25,7 @@ it('returns public paginated search results', async () => {
 it('reports empty searches', async () => { db.user.findMany.mockResolvedValue([]); expect((await service.searchUsers({ query: 'none', page: 1, limit: 10 })).status).toBe(200); });
 it.each([{ rows: [], status: 404 }, { rows: [{ id: 'n' }], status: 200 }])('scopes notification pagination to the recipient', async ({ rows, status }) => {
   db.notification.findMany.mockResolvedValue(rows); expect((await service.getUserNotifications(user(), { page: 2, limit: 10 })).status).toBe(status);
-  expect(db.notification.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { recipientId: 'user-1' }, skip: 10, take: 10, orderBy: [{ createdAt: 'desc' }] }));
+  expect(db.notification.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ recipientId: 'user-1' }), skip: 10, take: 10, orderBy: [{ createdAt: 'desc' }] }));
 });
 it('updates notification receipts only for the recipient', async () => {
   expect(await service.updateUserNotifications({ recipientId: 'u', isRead: true })).toEqual({ status: 200, data: null });

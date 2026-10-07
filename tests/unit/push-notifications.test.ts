@@ -37,7 +37,16 @@ it.each([404, 410])('removes expired endpoints %s without retrying', async statu
 it('keeps transient failures pending and still delivers to other devices', async () => {
  deps.subscriptions.findMany.mockResolvedValue([{id: 's1', config: subscription}, {id: 's2', config: subscription}]);
  deps.send.mockRejectedValueOnce({statusCode: 503}).mockResolvedValueOnce({}); await deliverPendingPushNotifications();
- expect(deps.send).toHaveBeenCalledTimes(2); expect(deps.notifications.update).not.toHaveBeenCalled();
+ expect(deps.send).toHaveBeenCalledTimes(2);
+ expect(deps.notifications.update).toHaveBeenCalledWith({where: {id: 'n1'}, data: {pushDeliveredSubscriptionIds: {push: 's2'}}});
+ expect(deps.notifications.update).not.toHaveBeenCalledWith({where: {id: 'n1'}, data: {pushSentAt: expect.any(Date)}});
+});
+it('retries only devices that have not already received the notification', async () => {
+ deps.notifications.findMany.mockResolvedValue([{id: 'n1', recipientId: 'owner', title: 'New post', message: 'Published', pushDeliveredSubscriptionIds: ['s1']}]);
+ deps.subscriptions.findMany.mockResolvedValue([{id: 's1', config: subscription}, {id: 's2', config: subscription}]);
+ await deliverPendingPushNotifications();
+ expect(deps.send).toHaveBeenCalledOnce();
+ expect(deps.notifications.update).toHaveBeenCalledWith({where: {id: 'n1'}, data: {pushDeliveredSubscriptionIds: {push: 's2'}}});
 });
 it('does not deliver when another worker already owns the lease', async () => {
  deps.notifications.updateMany.mockResolvedValue({count: 0}); await deliverPendingPushNotifications(); expect(deps.send).not.toHaveBeenCalled();

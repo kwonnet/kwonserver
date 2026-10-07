@@ -20,6 +20,8 @@ datasource db {
 }
 
 model User {
+  postNotificationSubscriptions PostNotificationSubscription[] @relation("PostNotificationSubscriber")
+  postNotificationSubscribers PostNotificationSubscription[] @relation("PostNotificationAuthor")
   engagementClaims EngagementClaim[]
   engagementCredits EngagementCredit[]
   boostViews PostBoostView[]
@@ -510,6 +512,7 @@ model Post {
   deletedAt     DateTime?
   transactions  Transaction[]
   notifications Notification[]
+  publicationNotificationEvent PostPublicationNotification?
   reports       PostReport[]
   disinterest   PostDisinterest[]
   pins          PostPin[]
@@ -1151,9 +1154,11 @@ model Subscription {
 }
 
 model Notification {
+  sourceKey String? @unique
   id          String        @id @default(cuid())
   pushSentAt DateTime?
   pushAttempts Int @default(0)
+  pushDeliveredSubscriptionIds String[] @default([])
   nextPushAttemptAt DateTime @default(now())
   title       String
   message     String
@@ -1172,7 +1177,31 @@ model Notification {
   updatedAt   DateTime?     @updatedAt
 
    @@index([pushSentAt, nextPushAttemptAt])
+   @@index([recipientId, createdAt(sort: Desc)])
    @@index([createdAt])
+}
+
+model PostNotificationSubscription {
+  id String @id @default(cuid())
+  subscriberId String
+  authorId String
+  subscriber User @relation("PostNotificationSubscriber", fields: [subscriberId], references: [id], onDelete: Cascade)
+  author User @relation("PostNotificationAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([subscriberId, authorId])
+  @@index([authorId, id])
+}
+
+// Transactional outbox: publication and event commit together, including schedules.
+model PostPublicationNotification {
+  postId String @id
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  subscriberCursor String?
+  completedAt DateTime?
+
+  @@index([completedAt, createdAt])
 }
 
 model PushNotification {
