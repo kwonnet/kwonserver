@@ -1,0 +1,54 @@
+import {PrismaPg} from '@prisma/adapter-pg';
+import {PrismaClient} from '@prisma/client';
+import {Worker,QueueEvents} from 'bullmq';
+import {beforeAll,afterAll,expect,it,vi} from 'vitest';
+const send=vi.hoisted(()=>vi.fn().mockResolvedValue({}));
+vi.mock('@/utils/webpush',()=>({default:{sendNotification:send}}));
+import {notificationQueue} from '@/cron/jobs/queue';
+import {createPost,createPostQuote,publishDueScheduledPosts} from '@/services/v1/posts';
+import {PostCreateSchema} from '@/schema/post';
+import {deliverPostPublicationNotification,enqueuePostPublicationNotification,setAuthorNotificationSubscription,getNotificationStreamSnapshot} from '@/services/v1/notifications';
+const db=new PrismaClient({adapter:new PrismaPg({connectionString:process.env.DATABASE_URL,max:10})});
+const connection={host:'127.0.0.1',port:16379};
+let author:string,viewer:string,stranger:string;let events:QueueEvents;let worker:Worker|undefined;
+const config={endpoint:'https://fcm.googleapis.com/fcm/send/publication-queue-fixture',keys:{p256dh:Buffer.alloc(65,4).toString('base64url'),auth:Buffer.alloc(16,1).toString('base64url')}};
+const body=(isDraft=false)=>PostCreateSchema.parse({isDraft,thread:[{type:'CONTENT',content:'New queue-driven publication',scope:'ANYONE',media:[]}]});
+beforeAll(async()=>{
+ [author,viewer,stranger]=await Promise.all(['author','viewer','stranger'].map(async name=>(await db.user.create({data:{name,username:`publication-queue-${name}`,email:`publication-queue-${name}@test.invalid`}})).id));
+ await setAuthorNotificationSubscription(author,viewer,true);
+ await db.pushNotification.create({data:{endpoint:config.endpoint,config,userId:viewer}});
+ await notificationQueue.obliterate({force:true});events=new QueueEvents(notificationQueue.name,{connection});await events.waitUntilReady();
+});
+afterAll(async()=>{
+ await worker?.close();await events?.close();await notificationQueue.obliterate({force:true});
+ await db.notification.deleteMany({where:{senderId:author}});await db.post.deleteMany({where:{userId:author,kind:'QUOTE'}});await db.post.deleteMany({where:{userId:author}});
+ await db.user.deleteMany({where:{id:{in:[author,viewer,stranger]}}});await db.$disconnect();
+});
+it('queues from real publication services, fans out and sends push without a recurring tick; SSE snapshots stay recipient-specific',async()=>{
+ const result=await createPost(body(),author);expect(result.status).toBe(200);const post=(result.data as any);
+ const job=await notificationQueue.getJob(`post-notification-${post.id}`);expect(job).not.toBeNull();expect(await job!.getState()).toBe('waiting');
+ await Promise.all([enqueuePostPublicationNotification(post.id),enqueuePostPublicationNotification(post.id)]);
+ worker=new Worker(notificationQueue.name,job=>deliverPostPublicationNotification(job.data.postId),{connection,concurrency:2});
+ await job!.waitUntilFinished(events,10000);
+ expect(send).toHaveBeenCalledOnce();expect(JSON.parse(send.mock.calls[0][1])).toMatchObject({url:`/@publication-queue-author/feed/${post.id}`});
+ expect(await db.notification.count({where:{postId:post.id}})).toBe(1);
+ expect(await getNotificationStreamSnapshot(viewer)).toMatchObject({userId:viewer,totalUnseenCount:1,latestNotificationId:expect.any(String)});
+ expect(await getNotificationStreamSnapshot(stranger)).toEqual({userId:stranger,totalUnseenCount:0,latestNotificationId:null});
+ expect(await (await notificationQueue.getJob(job!.id!))!.getState()).toBe('completed');
+ await enqueuePostPublicationNotification(post.id);expect(send).toHaveBeenCalledOnce();
+ const quote=await createPostQuote(post.id,author,body());expect(quote.status).toBe(200);
+ const quoted=await db.post.findFirstOrThrow({where:{userId:author,kind:'QUOTE'}});
+ await (await notificationQueue.getJob(`post-notification-${quoted.id}`))!.waitUntilFinished(events,10000);expect(send).toHaveBeenCalledTimes(2);
+});
+it('does not announce drafts/schedules early, but enqueues their publication when the schedule goes live',async()=>{
+ await worker?.close();worker=undefined;
+ const draft=await createPost(body(true),author);expect(draft.status).toBe(200);
+ expect(await notificationQueue.getJob(`post-notification-${(draft.data as any).id}`)).toBeFalsy();
+ const scheduleBody={...body(),scheduleAt:new Date(Date.now()+600000)};
+ const scheduled=await createPost(scheduleBody,author);expect(scheduled.status).toBe(200);const post=(scheduled.data as any);
+ expect(await notificationQueue.getJob(`post-notification-${post.id}`)).toBeFalsy();
+ await db.post.update({where:{id:post.id},data:{scheduleAt:new Date(0)}});
+ await publishDueScheduledPosts();const job=await notificationQueue.getJob(`post-notification-${post.id}`);expect(job).not.toBeNull();
+ worker=new Worker(notificationQueue.name,job=>deliverPostPublicationNotification(job.data.postId),{connection});await job!.waitUntilFinished(events,10000);
+ expect(await db.notification.count({where:{postId:post.id,recipientId:viewer,pushSentAt:{not:null}}})).toBe(1);
+});

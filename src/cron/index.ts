@@ -20,9 +20,10 @@ export async function startCronJobs() {
     // Import only in the process that actually executes jobs.
     await queues.postTopicQueue.setGlobalConcurrency(1);
     await queues.emailQueue.setGlobalConcurrency(2);
+    await queues.notificationQueue.setGlobalConcurrency(2);
     workers = await import('./jobs/workers');
     activeWorkers = [workers.appSubscriptionWorker, workers.appSubReminderWorker,
-      workers.emailDeliveryWorker, workers.postEmbeddingWorker, workers.postTopicWorker, workers.postKeywordsWorker];
+      workers.emailDeliveryWorker, workers.notificationDeliveryWorker, workers.postEmbeddingWorker, workers.postTopicWorker, workers.postKeywordsWorker];
     for (const worker of activeWorkers) {
       logWorkerLifecycle(worker);
       // run() lasts for the worker lifetime; never await workers sequentially.

@@ -15,7 +15,7 @@ import imagekitRoutes from './imagekit';
 import postRoutes from './posts';
 import locationRoutes from './locations';
 import notificationsRoutes from './notifications';
-import sseEmitter from '@/sseEmitter';
+import {notificationStreamController} from '@/controllers/v1/notifications';
 import tipRoutes from './tips';
 import conversationRoutes from './conversations';
 import anonymousRoutes from './anonymous';
@@ -55,7 +55,7 @@ router.use("/anonymous/", anonymousRoutes)
 
 router.use("/discover/", discoverRoutes)
 
-router.use("/stream", authMiddleware(), guardAuthStream, sseEmitter.init)
+router.use("/stream", authMiddleware(), guardAuthStream, notificationStreamController)
 
 const v1Routes = router
 

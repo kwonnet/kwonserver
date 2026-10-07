@@ -13,10 +13,14 @@ flowchart TD
   B --> C[Unique subscriber and author relationship]
   D[Immediate publication or scheduled post goes live] --> E[Post transaction]
   E --> F[Database trigger writes publication outbox event]
-  F --> G[BullMQ notification job runs each minute]
+  F --> G[Enqueue immediate notificationDeliveryQueue job after commit]
+  F --> R[Minute recovery if enqueue or worker fails]
+  R --> H
   G --> H[Lock event and page subscribers]
   H --> I[Check current visibility and preferences]
   I --> J[Create unique in-app notification and commit cursor]
+  J --> S[Authenticated SSE inbox snapshot]
+  S --> T[Refresh subscriber badge and inbox]
   J --> K[Lease pending push notification]
   K --> L[Recheck access and subscription]
   L --> M[Send to active browser devices]
@@ -34,7 +38,17 @@ reposting, replies and thread continuations do not create another announcement.
 Quotes also require access to their parent post. Scheduled posts do not notify
 subscribers while they are still scheduled.
 
-`deliver_push_notifications` is the existing BullMQ recurring job. It first
+Publishing a root post or quote now enqueues `post-published` immediately on
+`notificationDeliveryQueue`, after the transaction commits. Scheduled publication
+uses the same path once the post goes live. The stable job ID is
+`post-notification-<postId>`; concurrent calls reuse the job, and failed jobs can
+be retried. The worker has distributed concurrency two, three attempts with
+exponential backoff starting at five seconds, and retains completed jobs for one
+day and failed jobs for seven days (each capped at 1,000). Each immediate job
+drains its post's subscriber batches and due push notifications. Existing database
+uniqueness and atomic leases coordinate it with the recovery worker.
+
+`deliver_push_notifications` remains the existing BullMQ recurring recovery job. It first
 processes up to ten subscriber batches, each with at most 100 relationships.
 Events use `FOR UPDATE SKIP LOCKED`; each transaction writes notifications and
 advances its cursor together. It cannot advance past recipients whose inserts
@@ -95,14 +109,36 @@ No permission request happens merely by visiting a profile.
 
 Deploy `20261007180000_author_post_notifications` with the normal migration
 release step, regenerate/build the server, and deploy the API, worker and web
-app together. No new queue or environment variable is required. The worker must
+app together. Deploy the worker as well as the API: the new `notificationDeliveryQueue` is registered by normal worker startup. No new environment variable or database migration is required for this follow-up. The worker must
 run with `RUN_BACKGROUND_JOBS` enabled, PostgreSQL and Redis access, and the
 existing VAPID configuration; the web app needs the matching public VAPID key
 and HTTPS. Browser delivery requires the user's permission and an active device
 subscription. Scheduled publication uses the existing scheduled-post worker.
 
-Under normal load announcements are processed on the next minute tick. Large
-subscriber lists or a delivery backlog can span several ticks. Inspect pending
+Under normal load publication jobs start as soon as an available worker receives
+them. A failed Redis enqueue logs `post_notification_enqueue_deferred`; the durable
+outbox is processed on the next successful minute tick. Large subscriber lists
+or a delivery backlog can take longer.
+
+The authenticated `/stream` connection now sends `notifications_updated` only
+on that response, with the viewer ID, latest visible notification ID and unseen
+count. It checks the durable inbox every five seconds, sends only changes, and
+sends an initial snapshot on reconnect. The web app revalidates the matching
+account's statistics and mounted notification list through SWR. This works across
+separate API/worker processes and API replicas without an in-memory worker
+broadcast. Browser permission is unnecessary for SSE; the stream must stay open.
+Polling stops on disconnect, requests cannot overlap, and the existing session
+revocation guard still closes invalid sessions. Fifteen-second heartbeats and
+no-buffer/no-store headers keep idle streams alive. This is near-realtime inbox
+invalidation, with up to approximately five seconds of additional SSE latency.
+
+Inspect `post_notification_queued`, `post_notification_fanout_committed`, standard
+queue `job_started`/`job_completed`/`job_failed`, and `notification_push_delivered`,
+`notification_push_no_devices`, `notification_push_retry_scheduled`, or
+`notification_push_cancelled` logs. A profile bell subscription alone cannot
+create a browser endpoint: `notification_push_no_devices` means the device needs
+browser permission and a successfully saved Push API subscription. IDs and counts
+are logged; endpoints, encryption keys and post content are not. Inspect pending
 `PostPublicationNotification` rows (`completedAt IS NULL`) and unsent
 `Notification` rows (`pushSentAt IS NULL`), especially `pushAttempts >= 5`.
 Worker failures include notification/subscription IDs and provider status without

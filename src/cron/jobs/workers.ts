@@ -1,3 +1,4 @@
+import {deliverPostPublicationNotification} from '@/services/v1/notifications';
 import {deliverEmailMessage} from '@/services/email';
 import { inferPostTopic } from '@/services/v1/posts';
 import prisma from "@/db";
@@ -10,7 +11,7 @@ import { PostStatus, SubStatusEnum } from "@prisma/client";
 import IORedis from "ioredis";
 import logger from "@/logger";
 import { insertSubscriptionJob } from "../utils";
-import { EMAIL_DELIVERY_QUEUE, APP_SUBSCRIPTION_QUEUE, APP_SUBSCRIPTION_REMINDER_QUEUE, POST_EMBEDDING_QUEUE, POST_KEYWORDS_QUEUE, POST_LABELS, POST_TOPIC_QUEUE } from "../helpers";
+import { NOTIFICATION_DELIVERY_QUEUE, EMAIL_DELIVERY_QUEUE, APP_SUBSCRIPTION_QUEUE, APP_SUBSCRIPTION_REMINDER_QUEUE, POST_EMBEDDING_QUEUE, POST_KEYWORDS_QUEUE, POST_LABELS, POST_TOPIC_QUEUE } from "../helpers";
 import { cleanTextContent, generateEmbedding } from "@/utils/helpers";
 import { kwonrecClient } from "@/services/kwonrec";
 
@@ -202,3 +203,5 @@ export const postKeywordsWorker = new Worker(
 );
 
 export const emailDeliveryWorker = new Worker(EMAIL_DELIVERY_QUEUE, async job=>{await deliverEmailMessage(job.data.id);},{connection:workerConnection,autorun:false,concurrency:2});
+
+export const notificationDeliveryWorker = new Worker(NOTIFICATION_DELIVERY_QUEUE, async job => {await deliverPostPublicationNotification(job.data.postId);}, {connection: workerConnection, autorun: false, concurrency: 2});

@@ -21,3 +21,5 @@ export const POST_TOPIC_MODEL_VERSION = `${POST_TOPIC_MODEL}@${POST_TOPIC_MODEL_
 export const POST_TOPIC_SESSION_OPTIONS = {intraOpNumThreads: 2, interOpNumThreads: 1};
 
 export const EMAIL_DELIVERY_QUEUE = "emailDeliveryQueue";
+
+export const NOTIFICATION_DELIVERY_QUEUE = "notificationDeliveryQueue";

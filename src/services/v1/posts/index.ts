@@ -1,3 +1,4 @@
+import {enqueuePostPublicationNotification} from '@/services/v1/notifications';
 import {randomInt, randomUUID} from 'node:crypto';
 import boostRedis from '@/redis';
 import { createHash } from 'node:crypto';
@@ -581,6 +582,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
       return { ...rootPost, thread };
     });
 
+    if (result.status === PostStatus.PUBLISHED) await enqueuePostPublicationNotification(result.id);
     for (const post of [result, ...result.thread]) {
       void enqueuePostTopic(post.id, post.content).catch((serviceError) => { logServiceError("v1/posts/index", "createPost", serviceError); return logServiceTrace("v1/posts/index", "createPost", "Topic enqueue failed; background scan will retry"); });
     }
@@ -607,6 +609,7 @@ export const createPostQuote = async (
   userId: string,
   body: PostCreate
 ) => {
+  let publishedQuoteId: string | undefined;
   try {
     const isScheduled = !!body.scheduleAt;
     const result = await prisma.$transaction(async (tx) => {
@@ -878,6 +881,7 @@ export const createPostQuote = async (
         }
         thread.push(res);
       }
+      if (rootPost.status === PostStatus.PUBLISHED) publishedQuoteId = rootPost.id;
       // Scheduled/draft quotes count only when published.
       if (!body.isDraft && !body.scheduleAt) await tx.post.update({
         where: { id: postId },
@@ -885,6 +889,7 @@ export const createPostQuote = async (
       });
       return { isQuoted: true, data: { postId, userId } };
     });
+    if (publishedQuoteId) await enqueuePostPublicationNotification(publishedQuoteId);
     return { data: result, status: 200 };
   } catch (error) {
     logServiceError("v1/posts/index", "createPostQuote", error);
@@ -8316,7 +8321,8 @@ export async function getPostEngagementsOverview(postId: string, viewerId: strin
 
 /** Atomic bounded publication; DB triggers update recommendation/trend indexes. */
 export async function publishDueScheduledPosts() {
-  return prisma.$transaction(async tx => {
+  const publishedIds: string[] = [];
+  const count = await prisma.$transaction(async tx => {
     const due = await tx.$queryRaw<{id: string; kind: string; parentId: string | null; userId: string; scheduledEffectsPending: boolean}[]>`SELECT p.id, p.kind, p."parentId", p."userId", p."scheduledEffectsPending" FROM "Post" p JOIN "User" u ON u.id = p."userId"
       WHERE p.status = 'SCHEDULED' AND p."scheduleAt" <= NOW() AND p."deletedAt" IS NULL
       AND u.status IN ('ACTIVE', 'PRIVATE') AND u."deletedAt" IS NULL AND u."deactivatedAt" IS NULL
@@ -8334,8 +8340,11 @@ export async function publishDueScheduledPosts() {
         }
       }
     }
+    publishedIds.push(...due.filter(post => ['ROOT', 'QUOTE'].includes(post.kind)).map(post => post.id));
     return result.count;
   });
+  await Promise.all(publishedIds.map(enqueuePostPublicationNotification));
+  return count;
 }
 
 export async function getPublicPostMetadata(id: string) {

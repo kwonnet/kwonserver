@@ -1,4 +1,5 @@
-import { subscribePushNotification, unsubscribePushNotification, getAuthorNotificationSubscription, setAuthorNotificationSubscription } from '@/services/v1/notifications';
+import sseEmitter from '@/sseEmitter';
+import { subscribePushNotification, unsubscribePushNotification, getNotificationStreamSnapshot, getAuthorNotificationSubscription, setAuthorNotificationSubscription } from '@/services/v1/notifications';
 import logger from '@/logger';
 import { Response } from "express";
 import type {Request} from "@/types/express";
@@ -26,4 +27,33 @@ export async function authorNotificationSubscriptionController(req: Request, res
     logger.error({err, authorId, subscriberId: req.user!.id}, 'Author notification preference failed');
     return res.status(503).send('Unable to save post notifications. Please try again.');
   }
+}
+
+/** Uses the durable inbox so worker/API replicas need no process-local broadcast. */
+export function notificationStreamController(req: Request, res: Response) {
+  sseEmitter.init(req, res);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.write('retry: 5000\n\n');
+  const userId = req.user!.id;
+  let closed = false, pending = false, previous = '';
+  const refresh = async () => {
+    if (closed || pending || res.writableNeedDrain) return;
+    pending = true;
+    try {
+      const snapshot = await getNotificationStreamSnapshot(userId);
+      const serialized = JSON.stringify(snapshot);
+      if (!closed && previous !== serialized) {
+        res.write(`event: notifications_updated\ndata: ${serialized}\n\n`);
+        previous = serialized;
+      }
+    } catch (err) {
+      logger.error({event: 'notification_stream_refresh_failed', userId, err}, 'Notification SSE refresh failed; next tick will retry');
+    } finally {pending = false;}
+  };
+  const timer = setInterval(() => {void refresh();}, 5000);
+  const heartbeat = setInterval(() => {if (!closed && !res.writableNeedDrain) res.write(': heartbeat\n\n');}, 15000);
+  timer.unref(); heartbeat.unref();
+  res.once('close', () => {closed = true; clearInterval(timer); clearInterval(heartbeat);});
+  void refresh();
 }

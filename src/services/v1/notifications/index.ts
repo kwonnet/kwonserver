@@ -37,17 +37,17 @@ export async function setAuthorNotificationSubscription(authorId: string, subscr
 }
 
 /** Bounded transactional fanout. A crash rolls back both notifications and cursor. */
-export async function fanoutPublishedPostNotifications() {
+export async function fanoutPublishedPostNotifications(postId?: string) {
   for (let batch = 0; batch < 10; batch++) {
     const processed = await prisma.$transaction(async tx => {
       const [event] = await tx.$queryRaw<{postId: string; createdAt: Date; subscriberCursor: string | null}[]>`
         SELECT "postId", "createdAt", "subscriberCursor" FROM "PostPublicationNotification"
-        WHERE "completedAt" IS NULL ORDER BY "createdAt", "postId" LIMIT 1 FOR UPDATE SKIP LOCKED`;
+        WHERE "completedAt" IS NULL AND (${postId ?? null}::text IS NULL OR "postId" = ${postId ?? null}) ORDER BY "createdAt", "postId" LIMIT 1 FOR UPDATE SKIP LOCKED`;
       if (!event) return false;
       const post = await tx.post.findUnique({where: {id: event.postId}, select: {userId: true, status: true, deletedAt: true, isHidden: true, user: {select: {name: true}}}});
       if (!post || post.status !== 'PUBLISHED' || post.deletedAt || post.isHidden) {
         await tx.postPublicationNotification.update({where: {postId: event.postId}, data: {completedAt: new Date()}});
-        return true;
+        return {postId: event.postId, scanned: 0, eligible: 0, created: 0};
       }
       const subscribers = await tx.postNotificationSubscription.findMany({where: {
         authorId: post.userId, createdAt: {lte: event.createdAt},
@@ -61,15 +61,17 @@ export async function fanoutPublishedPostNotifications() {
           senderId: post.userId, recipientId: subscription.subscriberId, postId: event.postId,
           type: 'POST', action: 'NONE', title: 'New post', message: `${post.user.name.slice(0,80)} published a new post`});
       }
-      if (notifications.length) await tx.notification.createMany({data: notifications, skipDuplicates: true});
+      const created = notifications.length ? (await tx.notification.createMany({data: notifications, skipDuplicates: true})).count : 0;
       await tx.postPublicationNotification.update({where: {postId: event.postId}, data: {
         subscriberCursor: subscribers.at(-1)?.id ?? event.subscriberCursor,
         ...(subscribers.length < 100 ? {completedAt: new Date()} : {}),
       }});
-      return true;
+      return {postId: event.postId, scanned: subscribers.length, eligible: notifications.length, created};
     }, {timeout: 30_000});
-    if (!processed) break;
+    if (!processed) return false;
+    logger.info({event: "post_notification_fanout_committed", ...processed}, "Post subscriber notification batch committed");
   }
+  return !!await prisma.postPublicationNotification.findFirst({where: {completedAt: null, ...(postId ? {postId} : {})}, select: {postId: true}});
 }
 
 // Only browser push services may be contacted; arbitrary endpoints are an SSRF risk.
@@ -104,10 +106,10 @@ return {status: 500, data: 'Unable to enable notifications'};}
 export async function unsubscribePushNotification(endpoint: string, user: Pick<AuthUser, 'id' | 'sessionId'>) {
   await prisma.pushNotification.deleteMany({where: {endpoint, userId: user.id}});
 }
-export async function deliverPendingPushNotifications() {
+export async function deliverPendingPushNotifications(postId?: string) {
   const now = new Date();
-  // Recurring queue has global concurrency one. Lease rows to recover after crashes.
-  const notifications = await prisma.notification.findMany({where: {pushSentAt: null, pushAttempts: {lt: 5}, nextPushAttemptAt: {lte: now}}, orderBy: {createdAt: 'asc'}, take: 100});
+  // Atomic row leases coordinate immediate and recurring workers across replicas.
+  const notifications = await prisma.notification.findMany({where: {...(postId ? {postId, sourceKey: {startsWith: "post-published:"}} : {}), pushSentAt: null, pushAttempts: {lt: 5}, nextPushAttemptAt: {lte: now}}, orderBy: {createdAt: 'asc'}, take: 100});
   const deliver = async (notification: typeof notifications[number]) => {
     const claim = await prisma.notification.updateMany({where: {id: notification.id, pushSentAt: null, nextPushAttemptAt: {lte: now}}, data: {pushAttempts: {increment: 1}, nextPushAttemptAt: new Date(Date.now() + 300_000)}});
     if (!claim.count) return;
@@ -119,6 +121,7 @@ export async function deliverPendingPushNotifications() {
         sender: {postNotificationSubscribers: {some: {subscriberId: notification.recipientId!, createdAt: {lte: notification.createdAt ?? new Date(0)}}}}},
         select: {post: {select: {id: true, user: {select: {username: true}}}}}});
       if (!current?.post) {
+        logger.info({event: "notification_push_cancelled", notificationId: notification.id, userId: notification.recipientId}, "Post push cancelled because subscription or visibility changed");
         await prisma.notification.update({where: {id: notification.id}, data: {pushSentAt: new Date()}});
         return;
       }
@@ -126,12 +129,14 @@ export async function deliverPendingPushNotifications() {
     }
     const subscriptions = notification.recipientId ? await prisma.pushNotification.findMany({where: {userId: notification.recipientId, OR: [{sessionId: null}, {session: {revokedAt: null, expiresAt: {gt: new Date()}, userId: notification.recipientId}}]}, orderBy: {updatedAt: 'desc'}}) : [];
     let retry = false;
+    let deliveredDevices = 0;
     for (const subscription of subscriptions) {
       if (notification.pushDeliveredSubscriptionIds?.includes(subscription.id)) continue;
       try {
         const config = validatePushSubscription(subscription.config);
         await webpush.sendNotification(config, JSON.stringify({title: notification.title, body: notification.message, tag: notification.id, url: target}), {TTL: 3600, timeout: 5_000});
         await prisma.notification.update({where: {id: notification.id}, data: {pushDeliveredSubscriptionIds: {push: subscription.id}}});
+        deliveredDevices++;
       } catch (error: any) {
     logServiceError("v1/notifications/index", "deliver", error);
 
@@ -139,10 +144,49 @@ export async function deliverPendingPushNotifications() {
         else {retry = true; logger.warn({notificationId: notification.id, subscriptionId: subscription.id, statusCode: error?.statusCode}, 'Push delivery failed; retry scheduled');}
       }
     }
+    logger.info({event: retry ? 'notification_push_retry_scheduled' : deliveredDevices ? 'notification_push_delivered' : 'notification_push_no_devices', notificationId: notification.id, userId: notification.recipientId, deviceCount: subscriptions.length, deliveredDevices}, retry ? 'Push delivery will retry after lease expires' : 'Push notification delivery processed');
     if (!retry) await prisma.notification.update({where: {id: notification.id}, data: {pushSentAt: new Date()}});
   };
   // Bound concurrent outbound requests instead of opening one for every subscriber.
   for (let offset = 0; offset < notifications.length; offset += 10) {
     await Promise.all(notifications.slice(offset, offset + 10).map(deliver));
   }
+  return notifications.length;
+}
+
+/** Publication already committed: Redis failure must never roll back a post. */
+export async function enqueuePostPublicationNotification(postId: string) {
+  try {
+    const {notificationQueue} = await import('@/cron/jobs/queue');
+    const jobId = `post-notification-${postId}`;
+    const existing = await notificationQueue.getJob(jobId);
+    if (existing) {
+      if (await existing.getState() === 'failed') await existing.retry();
+      return;
+    }
+    await notificationQueue.add('post-published', {postId}, {jobId, attempts: 3,
+      backoff: {type: 'exponential', delay: 5000},
+      removeOnComplete: {age: 86400, count: 1000}, removeOnFail: {age: 604800, count: 1000}});
+    logger.info({event: 'post_notification_queued', postId, jobId}, 'Post subscriber notification queued');
+  } catch (err) {
+    logger.error({event: 'post_notification_enqueue_deferred', postId, err}, 'Publication persisted; recurring outbox recovery will retry delivery');
+  }
+}
+
+export async function deliverPostPublicationNotification(postId: string) {
+  if (!postId || typeof postId !== "string") throw new Error("Post notification job requires a post ID");
+  // Each fanout transaction is bounded. Drain this publication independently of
+  // unrelated feed/email/game jobs; notification uniqueness and leases dedupe recovery.
+  while (await fanoutPublishedPostNotifications(postId)) { /* drain remaining subscriber pages */ }
+  while (await deliverPendingPushNotifications(postId) === 100) { /* drain due devices */ }
+}
+
+/** Authenticated invalidation only: never broadcast recipient notification data. */
+export async function getNotificationStreamSnapshot(userId: string) {
+  const where: Prisma.NotificationWhereInput = {recipientId: userId, ...publicationNotificationVisibility(userId)};
+  const [latest, unseen] = await Promise.all([
+    prisma.notification.findFirst({where, orderBy: [{createdAt: 'desc'}, {id: 'desc'}], select: {id: true}}),
+    prisma.notification.count({where: {...where, isSeen: false}}),
+  ]);
+  return {userId, latestNotificationId: latest?.id ?? null, totalUnseenCount: unseen};
 }
