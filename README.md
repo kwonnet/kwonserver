@@ -1068,3 +1068,34 @@ Follow-up verification passed: 1,160 unit tests with coverage thresholds, 41
 regression tests, and 111 infrastructure tests in each PostgreSQL/pgvector and
 TimescaleDB matrix. The final production image built successfully and its native
 libraries plus payment/Google client imports passed a container smoke test.
+
+### Public sitemap inventory
+
+`GET /v1/posts/metadata-index?page=0` returns at most 1,000 public post IDs, current
+handles and update dates; `GET /v1/posts/metadata-index/count` returns the number of
+pages. Both extend the existing posts routes/controllers/services and require no
+session. The previous 30-day cutoff was removed. Inventory includes only published
+public root posts, due schedules, and active nonprivate authors. Drafts, hidden or
+deleted posts, private scopes, and deactivated/deleted authors are excluded.
+Pages use ascending ID order, with strict zero-based page validation and bounded
+queries. Metadata-only responses expose no account/session/wallet data. The web
+sitemap index/shards consume these endpoints without bearer credentials. Deploy
+this API change before the new web sitemap; no database migration is needed.
+
+### Keep the API subdomain out of search results
+
+Every Express API response carries `X-Robots-Tag: noindex, nofollow, nosnippet`,
+including the health page, public metadata, missing routes and error responses.
+The deployment-generated Caddy configuration also applies it to API_DOMAIN.
+The API robots.txt allows crawling deliberately: Google must fetch the URLs to
+read noindex and remove previously indexed entries. Do not replace this with a
+blanket Disallow rule while attempting removal. Authentication and data visibility
+remain enforced independently; noindex is not an access-control mechanism.
+
+Deploy kwonserver and confirm the header on https://api.kwonnet.com/. If Cloudflare
+cached older responses, purge those API URL caches. For quicker removal, use Google
+Search Console's Removals tool with the exact `https://api.kwonnet.com/` prefix,
+covering that subdomain only. Keep the noindex header permanently after the temporary
+removal request expires; other search engines remove entries after recrawling.
+The main kwonnet.com website remains indexable. Reference:
+[Google's noindex guidance](https://developers.google.com/search/docs/crawling-indexing/block-indexing).

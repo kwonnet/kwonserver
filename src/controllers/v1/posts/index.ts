@@ -1,5 +1,5 @@
 import {injectPostBoosts, getPostBoostStatus} from '@/services/v1/posts';
-import {getEmbedPost, getPublicPostMetadata, getPublicPostMetadataIndex} from "@/services/v1/posts";
+import {getEmbedPost, getPublicPostMetadata, getPublicPostMetadataIndex, getPublicPostSitemapCount} from "@/services/v1/posts";
 import { z } from 'zod/v3';
 import { performance } from "node:perf_hooks";
 import logger from "@/logger";
@@ -1088,9 +1088,11 @@ export const publicPostMetadataController = async (req: Request, res: Response) 
   try {const post = await getPublicPostMetadata(req.params.id); return post ? res.json(post) : res.status(404).json({error: 'Post unavailable'});}
   catch {return res.status(503).json({error: 'Metadata unavailable'});}
 };
-export const publicPostMetadataIndexController = async (_req: Request, res: Response) => {
+export const publicPostMetadataIndexController = async (req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-store');
-  try {return res.json(await getPublicPostMetadataIndex());}
+  const page = req.query.page === undefined ? 0 : Number(req.query.page);
+  if (!Number.isSafeInteger(page) || page < 0 || page >= 50000 || (req.query.page !== undefined && (typeof req.query.page !== 'string' || !/^\d+$/.test(req.query.page)))) return res.status(400).json({error: 'Invalid sitemap page'});
+  try {return res.json(await getPublicPostMetadataIndex(page));}
   catch {return res.status(503).json({error: 'Metadata unavailable'});}
 };
 
@@ -1141,4 +1143,10 @@ export const availableNewsfeedStreamController = (req: Request, res: Response) =
   const lifetime = setTimeout(() => res.end(), 55 * 60000);
   res.on('close', () => {closed = true;clearInterval(timer);clearInterval(heartbeat);clearTimeout(lifetime);});
   if (feed !== 'foryou') void tick();
+};
+
+export const publicPostSitemapCountController = async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {return res.json(await getPublicPostSitemapCount());}
+  catch {return res.status(503).json({error: 'Sitemap unavailable'});}
 };

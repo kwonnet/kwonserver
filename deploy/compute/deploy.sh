@@ -57,7 +57,7 @@ if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', domain) or '.'
     raise SystemExit('API_DOMAIN must be a hostname without scheme/path')
 if not re.fullmatch(r'[A-Za-z0-9._+%-]+@[A-Za-z0-9.-]+', values['ACME_EMAIL']):
     raise SystemExit('ACME_EMAIL is invalid')
-pathlib.Path(sys.argv[2], 'Caddyfile').write_text('{\n email '+values['ACME_EMAIL']+'\n}\n'+domain+' {\n reverse_proxy kwonserver:8000\n}\n')
+pathlib.Path(sys.argv[2], 'Caddyfile').write_text('{\n email '+values['ACME_EMAIL']+'\n}\n'+domain+' {\n header X-Robots-Tag \"noindex, nofollow, nosnippet\"\n reverse_proxy kwonserver:8000\n}\n')
 PY
 export DOCKER_CONFIG="$WORK/docker"
 mkdir -p "$DOCKER_CONFIG"

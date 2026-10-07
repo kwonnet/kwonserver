@@ -38,6 +38,7 @@ if args[0]=='exec' and os.environ.get('FAIL_HANDSHAKE'): sys.exit(43)
 }
 test('automatic deployment migrates before starting API and worker, and records image',t=>{
   const f=fixture(t),r=f.run();assert.equal(r.status,0,r.stderr);
+  assert.match(fs.readFileSync(path.join(f.root,'runtime/Caddyfile'),'utf8'), /header X-Robots-Tag \"noindex, nofollow, nosnippet\"/);
   const c=f.calls();assert.ok(c.findIndex(a=>a.some(v=>v.includes('exec npm run db:deploy')))<c.findIndex(a=>a.includes('--name')));
   assert.ok(c.some(a=>a.includes('kwonserver-worker')&&a.includes('start:worker')));
   assert.equal(fs.readFileSync(path.join(f.root,'runtime/image'),'utf8'),image+'\n');

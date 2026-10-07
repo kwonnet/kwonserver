@@ -8252,8 +8252,18 @@ export async function publishDueScheduledPosts() {
 export async function getPublicPostMetadata(id: string) {
   return prisma.post.findFirst({where: {id, status: 'PUBLISHED', scope: 'ANYONE', kind: 'ROOT', deletedAt: null, isHidden: false, parentId: null, rootId: null, createdAt: {lte: new Date()}, OR: [{scheduleAt: null}, {scheduleAt: {lte: new Date()}}], user: {status: 'ACTIVE', isPrivate: false, deletedAt: null, deactivatedAt: null}}, select: {id: true, content: true, updatedAt: true, user: {select: {name: true, username: true}}, media: {take: 1, select: {url: true, thumbnailUrl: true, fileType: true}}}});
 }
-export async function getPublicPostMetadataIndex() {
-  return prisma.post.findMany({where: {status: 'PUBLISHED', scope: 'ANYONE', kind: 'ROOT', deletedAt: null, isHidden: false, parentId: null, rootId: null, createdAt: {gte: new Date(Date.now() - 30 * 86400_000), lte: new Date()}, OR: [{scheduleAt: null}, {scheduleAt: {lte: new Date()}}], user: {status: 'ACTIVE', isPrivate: false, deletedAt: null, deactivatedAt: null}}, orderBy: [{createdAt: 'desc'}, {id: 'desc'}], take: 1000, select: {id: true, updatedAt: true, user: {select: {username: true}}}});
+function publicPostIndexWhere(): Prisma.PostWhereInput {
+  const now = new Date();
+  return {status: 'PUBLISHED', scope: 'ANYONE', kind: 'ROOT', deletedAt: null, isHidden: false,
+    parentId: null, rootId: null, createdAt: {lte: now}, OR: [{scheduleAt: null}, {scheduleAt: {lte: now}}],
+    user: {status: 'ACTIVE', isPrivate: false, deletedAt: null, deactivatedAt: null}};
+}
+export async function getPublicPostMetadataIndex(page = 0) {
+  return prisma.post.findMany({where: publicPostIndexWhere(), orderBy: {id: 'asc'}, skip: page * 1000,
+    take: 1000, select: {id: true, updatedAt: true, user: {select: {username: true}}}});
+}
+export async function getPublicPostSitemapCount() {
+  return {pages: Math.ceil(await prisma.post.count({where: publicPostIndexWhere()}) / 1000)};
 }
 
 

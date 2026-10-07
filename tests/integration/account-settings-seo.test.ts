@@ -6,7 +6,7 @@ vi.mock('@/utils/webpush', () => ({default: {}}));
 import {updateAccountPassword, startAuthSession, validateAuthSession, loginUser} from '@/services/v1/auth';
 import {updateEditableProfile} from '@/services/v1/profile';
 import {getPublicProfileMetadata} from '@/services/v1/users';
-import {getPublicPostMetadata, getPublicPostMetadataIndex, getEmbedPost} from '@/services/v1/posts';
+import {getPublicPostMetadata, getPublicPostMetadataIndex, getPublicPostSitemapCount, getEmbedPost} from '@/services/v1/posts';
 const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})}); const prefix = 'account-seo-fixture-'; let owner: string, privateUser: string, current: string, other: string;
 beforeAll(async () => {
  owner = (await db.user.create({data: {name: 'Public owner', username: prefix+'owner', email: prefix+'owner@test.invalid', password: await bcrypt.hash('old-password', 10), bio: 'Public bio'}})).id;
@@ -36,7 +36,10 @@ it('returns only public-safe profile and post metadata and sitemap entries', asy
  expect(await getPublicPostMetadata(visible.id)).toMatchObject({id: visible.id, content: 'Public text'});
  const embed = await getEmbedPost(visible.id); expect(embed.status).toBe(200); expect(() => JSON.stringify(embed.data)).not.toThrow();
  for (const post of [draft, limited, hidden, privatePost]) {expect(await getPublicPostMetadata(post.id)).toBeNull(); expect((await getEmbedPost(post.id)).status).toBe(404);}
- const ids = (await getPublicPostMetadataIndex()).map(post => post.id); expect(ids).toContain(visible.id);
+ const old = await make({createdAt: new Date('2020-01-01')});
+ const ids = (await getPublicPostMetadataIndex()).map(post => post.id); expect(ids).toContain(old.id);
+ expect(await getPublicPostSitemapCount()).toMatchObject({pages: expect.any(Number)});
+ expect(await getPublicPostMetadataIndex(1)).toEqual([]); expect(ids).toContain(visible.id);
  for (const post of [draft, limited, hidden, privatePost]) expect(ids).not.toContain(post.id);
 });
 
@@ -47,4 +50,13 @@ it('requires genuine recent Google sign-in rather than saved-account switching t
  expect((await updateAccountPassword(privateUser, switched, {newPassword: 'first-password'})).status).toBe(403);
  const signedIn = await startAuthSession(privateUser, 'GOOGLE', metadata, 'SIGN_IN');
  expect((await updateAccountPassword(privateUser, signedIn, {newPassword: 'first-password'})).status).toBe(200);
+});
+
+it('paginates sitemap inventory beyond 1000 public posts without omitting older content',async()=>{
+ await db.post.createMany({data:Array.from({length:1001},(_,index)=>({id:`seo-sitemap-${index.toString().padStart(4,'0')}`,userId:owner,type:'CONTENT' as const,kind:'ROOT' as const,content:'Public sitemap content',createdAt:new Date('2020-01-01')}))});
+ const first=await getPublicPostMetadataIndex(0),second=await getPublicPostMetadataIndex(1);
+ expect(first).toHaveLength(1000);expect(second.length).toBeGreaterThan(0);
+ const ids=[...first,...second].map(post=>post.id);expect(new Set(ids).size).toBe(ids.length);
+ for(let index=0;index<1001;index++) expect(ids).toContain(`seo-sitemap-${index.toString().padStart(4,'0')}`);
+ expect(await getPublicPostSitemapCount()).toEqual({pages:2});
 });
