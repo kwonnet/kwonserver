@@ -1,3 +1,4 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {afterAll, beforeAll, expect, it, vi} from 'vitest';
 import {createHash} from 'node:crypto';
 import {PrismaClient} from '@prisma/client';
@@ -7,7 +8,7 @@ import {inferPostTopic} from '@/services/v1/posts';
 import {run} from '@/cron/recurring/infer_pending_post_topics';
 import {postTopicQueue} from '@/cron/jobs/queue';
 import {POST_TOPIC_MODEL_VERSION} from '@/cron/helpers';
-const db = new PrismaClient(); let owner: string;
+const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})}); let owner: string;
 const content = 'AI art is changing creativity. Machines can inspire ideas, but your human touch gives it meaning and emotion.';
 beforeAll(async () => {owner = (await db.user.create({data: {name: 'Topic fixture', username: 'topic-model-fixture', email: 'topic-model-fixture@test.invalid'}})).id;});
 afterAll(async () => {await db.post.deleteMany({where: {userId: owner}}); await db.user.delete({where: {id: owner}}); await postTopicQueue.obliterate({force: true}); await postTopicQueue.close(); await db.$disconnect();});

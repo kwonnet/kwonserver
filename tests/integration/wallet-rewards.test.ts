@@ -1,6 +1,7 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {moneyJson} from '@/services/walletLedger';
 import { beforeAll, afterAll, expect, it, vi } from 'vitest';
-vi.mock('@/db',async()=>{const {PrismaClient}=await import('@prisma/client');return {default:new PrismaClient()};});
+vi.mock('@/db',async()=>{const {PrismaClient}=await import('@prisma/client');return {default:new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})})};});
 vi.mock('@/redis',()=>({default:{exists:async()=>1}}));
 vi.mock('@/services/helper',()=>({getRewardTopRankingPlayers:async()=>[{id:'reward-player',rank:1}],syncRedisUserWalletToPrisma:async()=>({isError:false}),syncPrismaUserWalletToRedis:async()=>({isError:false})}));
 import db from '@/db';

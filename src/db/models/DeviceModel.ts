@@ -8,6 +8,7 @@ export interface IOneTimePreKey {
 }
 
 export interface IDevice extends Document {
+  id: string;
   userId: string; // Prisma user id
   deviceId: string; // device id string (uuid)
   identityPubEd25519: string; // base64
@@ -46,16 +47,16 @@ const DeviceSchema = new Schema<IDevice>(
       virtuals: true,
       versionKey: false,
       transform: (_, ret) => {
-        ret.id = ret._id!.toString();
-        delete ret._id;
+        const {_id, ...rest} = ret;
+        return {...rest, id: _id.toString()};
       },
     },
     toObject: {
       virtuals: true,
       versionKey: false,
       transform: (_, ret) => {
-        ret.id = ret?._id!.toString()
-        delete ret._id;
+        const {_id, ...rest} = ret;
+        return {...rest, id: _id.toString()};
       },
     },
   }

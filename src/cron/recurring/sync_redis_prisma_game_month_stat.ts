@@ -15,14 +15,14 @@ async function clearMonthStatsKeys(keys: {rewardMonth: string, spentCoins: strin
     await Promise.all(Object.values(keys).map(val => redisClient.del(val) ))
     logger.info('Cleared game month stats redis keys successfuly');
   } catch (error: any) {
-    logger.info('Error: Clearing game month stats redis keys failed.', error?.message);
+    logger.info({data: error?.message}, 'Error: Clearing game month stats redis keys failed.');
   }
 }
 
 async function clearRedisKeysByPattern(pattern: string){
   try {
     // clear players stats redis keys
-    let cursor = 0; // Initial cursor
+    let cursor = '0'; // Initial cursor
     let keyCounts = 0
     
     do {
@@ -37,11 +37,11 @@ async function clearRedisKeysByPattern(pattern: string){
             await Promise.all(keys.map((key) => redisClient.del(key)))
             logger.info(`Deleted ${keys.length} keys in this batch`);
         }
-    } while (cursor !== 0); // SCAN stops when cursor is back to '0'
+    } while (cursor !== '0'); // SCAN stops when cursor is back to '0'
 
     logger.info(`All matching ${formatNumberWithCommas(keyCounts)} keys have been deleted.`);
   } catch (error: any) {
-    logger.info('Error: Deleting players month stats failed.', error?.message);
+    logger.info({data: error?.message}, 'Error: Deleting players month stats failed.');
   }
 }
 

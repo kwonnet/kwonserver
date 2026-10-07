@@ -1,13 +1,14 @@
 import {randomUUID} from "node:crypto";
-import {z} from "zod";
+import {z} from "zod/v3";
 import {authRequestMetadata} from "@/utils/auth-security";
-import { Request, Response } from "express";
+import { Response } from "express";
+import type {Request} from "@/types/express";
 import { generateToken, getAuthTokenUser, getRefreshAuthTokenUser } from "@/utils";
 import { getAccountSettings, updateAccountPassword, createUser, loginUser, loginGoogleUser, startAuthSession, validateAuthSession, touchAuthSession, listAuthSessions, listLoginEvents, revokeAuthSession, sessionProvider } from "@/services/v1/auth";
 import type { LookupResult } from 'ip-location-api';
 import { lookup } from '@/utils/ipLocation';
 import { PasswordUpdateSchema, SignInSchema, SignUpSchema } from "@/schema/auth";
-import { ZodError } from "zod";
+import { ZodError } from "zod/v3";
 import logger from "@/logger";
 import { SessionUser, AuthUser } from "@/types/user";
 import { getAuthUser } from "@/services/v1/utils";

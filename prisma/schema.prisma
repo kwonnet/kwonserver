@@ -6,7 +6,7 @@
 
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["fullTextSearch", "postgresqlExtensions", "relationJoins"]
+  previewFeatures = ["fullTextSearchPostgres", "relationJoins"]
   binaryTargets = ["native", "darwin-arm64"]
   // output   = "../src/generated/client"
 }
@@ -17,8 +17,6 @@ generator json {
 
 datasource db {
   provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  extensions = [vector]
 }
 
 model User {

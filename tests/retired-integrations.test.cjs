@@ -18,11 +18,11 @@ function load(relative, resolve) {
   return exports;
 }
 const types = load('src/types/index.ts', () => prisma);
-const payment = load('src/schema/payment.ts', name => name === 'zod' ? require('zod') : prisma);
+const payment = load('src/schema/payment.ts', name => name === 'zod/v3' ? require('zod/v3') : prisma);
 const schemas = load('src/schema/index.ts', name => {
   if (name === './payment') return payment;
   if (name === '@/types') return types;
-  return name === 'zod' ? require('zod') : prisma;
+  return name === 'zod/v3' ? require('zod/v3') : prisma;
 });
 
 const allowed = { currency: 'USD', gateway: 'FLUTTERWAVE', source: 'FIAT' };
@@ -64,7 +64,7 @@ function route(relative) {
 test('removed integration endpoints are not registered; wallet and fiat routes remain', () => {
   const rootRoutes = route('src/routes/v1/index.ts');
   for (const url of ['/telegram/', '/crypto/']) {
-    assert.equal(rootRoutes.stack.some(layer => layer.regexp.test(url)), false);
+    assert.equal(rootRoutes.stack.some(layer => layer.match(url)), false);
   }
   const wallets = route('src/routes/v1/wallets/index.ts').stack.map(layer => layer.route.path);
   assert.equal(wallets.includes('/withdraw'), false);

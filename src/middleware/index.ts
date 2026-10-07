@@ -1,5 +1,6 @@
 import {validateAuthSession, touchAuthSession} from "@/services/v1/auth";
-import { Request, Response, NextFunction } from "express";
+import { Response, NextFunction } from "express";
+import type {Request} from "@/types/express";
 import { decryptString, jwtVerify } from "@/utils";
 import { encrytionKey } from "@/config";
 import {

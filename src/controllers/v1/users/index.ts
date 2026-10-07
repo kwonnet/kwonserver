@@ -41,8 +41,9 @@ import {
 import sseEmitter from "@/sseEmitter";
 import { validateZodInput } from "@/utils";
 import { getReqInfo } from "@/utils/helpers";
-import { Request, Response } from "express";
-import { z } from "zod";
+import { Response } from "express";
+import type {Request} from "@/types/express";
+import { z } from "zod/v3";
 
 export const searchUserController = async (req: Request, res: Response) => {
   try {

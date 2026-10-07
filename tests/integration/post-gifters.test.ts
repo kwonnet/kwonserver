@@ -1,8 +1,9 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {afterAll, beforeAll, expect, it, vi} from 'vitest';
 import {PrismaClient} from '@prisma/client';
 import {getPostGifters} from '@/services/v1/posts';
 vi.mock('@/utils/webpush', () => ({default: {}}));
-const db = new PrismaClient();
+const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});
 const prefix = 'gifters-fixture-';
 const owner = prefix + 'owner', sender = prefix + 'sender', post = prefix + 'post', gift = prefix + 'gift';
 beforeAll(async () => {

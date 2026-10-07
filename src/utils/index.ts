@@ -1,7 +1,7 @@
 import jwt, { SignOptions } from "jsonwebtoken"
 import { encrytionKey, jwtKey } from "@/config"
 import CryptoJS from "crypto-js"
-import { ZodSchema, ZodIssue, infer as ZodInfer  } from 'zod';
+import { ZodSchema, ZodIssue, infer as ZodInfer  } from 'zod/v3';
 import { randomUUID } from "crypto";
 import { User } from "@/types";
 import { v4 as uuidv4 } from 'uuid';

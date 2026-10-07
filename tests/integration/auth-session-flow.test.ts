@@ -1,3 +1,4 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {afterAll, beforeAll, expect, it, vi} from 'vitest';
 import {PrismaClient} from '@prisma/client';
 const verify = vi.hoisted(() => vi.fn());
@@ -7,7 +8,7 @@ import {createUser, loginUser, loginGoogleUser, startAuthSession, validateAuthSe
 import {refreshTokenController} from '@/controllers/v1/auth';
 import {generateToken,getAuthTokenUser} from '@/utils';
 import {response} from '../unit/fixtures';
-const db = new PrismaClient();
+const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});
 const prefix = 'login-security-fixture-';
 let owner = '', googleOnly = '', sid = '';
 const metadata = {device: {browser: 'Chrome', browserVersion: '129.0', os: 'Mac', osVersion: '10.15', type: 'desktop'}, location: {country: 'NG', city: 'Lagos'}, ipAddress: '198.51.100.0/24', ipHash: null, metadataSource: 'SIGNED_WEB'};

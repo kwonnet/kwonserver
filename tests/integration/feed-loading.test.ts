@@ -1,3 +1,4 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
@@ -5,7 +6,7 @@ vi.mock('@/utils/webpush', () => ({ default: {} }));
 import { newsfeedQuery } from '@/services/v1/posts';
 import { getNewsfeed } from '@/services/v1/posts';
 
-const db = new PrismaClient({ log: [{ emit: 'event', level: 'query' }] });
+const db = new PrismaClient({ adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000}), log: [{ emit: 'event', level: 'query' }] });
 let queries = 0;
 db.$on('query', () => { queries++; });
 const viewer = 'feed-reader';

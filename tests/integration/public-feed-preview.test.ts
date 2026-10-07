@@ -1,9 +1,10 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 vi.mock("@/utils/webpush", () => ({ default: {} }));
 import { getPublicPostPreview } from "@/services/v1/posts";
 
-const db = new PrismaClient();
+const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});
 const now = new Date("2040-01-04T12:00:00Z");
 beforeAll(async () => {
   for (const [name, extra] of Object.entries({

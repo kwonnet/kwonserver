@@ -1,6 +1,6 @@
 import { QuizScopeEnum } from "@/types/post";
 import {PostScopeEnum, PostTypeEnum, ScopeEnum } from "@prisma/client";
-import { z } from "zod";
+import { z } from "zod/v3";
 
 // Schema for PostMedia
 const PostMediaSchema = z.object({

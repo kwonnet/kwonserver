@@ -19,3 +19,6 @@ declare global {
     
 //   }
 // }
+
+/** Routes use scalar named parameters; no array-valued wildcard routes. */
+export type Request = import("express").Request<Record<string, string>>;

@@ -1,6 +1,6 @@
 import {injectPostBoosts, getPostBoostStatus} from '@/services/v1/posts';
 import {getEmbedPost, getPublicPostMetadata, getPublicPostMetadataIndex} from "@/services/v1/posts";
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { performance } from "node:perf_hooks";
 import logger from "@/logger";
 import {
@@ -58,7 +58,8 @@ import {
 import sseEmitter from "@/sseEmitter";
 import { validateZodInput, generateUniqueRef } from "@/utils";
 import { getReqInfo } from "@/utils/helpers";
-import { Response, Request } from "express";
+import { Response } from "express";
+import type {Request} from "@/types/express";
 import { SessionUser, AuthUser } from "@/types/user";
 import { getRecommendationResponse } from "@/services/kwonrec";
 

@@ -31,7 +31,7 @@ export async function syncRedisTxnsToPrisma(playerId: string) {
   }
 }
 export async function run() {
-  for await (const key of redisClient.scanIterator({ MATCH: 'user:*:transactions', COUNT: 100 })) {
-    await syncRedisTxnsToPrisma(key.split(':')[1]);
+  for await (const keys of redisClient.scanIterator({ MATCH: 'user:*:transactions', COUNT: 100 })) {
+    for (const key of keys) await syncRedisTxnsToPrisma(key.split(':')[1]);
   }
 }

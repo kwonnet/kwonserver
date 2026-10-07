@@ -1,4 +1,5 @@
-import { Request, Response } from "express";
+import { Response } from "express";
+import type {Request} from "@/types/express";
 import { validateZodInput } from "@/utils";
 import { DailyBonusZodSchema, DailyTaskZodSchema, FundCoinsZodSchema, PaginateZodSchema, TransferCoinsZodSchema } from "@/schema";
 import { fundCoins, getTxnHistory, getUserCoinsWallet, rewardDailyTask, transferCoins, updateWalletBonus } from "@/services/v1/wallets";

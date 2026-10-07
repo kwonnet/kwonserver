@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import * as u from '@/utils';
 import { get_tzx_usd_rate, get_usd_tzx_rate } from '@/utils/payment';
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-01T12:00:00Z')); });

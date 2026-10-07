@@ -231,10 +231,10 @@ const rewardMonthlyPlayers = async (item: {
     if (totalBonusSpent > spentAmount.coins) return;
     // deduct total bonus spent form amount of real coins spent
     const totalCoinsSpent = Math.floor(spentAmount.coins - totalBonusSpent);
-    logger.info(`totalCoinsSpent after Bonus :`, totalCoinsSpent);
+    logger.info({data: totalCoinsSpent}, `totalCoinsSpent after Bonus :`);
     // get the credit, coins and bonus to spend
     const rewardAmounts = calculateRewardAmounts(totalCoinsSpent);
-    logger.info(`rewardAmounts: `, rewardAmounts);
+    logger.info({data: rewardAmounts}, `rewardAmounts: `);
     // calculate reward rank range
     const rankRange = {
       credit: rewardTiers.credit,

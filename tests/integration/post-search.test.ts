@@ -1,10 +1,11 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { searchPosts } from '@/services/v1/posts';
 import { getAuthUser } from '@/services/v1/utils';
 import { searchUsers } from '@/services/v1/users';
 vi.mock('@/utils/webpush', () => ({ default: {} }));
-const db = new PrismaClient();
+const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});
 const prefix = 'search-fixture-';
 const author = prefix + 'author', viewer = prefix + 'viewer';
 const create = (id: string, content: string, extra: any = {}) => db.post.create({ data: {

@@ -1,3 +1,4 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {
   GameMode,
   MilestoneNameEnum,
@@ -12,7 +13,7 @@ import {
 import { faker } from "@faker-js/faker";
 import { v4 as uuidv4 } from "uuid";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});
 
 export function generateUniqueRef(size: number = 16): string {
   const uuid = uuidv4().replace(/-/g, ""); // Remove dashes

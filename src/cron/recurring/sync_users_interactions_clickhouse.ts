@@ -218,7 +218,7 @@ async function syncUsersInteractionsToClickHouse() {
               const result = await commentClassifier(text);
               toxicityScore = result.score; // 0.0 = clean, 1.0 = very toxic
             } catch (err) {
-              logger.warn("Toxicity classifier failed", err);
+              logger.warn({err: err}, "Toxicity classifier failed");
             }
 
             const cleanliness = 1.0 - toxicityScore;
@@ -363,7 +363,7 @@ async function syncUsersInteractionsToClickHouse() {
             const { post_content, ...rest } = row;
             return { ...rest, embedding, timestamp: new Date(rest.timestamp), post_created_at: new Date(rest.post_created_at) };
           } catch (e) {
-            logger.error(`Embedding failed for post ${row.post_id}`, e);
+            logger.error({data: e}, `Embedding failed for post ${row.post_id}`);
             return null;
           }
         })
@@ -383,7 +383,7 @@ async function syncUsersInteractionsToClickHouse() {
       logger.info(`SUCCESS: Synced ${rowsForInsert.length} interactions`);
     }
   } catch (error: any) {
-    logger.error("Sync failed", error?.message);
+    logger.error({data: error?.message}, "Sync failed");
     throw error;
   }
 }

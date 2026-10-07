@@ -7,7 +7,7 @@ FROM base AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
-COPY tsconfig*.json ./
+COPY tsconfig*.json prisma.config.ts ./
 COPY prisma ./prisma
 COPY src ./src
 COPY scripts ./scripts
@@ -27,6 +27,7 @@ COPY --from=builder --chown=kwonserver:kwonserver /app/prisma ./prisma
 COPY --from=builder --chown=kwonserver:kwonserver /app/scripts ./scripts
 COPY --from=builder --chown=kwonserver:kwonserver /app/templates ./templates
 COPY --from=builder --chown=kwonserver:kwonserver /app/package.json ./package.json
+COPY --from=builder --chown=kwonserver:kwonserver /app/prisma.config.ts ./prisma.config.ts
 RUN mkdir -p /app/model-cache && chown kwonserver:kwonserver /app/model-cache
 USER kwonserver
 EXPOSE 8000

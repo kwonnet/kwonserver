@@ -1,5 +1,6 @@
 import { subscribePushNotification, unsubscribePushNotification } from '@/services/v1/notifications';
-import { Response, Request } from 'express';
+import { Response } from "express";
+import type {Request} from "@/types/express";
 export const subscribePushNotifController = async (req: Request, res: Response) => {
   const result = await subscribePushNotification(req.body, req.user!);
   return res.status(result.status).send(result.data);

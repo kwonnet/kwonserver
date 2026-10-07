@@ -1,7 +1,8 @@
 import { imagekitAppName } from "@/config";
 import { generateUniqueRef } from "@/utils";
 import imagekit from "@/utils/imagekit";
-import { Request, Response } from "express";
+import { Response } from "express";
+import type {Request} from "@/types/express";
 import { FileObject } from "imagekit/dist/libs/interfaces";
 
 export async function getImagekitAuthParams(req: Request,

@@ -15,7 +15,7 @@ vi.mock('@/db', () => ({ default: new Proxy({}, {
 vi.mock('@/redis', () => ({ default: new Proxy({}, {
   get(_target, key) { throw new Error(`Unit test must mock Redis dependency: ${String(key)}`); },
 }) }));
-vi.mock('@/utils/genkitAi', () => ({ default: {} }));
+vi.mock('@/utils/googleAi', () => ({ getGoogleAi: vi.fn() }));
 vi.mock('@huggingface/transformers', () => ({ pipeline: vi.fn(() => { throw new Error('Mock the model pipeline'); }) }));
 
 beforeEach(() => {

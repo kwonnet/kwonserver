@@ -1,6 +1,7 @@
 import { QueryParams } from "@/schema";
 import { validateZodInput } from "@/utils";
-import { Response, Request } from "express";
+import { Response } from "express";
+import type {Request} from "@/types/express";
 import { getDiscoverTrends } from "@/services/v1/discover";
 
 export const getTrendController = async (

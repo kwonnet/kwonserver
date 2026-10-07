@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 export const PROFILE_CHANGE_INTERVAL = 30 * 24 * 60 * 60 * 1000;
 export class ProfileError extends Error {

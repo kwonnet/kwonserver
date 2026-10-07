@@ -19,6 +19,7 @@ function load({ demo = false, failure = false, topicsOnly = false } = {}) {
   const prisma = { $transaction: async callback => { transactions++; return callback(tx); } };
   const exports = {};
   const requireMock = name => {
+    if (name === '@prisma/adapter-pg') return {PrismaPg: class {}};
     if (name === '@prisma/client') return { ...generated, PrismaClient: function () { return prisma; } };
     if (name === '@faker-js/faker') return { faker: {} };
     if (name === 'uuid') return require('uuid');

@@ -7,12 +7,12 @@ interface ParticipantDelete {
 
 interface ChatSeen {
   userId: string;
-  seenAt: string;
+  seenAt: Date;
 }
 
 interface ChatRead {
   userId: string;
-  readAt: string;
+  readAt: Date;
 }
 
 interface ChatReaction {
@@ -90,16 +90,16 @@ const MessageSchema = new Schema<IMessage>(
       virtuals: true,
       versionKey: false,
       transform: (_, ret) => {
-        ret.id = ret._id!.toString();
-        delete ret._id;
+        const {_id, ...rest} = ret;
+        return {...rest, id: _id.toString()};
       },
     },
     toObject: {
       virtuals: true,
       versionKey: false,
       transform: (_, ret) => {
-        ret.id = ret?._id!.toString()
-        delete ret._id;
+        const {_id, ...rest} = ret;
+        return {...rest, id: _id.toString()};
       },
     },
   }

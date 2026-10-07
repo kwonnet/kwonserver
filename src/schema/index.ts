@@ -1,7 +1,7 @@
 import { paymentCurrencySchema, paymentGatewaySchema, paymentSourceSchema, externalPaymentCurrencySchema } from "./payment";
-import { boolean, object, string } from "zod";
+import { boolean, object, string } from "zod/v3";
 import { BillingCycleEnum, PostContext, PostMediaAction, PostMediaKind, PostMetricAction, PostMetricSource, PostScopeEnum, PostTypeEnum, ReportReason, RewardTypeEnum, ScopeEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum, UserStatus } from "@prisma/client";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { BonusTypeEnum, PlanTypeEnum } from "@/types";
 
 export const purchaseCoinsZodSchema = z

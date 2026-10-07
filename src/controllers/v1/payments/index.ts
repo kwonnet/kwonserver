@@ -5,9 +5,8 @@ import { purchaseAppSubscription } from "@/services/v1/subscriptions";
 import { FlutterwaveAppSubPurchase, FlutterwaveCoinPurchase, FlutterwaveTxnType } from "@/types"
 import { validateZodInput } from "@/utils";
 import { getHtmlText } from "@/utils/html";
-import { Request, Response } from "express"
-
-export const getPaymentLinkController = async(req: Request, res: Response) => {
+import { Response } from "express";
+import type {Request} from "@/types/express";export const getPaymentLinkController = async(req: Request, res: Response) => {
     try {
         const zodResult = validateZodInput(req.body, FlutterwaveConfigZodSchema)
 

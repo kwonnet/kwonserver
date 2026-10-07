@@ -1,3 +1,4 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {afterAll, beforeAll, expect, it, vi} from 'vitest';
 import {PrismaClient} from '@prisma/client';
 import bcrypt from 'bcrypt';
@@ -6,7 +7,7 @@ import {updateAccountPassword, startAuthSession, validateAuthSession, loginUser}
 import {updateEditableProfile} from '@/services/v1/profile';
 import {getPublicProfileMetadata} from '@/services/v1/users';
 import {getPublicPostMetadata, getPublicPostMetadataIndex, getEmbedPost} from '@/services/v1/posts';
-const db = new PrismaClient(); const prefix = 'account-seo-fixture-'; let owner: string, privateUser: string, current: string, other: string;
+const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})}); const prefix = 'account-seo-fixture-'; let owner: string, privateUser: string, current: string, other: string;
 beforeAll(async () => {
  owner = (await db.user.create({data: {name: 'Public owner', username: prefix+'owner', email: prefix+'owner@test.invalid', password: await bcrypt.hash('old-password', 10), bio: 'Public bio'}})).id;
  privateUser = (await db.user.create({data: {name: 'Private', username: prefix+'private', email: prefix+'private@test.invalid', isPrivate: true}})).id;

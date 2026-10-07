@@ -1,3 +1,4 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import Redis from 'ioredis';
@@ -6,7 +7,7 @@ import { QuestionInventoryService, GenerationJob, generationJobId, poolKey } fro
 import { inventoryConfig } from '@/services/questionInventory/config';
 import { getInventoryRoomQuestion, questionHistoryKey } from '@/services/v1/games/questionInventory';
 import { generationProcessor } from '@/services/questionInventory/processor';
-const db = new PrismaClient();
+const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});
 const connection = { host:'127.0.0.1',port:16379 };
 const redis = new Redis({...connection,maxRetriesPerRequest:null});
 const queue = new Queue<GenerationJob>('integration-quiz-inventory',{connection});

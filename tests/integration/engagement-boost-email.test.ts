@@ -1,3 +1,4 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {PrismaClient} from '@prisma/client';
 const ranking=vi.hoisted(()=>vi.fn());
@@ -7,7 +8,7 @@ import {claimEngagementTask,getEngagementTasks,configureEngagementTask,rotateEng
 import {rememberDeliveredRecommendations,getAvailableNewsfeedSnapshot,getAvailableNewsfeedIds,getAvailableNewsfeedPosts,injectPostBoosts,createPostImpression} from '@/services/v1/posts';
 import {createUser} from '@/services/v1/auth';
 import redis from '@/redis';
-const db=new PrismaClient();const prefix='engagement-fixture-';let actor:string,author:string,viewer:string;
+const db=new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});const prefix='engagement-fixture-';let actor:string,author:string,viewer:string;
 async function user(name:string){return (await db.user.create({data:{name,username:prefix+name,email:prefix+name+'@test.invalid',wallet:{create:{bonus:0}}}})).id;}
 async function post(userId:string,extra:any={}){return db.post.create({data:{userId,kind:'ROOT',type:'CONTENT',content:'A community post with real content',...extra}});}
 beforeAll(async()=>{actor=await user('actor');author=await user('author');viewer=await user('viewer');await db.engagementTask.update({where:{id:'like'},data:{target:2,reward:15,rewardDay:new Date(new Date().toISOString().slice(0,10)),enabled:true}});});

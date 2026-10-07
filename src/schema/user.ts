@@ -1,5 +1,5 @@
 import { UserFollowAction } from "@/types";
-import { z } from "zod";
+import { z } from "zod/v3";
 
 // Schema for PollOption
 export const FollowUserSchema = z.object({

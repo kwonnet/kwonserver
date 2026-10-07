@@ -1,10 +1,11 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {afterAll, beforeAll, expect, it, vi} from 'vitest';
 import {PrismaClient} from '@prisma/client';
 vi.mock('@/utils/webpush', () => ({default: {}}));
 vi.mock('@/cron/utils', () => ({enqueuePostTopic: vi.fn().mockResolvedValue(undefined)}));
 import {PostCreateSchema} from '@/schema/post';
 import {createPost, createPostReply, publishDueScheduledPosts} from '@/services/v1/posts';
-const db = new PrismaClient();
+const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});
 const prefix = 'schedule-fixture-';
 let owner: string, other: string, parent: string;
 beforeAll(async () => {

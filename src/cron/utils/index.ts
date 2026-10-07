@@ -134,7 +134,7 @@ export async function removeSubscriptionCronJob(arg: {
 export async function addPostEmbeddingCronJob(id: string) {
   try {
     await delayExecution(500)
-    logger.info(id, "Inserting post embedding job");
+    logger.info({postId: id}, "Inserting post embedding job");
     const jobName = `emb-${id}`;
     const jobId = id
     // remove any old sub & reminder jobs with the same id
@@ -178,7 +178,7 @@ export async function removePostEmbeddingCronJob(id: string) {
 export async function addPostTopicCronJob(id: string) {
   try {
     await delayExecution(500)
-    logger.info(id, "Inserting post topic job");
+    logger.info({postId: id}, "Inserting post topic job");
     const jobName = `topic-${id}`;
     const jobId = id
     // remove any old sub & reminder jobs with the same id

@@ -1,10 +1,11 @@
-import {z} from 'zod';
+import {z} from 'zod/v3';
 import {WalletError} from '@/services/walletLedger';
 import {getEngagementTasks, claimEngagementTask, configureEngagementTask} from '@/services/v1/tasks';
 import { DailyTaskZodSchema, IDZodSchema, QuerySchema, TaskZodSchema } from "@/schema";
 import { createTask, getTask, getTasks, getUserCompletedTasks } from "@/services/v1/tasks";
 import { validateZodInput } from "@/utils";
-import { Request, Response } from "express";
+import { Response } from "express";
+import type {Request} from "@/types/express";
 import { AuthUser } from "@/types/user";
 
 export const createTaskController = async (

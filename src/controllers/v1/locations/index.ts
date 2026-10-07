@@ -1,7 +1,6 @@
 import { getContinentsAndCountries } from "@/services/v1/locations"
-import { Request, Response } from "express"
-
-export const getContinentsAndCountriesController = async(req: Request, res: Response) => {
+import { Response } from "express";
+import type {Request} from "@/types/express";export const getContinentsAndCountriesController = async(req: Request, res: Response) => {
     try {
         const result = await getContinentsAndCountries()
 

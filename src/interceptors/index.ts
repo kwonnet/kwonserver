@@ -1,4 +1,5 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from "express";
+import type {Request} from "@/types/express";
 import cacheMemoryStore from '@/store';
 import { serializeBigInts } from "@/services/v1/utils";
 

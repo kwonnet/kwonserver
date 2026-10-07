@@ -982,3 +982,89 @@ sudo docker inspect kwonserver --format 'RestartCount={{.RestartCount}} OOMKille
 Correlate restart/start timestamps with the game/transport events. Container
 replacement during deployment resets its restart counter, so compare the deployed
 container's start time too. No migration or new configuration is required.
+
+
+### Server dependency upgrade — 7 October 2026
+
+Runtime upgrades include Express 5.2.1, Prisma/client/adapter 7.10.0, Redis 6.3.0,
+BullMQ 6.3.11, ioredis 6.0.0, Mongoose 9.11.0, Transformers.js 4.3.1,
+Google GenAI 2.27.0, Google Auth 11.1.0, Zod 4.6.5, Pino 10.4.0 and UUID 14.0.2.
+The package manifest and lockfile record every direct and transitive version.
+Unused Xenova Transformers, legacy faker, uninstall and ts-node-dev packages were
+removed. The active Faker library was upgraded to 10.6.0.
+
+Compatibility choices:
+
+- Node remains on the existing 22 runtime. The manifest requires 22.23.3 or newer
+  within that major; Node types follow 22 rather than the unrelated Node 26 APIs.
+- TypeScript remains 5.9.3. Testing TypeScript 7.0.2 confirmed it removes the
+  compiler API used by ts-node, seed/regression transpilation and AST checks.
+- The Redis cache adapter remains on its updated compatible 5.1.6 release because
+  cache-manager 7 uses Keyv 5; adapter 6 creates an incompatible Keyv 6 instance.
+- Prisma CLI/client/adapter use the matching stable 7.10.0 versions. The npm CLI
+  latest tag pointed at an 8.0.0 release candidate, which was not selected.
+- Existing validation schemas import Zod's supported `zod/v3` compatibility
+  entry point, preserving existing validation responses.
+
+Express retains extended query parsing and scalar named-route parameter types.
+Redis scan consumers handle arrays of keys and string cursors; JSON array append
+keeps individual score records flat. Mongoose serialization returns public IDs
+without mutating required `_id` fields, and message receipt types match stored Dates.
+Pino calls use object-first structured logging so errors retain their stack traces.
+
+Prisma connection/seed CLI configuration now lives in `prisma.config.ts`. Runtime,
+seed, audit and test clients use the PostgreSQL adapter. Runtime pooling honors
+`connection_limit` and `schema` URL parameters and bounds connection establishment
+at five seconds. CLI deployment continues to use the direct migration URL; the
+release wrapper passes its normalized URL to both datasource environment variables.
+The legacy generated-client import location is retained for existing consumers.
+Database extensions remain managed by the existing migration/analytics release
+process. Historical migrations and application tables were not rewritten.
+
+Deploy the API and background worker from the same updated image through the
+existing pipeline. Run `npm ci`, `npm run build`, and the existing `db:deploy`
+release step. This upgrade requires no new application migration or secret.
+The image now includes the Prisma configuration file. Retain verified database TLS
+certificates; do not disable certificate validation to accommodate the new driver.
+
+The follow-up security pass reports **zero npm audit vulnerabilities**. Scoped
+UUID overrides move older transitive copies to 11.1.1 while keeping the application
+on UUID 14. Prisma tooling uses patched deepmerge-ts 8.0.2 and mysql2 3.24.5.
+These overrides are pinned in the manifest and validated through Prisma generation,
+release migrations, type checks and the database test matrices.
+
+The Flutterwave SDK and its unused type package were replaced by the existing
+`src/utils/flutterwave.ts` module's direct Axios client. It preserves the
+`flwAPI.Transaction.verify` service contract and existing reference, amount,
+currency and recipient checks. It calls only the fixed, documented read-only
+[transaction verification endpoint](https://developer.flutterwave.com/reference/verify-transaction),
+validates numeric IDs, uses the existing FLUTTERWAVE_SECK key, disables redirects
+and bounds requests at 15 seconds. No payment was sent during verification.
+
+Genkit and its obsolete bundled telemetry were removed. The optional Gemini
+classifier now uses the direct Google SDK through `src/utils/googleAi.ts`, lazily
+initialized with the existing GOOGLE_API_KEY or GEMINI_API_KEY. Its model remains
+`gemini-2.5-flash`, temperature 0.8, with a validated `{answer: string}` response.
+The main DeBERTa post classifier and background job strategy are unchanged. This
+follows Google's [structured generation API](https://googleapis.github.io/js-genai/release_docs/interfaces/types.GenerateContentConfig.html).
+No live Google inference was performed during tests.
+
+`npm run nodemon` is retained as a compatibility command but now invokes Node 22's
+built-in watch mode with the existing ts-node/path-alias loader. The vulnerable
+nodemon/chokidar/braces chain and obsolete nodemon configuration were removed.
+No new secrets or database migration are required by these follow-up changes.
+
+The final Docker build succeeded. Upgrade verification also covers clean installation,
+Prisma generation, application/seed compilation, source/test type checks, the
+watch/development loader and native dependency imports. Tests use disposable
+infrastructure, not production data. Google and Flutterwave adapter tests mock
+external responses and cover malformed data, configuration failures, timeouts,
+unsafe transaction IDs and preserved output/payment verification contracts.
+
+Migration references: [Prisma 7 upgrade guide](https://www.prisma.io/docs/guides/upgrade-prisma-orm/v7)
+and [Express 5 migration guide](https://expressjs.com/en/guide/migrating-5/).
+
+Follow-up verification passed: 1,160 unit tests with coverage thresholds, 41
+regression tests, and 111 infrastructure tests in each PostgreSQL/pgvector and
+TimescaleDB matrix. The final production image built successfully and its native
+libraries plus payment/Google client imports passed a container smoke test.

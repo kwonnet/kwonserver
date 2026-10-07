@@ -10773,7 +10773,7 @@ export async function getUserInteractionHistory(userId: string) {
               const result = await commentClassifier(text);
               toxicityScore = result.score; // 0.0 = clean, 1.0 = very toxic
             } catch (err) {
-              logger.warn("Toxicity classifier failed", err);
+              logger.warn({err: err}, "Toxicity classifier failed");
             }
 
             const cleanliness = 1.0 - toxicityScore;
@@ -10918,7 +10918,7 @@ export async function getUserInteractionHistory(userId: string) {
     return { data: filter, status: 200}
     
   } catch (error: any) {
-    logger.error("Getting history failed", error?.message);
+    logger.error({data: error?.message}, "Getting history failed");
     return { data: "Getting history failed", status: 500}
   }
 }

@@ -43,16 +43,16 @@ const ConversationSchema = new Schema<IConversation>(
       virtuals: true,
       versionKey: false,
       transform: (_, ret) => {
-        ret.id = ret._id!.toString();
-        delete ret._id;
+        const {_id, ...rest} = ret;
+        return {...rest, id: _id.toString()};
       },
     },
     toObject: {
       virtuals: true,
       versionKey: false,
       transform: (_, ret) => {
-        ret.id = ret?._id!.toString()
-        delete ret._id;
+        const {_id, ...rest} = ret;
+        return {...rest, id: _id.toString()};
       },
     },
   }

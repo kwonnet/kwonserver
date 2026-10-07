@@ -1,9 +1,10 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {afterAll, beforeAll, expect, it, vi} from 'vitest';
 import {PrismaClient} from '@prisma/client';
 const send = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock('@/utils/webpush', () => ({default: {sendNotification: send}}));
 import {subscribePushNotification, unsubscribePushNotification, deliverPendingPushNotifications} from '@/services/v1/notifications';
-const db = new PrismaClient(); const prefix = 'push-fixture-'; let first: string, second: string;
+const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})}); const prefix = 'push-fixture-'; let first: string, second: string;
 const config = {endpoint: 'https://fcm.googleapis.com/fcm/send/disposable-test', keys: {p256dh: Buffer.alloc(65, 4).toString('base64url'), auth: Buffer.alloc(16, 1).toString('base64url')}};
 beforeAll(async () => {
  first = (await db.user.create({data: {name: 'First', username: prefix + 'first', email: prefix + 'first@test.invalid'}})).id;

@@ -4,8 +4,8 @@ import { cancelAppSubscription, getPlans, purchaseAppSubscription, purchaseAppSu
 import { User } from "@/types"
 import { validateZodInput } from "@/utils"
 import { SubStatusEnum, TxnCurrencyEnum } from "@prisma/client"
-import { Request, Response } from "express"
-import { AuthUser } from "@/types/user"
+import { Response } from "express";
+import type {Request} from "@/types/express";import { AuthUser } from "@/types/user"
 
 export const getSubscriptionPlansController = async(req: Request, res: Response) => {
     try {

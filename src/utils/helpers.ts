@@ -1,11 +1,11 @@
 import {POST_LABELS, POST_TOPIC_MODEL, POST_TOPIC_MODEL_REVISION, POST_TOPIC_HYPOTHESIS, POST_TOPIC_SESSION_OPTIONS} from '@/cron/helpers';
-import { Request } from "express";
+import type {Request} from "@/types/express";
 import { lookup } from "./ipLocation";
 import DeviceDetector from "node-device-detector";
 import ClientHints from "node-device-detector/client-hints";
 import { DocumentQuestionAnsweringPipeline, FeatureExtractionPipeline, env, pipeline, QuestionAnsweringPipeline, SummarizationPipeline, TextClassificationPipeline, TranslationPipeline, ZeroShotClassificationPipeline } from "@huggingface/transformers";
-import z from "zod";
-import genkitAi from "./genkitAi";
+import {z} from "zod/v3";
+import {getGoogleAi} from "./googleAi";
 import rake from "node-rake-v2"
 
 
@@ -225,49 +225,18 @@ export async function topicClassifier(text: string) {
 
 
 export const contentTopicClassifier = async (text: string) => {
-  // Define input schema
-  const InputSchema = z.object({
-    text: z.string().describe('The text content'),
-    labels: z.array(z.string()).describe("These are content labels"),
-  });
-
-  // Define output schema
-  const OutputSchema = z.object({
-    answer: z.string(),
-  });
-
-  // Define a recipe generator flow
-  const classifyFlow = genkitAi.defineFlow(
-    {
-      name: 'contentTopicClassifyFlow',
-      inputSchema: InputSchema,
-      outputSchema: OutputSchema,
+  const prompt = `Classify the best topic label for this content from the list below or come up with the most suitable topic if the labels don't match:
+      Content: ${text}
+      Labels: ${TOPIC_LABELS}`;
+  const response = await getGoogleAi().models.generateContent({
+    model: 'gemini-2.5-flash', contents: prompt,
+    config: {
+      temperature: 0.8, responseMimeType: 'application/json',
+      responseJsonSchema: {type: 'object', properties: {answer: {type: 'string'}}, required: ['answer']},
     },
-    async (input) => {
-      // Create a prompt based on the input
-      const prompt = `Classify the best topic label for this content from the list below or come up with the most suitable topic if the labels don't match:
-      Content: ${input.text}
-      Labels: ${input.labels}`;
-
-      // Generate structured recipe data using the same schema
-      const { output } = await genkitAi.generate({
-        prompt,
-        output: { schema: OutputSchema },
-      });
-
-      if (!output) throw new Error('Failed to generate recipe');
-
-      return output;
-    },
-    
-  );
-  try {
-    const result = await classifyFlow({ text, labels: TOPIC_LABELS })
-    return result
-  } catch (error: any) {
-    console.log(error.message)
-    throw error
-  }
+  });
+  if (!response.text) throw new Error('Google topic classification returned no output');
+  return z.object({answer: z.string()}).parse(JSON.parse(response.text));
 }
 
 // Custom stop words: English + Pidgin/Nigerian fillers

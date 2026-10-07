@@ -1,4 +1,5 @@
-import { Request, Response } from 'express';
+import { Response } from "express";
+import type {Request} from "@/types/express";
 import { SessionUser } from '@/types/user';
 import { getEditableProfile, updateEditableProfile } from '@/services/v1/profile';
 import { ProfileError } from '@/services/v1/profile/policy';

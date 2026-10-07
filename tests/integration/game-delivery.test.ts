@@ -1,5 +1,6 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {beforeAll,beforeEach,afterAll,expect,it,vi} from 'vitest';
-vi.mock('@/db',async()=>{const {PrismaClient}=await import('@prisma/client');return {default:new PrismaClient()};});
+vi.mock('@/db',async()=>{const {PrismaClient}=await import('@prisma/client');return {default:new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})})};});
 vi.mock('@/redis',async()=>{const {createClient}=await import('redis');const client=createClient({url:'redis://127.0.0.1:16379'});await client.connect();return {default:client};});
 import db from '@/db';
 import redis from '@/redis';

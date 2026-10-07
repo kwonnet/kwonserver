@@ -9,7 +9,7 @@ async function main() {
   const output = process.argv[2];
   if (!output || !process.env.DATABASE_URL || !process.env.REDIS_URL) throw new Error('Usage: npm run wallet:audit -- /secure/path/report.ndjson (DATABASE_URL and REDIS_URL required)');
   const file = await open(output, 'wx', 0o600); // Never overwrite an earlier reconciliation report.
-  const db = new PrismaClient();
+  const db = new PrismaClient({adapter: new (require('@prisma/adapter-pg').PrismaPg)({connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000})});
   const redis = createClient({ url: process.env.REDIS_URL, socket: { reconnectStrategy: false } });
   redis.on('error', () => {});
   const totals = { wallets: 0, differences: 0, invalid: 0, legacyTransactions: 0, pendingTips: 0 };

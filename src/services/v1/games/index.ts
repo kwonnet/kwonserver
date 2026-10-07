@@ -899,7 +899,7 @@ export async function removeGameRoomPlayer(roomId: string, playerId: string, mod
 
 export async function cleanUpGameRoom(roomId: string) {
   try {
-    logger.info("cleaning up game room ", roomId);
+    logger.info({data: roomId}, "cleaning up game room ");
     const keys = [
       questionHistoryKey(roomId),
       `room:${roomId}`,
@@ -1169,7 +1169,8 @@ async function backupGamePlayersScores(data: ThemedGameScoreStat[]) {
     if (!exists) {
       await redisClient.json.set(uniqueKey, "$", backup);
     } else {
-      await redisClient.json.arrAppend(uniqueKey, "$", ...backup);
+      const [first, ...rest] = backup;
+      if (first !== undefined) await redisClient.json.arrAppend(uniqueKey, "$", first, ...rest);
     }
   } catch (error: any) {
     logGameError('backupGamePlayersScores', error, {});
@@ -1802,7 +1803,7 @@ export const getGamePlayerRankings = async (
         ? keyPatterns.week
         : keyPatterns.month;
     // Use SCAN to fetch a batch of keys
-    const { keys } = await redisClient.scan(0, {
+    const { keys } = await redisClient.scan('0', {
       COUNT: 50000,
       MATCH: pattern,
     });
@@ -2000,7 +2001,7 @@ export const getGameCategoriesRankings = async (
         : keyPatterns.month;
      console.log("ranking key patterns ", pattern)
     // Use SCAN to fetch a batch of keys
-    const { keys } = await redisClient.scan(0, {
+    const { keys } = await redisClient.scan('0', {
       COUNT: 50000,
       MATCH: pattern,
     });
@@ -2215,7 +2216,7 @@ export const getUserGameRankingArchiveData = async ({
 async function clearRedisKeysByPattern(pattern: string) {
   try {
     // clear players stats redis keys
-    let cursor = 0; // Initial cursor
+    let cursor = '0'; // Initial cursor
     let keyCounts = 0;
     do {
       // Use SCAN to fetch a batch of keys
@@ -2232,7 +2233,7 @@ async function clearRedisKeysByPattern(pattern: string) {
         await Promise.all(keys.map((key) => redisClient.del(key)));
         logger.info(`Deleted ${keys.length} keys in this batch`);
       }
-    } while (cursor !== 0); // SCAN stops when cursor is back to '0'
+    } while (cursor !== '0'); // SCAN stops when cursor is back to '0'
 
     logger.info(`All matching ${keyCounts} keys have been deleted.`);
   } catch (error: any) {

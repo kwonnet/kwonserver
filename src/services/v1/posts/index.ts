@@ -5107,7 +5107,7 @@ export const voteQuizPost = async (
       status: 200,
     };
   } catch (error: any) {
-    logger.error("Voting option error ", error?.message);
+    logger.error({data: error?.message}, "Voting option error ");
     return { data: "Error occurred reposting, please try again", status: 500 };
   }
 };
@@ -6630,7 +6630,7 @@ async function syncUsersInteractionsToClickHouse() {
               const result = await commentClassifier(text);
               toxicityScore = result.score; // 0.0 = clean, 1.0 = very toxic
             } catch (err) {
-              logger.warn("Toxicity classifier failed", err);
+              logger.warn({err: err}, "Toxicity classifier failed");
             }
 
             const cleanliness = 1.0 - toxicityScore;
@@ -6777,7 +6777,7 @@ async function syncUsersInteractionsToClickHouse() {
             const embedding = await generateEmbedding(post_content);
             return { ...rest, embedding, timestamp: new Date(rest.timestamp), post_created_at: new Date(rest.post_created_at) };
           } catch (e) {
-            logger.error(`Embedding failed for post ${row.post_id}`, e);
+            logger.error({data: e}, `Embedding failed for post ${row.post_id}`);
             return null;
           }
         })
@@ -6798,7 +6798,7 @@ async function syncUsersInteractionsToClickHouse() {
       logger.info(`SUCCESS: Synced ${rowsForInsert.length} interactions`);
     }
   } catch (error: any) {
-    logger.error("Sync failed", error?.message);
+    logger.error({data: error?.message}, "Sync failed");
     throw error;
   }
 }

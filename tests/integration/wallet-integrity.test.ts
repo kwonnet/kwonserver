@@ -1,9 +1,10 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {moneyJson} from '@/services/walletLedger';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 vi.mock('@/services/v1/games',()=>({syncUserRedisWalletToPrisma:vi.fn()}));
 vi.mock('@/cron/utils',()=>({addSubscriptionCronJob:vi.fn().mockResolvedValue(undefined),removeSubscriptionCronJob:vi.fn().mockResolvedValue(undefined)}));
-vi.mock('@/db', async () => { const { PrismaClient } = await import('@prisma/client'); return { default: new PrismaClient() }; });
+vi.mock('@/db', async () => { const { PrismaClient } = await import('@prisma/client'); return { default: new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})}) }; });
 import db from '@/db';
 import { walletOperation } from '@/services/walletLedger';
 import { transferCoins, updateWalletBonus, rewardDailyTask, fundCoins } from '@/services/v1/wallets';

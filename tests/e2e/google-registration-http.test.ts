@@ -1,3 +1,4 @@
+import {PrismaPg} from "@prisma/adapter-pg";
 import {beforeAll, afterAll, expect, it, vi} from 'vitest';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -9,7 +10,7 @@ vi.mock('@/routes/v1', () => ({default: express.Router()}));
 vi.mock('@/utils/ipLocation', () => ({lookup: mocks.lookup}));
 vi.mock('google-auth-library', () => ({OAuth2Client: class {verifyIdToken = mocks.verify;}}));
 import routes from '@/routes/v1/auth';
-const db = new PrismaClient();
+const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});
 const prefix = 'google-reg-http-';
 let server: http.Server, base: string, countryId: string;
 beforeAll(async () => {

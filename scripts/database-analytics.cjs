@@ -119,7 +119,7 @@ async function main(command = process.argv[2]) {
       const prismaCli = require.resolve('prisma/build/index.js');
       for (const args of [['migrate', 'deploy'], ['db', 'seed']]) {
         const result = spawnSync(process.execPath, [prismaCli, ...args], {
-          cwd: path.resolve(__dirname, '..'), env: { ...process.env, DATABASE_URL: url }, stdio: 'inherit',
+          cwd: path.resolve(__dirname, '..'), env: { ...process.env, DATABASE_URL: url, DATABASE_MIGRATION_URL: url }, stdio: 'inherit',
         });
         if (result.error || result.status !== 0) throw new Error('Database release migration/seed failed');
       }

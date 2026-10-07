@@ -12,7 +12,7 @@ import wordlist from "wordlist-english"; // ES Modules
 
 // import { generate, count } from "random-words";
 
-import { z } from "zod";
+import { z } from "zod/v3";
 import { zodTextFormat } from "openai/helpers/zod";
 import logger from "@/logger";
 
@@ -205,7 +205,7 @@ export const generateOpenAiQuestion =
       }
       return result.output_parsed;
     } catch (error) {
-      logger.error("Failed to generate OpenAI question:", error);
+      logger.error({err: error}, "Failed to generate OpenAI question:");
       throw error;
     }
   };
@@ -253,12 +253,12 @@ export const generateDeepSeekAiQuestion = async (room?: TempGameRoom) => {
       //   },
       // },
     });
-    logger.info("DeepSeek AI question generated:", result);
+    logger.info({data: result}, "DeepSeek AI question generated:");
     if (!result) throw new Error("No response from openai server");
     // const question = convertToJSON(result?.data?.choices[0]?.message?.content)
     return result;
   } catch (error) {
-    logger.error("Failed to generate DeepSeek AI question:", error);
+    logger.error({err: error}, "Failed to generate DeepSeek AI question:");
   }
 };
 
