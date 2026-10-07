@@ -86,7 +86,13 @@ it('uses accepted follows, mutual follows and fresh visibility rather than recom
   await db.follow.create({ data: { followerId: 'tab-friend', followingId: viewer, status: 'ACCEPTED' } });
   await db.blockUser.create({ data: { blockerId: viewer, blockedId: 'tab-blocked' } });
   await db.muteUser.create({ data: { muterId: viewer, mutedId: 'tab-muted' } });
-  const read = async (feed: string, page = 1, limit = 100) => db.post.findMany(newsfeedQuery(viewer, ['tab-post-stranger'], { feed, page, limit }));
+  const read = async (feed: string, page = 1, limit = 100) => {
+    const { where, orderBy, skip, take } = newsfeedQuery(viewer, ['tab-post-stranger'], { feed, page, limit });
+    // These assertions exercise visibility and pagination, not hydration. Keep
+    // the production predicates/order but avoid rebuilding all nested relations
+    // six times on CI. Complete hydration is verified by the tests above.
+    return db.post.findMany({ where, orderBy, skip, take, select: { id: true } });
+  };
   const following = await read('following');
   expect(following.filter(p => p.id.startsWith('tab-')).map(p => p.id).sort()).toEqual(['tab-post-following', 'tab-post-friend', 'tab-post-private']);
   expect((await read('friends')).map(p => p.id)).toEqual(['tab-post-friend']);
