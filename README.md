@@ -934,6 +934,14 @@ records or revoking each other. Axios retries both 401 and 403 once after refres
 
 ### Game join and timer fault handling
 
+Late/stale answers use `game_action_rejected`, a nonfatal Socket.IO event. A
+missing/replaced question is rejected without charging; an action whose round,
+answer window or voting window closes during delivery still receives the existing
+exact refund and wallet update. The client shows the warning and stays joined for
+the next round. `game_error_notify` retains its existing fatal handling for other
+errors. Deadline checks, scoring, debit/refund idempotency, explicit leaving and
+idle-session behavior are unchanged. Deploy the API and web update together.
+
 The `player_joined` Socket.IO event requires `{roomId, mode}` where mode is SINGLE
 or MULTI (case-insensitive). Bare room strings, absent/unknown modes and invalid
 room IDs receive `INVALID_JOIN` before any room mutation. Optional acknowledgement

@@ -254,7 +254,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         args = { ...args, gameType: socket.data.gameType, catType: socket.data.catType };
         const question = await retrieveGameRoomQuestion(room.id);
         if (!question?.roundId || args.roundId !== question.roundId || String(question.id) !== String(args.qId)) {
-          socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This question is no longer active');
+          socket.emit(GameEventEnum.GAME_ACTION_REJECTED, 'This question is no longer active');
           return;
         }
         const operationId = createHash('sha256').update(JSON.stringify(['answer', room.id, question.roundId ?? question.id, args.answer.trim()])).digest('hex');
@@ -272,7 +272,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         }, {kind:isEntries?'WORDMAKER':args.gameType===GameType.ACRONYM?'ACRONYM':'ANSWER',roomId:room.id,roundId:question.roundId,payload:body})
         if(result.data) socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data);
         if(result.isError || !result.data){
-          socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, result.message );
+          socket.emit('recoverable' in result && result.recoverable ? GameEventEnum.GAME_ACTION_REJECTED : GameEventEnum.GAME_ERROR_NOTIFY, result.message );
           return
         }
 
@@ -305,7 +305,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         }, {kind:'VOTE',roomId:room.id,roundId:question.roundId,payload:{answerId:args.answerId,votedUserId:args.votedUserId}})
         if(result.data) socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data);
         if(result.isError || !result.data){
-          socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, result.message );
+          socket.emit('recoverable' in result && result.recoverable ? GameEventEnum.GAME_ACTION_REJECTED : GameEventEnum.GAME_ERROR_NOTIFY, result.message );
           return
         }
 

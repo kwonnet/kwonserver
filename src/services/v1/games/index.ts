@@ -107,7 +107,9 @@ export async function deductGameCoins(params: {
         const action = await dispatchGameAction(data.actionId);
         if (action.status === 'REFUNDED') {
           const wallet=await prisma.wallet.findUniqueOrThrow({where:{userId:params.playerId}});
-          return {message:action.reason || 'Action refunded',isError:true,data:{amount:cents(wallet.coins,true)/100,bonus:cents(wallet.bonus,true)/100}};
+          return {message:action.reason || 'Action refunded',isError:true,
+            recoverable: ['Round closed', 'Answers closed', 'Voting closed'].includes(action.reason ?? ''),
+            data:{amount:cents(wallet.coins,true)/100,bonus:cents(wallet.bonus,true)/100}};
         }
       } catch (error) {
         logGameError('deductGameCoins', error, params);

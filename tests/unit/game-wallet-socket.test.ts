@@ -38,6 +38,30 @@ it('does not charge stale or empty answers',async()=>{
  await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:'  '});
  expect(games.deductGameCoins).not.toHaveBeenCalled();
 });
+it.each([null, {id:'old-question',roundId:'old-round'}])('rejects a missing or replaced question without a fatal room error',async question=>{
+ games.retrieveGameRoomQuestion.mockResolvedValue(question);
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:'late answer'});
+ expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ACTION_REJECTED,'This question is no longer active');
+ expect(socket.emit).not.toHaveBeenCalledWith(GameEventEnum.GAME_ERROR_NOTIFY,expect.anything());
+ expect(games.deductGameCoins).not.toHaveBeenCalled();expect(socket.leave).not.toHaveBeenCalled();
+});
+it.each(['Round closed','Answers closed'])('keeps refunded %s answers nonfatal and accepts the next round',async message=>{
+ games.deductGameCoins.mockResolvedValueOnce({isError:true,recoverable:true,message,data:{amount:10,bonus:2}});
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:'late answer'});
+ expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_PLAYER_WALLET_UPDATE,{amount:10,bonus:2});
+ expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ACTION_REJECTED,message);
+ expect(socket.emit).not.toHaveBeenCalledWith(GameEventEnum.GAME_ERROR_NOTIFY,expect.anything());
+ games.retrieveGameRoomQuestion.mockResolvedValue({id:'next-question',roundId:'next-round'});
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'next-question',roundId:'next-round',answer:'new answer'});
+ expect(games.deductGameCoins).toHaveBeenCalledTimes(2);expect(games.updatePlayerSession).toHaveBeenCalledOnce();
+ expect(socket.leave).not.toHaveBeenCalled();
+});
+it('keeps genuine wallet errors on the existing fatal event',async()=>{
+ games.deductGameCoins.mockResolvedValue({isError:true,message:'Insufficient balance',data:null});
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:'answer'});
+ expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ERROR_NOTIFY,'Insufficient balance');
+ expect(socket.emit).not.toHaveBeenCalledWith(GameEventEnum.GAME_ACTION_REJECTED,expect.anything());
+});
 
 it.each(['room',null,{}, {roomId:'room'}, {roomId:'room',mode:'unknown'}])('rejects malformed join payloads without room mutation or unhandled rejection: %j',async args=>{
  const ack=vi.fn();await handlers[GameEventEnum.PLAYER_JOINED](args,ack);

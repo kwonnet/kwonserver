@@ -1,5 +1,8 @@
 import {PrismaPg} from "@prisma/adapter-pg";
 import {beforeAll,beforeEach,afterAll,expect,it,vi} from 'vitest';
+// This suite exercises wallet delivery, not the optional word/AI generators.
+vi.mock('@/utils/ai',()=>({generateRoomQuestion:vi.fn(),shuffleArray:vi.fn()}));
+vi.mock('@/services/helper',()=>({}));
 vi.mock('@/db',async()=>{const {PrismaClient}=await import('@prisma/client');return {default:new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})})};});
 vi.mock('@/redis',async()=>{const {createClient}=await import('redis');const client=createClient({url:'redis://127.0.0.1:16379'});await client.connect();return {default:client};});
 import db from '@/db';
@@ -7,6 +10,8 @@ import redis from '@/redis';
 import {chargeGameAction} from '@/services/walletLedger/game';
 import {dispatchGameAction,recoverGameActions,GameDelivery} from '@/services/walletLedger/gameDelivery';
 import {GameActionEnum} from '@/types';
+import {GameMode} from '@prisma/client';
+import {deductGameCoins} from '@/services/v1/games';
 const userId='delivery-test-user',roomId='delivery-test-room';
 const wallet=()=>db.wallet.findUniqueOrThrow({where:{userId}});
 const deliver=(kind:GameDelivery['kind']='ANSWER',payload:any={answer:'hello',playerId:userId,votes:[]})=>({kind,roomId,roundId:'round-1',payload});
@@ -43,6 +48,18 @@ it('refunds the exact original coin and bonus split once when the round expires'
  expect(Number((await wallet()).coins)).toBe(100);expect(Number((await wallet()).bonus)).toBe(2);
  expect(await db.transaction.count({where:{userId,type:'CREDIT'}})).toBe(1);
  expect((await dispatchGameAction(result.actionId!)).status).toBe('REFUNDED');
+});
+it.each(['Round closed','Answers closed','Voting closed','Room closed'])('keeps %s refunds unchanged while classifying only round timing as recoverable',async reason=>{
+ const voting=reason==='Voting closed';
+ if(reason==='Round closed') await redis.del(`room:${roomId}:question`);
+ if(reason==='Room closed') await redis.del(`room:${roomId}`);
+ if(reason==='Answers closed') await redis.set(`room:${roomId}:question`,JSON.stringify({roundId:'round-1',answerUntil:Date.now()-1000}));
+ if(voting){await redis.hSet(`room:${roomId}`,{status:'VOTE'});await redis.set(`room:${roomId}:question`,JSON.stringify({roundId:'round-1',voteUntil:Date.now()-1000}));}
+ const result=await deductGameCoins({playerId:userId,operationId:'late-action',action:voting?GameActionEnum.VOTE:GameActionEnum.ANSWER,roomId,catId:'cat',gameId:'game',mode:GameMode.MULTI},deliver(voting?'VOTE':'ANSWER'));
+ expect(result).toMatchObject({isError:true,message:reason,recoverable:reason!=='Room closed',data:{amount:100,bonus:2}});
+ expect(Number((await wallet()).coins)).toBe(100);expect(Number((await wallet()).bonus)).toBe(2);
+ expect(await db.transaction.count({where:{userId,type:'CREDIT'}})).toBe(1);
+ expect(await redis.hGet(`room:${roomId}:answers`,userId)).toBeNull();
 });
 it('keeps unavailable or malformed Redis state pending without a blind refund',async()=>{
  const result=await charge();await redis.set(`room:${roomId}:answers`,'wrong type');
