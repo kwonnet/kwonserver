@@ -5,6 +5,8 @@ const send = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock('@/utils/webpush', () => ({default: {sendNotification: send}}));
 import {getAuthorNotificationSubscription, setAuthorNotificationSubscription, fanoutPublishedPostNotifications, deliverPendingPushNotifications, publicationNotificationVisibility} from '@/services/v1/notifications';
 import {publishDueScheduledPosts} from '@/services/v1/posts';
+import {followUser} from '@/services/v1/users';
+import {UserFollowAction} from '@/types';
 const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10})});
 let author: string, subscriber: string, stranger: string;
 const extraSubscribers: string[] = [];
@@ -24,6 +26,7 @@ beforeEach(async () => {
   await db.blockUser.deleteMany({where: {OR: [{blockerId: author}, {blockedId: author}]}});
   await db.muteUser.deleteMany({where: {mutedId: author}});
   await db.follow.deleteMany({where: {followingId: author}});
+  await db.follow.create({data: {followerId: subscriber, followingId: author, status: 'ACCEPTED'}});
   await db.user.update({where: {id: author}, data: {isPrivate: false, status: 'ACTIVE'}});
 });
 afterAll(async () => {
@@ -33,10 +36,14 @@ afterAll(async () => {
   await db.follow.deleteMany({where: {followingId: author}});
   await db.blockUser.deleteMany({where: {OR: [{blockerId: author}, {blockedId: author}]}});
   await db.muteUser.deleteMany({where: {mutedId: author}});
+  await db.followHistory.deleteMany({where: {followingId: author}});
   await db.user.deleteMany({where: {id: {in: [author,subscriber,stranger,...extraSubscribers]}}});
   await db.$disconnect();
 });
 it('persists idempotent opt-in and isolates preference ownership', async () => {
+  expect((await setAuthorNotificationSubscription(author, stranger, true)).status).toBe(403);
+  await db.follow.create({data: {followerId: stranger, followingId: author, status: 'PENDING'}});
+  expect((await setAuthorNotificationSubscription(author, stranger, true)).status).toBe(403);
   await Promise.all([setAuthorNotificationSubscription(author, subscriber, true), setAuthorNotificationSubscription(author, subscriber, true)]);
   expect(await db.postNotificationSubscription.count({where: {authorId: author}})).toBe(1);
   expect((await getAuthorNotificationSubscription(author, stranger)).data.subscribed).toBe(false);
@@ -61,6 +68,17 @@ it('commits publication events atomically, deduplicates fanout, and pushes a pos
     throw new Error('rollback');
   })).rejects.toThrow('rollback');
   expect(await db.postPublicationNotification.count({where: {post: {userId: author}}})).toBe(1);
+});
+it('serializes notification opt-in against unfollow and does not restore it on refollow', async () => {
+  await setAuthorNotificationSubscription(author, subscriber, true);
+  const results = await Promise.all([
+    setAuthorNotificationSubscription(author, subscriber, true),
+    followUser({senderId: subscriber, recipientId: author, action: UserFollowAction.UNFOLLOW}, {id: subscriber} as any),
+  ]);
+  expect(results[1].status).toBe(200);
+  expect(await db.postNotificationSubscription.count({where: {authorId: author, subscriberId: subscriber}})).toBe(0);
+  await db.follow.create({data: {followerId: subscriber, followingId: author, status: 'ACCEPTED'}});
+  expect((await getAuthorNotificationSubscription(author, subscriber)).data.subscribed).toBe(false);
 });
 it('queues scheduled publications only when they go live and skips draft/thread/reply/repost', async () => {
   await setAuthorNotificationSubscription(author, subscriber, true);
@@ -89,14 +107,20 @@ it('does not send historical posts to late subscribers or recipients who unsubsc
   await fanoutPublishedPostNotifications();
   expect(await db.notification.count({where: {senderId: author}})).toBe(0);
 });
-it.each(['block','mute','private','hidden','deleted','unsubscribe'])('rechecks %s before pushing a queued notification', async change => {
+it.each(['block','mute','private','hidden','deleted','unsubscribe','unfollow'])('rechecks %s before pushing a queued notification', async change => {
   await setAuthorNotificationSubscription(author, subscriber, true);
   const post = await publish();
   await fanoutPublishedPostNotifications();
   await db.pushNotification.upsert({where: {endpoint: config.endpoint}, create: {endpoint: config.endpoint, config, userId: subscriber}, update: {userId: subscriber}});
   if (change==='block') await db.blockUser.create({data: {blockerId: author, blockedId: subscriber}});
   if (change==='mute') await db.muteUser.create({data: {muterId: subscriber, mutedId: author}});
-  if (change==='private') await db.user.update({where: {id: author}, data: {status: 'PRIVATE', isPrivate: true}});
+  if (change==='private') {await db.follow.deleteMany({where: {followerId: subscriber, followingId: author}}); await db.user.update({where: {id: author}, data: {status: 'PRIVATE', isPrivate: true}});}
+  if (change==='unfollow') {
+    const result = await followUser({senderId: subscriber, recipientId: author, action: UserFollowAction.UNFOLLOW}, {id: subscriber} as any);
+    expect(result.status).toBe(200);
+    expect(await db.postNotificationSubscription.count({where: {authorId: author, subscriberId: subscriber}})).toBe(0);
+    expect((await getAuthorNotificationSubscription(author, subscriber)).data.subscribed).toBe(false);
+  }
   if (change==='hidden') await db.post.update({where: {id: post.id}, data: {isHidden: true}});
   if (change==='deleted') await db.post.update({where: {id: post.id}, data: {deletedAt: new Date()}});
   if (change==='unsubscribe') await setAuthorNotificationSubscription(author, subscriber, false);
@@ -105,17 +129,20 @@ it.each(['block','mute','private','hidden','deleted','unsubscribe'])('rechecks %
   expect(await db.notification.count({where: {recipientId: subscriber, ...publicationNotificationVisibility(subscriber)}})).toBe(0);
 });
 it('allows accepted followers of private authors, but never an opt-in alone', async () => {
+  await db.follow.deleteMany({where: {followerId: subscriber, followingId: author}});
   await db.user.update({where: {id: author}, data: {status: 'PRIVATE', isPrivate: true}});
   expect((await setAuthorNotificationSubscription(author, subscriber, true)).status).toBe(404);
   await db.follow.create({data: {followerId: subscriber, followingId: author, status: 'ACCEPTED'}});
   expect((await setAuthorNotificationSubscription(author, subscriber, true)).status).toBe(200);
   const post = await publish({scope: 'FOLLOWED'});
+  expect(await db.post.findFirst({where: {id: post.id, ... (await import('@/services/recommendation-visibility')).postNotificationVisibility(subscriber)}})).not.toBeNull();
   await fanoutPublishedPostNotifications();
   expect(await db.notification.count({where: {postId: post.id}})).toBe(1);
 });
 it('pages large subscriber lists without duplicate or missing recipients', async () => {
   const people = await db.user.createManyAndReturn({data: Array.from({length: 105}, (_, i) => ({name: 'Subscriber', username: `${fixture}bulk-${i}`, email: `${fixture}bulk-${i}@test.invalid`}))});
   extraSubscribers.push(...people.map(person => person.id));
+  await db.follow.createMany({data: people.map(person => ({followingId: author, followerId: person.id, status: 'ACCEPTED' as const}))});
   await db.postNotificationSubscription.createMany({data: people.map(person => ({authorId: author, subscriberId: person.id}))});
   const post = await publish();
   await Promise.all([fanoutPublishedPostNotifications(),fanoutPublishedPostNotifications()]);

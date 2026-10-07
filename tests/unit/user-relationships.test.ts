@@ -2,7 +2,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { resetMocks, user } from './fixtures';
 const deps = vi.hoisted(() => {
   const model = () => ({ findFirst: vi.fn(), findUniqueOrThrow: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() });
-  const tx = { user: model(), follow: model(), followHistory: model(), blockUser: model(), blockHistory: model(), muteUser: model(), muteHistory: model(), notification: model(), profileVisit: model() };
+  const tx = { postNotificationSubscription: {deleteMany: vi.fn()}, user: model(), follow: model(), followHistory: model(), blockUser: model(), blockHistory: model(), muteUser: model(), muteHistory: model(), notification: model(), profileVisit: model() };
   return { tx, db: { $transaction: vi.fn(), followHistory: model(), blockHistory: model(), muteHistory: model(), user: model(), userReport: model(), userLocation: { upsert: vi.fn() } } };
 });
 vi.mock('@/db', () => ({ default: deps.db }));
@@ -40,6 +40,7 @@ it.each(['ACTIVE', 'SUSPENDED'])('allows unfollowing a %s account and records hi
   deps.tx.user.findUniqueOrThrow.mockResolvedValue(user({ status })); expect((await follow(UserFollowAction.UNFOLLOW)).status).toBe(200);
   expect(deps.tx.follow.delete).toHaveBeenCalledWith({ where: { followerId_followingId: { followerId: 'u', followingId: 'r' } } });
   expect(deps.tx.followHistory.create).toHaveBeenCalledWith({ data: { followerId: 'u', followingId: 'r', action: 'UNFOLLOW' } });
+  expect(deps.tx.postNotificationSubscription.deleteMany).toHaveBeenCalledWith({where: {subscriberId: 'u', authorId: 'r'}});
 });
 it('cancels a pending request without recording it as an unfollow', async () => {
   expect((await follow(UserFollowAction.CANCEL)).status).toBe(200); expect(deps.tx.follow.delete).toHaveBeenCalled();

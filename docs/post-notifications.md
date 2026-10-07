@@ -1,7 +1,8 @@
 # Author post notifications
 
 Users opt into an author's new-post notifications using the bell on their profile.
-This is an account preference, separate from following an account and from a
+An accepted follow is required. This is an additional account preference,
+separate from a
 browser's Web Push subscription. Turning off one author's bell leaves other
 authors and the user's browser subscription enabled.
 
@@ -58,8 +59,8 @@ so repeated/concurrent fanout cannot create duplicate notifications.
 Subscribers must have opted in by the event's creation time and still be opted
 in when their batch runs. New subscribers do not receive old announcements.
 Deleted or inactive recipients are excluded. Eligibility applies the existing
-public/followers-only feed access rules: public posts are allowed; private and
-followers-only posts require an accepted follower relationship. Other restricted
+public/followers-only feed access rules, with an accepted follower relationship
+required for every author notification. Other restricted
 scopes are conservatively excluded, as in the current feed rules. Hidden,
 deleted, reported, blocked, muted or otherwise inaccessible posts never generate
 an eligible notification. The inbox and unread counters apply these same checks
@@ -133,7 +134,7 @@ no-buffer/no-store headers keep idle streams alive. This is near-realtime inbox
 invalidation, with up to approximately five seconds of additional SSE latency.
 
 Inspect `post_notification_queued`, `post_notification_fanout_committed`, standard
-queue `job_started`/`job_completed`/`job_failed`, and `notification_push_delivered`,
+queue `job_started`/`job_completed`/`job_failed`, and `notification_push_accepted`,
 `notification_push_no_devices`, `notification_push_retry_scheduled`, or
 `notification_push_cancelled` logs. A profile bell subscription alone cannot
 create a browser endpoint: `notification_push_no_devices` means the device needs
@@ -143,6 +144,29 @@ are logged; endpoints, encryption keys and post content are not. Inspect pending
 `Notification` rows (`pushSentAt IS NULL`), especially `pushAttempts >= 5`.
 Worker failures include notification/subscription IDs and provider status without
 logging endpoint encryption keys or full notification payloads.
+
+`notification_push_provider_accepted` records each accepted subscription ID,
+provider hostname and HTTP status. Acceptance confirms submission to the push
+provider, not reception or display on the device. Settings → Notifications →
+Test notification displays a local notification through the active service worker
+without making a server push request. If that test is not visible, check site
+permission, macOS notification settings for the browser, and Focus. If it is
+visible but post pushes are not, investigate the current browser subscription
+and push transport; the local test does not exercise those paths.
+
+Post notification opt-in requires an accepted follow, including for public
+authors. The accepted follow is locked during opt-in to serialize it against
+unfollow. Unfollow removes the subscription in the same transaction; following
+again requires a new opt-in. Fanout, push delivery and inbox visibility recheck
+the accepted follow, so legacy subscriptions without a follow do not receive
+new post notifications. Pending private-account requests are not eligible.
+
+The browser uses the recipient's SSE unseen count to update the badge and a
+shared notification revision to refresh all mounted inbox pages. Opening the
+panel revalidates its pages even if the SSE update arrived before it mounted.
+Notification clicks navigate a same-origin tab to the post, with a new-window
+fallback if the existing tab cannot navigate. The service worker updates on
+authenticated visits and activates its current click handler immediately.
 
 Regression coverage includes authentication ownership, idempotent concurrent
 subscriptions, transaction rollback, immediate/scheduled/draft publication,

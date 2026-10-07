@@ -11,12 +11,13 @@ export function publicationNotificationVisibility(userId: string): Prisma.Notifi
     { sourceKey: null },
     { sourceKey: { startsWith: 'post-published:' },
       sender: { postNotificationSubscribers: { some: { subscriberId: userId } } },
+      AND: [{sender: {followers: {some: {followerId: userId, status: 'ACCEPTED'}}}}],
       post: { is: postNotificationVisibility(userId) } },
   ] };
 }
 
 export async function getAuthorNotificationSubscription(authorId: string, subscriberId: string) {
-  const subscription = await prisma.postNotificationSubscription.findUnique({where: {subscriberId_authorId: {subscriberId, authorId}}});
+  const subscription = await prisma.postNotificationSubscription.findFirst({where: {subscriberId, authorId, author: {followers: {some: {followerId: subscriberId, status: 'ACCEPTED'}}}}});
   return {status: 200, data: {subscribed: !!subscription}};
 }
 
@@ -32,8 +33,13 @@ export async function setAuthorNotificationSubscription(authorId: string, subscr
     OR: [{status: 'ACTIVE', isPrivate: false}, {followers: {some: {followerId: subscriberId, status: 'ACCEPTED'}}}],
   }, select: {id: true}});
   if (!author) return {status: 404, data: 'This account is unavailable for post notifications'};
-  await prisma.postNotificationSubscription.createMany({data: [{subscriberId, authorId}], skipDuplicates: true});
-  return {status: 200, data: {subscribed: true}};
+  return prisma.$transaction(async tx => {
+    // Serialize opt-in against follow deletion so unfollow cannot leave a new subscription behind.
+    const follows = await tx.$queryRaw<{id: string}[]>`SELECT "id" FROM "Follow" WHERE "followerId" = ${subscriberId} AND "followingId" = ${authorId} AND "status" = 'ACCEPTED' FOR UPDATE`;
+    if (!follows.length) return {status: 403, data: 'Follow this user before enabling post notifications'};
+    await tx.postNotificationSubscription.createMany({data: [{subscriberId, authorId}], skipDuplicates: true});
+    return {status: 200, data: {subscribed: true}};
+  });
 }
 
 /** Bounded transactional fanout. A crash rolls back both notifications and cursor. */
@@ -49,14 +55,19 @@ export async function fanoutPublishedPostNotifications(postId?: string) {
         await tx.postPublicationNotification.update({where: {postId: event.postId}, data: {completedAt: new Date()}});
         return {postId: event.postId, scanned: 0, eligible: 0, created: 0};
       }
-      const subscribers = await tx.postNotificationSubscription.findMany({where: {
-        authorId: post.userId, createdAt: {lte: event.createdAt},
-        ...(event.subscriberCursor ? {id: {gt: event.subscriberCursor}} : {}),
-        subscriber: {status: {in: ['ACTIVE', 'PRIVATE']}, deletedAt: null, deactivatedAt: null},
-      }, orderBy: {id: 'asc'}, take: 100});
+      // Keep the publication cutoff comparison inside PostgreSQL using the
+      // stored timestamp, without converting it through the application clock.
+      const subscribers = await tx.$queryRaw<{id: string; subscriberId: string}[]>`
+        SELECT s."id", s."subscriberId" FROM "PostNotificationSubscription" s
+        JOIN "User" u ON u."id" = s."subscriberId"
+        WHERE s."authorId" = ${post.userId}
+          AND s."createdAt" <= (SELECT "createdAt" FROM "PostPublicationNotification" WHERE "postId" = ${event.postId})
+          AND (${event.subscriberCursor}::text IS NULL OR s."id" > ${event.subscriberCursor})
+          AND u."status" IN ('ACTIVE', 'PRIVATE') AND u."deletedAt" IS NULL AND u."deactivatedAt" IS NULL
+        ORDER BY s."id" LIMIT 100`;
       const notifications: Prisma.NotificationCreateManyInput[] = [];
       for (const subscription of subscribers) {
-        const visible = await tx.post.findFirst({where: {id: event.postId, ...postNotificationVisibility(subscription.subscriberId)}, select: {id: true}});
+        const visible = await tx.post.findFirst({where: {id: event.postId, AND: [postNotificationVisibility(subscription.subscriberId), {user: {followers: {some: {followerId: subscription.subscriberId, status: 'ACCEPTED'}}}}]}, select: {id: true}});
         if (visible) notifications.push({sourceKey: `post-published:${event.postId}:${subscription.subscriberId}`,
           senderId: post.userId, recipientId: subscription.subscriberId, postId: event.postId,
           type: 'POST', action: 'NONE', title: 'New post', message: `${post.user.name.slice(0,80)} published a new post`});
@@ -134,7 +145,8 @@ export async function deliverPendingPushNotifications(postId?: string) {
       if (notification.pushDeliveredSubscriptionIds?.includes(subscription.id)) continue;
       try {
         const config = validatePushSubscription(subscription.config);
-        await webpush.sendNotification(config, JSON.stringify({title: notification.title, body: notification.message, tag: notification.id, url: target}), {TTL: 3600, timeout: 5_000});
+        const response = await webpush.sendNotification(config, JSON.stringify({title: notification.title, body: notification.message, tag: notification.id, url: target}), {TTL: 3600, timeout: 5_000});
+        logger.info({event: 'notification_push_provider_accepted', notificationId: notification.id, userId: notification.recipientId, subscriptionId: subscription.id, providerHost: new URL(config.endpoint).hostname, statusCode: response.statusCode}, 'Push provider accepted notification; device display is unconfirmed');
         await prisma.notification.update({where: {id: notification.id}, data: {pushDeliveredSubscriptionIds: {push: subscription.id}}});
         deliveredDevices++;
       } catch (error: any) {
@@ -144,7 +156,7 @@ export async function deliverPendingPushNotifications(postId?: string) {
         else {retry = true; logger.warn({notificationId: notification.id, subscriptionId: subscription.id, statusCode: error?.statusCode}, 'Push delivery failed; retry scheduled');}
       }
     }
-    logger.info({event: retry ? 'notification_push_retry_scheduled' : deliveredDevices ? 'notification_push_delivered' : 'notification_push_no_devices', notificationId: notification.id, userId: notification.recipientId, deviceCount: subscriptions.length, deliveredDevices}, retry ? 'Push delivery will retry after lease expires' : 'Push notification delivery processed');
+    logger.info({event: retry ? 'notification_push_retry_scheduled' : deliveredDevices ? 'notification_push_accepted' : 'notification_push_no_devices', notificationId: notification.id, userId: notification.recipientId, deviceCount: subscriptions.length, acceptedDevices: deliveredDevices}, retry ? 'Push delivery will retry after lease expires' : 'Push submission processed; device display is unconfirmed');
     if (!retry) await prisma.notification.update({where: {id: notification.id}, data: {pushSentAt: new Date()}});
   };
   // Bound concurrent outbound requests instead of opening one for every subscriber.

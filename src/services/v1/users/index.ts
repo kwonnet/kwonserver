@@ -410,6 +410,7 @@ export const followUser = async (
             },
           },
         });
+        await tx.postNotificationSubscription.deleteMany({where: {subscriberId: senderId, authorId: recipientId}});
         if (action === UserFollowAction.UNFOLLOW) {
           // insert unfollow history
           await tx.followHistory.create({
@@ -429,6 +430,7 @@ export const followUser = async (
             },
           },
         });
+        await tx.postNotificationSubscription.deleteMany({where: {subscriberId: recipientId, authorId: senderId}});
       } else if (action === UserFollowAction.ACCEPT) {
         await tx.follow.update({
           where: {
@@ -531,6 +533,7 @@ export const blockUser = async (blockedId: string, user: SessionUser) => {
       });
       if (result3) {
         await tx.follow.delete({ where: { id: result3.id } });
+        await tx.postNotificationSubscription.deleteMany({where: {subscriberId: user.id, authorId: blockedId}});
         // insert history
         await tx.followHistory.create({
           data: {

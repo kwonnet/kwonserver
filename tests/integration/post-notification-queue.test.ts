@@ -15,6 +15,7 @@ const config={endpoint:'https://fcm.googleapis.com/fcm/send/publication-queue-fi
 const body=(isDraft=false)=>PostCreateSchema.parse({isDraft,thread:[{type:'CONTENT',content:'New queue-driven publication',scope:'ANYONE',media:[]}]});
 beforeAll(async()=>{
  [author,viewer,stranger]=await Promise.all(['author','viewer','stranger'].map(async name=>(await db.user.create({data:{name,username:`publication-queue-${name}`,email:`publication-queue-${name}@test.invalid`}})).id));
+ await db.follow.create({data:{followingId:author,followerId:viewer,status:'ACCEPTED'}});
  await setAuthorNotificationSubscription(author,viewer,true);
  await db.pushNotification.create({data:{endpoint:config.endpoint,config,userId:viewer}});
  await notificationQueue.obliterate({force:true});events=new QueueEvents(notificationQueue.name,{connection});await events.waitUntilReady();
@@ -22,6 +23,7 @@ beforeAll(async()=>{
 afterAll(async()=>{
  await worker?.close();await events?.close();await notificationQueue.obliterate({force:true});
  await db.notification.deleteMany({where:{senderId:author}});await db.post.deleteMany({where:{userId:author,kind:'QUOTE'}});await db.post.deleteMany({where:{userId:author}});
+ await db.follow.deleteMany({where:{followingId:author}});
  await db.user.deleteMany({where:{id:{in:[author,viewer,stranger]}}});await db.$disconnect();
 });
 it('queues from real publication services, fans out and sends push without a recurring tick; SSE snapshots stay recipient-specific',async()=>{
