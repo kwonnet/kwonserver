@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response, user } from './fixtures';
-const deps = vi.hoisted(() => ({ create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn(), startSession: vi.fn(), validateSession: vi.fn(), touch: vi.fn(), provider: vi.fn(), revoke: vi.fn(), sessions: vi.fn(), events: vi.fn(), account: vi.fn(), password: vi.fn() }));
-vi.mock('@/services/v1/auth', () => ({ getAccountSettings: deps.account, updateAccountPassword: deps.password, createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google, startAuthSession: deps.startSession, validateAuthSession: deps.validateSession, touchAuthSession: deps.touch, sessionProvider: deps.provider, revokeAuthSession: deps.revoke, listAuthSessions: deps.sessions, listLoginEvents: deps.events }));
+const deps = vi.hoisted(() => ({ requestEmail: vi.fn(), consumeEmail: vi.fn(), create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn(), startSession: vi.fn(), validateSession: vi.fn(), touch: vi.fn(), provider: vi.fn(), revoke: vi.fn(), sessions: vi.fn(), events: vi.fn(), account: vi.fn(), password: vi.fn() }));
+vi.mock('@/services/v1/auth', () => ({ requestAuthEmail: deps.requestEmail, consumeAuthEmail: deps.consumeEmail, getAccountSettings: deps.account, updateAccountPassword: deps.password, createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google, startAuthSession: deps.startSession, validateAuthSession: deps.validateSession, touchAuthSession: deps.touch, sessionProvider: deps.provider, revokeAuthSession: deps.revoke, listAuthSessions: deps.sessions, listLoginEvents: deps.events }));
 vi.mock('@/services/v1/utils', () => ({ getAuthUser: deps.getUser }));
 vi.mock('@/utils', () => ({ generateToken: deps.generate, getAuthTokenUser: deps.decode, getRefreshAuthTokenUser: deps.decode }));
 vi.mock('@/utils/ipLocation', () => ({ lookup: deps.lookup }));
-import { accountSettingsController, passwordUpdateController, signInController, signUpController, refreshTokenController, getMeController, logoutController, googleSignInController, authSessionsController, loginEventsController, revokeAuthSessionController, guardAuthStream } from '@/controllers/v1/auth';
+import { authEmailActionController, accountSettingsController, passwordUpdateController, signInController, signUpController, refreshTokenController, getMeController, logoutController, googleSignInController, authSessionsController, loginEventsController, revokeAuthSessionController, guardAuthStream } from '@/controllers/v1/auth';
 const body = { name: 'Ada', email: 'ADA@example.test', password: 'password123' };
 it('logout clears both historical API cookies even without a working authenticated session', () => {
   const res = response(); res.clearCookie = vi.fn(() => res);
@@ -233,3 +233,25 @@ it('returns a service failure rather than revoking identity when refresh session
 });
 
 it('signup creates an unverified account without issuing a session or cookie', async () => {const res=response();await signUpController({body} as any,res);expect(res.statusCode).toBe(202);expect(res.body.verificationRequired).toBe(true);expect(deps.startSession).not.toHaveBeenCalled();expect(deps.generate).not.toHaveBeenCalled();expect(res.cookie).not.toHaveBeenCalled();});
+
+it.each([['forgot-password', 'PASSWORD_RESET'], ['resend-verification', 'VERIFY_EMAIL']] as const)('validates and normalizes %s email requests', async (action, purpose) => {
+ deps.requestEmail.mockResolvedValue({status: 202, data: {message: 'Check your inbox'}});
+ const res = response(); await authEmailActionController({path: `/auth/${action}`, body: {email: ' ADA@example.test '}} as any, res);
+ expect(res.statusCode).toBe(202); expect(res.headers['Cache-Control']).toBe('private, no-store');
+ expect(deps.requestEmail).toHaveBeenCalledWith('ada@example.test', purpose); expect(deps.generate).not.toHaveBeenCalled();
+});
+it.each([['verify-email', {token: 'token'}, 'VERIFY_EMAIL', undefined], ['reset-password', {token: 'token', newPassword: 'password123'}, 'PASSWORD_RESET', 'password123']] as const)('dispatches %s without signing the user in', async (action, input, purpose, password) => {
+ deps.consumeEmail.mockResolvedValue({status: 200, data: {message: 'Complete'}});
+ const res = response(); await authEmailActionController({path: `/auth/${action}`, body: input} as any, res);
+ expect(res.statusCode).toBe(200); expect(deps.consumeEmail).toHaveBeenCalledWith('token', purpose, password);
+ expect(deps.startSession).not.toHaveBeenCalled(); expect(res.cookie).not.toHaveBeenCalled();
+});
+it.each([['forgot-password', {email: 'invalid'}], ['resend-verification', {email: 'ada@example.test', role: 'ADMIN'}], ['verify-email', {token: ''}], ['reset-password', {token: 'token', newPassword: 'short'}]])('rejects invalid %s input before performing an account action', async (action, input) => {
+ const res = response(); await authEmailActionController({path: `/auth/${action}`, body: input} as any, res);
+ expect(res.statusCode).toBe(400); expect(deps.requestEmail).not.toHaveBeenCalled(); expect(deps.consumeEmail).not.toHaveBeenCalled();
+});
+it.each([new Error('private database details'), 'private provider details'])('masks unexpected email action failures', async error => {
+ deps.requestEmail.mockRejectedValue(error);
+ const res = response(); await authEmailActionController({path: '/forgot-password', body: {email: 'ada@example.test'}} as any, res);
+ expect(res.statusCode).toBe(503); expect(JSON.stringify(res.body)).not.toContain('private');
+});

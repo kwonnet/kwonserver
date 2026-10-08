@@ -14,7 +14,9 @@ function appLogoUrl() {
  try {
   const url = new URL(value || '');
   if (url.protocol === 'https:' && !url.username && !url.password) return url.href;
- } catch { /* Report a configuration error without exposing the value. */ }
+ } catch {
+  logger.error({event: 'email_configuration_invalid', settings: ['APP_LOGO']}, 'APP_LOGO must be a public HTTPS URL');
+ }
  throw Object.assign(new Error('CONFIG'), {code: 'CONFIG', settings: ['APP_LOGO']});
 }
 function escapeHtml(value:string) {return value.replace(/[&<>"']/g, character=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]!));}
