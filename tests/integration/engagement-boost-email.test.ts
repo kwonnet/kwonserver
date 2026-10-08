@@ -9,7 +9,7 @@ import {rememberDeliveredRecommendations,getAvailableNewsfeedSnapshot,getAvailab
 import {createUser} from '@/services/v1/auth';
 import redis from '@/redis';
 const db=new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});const prefix='engagement-fixture-';let actor:string,author:string,viewer:string;
-async function user(name:string){return (await db.user.create({data:{name,username:prefix+name,email:prefix+name+'@test.invalid',wallet:{create:{bonus:0}}}})).id;}
+async function user(name:string){return (await db.user.create({data:{emailVerifiedAt: new Date(), name,username:prefix+name,email:prefix+name+'@test.invalid',wallet:{create:{bonus:0}}}})).id;}
 async function post(userId:string,extra:any={}){return db.post.create({data:{userId,kind:'ROOT',type:'CONTENT',content:'A community post with real content',...extra}});}
 beforeAll(async()=>{actor=await user('actor');author=await user('author');viewer=await user('viewer');await db.engagementTask.update({where:{id:'like'},data:{target:2,reward:15,rewardDay:new Date(new Date().toISOString().slice(0,10)),enabled:true}});});
 afterAll(async()=>{const users=await db.user.findMany({where:{email:{startsWith:prefix}},select:{id:true}});const ids=users.map(user=>user.id);await db.postImpression.deleteMany({where:{userId:{in:ids}}});await db.post.deleteMany({where:{userId:{in:ids}}});await db.user.deleteMany({where:{id:{in:ids}}});await db.$disconnect();});
@@ -54,9 +54,9 @@ it('reserves boosts once per viewer, excludes private/own posts and counts genui
  await db.postBoost.update({where:{postId:publicPost.id},data:{expiresAt:new Date(0)}});
  await createPostImpression({...args,userId:actor});expect(await db.postBoost.findUnique({where:{postId:publicPost.id}})).toMatchObject({confirmed:1});
 });
-it('persists one welcome event only after a successful first registration',async()=>{
+it('persists one verification event only after a successful first registration',async()=>{
  const email=prefix+'signup@test.invalid';const result=await createUser({name:'New creator',email,password:'test-password'});expect(result.status).toBe(200);const id=(result.data as any).id;
- expect(await db.emailMessage.findMany({where:{userId:id}})).toMatchObject([{eventKey:`welcome:${id}`,kind:'WELCOME',status:'PENDING'}]);
+ expect(await db.emailMessage.findMany({where:{userId:id}})).toMatchObject([{kind:'VERIFY_EMAIL',status:'PENDING',actionTokenId:expect.any(String)}]);
  expect((await createUser({name:'Duplicate',email,password:'test-password'})).status).toBe(422);expect(await db.emailMessage.count({where:{userId:id}})).toBe(1);
 });
 

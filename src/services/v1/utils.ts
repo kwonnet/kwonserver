@@ -61,11 +61,11 @@ export const composeAuthUser = (
     bio: user?.bio,
     createdAt: user.createdAt,
     country: user?.country,
-    ...(includeEmail && { email: user?.email }),
+    ...(includeEmail && { email: user?.email, emailVerifiedAt: user.emailVerifiedAt, identityVerifiedAt: user.identityVerifiedAt, accountVerifiedAt: user.accountVerifiedAt }),
     meta: {
       ...user.meta,
       isPro: !!subscription,
-      isLegacy: user.accountVerified,
+      isLegacy: !!user.accountVerifiedAt,
       isActive: statuses.includes(String(user?.status)),
       isPrivate: user?.status === UserStatus.PRIVATE,
       message: getUserStatusMessage(user),

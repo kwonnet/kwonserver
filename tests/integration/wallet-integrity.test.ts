@@ -16,7 +16,7 @@ vi.mock('@/services/helper', () => ({ syncPrismaUserWalletToRedis: vi.fn().mockR
 const ids=['wallet-test-s','wallet-test-r','wallet-test-x'];
 let coinId:string,taskId:string;
 beforeAll(async()=>{
- for(const id of ids) await db.user.create({data:{id,name:id,username:id,email:`${id}@example.test`,wallet:{create:{coins:300,bonus:0,credit:10}}}});
+ for(const id of ids) await db.user.create({data:{emailVerifiedAt: new Date(), id,name:id,username:id,email:`${id}@example.test`,wallet:{create:{coins:300,bonus:0,credit:10}}}});
  coinId=(await db.coinPackage.create({data:{name:'Test',amount:100,bonus:10,price:5,ngnPrice:5000,ngnBonus:15}})).id;
  taskId=(await db.task.create({data:{userId:ids[0],reward:5,rewardType:'BONUS',title:'Task',description:'Task',url:'https://example.test',code:'proof'}})).id;
 });

@@ -9,8 +9,8 @@ import {getPublicProfileMetadata} from '@/services/v1/users';
 import {getPublicPostMetadata, getPublicPostMetadataIndex, getPublicPostSitemapCount, getEmbedPost} from '@/services/v1/posts';
 const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})}); const prefix = 'account-seo-fixture-'; let owner: string, privateUser: string, current: string, other: string;
 beforeAll(async () => {
- owner = (await db.user.create({data: {name: 'Public owner', username: prefix+'owner', email: prefix+'owner@test.invalid', password: await bcrypt.hash('old-password', 10), bio: 'Public bio'}})).id;
- privateUser = (await db.user.create({data: {name: 'Private', username: prefix+'private', email: prefix+'private@test.invalid', isPrivate: true}})).id;
+ owner = (await db.user.create({data: {emailVerifiedAt: new Date(), name: 'Public owner', username: prefix+'owner', email: prefix+'owner@test.invalid', password: await bcrypt.hash('old-password', 10), bio: 'Public bio'}})).id;
+ privateUser = (await db.user.create({data: {emailVerifiedAt: new Date(), name: 'Private', username: prefix+'private', email: prefix+'private@test.invalid', isPrivate: true}})).id;
  const metadata = {device: {browser: null, browserVersion: null, os: null, osVersion: null, type: 'unknown'}, location: null, ipAddress: null, ipHash: null, metadataSource: 'API_REQUEST'};
  current = await startAuthSession(owner, 'PASSWORD', metadata); other = await startAuthSession(owner, 'PASSWORD', metadata);
 });

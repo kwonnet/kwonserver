@@ -1,4 +1,22 @@
-import {createHmac, timingSafeEqual} from 'node:crypto';
+import {createHmac, timingSafeEqual, createHash, randomBytes, createCipheriv, createDecipheriv} from 'node:crypto';
+function emailTokenKey() {
+  const secret = process.env.AUTH_EMAIL_TOKEN_SECRET;
+  if (!secret || secret.length < 32) throw new Error('AUTH_EMAIL_TOKEN_SECRET must contain at least 32 characters');
+  return createHash('sha256').update(secret).digest();
+}
+export const hashEmailToken = (token: string) => createHash('sha256').update(token).digest('hex');
+export function createEmailToken() {
+  const token = randomBytes(32).toString('base64url'), iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', emailTokenKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
+  return {tokenHash: hashEmailToken(token), encryptedToken: [iv, cipher.getAuthTag(), encrypted].map(value => value.toString('base64url')).join('.')};
+}
+export function decryptEmailToken(value: string) {
+  const [iv, tag, encrypted] = value.split('.').map(part => Buffer.from(part, 'base64url'));
+  const cipher = createDecipheriv('aes-256-gcm', emailTokenKey(), iv);
+  cipher.setAuthTag(tag);
+  return Buffer.concat([cipher.update(encrypted), cipher.final()]).toString('utf8');
+}
 import {isIP} from 'node:net';
 import DeviceDetector from 'node-device-detector';
 import type {Request} from 'express';

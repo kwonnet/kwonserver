@@ -13,7 +13,7 @@ vi.mock('@/services/helper', () => ({ syncPrismaUserWalletToRedis: jobs.to }));
 vi.mock('@/cron/utils', () => ({ addSubscriptionCronJob: jobs.add, removeSubscriptionCronJob: jobs.remove }));
 import * as s from '@/services/v1/subscriptions';
 const plan = { id: 'pro', name: 'Pro', price: 5, ngnPrice: 5000, discount: 0, tier: [{ id: 'gold', name: 'Gold' }] };
-const user = { id: 'u', userType: 'PERSONAL', accountVerified: false };
+const user = { id: 'u', userType: 'PERSONAL', accountVerifiedAt: null };
 const wallet = { id: 'w', credit: 100, isLocked: false };
 const item: any = { idempotencyKey: 'purchase-test-1', planId: 'pro', amount: 5, currency: 'TZX', planType: 'MONTHLY', isRecurring: true,
   gateway: 'WALLET', source: 'CREDIT', planName: 'Pro', meta: { tierId: 'gold', txnRef: 'external' } };
@@ -109,11 +109,11 @@ it.each([{ sub: null }, { sub: existing({ user: null }) }])('requires an existin
   db.subscription.findFirst.mockResolvedValue(sub); expect((await s.cancelAppSubscription({ subId: 'sub', status: 'CANCELLED' as any })).status).toBe(404);
   expect(db.$transaction).not.toHaveBeenCalled();
 });
-it.each([['GOVERNMENT', true, 'grey'], ['BUSINESS', true, 'gold'], ['PERSONAL', true, 'blue'], ['BUSINESS', false, 'blue']] as const)('cancels %s verified=%s while retaining its legacy badge', async (userType, accountVerified, color) => {
-  db.subscription.findFirst.mockResolvedValue(existing({ user: { ...user, userType, accountVerified } }));
+it.each([['GOVERNMENT', true, 'grey'], ['BUSINESS', true, 'gold'], ['PERSONAL', true, 'blue'], ['BUSINESS', false, 'blue']] as const)('cancels %s verified=%s while retaining its legacy badge', async (userType, accountVerifiedAt, color) => {
+  db.subscription.findFirst.mockResolvedValue(existing({ user: { ...user, userType, accountVerifiedAt } }));
   expect((await s.cancelAppSubscription({ subId: 'sub', status: 'CANCELLED' as any })).status).toBe(200);
   expect(db.subscription.update).toHaveBeenCalledWith({ where: { id: 'sub', userId: 'u' }, data: { status: 'CANCELLED', isRecurring: false } });
-  expect(db.user.update).toHaveBeenCalledWith({ where: { id: 'u' }, data: { meta: { color, status: accountVerified ? 'ACTIVE' : 'INACTIVE', type: 'LEGACY' } } });
+  expect(db.user.update).toHaveBeenCalledWith({ where: { id: 'u' }, data: { meta: { color, status: accountVerifiedAt ? 'ACTIVE' : 'INACTIVE', type: 'LEGACY' } } });
   expect(jobs.remove).toHaveBeenCalledWith({ userId: 'u', subId: 'sub' });
 });
 it('does not remove jobs when cancellation fails', async () => {

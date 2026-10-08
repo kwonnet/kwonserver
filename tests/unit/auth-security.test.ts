@@ -59,3 +59,13 @@ it('defaults to network-specific proxy trust and permits explicit CIDR configura
  const req: any = Object.create(app.request); req.app = app; req.headers = {'x-forwarded-for': '1.2.3.4'}; req.socket = {remoteAddress: '198.51.100.12'};
  expect(req.ip).toBe('198.51.100.12'); // Untrusted direct clients cannot spoof XFF.
 });
+
+it('encrypts durable auth tokens, stores independent hashes and rejects tampered ciphertext', async () => {
+ const {createEmailToken,decryptEmailToken,hashEmailToken}=await import('@/utils/auth-security');
+ vi.stubEnv('AUTH_EMAIL_TOKEN_SECRET','disposable-secret-with-at-least-32-chars');
+ const material=createEmailToken(),plain=decryptEmailToken(material.encryptedToken);
+ expect(plain).toMatch(/^[A-Za-z0-9_-]{43}$/);expect(hashEmailToken(plain)).toBe(material.tokenHash);
+ expect(material.encryptedToken).not.toContain(plain);expect(createEmailToken().tokenHash).not.toBe(material.tokenHash);
+ const parts=material.encryptedToken.split('.');parts[1]=Buffer.alloc(16).toString('base64url');
+ expect(()=>decryptEmailToken(parts.join('.'))).toThrow();
+});

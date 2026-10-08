@@ -5,7 +5,7 @@ vi.mock('nodemailer',()=>({default:{createTransport:deps.create}}));
 vi.mock('@/cron/jobs/queue',()=>({emailQueue:deps.queue}));
 import {renderWelcomeEmail,deliverEmailMessage,recoverEmailMessages,enqueueEmailMessage,closeEmailTransport} from '@/services/email';
 import logger from '@/logger';
-beforeEach(async()=>{await closeEmailTransport();vi.resetAllMocks();vi.stubEnv('SMTP_HOST','smtp.test.invalid');vi.stubEnv('SMTP_USER','test');vi.stubEnv('SMTP_PASSWORD','test-only');vi.stubEnv('SMTP_FROM','hello@kwonnet.test');vi.stubEnv('WEB_APP_URL','https://kwonnet.test');deps.create.mockReturnValue({sendMail:deps.send,close:deps.close});deps.send.mockResolvedValue({accepted:['recipient@test.invalid']});deps.db.emailMessage.updateMany.mockResolvedValue({count:1});deps.db.emailMessage.findUniqueOrThrow.mockResolvedValue({id:'event',attempts:1,user:{name:'Creator',email:'recipient@test.invalid',status:'ACTIVE',deletedAt:null,deactivatedAt:null}});});
+beforeEach(async()=>{await closeEmailTransport();vi.resetAllMocks();vi.stubEnv('APP_LOGO','https://images.test.invalid/kwonnet-logo.png');vi.stubEnv('SMTP_HOST','smtp.test.invalid');vi.stubEnv('SMTP_USER','test');vi.stubEnv('SMTP_PASSWORD','test-only');vi.stubEnv('SMTP_FROM','hello@kwonnet.test');vi.stubEnv('WEB_APP_URL','https://kwonnet.test');deps.create.mockReturnValue({sendMail:deps.send,close:deps.close});deps.send.mockResolvedValue({accepted:['recipient@test.invalid']});deps.db.emailMessage.updateMany.mockResolvedValue({count:1});deps.db.emailMessage.findUniqueOrThrow.mockResolvedValue({id:'event',attempts:1,user:{name:'Creator',email:'recipient@test.invalid',status:'ACTIVE',deletedAt:null,deactivatedAt:null}});});
 afterEach(()=>vi.unstubAllEnvs());
 it('renders responsive MJML with safe interpolation, founder signature and text alternative',async()=>{const result=await renderWelcomeEmail('<script>alert(1)</script>','https://kwonnet.test');expect(result.html).toContain('Kelvin Torver Peter');expect(result.html).toContain('#0084C7');expect(result.html).not.toContain('<script>');expect(result.html).toContain('&lt;script&gt;');expect(result.text).toContain('https://kwonnet.test');expect(result.html).toContain('privacy-policy');});
 it('rejects insecure template links',async()=>{await expect(renderWelcomeEmail('Creator','http://kwonnet.test')).rejects.toThrow('CONFIG');});
@@ -15,11 +15,11 @@ it.each([{deletedAt:new Date()},{deactivatedAt:new Date()},{status:'BANNED'}])('
 it('retains unconfigured messages without consuming retry attempts',async()=>{vi.stubEnv('SMTP_HOST','');await expect(deliverEmailMessage('event')).rejects.toMatchObject({code:'CONFIG'});expect(deps.db.emailMessage.update).toHaveBeenCalledWith({where:{id:'event'},data:expect.objectContaining({status:'PENDING',attempts:{decrement:1},lastErrorCode:'CONFIG'})});expect(deps.send).not.toHaveBeenCalled();});
 it.each([1,5])('bounds SMTP retries and excludes raw credential errors at attempt %s',async attempts=>{deps.db.emailMessage.findUniqueOrThrow.mockResolvedValue({attempts,user:{name:'Creator',email:'recipient@test.invalid',status:'ACTIVE'}});deps.send.mockRejectedValue(Object.assign(new Error('secret-password-leak'),{code:'EAUTH'}));await expect(deliverEmailMessage('event')).rejects.toMatchObject({code:'EAUTH'});const update=deps.db.emailMessage.update.mock.calls[0][0];expect(update.data.status).toBe(attempts===5?'FAILED':'PENDING');expect(JSON.stringify(update)).not.toContain('secret-password-leak');expect(update.data.lastErrorCode).toBe('EAUTH');});
 it('treats rejected SMTP recipients as failed delivery rather than sent',async()=>{deps.send.mockResolvedValue({accepted:[]});await expect(deliverEmailMessage('event')).rejects.toMatchObject({code:'EENVELOPE'});expect(deps.db.emailMessage.update).toHaveBeenCalledWith({where:{id:'event'},data:expect.objectContaining({status:'PENDING',lastErrorCode:'EENVELOPE'})});});
-it('recovers persisted events without duplicate queue jobs and retries failed enqueue jobs',async()=>{const retry=vi.fn();deps.db.emailMessage.findMany.mockResolvedValue([{id:'one'},{id:'two'},{id:'three'}]);deps.queue.getJob.mockResolvedValueOnce(null).mockResolvedValueOnce({getState:async()=> 'failed',retry}).mockResolvedValueOnce({getState:async()=> 'active'});await recoverEmailMessages();expect(deps.queue.add).toHaveBeenCalledTimes(1);expect(deps.queue.add).toHaveBeenCalledWith('welcome',{id:'one'},expect.objectContaining({jobId:'email-one'}));expect(retry).toHaveBeenCalledOnce();});
+it('recovers persisted events without duplicate queue jobs and retries failed enqueue jobs',async()=>{const retry=vi.fn();deps.db.emailMessage.findMany.mockResolvedValue([{id:'one'},{id:'two'},{id:'three'}]);deps.queue.getJob.mockResolvedValueOnce(null).mockResolvedValueOnce({getState:async()=> 'failed',retry}).mockResolvedValueOnce({getState:async()=> 'active'});await recoverEmailMessages();expect(deps.queue.add).toHaveBeenCalledTimes(1);expect(deps.queue.add).toHaveBeenCalledWith('email',{id:'one'},expect.objectContaining({jobId:'email-one'}));expect(retry).toHaveBeenCalledOnce();});
 it('requeues a retained completed job when the durable email retry is due',async()=>{
  const remove=vi.fn();deps.queue.getJob.mockResolvedValue({getState:async()=> 'completed',remove});
  await enqueueEmailMessage('event');expect(remove).toHaveBeenCalledOnce();
- expect(deps.queue.add).toHaveBeenCalledWith('welcome',{id:'event'},expect.objectContaining({jobId:'email-event',removeOnComplete:{age:86400,count:1000}}));
+ expect(deps.queue.add).toHaveBeenCalledWith('email',{id:'event'},expect.objectContaining({jobId:'email-event',removeOnComplete:{age:86400,count:1000}}));
 });
 it('accepts a standard display-name SMTP_FROM value',async()=>{
  vi.stubEnv('SMTP_FROM','Kwonnet <hello@kwonnet.test>');await deliverEmailMessage('event');
@@ -31,4 +31,19 @@ it('logs successful delivery and failed SMTP attempts with safe event IDs',async
  await expect(deliverEmailMessage('event')).rejects.toThrow('SMTP authentication failed');
  expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({event:'email_delivery_retry_scheduled',emailMessageId:'event',errorCode:'EAUTH'}),expect.any(String));
  expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('credential-in-provider-response');
+});
+it('renders branded verification and reset templates with escaped names and a single-use link',async()=>{
+ const {renderAuthEmail}=await import('@/services/email');
+ vi.stubEnv('APP_LOGO','https://kwonnet.test/logo-320x320.png');
+ for(const kind of ['VERIFY_EMAIL','PASSWORD_RESET','PASSWORD_CHANGED']) {
+  const result=await renderAuthEmail('<script>','https://kwonnet.test',kind,'https://kwonnet.test/auth/verify-email#token=test');
+  expect(result.html).toContain('logo-320x320.png');expect(result.html).not.toContain('<script>');expect(result.html).toContain('&lt;script&gt;');expect(result.text).toContain('https://kwonnet.test/auth/verify-email#token=test');
+ }
+});
+
+it('welcome uses APP_LOGO as an external image and rejects missing or embedded logo configuration',async()=>{
+ vi.stubEnv('APP_LOGO','https://images.test.invalid/custom-brand.png');
+ const welcome=await renderWelcomeEmail('Creator','https://kwonnet.test');
+ expect(welcome.html).toContain('src="https://images.test.invalid/custom-brand.png"');expect(welcome.html).not.toContain('data:image');expect(welcome.html).not.toContain('cid:');
+ for(const value of ['', 'data:image/png;base64,AAAA', 'http://images.test.invalid/logo.png']){vi.stubEnv('APP_LOGO',value);await expect(renderWelcomeEmail('Creator','https://kwonnet.test')).rejects.toMatchObject({code:'CONFIG',settings:['APP_LOGO']});}
 });

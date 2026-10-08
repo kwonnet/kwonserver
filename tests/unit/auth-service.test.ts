@@ -2,7 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { user, resetMocks } from './fixtures';
 const db = vi.hoisted(() => ({ user: { findFirst: vi.fn(), create: vi.fn() },
   country: { findFirst: vi.fn() }, referral: { findFirst: vi.fn(), create: vi.fn() },
-  wallet: { findUniqueOrThrow: vi.fn(), update: vi.fn() }, emailMessage: {create: vi.fn()}, transaction: { create: vi.fn() }, $transaction: vi.fn() }));
+  wallet: { findUniqueOrThrow: vi.fn(), update: vi.fn() }, authEmailToken: {updateMany: vi.fn(), create: vi.fn()}, emailMessage: {create: vi.fn()}, transaction: { create: vi.fn() }, $transaction: vi.fn() }));
 const passwords = vi.hoisted(() => ({ hash: vi.fn(), compare: vi.fn() }));
 const enqueue = vi.hoisted(()=>vi.fn());
 vi.mock('@/services/email',()=>({enqueueEmailMessage:enqueue}));
@@ -14,6 +14,8 @@ import { createUser, loginUser, handleReferral } from '@/services/v1/auth';
 
 beforeEach(() => {
   resetMocks(db); resetMocks(passwords);
+  vi.stubEnv('AUTH_EMAIL_TOKEN_SECRET','test-secret-with-at-least-32-characters');
+  db.authEmailToken.create.mockResolvedValue({id:'action'});
   enqueue.mockReset();db.emailMessage.create.mockResolvedValue({id:'welcome-event'});
   passwords.hash.mockResolvedValue('salted-hash');
   passwords.compare.mockResolvedValue(true);
@@ -22,13 +24,13 @@ beforeEach(() => {
   db.wallet.findUniqueOrThrow.mockResolvedValue({id:"wallet"});
   vi.spyOn(console, 'log').mockImplementation(() => {});
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {vi.useRealTimers();vi.unstubAllEnvs();});
 const credentials = { email: 'ada@example.test', password: 'password123' };
 
 describe('login', () => {
   it.each([null, user({ password: null }), user({ password: '' })])('rejects missing credentials without password comparison', async row => {
     db.user.findFirst.mockResolvedValue(row);
-    expect((await loginUser(credentials)).status).toBe(401);
+    expect((await loginUser(credentials)).status).toBe(row ? 400 : 401);
     expect(passwords.compare).not.toHaveBeenCalled();
   });
   it('rejects a wrong password without returning account data', async () => {
@@ -89,7 +91,7 @@ describe('registration', () => {
   it('keeps successful registration and its durable outbox when Redis enqueue fails',async()=>{
     db.user.findFirst.mockResolvedValue(null);db.user.create.mockResolvedValue(user());enqueue.mockRejectedValue(new Error('Redis offline'));
     expect((await createUser({...credentials,name:'Ada'})).status).toBe(200);
-    expect(db.emailMessage.create).toHaveBeenCalledWith({data:{eventKey:'welcome:user-1',userId:'user-1'}});
+    expect(db.emailMessage.create).toHaveBeenCalledWith({data:{eventKey:'auth:action',userId:'user-1',kind:'VERIFY_EMAIL',actionTokenId:'action'}});
   });
 });
 
@@ -143,4 +145,8 @@ it('does not guess a country when lookup has no usable country or the catalog la
   db.user.findFirst.mockResolvedValue(null); db.user.create.mockResolvedValue(user()); db.country.findFirst.mockResolvedValue(null);
   await createUser({...credentials, name: 'Ada'}, {country: 'ZZ'});
   expect(db.user.create.mock.calls[0][0].data).not.toHaveProperty('country');
+});
+it('rejects an unverified password account with verification guidance',async()=>{
+ db.user.findFirst.mockResolvedValue(user({emailVerifiedAt:null}));
+ expect(await loginUser(credentials)).toMatchObject({status:403,data:expect.stringContaining('resend')});
 });

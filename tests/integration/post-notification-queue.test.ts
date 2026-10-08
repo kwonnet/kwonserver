@@ -14,7 +14,7 @@ let author:string,viewer:string,stranger:string;let events:QueueEvents;let worke
 const config={endpoint:'https://fcm.googleapis.com/fcm/send/publication-queue-fixture',keys:{p256dh:Buffer.alloc(65,4).toString('base64url'),auth:Buffer.alloc(16,1).toString('base64url')}};
 const body=(isDraft=false)=>PostCreateSchema.parse({isDraft,thread:[{type:'CONTENT',content:'New queue-driven publication',scope:'ANYONE',media:[]}]});
 beforeAll(async()=>{
- [author,viewer,stranger]=await Promise.all(['author','viewer','stranger'].map(async name=>(await db.user.create({data:{name,username:`publication-queue-${name}`,email:`publication-queue-${name}@test.invalid`}})).id));
+ [author,viewer,stranger]=await Promise.all(['author','viewer','stranger'].map(async name=>(await db.user.create({data:{emailVerifiedAt: new Date(), name,username:`publication-queue-${name}`,email:`publication-queue-${name}@test.invalid`}})).id));
  await db.follow.create({data:{followingId:author,followerId:viewer,status:'ACCEPTED'}});
  await setAuthorNotificationSubscription(author,viewer,true);
  await db.pushNotification.create({data:{endpoint:config.endpoint,config,userId:viewer}});

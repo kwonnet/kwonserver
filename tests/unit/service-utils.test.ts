@@ -19,7 +19,7 @@ it('includes latest moderation reason, and support guidance when no reason exist
   expect(u.getUserStatusMessage(user({ status: 'SUSPENDED' }), true)).toContain('contact support');
 });
 it('builds a safe public user without credentials or email by default', () => {
-  const result = u.composeAuthUser(user({ subscriptions: [{ id: 'sub' }], accountVerified: true }));
+  const result = u.composeAuthUser(user({ subscriptions: [{ id: 'sub' }], accountVerifiedAt: new Date() }));
   expect(result).not.toHaveProperty('email'); expect(result).not.toHaveProperty('password');
   expect(result.meta).toMatchObject({ isPro: true, isLegacy: true, isActive: true, isPrivate: false });
   expect(u.composeAuthUser(user({ status: 'PRIVATE' }), true)).toMatchObject({ email: 'ada@example.test', meta: { isPrivate: true } });

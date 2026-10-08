@@ -12,9 +12,9 @@ import { encryptString, jwtSign } from '@/utils';
 import { ConversationModel } from '@/db/models';
 let server: http.Server;
 let base: string;
-const token = (id: string) => jwtSign({ data: encryptString(JSON.stringify({ id, name: id }), 'integration-encryption') }, { expiresIn: '5m' });
+const token = (id: string) => jwtSign({ data: encryptString(JSON.stringify({ id, emailVerifiedAt: new Date(), name: id }), 'integration-encryption') }, { expiresIn: '5m' });
 beforeAll(async () => {
-  await prisma.user.createMany({ data: ['http-u', 'http-r', 'outsider'].map(id => ({ id, name: id, username: id, email: `${id}@test.invalid` })) });
+  await prisma.user.createMany({ data: ['http-u', 'http-r', 'outsider'].map(id => ({ id, emailVerifiedAt: new Date(), name: id, username: id, email: `${id}@test.invalid` })) });
   await mongoose.connect('mongodb://127.0.0.1:17017/kwonserver_test');
   const app = express(); app.use(express.json()); app.use(cookieParser()); app.use('/conversations', routes);
   server = http.createServer(app); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));

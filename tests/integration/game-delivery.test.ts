@@ -16,7 +16,7 @@ const userId='delivery-test-user',roomId='delivery-test-room';
 const wallet=()=>db.wallet.findUniqueOrThrow({where:{userId}});
 const deliver=(kind:GameDelivery['kind']='ANSWER',payload:any={answer:'hello',playerId:userId,votes:[]})=>({kind,roomId,roundId:'round-1',payload});
 const charge=(key='delivery-op-1',delivery=deliver())=>chargeGameAction({playerId:userId,operationId:key,action:GameActionEnum.ANSWER},10,5,delivery);
-beforeAll(async()=>{await db.user.create({data:{id:userId,name:'Delivery',username:userId,email:'delivery@test.invalid',wallet:{create:{coins:100,bonus:2}}}});});
+beforeAll(async()=>{await db.user.create({data:{emailVerifiedAt: new Date(), id:userId,name:'Delivery',username:userId,email:'delivery@test.invalid',wallet:{create:{coins:100,bonus:2}}}});});
 beforeEach(async()=>{
  await db.gameWalletAction.deleteMany({where:{userId}});await db.walletOperation.deleteMany({});await db.transaction.deleteMany({where:{userId}});
  await db.wallet.update({where:{userId},data:{coins:100,bonus:2}});

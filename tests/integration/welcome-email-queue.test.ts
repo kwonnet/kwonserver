@@ -26,7 +26,7 @@ it('queues registration immediately, delivers to the registered address and reta
  expect(await job!.getState()).toBe('waiting');
  worker=new Worker(emailQueue.name,job=>deliverEmailMessage(job.data.id),{connection:{host:'127.0.0.1',port:16379},concurrency:1});
  await job!.waitUntilFinished(events,10000);
- expect(smtp.send).toHaveBeenCalledWith(expect.objectContaining({to:'welcome-queue-fixture@test.invalid',messageId:`<welcome.${outbox.id}@kwonnet.test>`}));
+ expect(smtp.send).toHaveBeenCalledWith(expect.objectContaining({to:'welcome-queue-fixture@test.invalid',messageId:`<email.${outbox.id}@kwonnet.test>`}));
  expect(await db.emailMessage.findUnique({where:{id:outbox.id}})).toMatchObject({status:'SENT',attempts:1,sentAt:expect.any(Date)});
  expect(await (await emailQueue.getJob(job!.id!))!.getState()).toBe('completed');
  await recoverEmailMessages();expect(smtp.send).toHaveBeenCalledOnce();

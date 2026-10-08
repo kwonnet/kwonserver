@@ -8,7 +8,7 @@ import { syncRedisUserWalletToPrisma, syncPrismaUserWalletToRedis } from '@/serv
 let wallet: any;
 beforeAll(async () => {
   if (!redis.isReady) await new Promise<void>((resolve, reject) => { redis.once('ready', resolve); redis.once('error', reject); });
-  const user = await prisma.user.create({ data: { id: 'wallet-sync', name: 'Wallet', username: 'wallet_sync', email: 'wallet@test.invalid', wallet: { create: { coins: 10, bonus: 2, credit: 5 } } }, include: { wallet: true } });
+  const user = await prisma.user.create({ data: {emailVerifiedAt: new Date(),  id: 'wallet-sync', name: 'Wallet', username: 'wallet_sync', email: 'wallet@test.invalid', wallet: { create: { coins: 10, bonus: 2, credit: 5 } } }, include: { wallet: true } });
   wallet = user.wallet;
 });
 afterAll(async () => { await redis.quit(); await prisma.$disconnect(); });

@@ -7,7 +7,7 @@ import db from '@/db';
 import redis from '@/redis';
 import {syncRedisTxnsToPrisma,run} from '@/cron/recurring/sync_redis_prisma_transactions';
 const userId='legacy-wallet-test',key=`user:${userId}:transactions`;
-beforeAll(async()=>{await db.user.create({data:{id:userId,name:'Legacy',username:userId,email:'legacy@test.invalid',wallet:{create:{coins:50}}}});});
+beforeAll(async()=>{await db.user.create({data:{emailVerifiedAt: new Date(), id:userId,name:'Legacy',username:userId,email:'legacy@test.invalid',wallet:{create:{coins:50}}}});});
 afterAll(async()=>{await redis.del(key);await db.user.delete({where:{id:userId}});await redis.quit();await db.$disconnect();});
 it('preserves every equal-score record across batches and retry after a Redis acknowledgement failure',async()=>{
  const records=Array.from({length:205},(_,i)=>({score:1000,value:JSON.stringify({userId,txnRef:`legacy-${i}`,amount:1,type:'DEBIT',status:'COMPLETED',gateway:'WALLET',source:'COINS',currency:'COINS',category:'GAME_DEDUCTION',description:'Legacy',createdAt:'2026-10-01T00:00:00Z',metadata:{}})}));
@@ -22,7 +22,7 @@ it('preserves every equal-score record across batches and retry after a Redis ac
 
 it('imports every transaction key in Redis scan batches',async()=>{
  const second='legacy-scan-second';
- await db.user.create({data:{id:second,name:'Scan',username:second,email:'scan@test.invalid',wallet:{create:{coins:50}}}});
+ await db.user.create({data:{emailVerifiedAt: new Date(), id:second,name:'Scan',username:second,email:'scan@test.invalid',wallet:{create:{coins:50}}}});
  try {
   for (const id of [userId,second]) await redis.zAdd(`user:${id}:transactions`,[{score:2000,value:JSON.stringify({userId:id,txnRef:`scan-${id}`,amount:1,type:'DEBIT',status:'COMPLETED',gateway:'WALLET',source:'COINS',currency:'COINS',category:'GAME_DEDUCTION',description:'Scan',createdAt:'2026-10-01T00:00:00Z',metadata:{}})}]);
   await run();

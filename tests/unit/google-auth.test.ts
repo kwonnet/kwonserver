@@ -9,7 +9,7 @@ vi.mock('@/utils', () => ({getRandomNumber: () => 12}));
 vi.mock('bcrypt', () => ({default: {hash: mocks.hash}}));
 import {loginGoogleUser, createUser} from '@/services/v1/auth';
 const claims = {sub: 'google-sub', email: 'ada@gmail.com', email_verified: true, name: 'Ada', picture: 'https://google.test/avatar'};
-const account = {id: 'kwon-id', status: 'ACTIVE', googleSubject: 'google-sub', deletedAt: null, deactivatedAt: null};
+const account = {emailVerifiedAt: new Date(), id: 'kwon-id', status: 'ACTIVE', googleSubject: 'google-sub', deletedAt: null, deactivatedAt: null};
 beforeEach(() => {
   vi.resetAllMocks(); vi.stubEnv('AUTH_GOOGLE_ID', 'client-id');
   mocks.db.emailMessage.create.mockResolvedValue({id:'welcome-event'});
@@ -45,7 +45,7 @@ it('links existing authoritative Gmail accounts atomically without resetting pas
   mocks.db.user.findUnique.mockResolvedValue(null);
   mocks.db.user.findFirst.mockResolvedValue({...account, googleSubject: null});
   expect((await loginGoogleUser('token')).status).toBe(200);
-  expect(mocks.db.user.updateMany).toHaveBeenCalledWith({where: {id: 'kwon-id', googleSubject: null}, data: {googleSubject: 'google-sub', isVerified: true}});
+  expect(mocks.db.user.updateMany).toHaveBeenCalledWith({where: {id: 'kwon-id', googleSubject: null}, data: {googleSubject: 'google-sub', emailVerifiedAt: expect.any(Date)}});
   expect(mocks.db.user.create).not.toHaveBeenCalled();
 });
 it('never takes over an existing account via a third-party email claim', async () => {
@@ -67,7 +67,7 @@ it('uses existing transactional registration and creates a passwordless account 
   mocks.db.user.create.mockResolvedValue(account);
   mocks.db.wallet.findUniqueOrThrow.mockResolvedValue({id: 'wallet'});
   expect((await loginGoogleUser('token')).status).toBe(200);
-  expect(mocks.db.user.create).toHaveBeenCalledWith(expect.objectContaining({data: expect.objectContaining({password: null, googleSubject: 'google-sub', isVerified: true, wallet: {create: {bonus: 12}}})}));
+  expect(mocks.db.user.create).toHaveBeenCalledWith(expect.objectContaining({data: expect.objectContaining({password: null, googleSubject: 'google-sub', emailVerifiedAt: expect.any(Date), wallet: {create: {bonus: 12}}})}));
   expect(mocks.db.transaction.create).toHaveBeenCalledOnce();
   expect(mocks.hash).not.toHaveBeenCalled();
 });
@@ -148,5 +148,5 @@ it('never infers or overwrites an existing account country during Google signin/
   expect((await loginGoogleUser('token', location)).status).toBe(200); expect(mocks.db.country.findFirst).not.toHaveBeenCalled();
   mocks.db.user.findUnique.mockResolvedValue(null); mocks.db.user.findFirst.mockResolvedValue({...account, googleSubject: null, countryId: 'chosen-country'});
   expect((await loginGoogleUser('token', location)).status).toBe(200); expect(mocks.db.country.findFirst).not.toHaveBeenCalled();
-  expect(mocks.db.user.updateMany).toHaveBeenCalledWith(expect.objectContaining({data: {googleSubject: 'google-sub', isVerified: true}}));
+  expect(mocks.db.user.updateMany).toHaveBeenCalledWith(expect.objectContaining({data: {googleSubject: 'google-sub', emailVerifiedAt: expect.any(Date)}}));
 });

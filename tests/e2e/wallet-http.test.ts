@@ -17,7 +17,7 @@ let recipient: any;
 let admin: any;
 beforeAll(async () => {
   if (!redis.isReady) await new Promise<void>((resolve, reject) => { redis.once('ready', resolve); redis.once('error', reject); });
-  const create = (id: string, role: 'USER' | 'ADMIN', coins: number) => prisma.user.create({ data: { id, role, name: id, username: id, email: `${id}@test.invalid`, wallet: { create: { coins } } } });
+  const create = (id: string, role: 'USER' | 'ADMIN', coins: number) => prisma.user.create({ data: {emailVerifiedAt: new Date(),  id, role, name: id, username: id, email: `${id}@test.invalid`, wallet: { create: { coins } } } });
   sender = await create('http-sender', 'USER', 500); recipient = await create('http-recipient', 'USER', 0); admin = await create('http-admin', 'ADMIN', 0);
   const app = express(); app.use(express.json()); app.use(cookieParser()); app.use('/wallets', routes);
   server = http.createServer(app); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));

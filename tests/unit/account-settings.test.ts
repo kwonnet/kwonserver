@@ -1,5 +1,5 @@
 import {beforeEach, expect, it, vi} from 'vitest';
-const deps = vi.hoisted(() => ({db: {user: {findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn()}, userSession: {findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn()}, authIdentity: {upsert: vi.fn()}, pushNotification: {deleteMany: vi.fn()}, $transaction: vi.fn(), $queryRaw: vi.fn()}, compare: vi.fn(), hash: vi.fn(), disconnect: vi.fn()}));
+const deps = vi.hoisted(() => ({db: {authEmailToken: {updateMany: vi.fn()}, user: {findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn()}, userSession: {findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn()}, authIdentity: {upsert: vi.fn()}, pushNotification: {deleteMany: vi.fn()}, $transaction: vi.fn(), $queryRaw: vi.fn()}, compare: vi.fn(), hash: vi.fn(), disconnect: vi.fn()}));
 vi.mock('@/db', () => ({default: deps.db}));
 vi.mock('bcrypt', () => ({default: {compare: deps.compare, hash: deps.hash}}));
 vi.mock('@/utils/auth-session-sockets', () => ({disconnectAuthSession: deps.disconnect}));

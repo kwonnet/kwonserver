@@ -3,12 +3,12 @@
 ## Registration and delivery
 
 Password registration and first-time Google registration both call `createUser`.
-The account, registration bonus and `EmailMessage` outbox record commit in one
-PostgreSQL transaction. `eventKey = welcome:<userId>` is unique. Duplicate
+The account, registration bonus and registration `EmailMessage` outbox record commit in one
+PostgreSQL transaction. Credentials queue verification first; successful verification later creates the unique `eventKey = welcome:<userId>` welcome message. Google registration queues that welcome message immediately. Duplicate
 registration attempts, linking Google to an existing account, and ordinary login
 do not create another welcome message.
 
-After commit, registration immediately adds `welcome` to the BullMQ queue named
+After commit, registration immediately adds `email` to the BullMQ queue named
 **`emailDeliveryQueue`**, using job ID **`email-<EmailMessage.id>`**. The queue data
 contains only the email-message ID. A failed enqueue does not undo a successfully
 registered account: the outbox remains pending and the once-per-minute
@@ -42,10 +42,10 @@ The stable Message-ID helps reconciliation but SMTP has no exactly-once guarante
 
 | Event | Meaning |
 | --- | --- |
-| `account_registered` | Account and welcome outbox committed; includes safe user/email-message IDs. |
+| `account_registered` | Account and registration outbox committed; includes safe user/email-message IDs. |
 | `email_job_queued` | Welcome job added to `emailDeliveryQueue`. |
 | `email_job_requeued` | Durable recovery retried a failed job. |
-| `welcome_email_enqueue_deferred` | Registration succeeded; Redis enqueue failed and recovery will retry. |
+| `registration_email_enqueue_deferred` | Registration succeeded; Redis enqueue failed and recovery will retry. |
 | `job_started` | A worker began the job; includes queue, job ID, resource ID and attempt. |
 | `email_delivery_started` | Welcome delivery began. |
 | `email_delivery_sent` | SMTP accepted the message; includes duration, attempt and accepted count. |
@@ -101,3 +101,9 @@ together. Existing pending registration messages are picked up automatically.
 Tests exercise immediate enqueue, Redis failure fallback, complete registration
 through a real Redis queue and PostgreSQL outbox with a mocked SMTP transport,
 SMTP rejection/recovery, job retention, safe logging and request correlation.
+
+## Verification and reset update
+
+Credential signup now queues VERIFY_EMAIL and does not issue a session. The welcome message is queued once after successful verification. Google registration still queues the welcome immediately because Google email claims are verified. Auth/reset/security-notice emails share the same durable worker and SMTP settings. See [Email verification and password recovery](auth-email-verification.md) for the new secret, TTL/logo settings and the migration of verification flags. The registration enqueue fallback event is now `registration_email_enqueue_deferred`.
+
+All MJML mail templates use the external HTTPS image URL configured as `APP_LOGO` on the API and worker. No logo bytes, base64 data URL, CID attachment or local-file fallback is included in emails. Missing/invalid APP_LOGO causes a safe configuration error and durable mail retry.

@@ -10,7 +10,7 @@ import {postTopicQueue} from '@/cron/jobs/queue';
 import {POST_TOPIC_MODEL_VERSION} from '@/cron/helpers';
 const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})}); let owner: string;
 const content = 'AI art is changing creativity. Machines can inspire ideas, but your human touch gives it meaning and emotion.';
-beforeAll(async () => {owner = (await db.user.create({data: {name: 'Topic fixture', username: 'topic-model-fixture', email: 'topic-model-fixture@test.invalid'}})).id;});
+beforeAll(async () => {owner = (await db.user.create({data: {emailVerifiedAt: new Date(), name: 'Topic fixture', username: 'topic-model-fixture', email: 'topic-model-fixture@test.invalid'}})).id;});
 afterAll(async () => {await db.post.deleteMany({where: {userId: owner}}); await db.user.delete({where: {id: owner}}); await postTopicQueue.obliterate({force: true}); await postTopicQueue.close(); await db.$disconnect();});
 it('recovers unclassified posts and saves their inferred topic', async () => {
  const post = await db.post.create({data: {userId: owner, type: 'CONTENT', kind: 'ROOT', content, topic: null}});

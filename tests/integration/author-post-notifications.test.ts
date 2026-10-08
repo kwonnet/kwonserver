@@ -14,7 +14,7 @@ const fixture = 'author-notifications-';
 const config = {endpoint: 'https://fcm.googleapis.com/fcm/send/author-notifications-test', keys: {p256dh: Buffer.alloc(65, 4).toString('base64url'), auth: Buffer.alloc(16, 1).toString('base64url')}};
 const publish = (data: Partial<Prisma.PostUncheckedCreateInput> = {}) => db.post.create({data: {userId: author, content: 'A new post', type: 'CONTENT', status: 'PUBLISHED', scope: 'ANYONE', kind: 'ROOT', ...data}});
 beforeAll(async () => {
-  const people = await Promise.all(['author','subscriber','stranger'].map(name => db.user.create({data: {name, username: fixture+name, email: fixture+name+'@test.invalid'}})));
+  const people = await Promise.all(['author','subscriber','stranger'].map(name => db.user.create({data: {emailVerifiedAt: new Date(), name, username: fixture+name, email: fixture+name+'@test.invalid'}})));
   [author, subscriber, stranger] = people.map(person => person.id);
 });
 beforeEach(async () => {

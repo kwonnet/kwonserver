@@ -16,6 +16,7 @@ beforeAll(async () => {
  vi.stubEnv('AUTH_GOOGLE_ID', 'integration-google-client');
  const signup = await createUser({email: prefix + 'password@gmail.com', name: 'Password user', password: 'test-only-password'});
  expect(signup.status).toBe(200); owner = (signup.data as any).id;
+ await db.user.update({where:{id:owner},data:{emailVerifiedAt:new Date()}});
 });
 afterAll(async () => {
  await db.user.deleteMany({where: {email: {startsWith: prefix}}});

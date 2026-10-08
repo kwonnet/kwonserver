@@ -10,3 +10,8 @@ vi.mock('@/logger', () => ({ default: { info: vi.fn(), error: vi.fn(), warn: vi.
 // These optional analytics systems are outside this suite's boundary.
 vi.mock('@/db/clickhouse', () => ({ clickHouseClient: {} }));
 vi.mock('@/db/timescaleDb', () => ({ prismaAnalytics: {}, sequelizeAnalytics: {} }));
+
+process.env.AUTH_EMAIL_TOKEN_SECRET = 'disposable-test-email-token-secret-32-characters';
+process.env.WEB_APP_URL = 'https://kwonnet.test';
+
+process.env.APP_LOGO = 'https://images.test.invalid/kwonnet-logo.png';

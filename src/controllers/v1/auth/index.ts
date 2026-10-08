@@ -52,18 +52,7 @@ export const signUpController = async (req: Request, res: Response) => {
     if ( typeof result.data === "string" || result.status !== 200){
       return res.status(result.status).send(result.data);
     }
-    const user = result.data
-    const {accessToken, trackedUser} = await issueTrackedLogin(req, user, "PASSWORD", "SIGN_UP", metadata);
-    // set cookies
-    res.cookie("tx_a_t", accessToken, {
-      httpOnly: true, // Prevents client-side JS from accessing the cookie
-      secure: true, // Ensures the cookie is sent over HTTPS only
-      maxAge: 3600000 * 24, // Cookie expires after 1 hour (in milliseconds)
-      sameSite: "none", // Restricts cross-site requests
-    });
-    // res.cookie("token", token, { expires: new Date(Date.now() + 900000), httpOnly: true } )
-    // return response
-    return res.send({ user: trackedUser, accessToken });
+    return res.status(202).send({verificationRequired: true, message: 'Account created. Check your email for a verification link before signing in.'});
   } catch (error: any) {
     if(error instanceof ZodError) {
       const issues = error.issues
@@ -243,3 +232,23 @@ export const passwordUpdateController = async (req: Request, res: Response) => {
     return res.status(result.status).json(result.status === 200 ? result.data : {error: result.data});
   } catch {return res.status(500).json({error: 'Unable to update password'});}
 };
+
+export async function authEmailActionController(req: Request, res: Response) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  try {
+    const {requestAuthEmail, consumeAuthEmail} = await import('@/services/v1/auth');
+    const action = req.path.split('/').pop();
+    if (action === 'forgot-password' || action === 'resend-verification') {
+      const {email} = z.object({email: z.string().trim().toLowerCase().email().max(254)}).strict().parse(req.body);
+      const result = await requestAuthEmail(email, action === 'forgot-password' ? 'PASSWORD_RESET' : 'VERIFY_EMAIL');
+      return res.status(result.status).json(result.data);
+    }
+    const input = z.object({token: z.string().min(1).max(128), ...(action === 'reset-password' ? {newPassword: PasswordUpdateSchema.shape.newPassword} : {})}).strict().parse(req.body);
+    const result = await consumeAuthEmail(input.token, action === 'reset-password' ? 'PASSWORD_RESET' : 'VERIFY_EMAIL', 'newPassword' in input ? input.newPassword as string : undefined);
+    return res.status(result.status).json(result.data);
+  } catch (err) {
+    if (err instanceof ZodError) return res.status(400).json({message: 'Check your email address, link and password. Passwords must be 8–32 characters.'});
+    logger.error({event: 'auth_email_action_failed', errorType: err instanceof Error ? err.name : 'Unknown'}, 'Account email action failed');
+    return res.status(503).json({message: 'Unable to process this request. Please try again.'});
+  }
+}

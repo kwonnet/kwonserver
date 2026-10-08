@@ -8,7 +8,7 @@ import db from '@/db';
 import {run} from '@/cron/recurring/reward_top_players_every_week';
 let gameId:string,milestoneId:string;
 beforeAll(async()=>{
- await db.user.create({data:{id:'reward-player',name:'Reward test',email:'reward@test.invalid',username:'reward-test',wallet:{create:{coins:0}}}});
+ await db.user.create({data:{emailVerifiedAt: new Date(), id:'reward-player',name:'Reward test',email:'reward@test.invalid',username:'reward-test',wallet:{create:{coins:0}}}});
  gameId=(await db.game.create({data:{name:'Reward game',description:'test',modes:['MULTI'],categories:{create:{name:'test',description:'test'}}}})).id;
  milestoneId=(await db.gameMilestone.create({data:{name:'WEEK',milestone:1,reward:25,rewardType:'COINS',reason:'TOP_OF_THE_WEEK'}})).id;
 });

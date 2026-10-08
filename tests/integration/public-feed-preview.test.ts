@@ -11,7 +11,7 @@ beforeAll(async () => {
     public: {}, private: { isPrivate: true }, suspended: { status: "SUSPENDED" },
     deleted: { deletedAt: new Date() }, deactivated: { deactivatedAt: new Date() },
   })) {
-    await db.user.create({ data: { id: `preview-${name}`, name, username: `preview-${name}`, email: `${name}@preview.invalid`, ...extra } as any });
+    await db.user.create({ data: {emailVerifiedAt: new Date(),  id: `preview-${name}`, name, username: `preview-${name}`, email: `${name}@preview.invalid`, ...extra } as any });
   }
   await db.post.create({ data: { id: "preview-allowed", userId: "preview-public", content: "Visible", type: "CONTENT", kind: "ROOT", createdAt: new Date("2040-01-02") } });
   const restricted = [

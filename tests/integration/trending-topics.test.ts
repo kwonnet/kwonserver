@@ -16,7 +16,7 @@ const makePost = async (id: string, content: string, extra: any = {}) => {
   } });
 };
 beforeAll(async () => {
-  await db.user.create({ data: { id: author, name: 'Trending Author', username: author, email: author + '@example.invalid' } });
+  await db.user.create({ data: {emailVerifiedAt: new Date(),  id: author, name: 'Trending Author', username: author, email: author + '@example.invalid' } });
 });
 afterAll(async () => {
   await db.post.deleteMany({ where: { id: { startsWith: prefix } } });

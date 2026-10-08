@@ -7,8 +7,8 @@ import {subscribePushNotification, unsubscribePushNotification, deliverPendingPu
 const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})}); const prefix = 'push-fixture-'; let first: string, second: string;
 const config = {endpoint: 'https://fcm.googleapis.com/fcm/send/disposable-test', keys: {p256dh: Buffer.alloc(65, 4).toString('base64url'), auth: Buffer.alloc(16, 1).toString('base64url')}};
 beforeAll(async () => {
- first = (await db.user.create({data: {name: 'First', username: prefix + 'first', email: prefix + 'first@test.invalid'}})).id;
- second = (await db.user.create({data: {name: 'Second', username: prefix + 'second', email: prefix + 'second@test.invalid'}})).id;
+ first = (await db.user.create({data: {emailVerifiedAt: new Date(), name: 'First', username: prefix + 'first', email: prefix + 'first@test.invalid'}})).id;
+ second = (await db.user.create({data: {emailVerifiedAt: new Date(), name: 'Second', username: prefix + 'second', email: prefix + 'second@test.invalid'}})).id;
 });
 afterAll(async () => {await db.pushNotification.deleteMany({where: {endpoint: config.endpoint}}); await db.user.deleteMany({where: {id: {in: [first, second]}}}); await db.$disconnect();});
 it('deduplicates subscriptions, transfers browser ownership on account switch, and respects unsubscribe ownership', async () => {

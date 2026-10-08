@@ -9,7 +9,7 @@ const metadata = {device: {browser: 'Chrome', browserVersion: '129.0', os: 'Mac'
 beforeEach(() => {
  vi.resetAllMocks();
  mocks.db.$transaction.mockImplementation(work => typeof work === 'function' ? work(mocks.db) : Promise.all(work));
- mocks.db.user.findUnique.mockResolvedValue({passwordChangedAt: null});
+ mocks.db.user.findUnique.mockResolvedValue({passwordChangedAt: null, emailVerifiedAt: new Date()});
  mocks.db.user.findUniqueOrThrow.mockResolvedValue({googleSubject: 'sub'});
  mocks.db.authIdentity.upsert.mockImplementation(async args => ({id: 'identity', providerAccountId: args.create.providerAccountId}));
  mocks.db.userSession.create.mockImplementation(async args => ({id: args.data.id}));

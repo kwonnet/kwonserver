@@ -17,7 +17,7 @@ export function response() {
 
 export function user(overrides: Record<string, unknown> = {}): any {
   return { id: 'user-1', name: 'Ada', username: 'ada', email: 'ada@example.test',
-    password: 'hash', status: 'ACTIVE', role: 'USER', userType: 'PERSONAL',
+    emailVerifiedAt: new Date('2025-01-01T00:00:00Z'), password: 'hash', status: 'ACTIVE', role: 'USER', userType: 'PERSONAL',
     subscriptions: [], metadata: [], meta: {}, followers: [], following: [],
     country: { id: 'NG', continentId: 'AF' }, createdAt: new Date('2025-01-01T00:00:00Z'),
     ...overrides };

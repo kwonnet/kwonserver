@@ -30,7 +30,7 @@ it.each([['signin', signInController], ['signup', signUpController]] as const)('
   const res = response(); await controller({ body: { email: 5, password: 'short' } } as any, res);
   expect(res.statusCode).toBe(400); expect(deps.login).not.toHaveBeenCalled(); expect(deps.create).not.toHaveBeenCalled();
 });
-it.each([['signin', signInController], ['signup', signUpController]] as const)('%s issues a minimal encrypted-token payload and secure cookie', async (_name, controller) => {
+it.each([['signin', signInController]] as const)('%s issues a minimal encrypted-token payload and secure cookie', async (_name, controller) => {
   const res = response(); await controller({ body, ip: '::ffff:1.2.3.4' } as any, res);
   expect(res.body.accessToken).toBe('signed-token');
   expect(deps.generate).toHaveBeenCalledWith({ id: 'user-1', name: 'Ada', email: 'ada@example.test', username: 'ada', role: 'USER', sessionId: expect.any(String) }, { expiresIn: '24h' });
@@ -231,3 +231,5 @@ it('returns a service failure rather than revoking identity when refresh session
  deps.validateSession.mockRejectedValue(new Error('database down'));
  const res=response();await refreshTokenController({body:{token:'signed'}} as any,res);expect(res.statusCode).toBe(500);expect(deps.generate).not.toHaveBeenCalled();
 });
+
+it('signup creates an unverified account without issuing a session or cookie', async () => {const res=response();await signUpController({body} as any,res);expect(res.statusCode).toBe(202);expect(res.body.verificationRequired).toBe(true);expect(deps.startSession).not.toHaveBeenCalled();expect(deps.generate).not.toHaveBeenCalled();expect(res.cookie).not.toHaveBeenCalled();});

@@ -4,8 +4,8 @@ import { followUser, blockUser, muteUser } from '@/services/v1/users';
 import { UserFollowAction } from '@/types';
 let actor: any;
 beforeAll(async () => {
-  actor = await prisma.user.create({ data: { id: 'integration-actor', name: 'Actor', username: 'integration_actor', email: 'actor@test.invalid' } });
-  await prisma.user.create({ data: { id: 'integration-target', name: 'Target', username: 'integration_target', email: 'target@test.invalid', status: 'PRIVATE' } });
+  actor = await prisma.user.create({ data: {emailVerifiedAt: new Date(),  id: 'integration-actor', name: 'Actor', username: 'integration_actor', email: 'actor@test.invalid' } });
+  await prisma.user.create({ data: {emailVerifiedAt: new Date(),  id: 'integration-target', name: 'Target', username: 'integration_target', email: 'target@test.invalid', status: 'PRIVATE' } });
 });
 afterAll(async () => { await prisma.$disconnect(); });
 it('persists a pending follow and its history, then cancels without unfollow history', async () => {

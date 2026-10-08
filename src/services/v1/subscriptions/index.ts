@@ -590,9 +590,9 @@ export const cancelAppSubscription = async (arg: {
     const user = sub.user;
     // get color
     const color =
-      user.accountVerified && user.userType === UserTypeEnum.GOVERNMENT
+      user.accountVerifiedAt && user.userType === UserTypeEnum.GOVERNMENT
         ? "grey"
-        : user.accountVerified && user.userType === UserTypeEnum.BUSINESS
+        : user.accountVerifiedAt && user.userType === UserTypeEnum.BUSINESS
         ? "gold"
         : "blue";
 
@@ -600,7 +600,7 @@ export const cancelAppSubscription = async (arg: {
       await lockWallets(tx, [user.id]);
       const updated = await tx.subscription.update({ where: { id: arg.subId, userId: user.id }, data: { status: arg.status, isRecurring: false } });
       await tx.user.update({ where: { id: user.id }, data: { meta: {
-        color, status: user.accountVerified ? 'ACTIVE' : 'INACTIVE', type: 'LEGACY',
+        color, status: user.accountVerifiedAt ? 'ACTIVE' : 'INACTIVE', type: 'LEGACY',
       } } });
       return updated;
     });

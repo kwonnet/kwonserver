@@ -6,8 +6,8 @@ import { updatePostReactions, updatePostBookmarks, deletePost, restorePost, crea
 let author: any;
 let reader: any;
 beforeAll(async () => {
-  author = await prisma.user.create({ data: { id: 'post-author', name: 'Author', username: 'post_author', email: 'post_author@test.invalid' } });
-  reader = await prisma.user.create({ data: { id: 'post-reader', name: 'Reader', username: 'post_reader', email: 'post_reader@test.invalid' } });
+  author = await prisma.user.create({ data: {emailVerifiedAt: new Date(),  id: 'post-author', name: 'Author', username: 'post_author', email: 'post_author@test.invalid' } });
+  reader = await prisma.user.create({ data: {emailVerifiedAt: new Date(),  id: 'post-reader', name: 'Reader', username: 'post_reader', email: 'post_reader@test.invalid' } });
   await prisma.post.create({ data: { id: 'integration-post', userId: author.id, content: 'Hello', type: 'CONTENT', kind: 'ROOT' } });
 });
 afterAll(async () => prisma.$disconnect());

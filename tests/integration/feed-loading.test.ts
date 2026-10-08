@@ -15,7 +15,7 @@ const ids = Array.from({ length: 21 }, (_, i) => `feed-post-${i}`);
 let reader: any;
 beforeAll(async () => {
   for (const id of [viewer, author, 'feed-blocked']) {
-    await db.user.create({ data: { id, username: id, name: id, email: `${id}@test.invalid` } });
+    await db.user.create({ data: {emailVerifiedAt: new Date(),  id, username: id, name: id, email: `${id}@test.invalid` } });
   }
   reader = await db.user.findUniqueOrThrow({ where: { id: viewer } });
   await db.post.createMany({ data: ids.map(id => ({ id, userId: author, type: 'CONTENT', kind: 'ROOT', content: id })) });
@@ -79,7 +79,7 @@ it('uses accepted follows, mutual follows and fresh visibility rather than recom
   const names = ['following', 'friend', 'private', 'pending', 'stranger', 'blocked', 'muted'];
   for (const name of names) {
     const id = `tab-${name}`;
-    await db.user.create({ data: { id, username: id, name, email: `${id}@test.invalid`, ...(name === 'private' ? { isPrivate: true, status: 'PRIVATE' } : {}) } });
+    await db.user.create({ data: {emailVerifiedAt: new Date(),  id, username: id, name, email: `${id}@test.invalid`, ...(name === 'private' ? { isPrivate: true, status: 'PRIVATE' } : {}) } });
     await db.post.create({ data: { id: `tab-post-${name}`, userId: id, type: 'CONTENT', kind: 'ROOT', content: name, createdAt: new Date(now.getTime() - 1000), ...(name === 'private' ? { scope: 'FOLLOWED' } : {}) } });
     if (!['stranger'].includes(name)) await db.follow.create({ data: { followerId: viewer, followingId: id, status: name === 'pending' ? 'PENDING' : 'ACCEPTED' } });
   }

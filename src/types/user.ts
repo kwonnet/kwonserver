@@ -26,6 +26,9 @@ export interface UserInfo {
     userType: UserTypeEnum;
     createdAt: Date | string;
     country?: Country
+    emailVerifiedAt?: Date | string | null;
+    identityVerifiedAt?: Date | string | null;
+    accountVerifiedAt?: Date | string | null;
     email?: string
     meta: UserMeta
 }

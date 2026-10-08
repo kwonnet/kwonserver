@@ -9,8 +9,8 @@ const db = new PrismaClient({adapter: new PrismaPg({connectionString: process.en
 const prefix = 'schedule-fixture-';
 let owner: string, other: string, parent: string;
 beforeAll(async () => {
- owner = (await db.user.create({data: {name: 'Scheduler', username: prefix + 'owner', email: prefix + 'owner@test.invalid'}})).id;
- other = (await db.user.create({data: {name: 'Parent', username: prefix + 'parent', email: prefix + 'parent@test.invalid'}})).id;
+ owner = (await db.user.create({data: {emailVerifiedAt: new Date(), name: 'Scheduler', username: prefix + 'owner', email: prefix + 'owner@test.invalid'}})).id;
+ other = (await db.user.create({data: {emailVerifiedAt: new Date(), name: 'Parent', username: prefix + 'parent', email: prefix + 'parent@test.invalid'}})).id;
  parent = (await db.post.create({data: {type: 'CONTENT', kind: 'ROOT', userId: other, content: 'Original post'}})).id;
 });
 afterAll(async () => {await db.pollOption.deleteMany({where: {poll: {post: {userId: owner}}}}); await db.poll.deleteMany({where: {post: {userId: owner}}}); await db.post.deleteMany({where: {userId: {in: [owner, other]}}}); await db.user.deleteMany({where: {id: {in: [owner, other]}}}); await db.$disconnect();});

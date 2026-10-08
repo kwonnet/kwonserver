@@ -20,6 +20,7 @@ datasource db {
 }
 
 model User {
+  authEmailTokens AuthEmailToken[]
   postNotificationSubscriptions PostNotificationSubscription[] @relation("PostNotificationSubscriber")
   postNotificationSubscribers PostNotificationSubscription[] @relation("PostNotificationAuthor")
   engagementClaims EngagementClaim[]
@@ -51,12 +52,9 @@ model User {
   role                  UserRoleEnum       @default(USER)
   status                UserStatus         @default(ACTIVE)
   userType              UserTypeEnum       @default(PERSONAL)
-  isVerified            Boolean            @default(false) // Indicates if email is verified
-  identityVerified      Boolean            @default(false) // Indicates if identity is verified
-  accountVerified       Boolean            @default(false) // Indicates if account is verified for reaching a milestone like 1M followers and given badge
   accountVerifiedAt     DateTime?
   identityVerifiedAt    DateTime?
-  verifiedAt            DateTime?
+  emailVerifiedAt       DateTime?
   /// [UserMeta]
   meta                  Json?              @default("{\"type\": \"LEGACY\", \"status\": \"INACTIVE\", \"color\": \"blue\"}")
   metadata              Json[]             @default([])
@@ -2179,6 +2177,7 @@ model EmailMessage {
   eventKey String @unique
   userId String
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actionTokenId String?
   kind String @default("WELCOME")
   status String @default("PENDING")
   attempts Int @default(0)
@@ -2188,4 +2187,17 @@ model EmailMessage {
   lastErrorCode String?
   createdAt DateTime @default(now())
   @@index([status, nextAttemptAt])
+}
+
+model AuthEmailToken {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose String
+  tokenHash String @unique
+  encryptedToken String
+  expiresAt DateTime
+  usedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId, purpose, createdAt])
 }

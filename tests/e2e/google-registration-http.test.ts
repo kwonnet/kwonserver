@@ -40,7 +40,7 @@ it('the real Google controller creates the same user location/country links as p
  const event = await db.loginEvent.findFirstOrThrow({where: {userId: stored.id}});
  expect(event.location).toEqual(stored.location?.meta);
  const password = await fetch(base + '/auth/signup', {method: 'POST', headers, body: JSON.stringify({name: 'Password Signup', email: prefix + 'password@example.invalid', password: 'Test-password-42'})});
- expect(password.status).toBe(200); const created: any = await password.json();
+ expect(password.status).toBe(202); const created: any = {user: await db.user.findUniqueOrThrow({where:{email:prefix+'password@example.invalid'}})};
  const passwordStored = await db.user.findUniqueOrThrow({where: {id: created.user.id}, include: {location: true}});
  expect(passwordStored.countryId).toBe(countryId); expect(passwordStored.location?.meta).toEqual(stored.location?.meta);
 });

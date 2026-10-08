@@ -17,6 +17,7 @@ import {disconnectAuthSession} from "@/utils/auth-session-sockets";
 import { OAuth2Client } from "google-auth-library";
 import { getAuthUser } from "../utils";
 import {logServiceError} from '@/logger/events';
+import {createEmailToken, hashEmailToken} from '@/utils/auth-security';
 const googleVerifier = new OAuth2Client();
 
 export const createUser = async (
@@ -30,7 +31,7 @@ export const createUser = async (
   googleIdentity?: { subject: string; avatar?: string }
 ) => {
   try {
-    let welcomeMessageId: string | undefined;
+    let registrationMessageId: string | undefined;
     const dbUser = await prisma.user.findFirst({
       where: { email: { mode: "insensitive", equals: body.email } },
     });
@@ -70,7 +71,7 @@ export const createUser = async (
           name: body.name,
           username,
           password: hash,
-          ...(googleIdentity && { googleSubject: googleIdentity.subject, avatar: googleIdentity.avatar, isVerified: true }),
+          ...(googleIdentity && { googleSubject: googleIdentity.subject, avatar: googleIdentity.avatar, emailVerifiedAt: new Date() }),
           wallet: { create: { bonus: amount } },
           location: {
             create: {
@@ -112,15 +113,17 @@ export const createUser = async (
         category: 'COIN_RECEIVED', txnRef: randomUUID(), description: 'Registration bonus',
         metadata: { reason: 'REGISTRATION', bonus: amount },
       } });
-      const welcome = await tx.emailMessage.create({data: {eventKey: `welcome:${created.id}`, userId: created.id}});
-      welcomeMessageId = welcome.id;
+      const welcome = googleIdentity
+        ? await tx.emailMessage.create({data: {eventKey: `welcome:${created.id}`, userId: created.id}})
+        : await issueAuthEmail(tx, created.id, 'VERIFY_EMAIL');
+      registrationMessageId = welcome.id;
       return created;
     });
 
-    logger.info({event:'account_registered',userId:newUser.id,emailMessageId:welcomeMessageId,provider:googleIdentity?'GOOGLE':'PASSWORD'},'New account and welcome email outbox committed');
-    if(welcomeMessageId) {
-      try {await enqueueEmailMessage(welcomeMessageId);}
-      catch(err) {logger.error({event:'welcome_email_enqueue_deferred',userId:newUser.id,emailMessageId:welcomeMessageId,err},'Welcome email remains in outbox; recovery will enqueue it');}
+    logger.info({event:'account_registered',userId:newUser.id,emailMessageId:registrationMessageId,provider:googleIdentity?'GOOGLE':'PASSWORD'},'New account and registration email outbox committed');
+    if(registrationMessageId) {
+      try {await enqueueEmailMessage(registrationMessageId);}
+      catch(err) {logger.error({event:'registration_email_enqueue_deferred',userId:newUser.id,emailMessageId:registrationMessageId,err},'Registration email remains in outbox; recovery will enqueue it');}
     }
 
     if (body.refId && !newUser.id.endsWith(body.refId)) {
@@ -175,6 +178,7 @@ export const loginUser = async (body: { email: string; password: string }) => {
     });
     // console.log("dbUser ", dbUser)
     // check user
+    if (dbUser && !dbUser.password) return {status: 400, data: 'This account has no password. Use Google, the provider you used to sign up.'};
     if (!dbUser || !dbUser.password){
       return { data: "Wrong auth credentials provided", status: 401 };
     }
@@ -184,6 +188,7 @@ export const loginUser = async (body: { email: string; password: string }) => {
     if (!isMatch){
       return { data: "Wrong auth credentials provided", status: 401 };
     }
+    if (!dbUser.emailVerifiedAt) return {status: 403, data: 'Verify your email before signing in. Check your inbox or resend the verification email.'};
     // check account status
     const statuses = [UserStatus.BANNED, UserStatus.SUSPENDED] as string[]
     if (statuses.includes(dbUser.status)) {
@@ -320,11 +325,11 @@ export async function loginGoogleUser(idToken: string, registrationLocation?: Pa
         }
         if (![UserStatus.ACTIVE, UserStatus.PRIVATE].some(status => status === account!.status) || account.deletedAt || account.deactivatedAt) return {status: 401, data: "Account unavailable"};
         if (!account.googleSubject) {
-          const linked = await prisma.user.updateMany({where: {id: account.id, googleSubject: null}, data: {googleSubject: claims.sub, isVerified: true}});
+          const linked = await prisma.user.updateMany({where: {id: account.id, googleSubject: null}, data: {googleSubject: claims.sub, emailVerifiedAt: new Date()}});
           if (linked.count !== 1) {
             account = await prisma.user.findUnique({where: {googleSubject: claims.sub}});
             if (!account) return {status: 409, data: "Unable to link this Google identity"};
-          }
+          } else account = {...account, emailVerifiedAt: new Date()};
         }
       } else {
         const created = await createUser({email, name: claims.name || email.split("@")[0]}, registrationLocation ?? null, {subject: claims.sub, avatar: claims.picture});
@@ -334,6 +339,7 @@ export async function loginGoogleUser(idToken: string, registrationLocation?: Pa
       }
     }
     if (![UserStatus.ACTIVE, UserStatus.PRIVATE].some(status => status === account!.status) || account.deletedAt || account.deactivatedAt) return {status: 401, data: "Account unavailable"};
+    if (!account.emailVerifiedAt) await prisma.user.updateMany({where: {id: account.id, emailVerifiedAt: null}, data: {emailVerifiedAt: new Date()}});
     return getAuthUser(account.id, {includeEmail: true});
   } catch (serviceError) {
     logServiceError("v1/auth/index", "loginGoogleUser", serviceError);
@@ -368,10 +374,10 @@ export async function validateAuthSession(user: {id: string; sessionId?: string}
   // Pre-migration signed API tokens retain their existing expiry; their next refresh
   // upgrades them to a LEGACY-attributed, revocable session without inventing a provider.
   if (!user.sessionId) {
-    const account = await prisma.user.findUnique({where: {id: user.id}, select: {passwordChangedAt: true}});
-    return !!account && !account.passwordChangedAt;
+    const account = await prisma.user.findUnique({where: {id: user.id}, select: {passwordChangedAt: true, emailVerifiedAt: true}});
+    return !!account?.emailVerifiedAt && !account.passwordChangedAt;
   }
-  const session = await prisma.userSession.findFirst({where: {id: user.sessionId, userId: user.id, revokedAt: null, expiresAt: {gt: new Date()}, user: {status: {in: ['ACTIVE', 'PRIVATE']}, deletedAt: null, deactivatedAt: null}}, select: {id: true}});
+  const session = await prisma.userSession.findFirst({where: {id: user.sessionId, userId: user.id, revokedAt: null, expiresAt: {gt: new Date()}, user: {emailVerifiedAt: {not: null}, status: {in: ['ACTIVE', 'PRIVATE']}, deletedAt: null, deactivatedAt: null}}, select: {id: true}});
   return !!session;
 }
 export async function touchAuthSession(user: {id: string; sessionId?: string}) {
@@ -436,6 +442,7 @@ export async function updateAccountPassword(userId: string, sessionId: string | 
     const current = await tx.user.findUniqueOrThrow({where: {id: userId}, select: {password: true}});
     if (current.password !== user.password) return null;
     await tx.user.update({where: {id: userId}, data: {password, passwordChangedAt: new Date()}});
+    await tx.authEmailToken.updateMany({where: {userId, purpose: 'PASSWORD_RESET', usedAt: null}, data: {usedAt: new Date()}});
     await tx.pushNotification.deleteMany({where: {userId, sessionId: null}});
     await tx.authIdentity.upsert({where: {userId_provider: {userId, provider: 'PASSWORD'}}, create: {userId, provider: 'PASSWORD', providerAccountId: userId}, update: {}});
     const sessions = await tx.userSession.findMany({where: {userId, revokedAt: null, ...(sessionId ? {id: {not: sessionId}} : {})}, select: {id: true}});
@@ -445,4 +452,69 @@ export async function updateAccountPassword(userId: string, sessionId: string | 
   if (!revoked) return {status: 409, data: 'Password changed during this request. Please try again'};
   for (const session of revoked) disconnectAuthSession(session.id);
   return {status: 200, data: {updated: true, reloginRequired: !sessionId}};
+}
+
+function authEmailLifetime(purpose: string) {
+  const fallback = purpose === 'VERIFY_EMAIL' ? 1440 : 30;
+  const value = Number(process.env[purpose === 'VERIFY_EMAIL' ? 'EMAIL_VERIFICATION_TTL_MINUTES' : 'PASSWORD_RESET_TTL_MINUTES'] || fallback);
+  if (!Number.isInteger(value) || value < 5 || value > 10080) throw new Error('Invalid auth email lifetime configuration');
+  const url = new URL(process.env.WEB_APP_URL || 'https://kwonnet.com');
+  if (url.protocol !== 'https:') throw new Error('WEB_APP_URL must use HTTPS');
+  return value * 60000;
+}
+/** Token hash validates possession; ciphertext lets the durable worker send without storing a plaintext secret. */
+export async function issueAuthEmail(tx: Prisma.TransactionClient, userId: string, purpose: 'VERIFY_EMAIL' | 'PASSWORD_RESET') {
+  const lifetime = authEmailLifetime(purpose), material = createEmailToken();
+  await tx.authEmailToken.updateMany({where: {userId, purpose, usedAt: null}, data: {usedAt: new Date()}});
+  const action = await tx.authEmailToken.create({data: {id: randomUUID(), userId, purpose, ...material, expiresAt: new Date(Date.now() + lifetime)}});
+  return tx.emailMessage.create({data: {eventKey: `auth:${action.id}`, userId, kind: purpose, actionTokenId: action.id}});
+}
+export async function requestAuthEmail(email: string, purpose: 'VERIFY_EMAIL' | 'PASSWORD_RESET') {
+  const neutral = {status: 202, data: {message: 'If this account is eligible, an email will arrive shortly. Check your inbox and spam folder.'}};
+  const user = await prisma.user.findFirst({where: {email: {equals: email, mode: 'insensitive'}, status: {in: ['ACTIVE', 'PRIVATE']}, deletedAt: null, deactivatedAt: null}});
+  if (!user) return neutral;
+  if (!user.password) return {status: 400, data: {message: 'This account has no password. Use Google, the provider you used to sign up.'}};
+  if (purpose === 'VERIFY_EMAIL' && user.emailVerifiedAt) return neutral;
+  const message = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id} FOR UPDATE`;
+    const recent = await tx.authEmailToken.findFirst({where: {userId: user.id, purpose, createdAt: {gt: new Date(Date.now() - 60000)}}});
+    if (recent) return null;
+    return issueAuthEmail(tx, user.id, purpose);
+  });
+  if (message) await queueAuthEmail(message.id, user.id);
+  return neutral;
+}
+async function queueAuthEmail(emailMessageId: string, userId: string) {
+  try {await enqueueEmailMessage(emailMessageId);} catch (err) {logger.error({event: 'auth_email_enqueue_deferred', emailMessageId, userId, err}, 'Auth email remains in durable outbox');}
+}
+export async function consumeAuthEmail(token: string, purpose: 'VERIFY_EMAIL' | 'PASSWORD_RESET', newPassword?: string) {
+  const invalid = {status: 400, data: {message: 'This link is invalid, expired, or already used. Request a new email.'}};
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return invalid;
+  const result = await prisma.$transaction(async tx => {
+    const action = await tx.authEmailToken.findUnique({where: {tokenHash: hashEmailToken(token)}});
+    if (!action || action.purpose !== purpose || action.usedAt || action.expiresAt <= new Date()) return null;
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${action.userId} FOR UPDATE`;
+    const user = await tx.user.findUniqueOrThrow({where: {id: action.userId}});
+    const password = purpose === 'PASSWORD_RESET' && newPassword ? await bcrypt.hash(newPassword, 10) : undefined;
+    if (user.deletedAt || user.deactivatedAt || !['ACTIVE','PRIVATE'].includes(user.status) || (purpose === 'PASSWORD_RESET' && (!user.password || !password))) return null;
+    const claimed = await tx.authEmailToken.updateMany({where: {id: action.id, usedAt: null, expiresAt: {gt: new Date()}}, data: {usedAt: new Date()}});
+    if (!claimed.count) return null;
+    if (purpose === 'VERIFY_EMAIL') {
+      await tx.user.update({where: {id: user.id}, data: {emailVerifiedAt: user.emailVerifiedAt || new Date()}});
+      const welcome = await tx.emailMessage.upsert({where: {eventKey: `welcome:${user.id}`}, create: {eventKey: `welcome:${user.id}`, userId: user.id}, update: {}});
+      return {userId: user.id, sessions: [] as {id: string}[], messageId: welcome.id};
+    }
+    await tx.user.update({where: {id: user.id}, data: {password, passwordChangedAt: new Date(), emailVerifiedAt: user.emailVerifiedAt || new Date()}});
+    await tx.authEmailToken.updateMany({where: {userId: user.id, purpose: 'PASSWORD_RESET', usedAt: null}, data: {usedAt: new Date()}});
+    const sessions = await tx.userSession.findMany({where: {userId: user.id, revokedAt: null}, select: {id: true}});
+    await tx.userSession.updateMany({where: {userId: user.id, revokedAt: null}, data: {revokedAt: new Date(), revokedReason: 'PASSWORD_RESET'}});
+    await tx.pushNotification.deleteMany({where: {userId: user.id}});
+    const notice = await tx.emailMessage.create({data: {eventKey: `reset-completed:${action.id}`, userId: user.id, kind: 'PASSWORD_CHANGED'}});
+    return {userId: user.id, sessions, messageId: notice.id};
+  });
+  if (!result) return invalid;
+  for (const session of result.sessions) disconnectAuthSession(session.id);
+  await queueAuthEmail(result.messageId, result.userId);
+  logger.info({event: purpose === 'VERIFY_EMAIL' ? 'email_verified' : 'password_reset_completed', userId: result.userId}, 'Account email action completed');
+  return {status: 200, data: {message: purpose === 'VERIFY_EMAIL' ? 'Email verified. You can now sign in.' : 'Password reset. Sign in with your new password.'}};
 }
