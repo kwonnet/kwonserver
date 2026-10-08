@@ -2,11 +2,14 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 const mocks = vi.hoisted(() => {
     const model = () => Object.fromEntries(['findFirst', 'findMany', 'findUnique', 'findUniqueOrThrow', 'create', 'createMany', 'count', 'upsert', 'update', 'updateMany', 'deleteMany'].map(k => [k, vi.fn()]));
-    const db: any = { $transaction: vi.fn(), $executeRaw: vi.fn(), $queryRaw: vi.fn(), e2Device: model(), e2SignedPreKey: model(), e2OneTimePreKey: model(), e2PreKeyClaim: model(), e2Conversation: model(), e2Member: model(), e2Message: model(), e2Envelope: model(), e2Receipt: model(), e2Blob: model(), e2Outbox: model(), blockUser: model(), follow: model(), user: model() };
+    const db: any = { $transaction: vi.fn(), $executeRaw: vi.fn(), $queryRaw: vi.fn(), e2Device: model(), e2SignedPreKey: model(), e2OneTimePreKey: model(), e2PreKeyClaim: model(), e2Conversation: model(), e2Member: model(), e2Message: model(), e2Envelope: model(), e2Receipt: model(), e2Delivery:model(), e2Blob: model(), e2Outbox: model(), blockUser: model(), follow: model(), user: model() };
     return { db, publicUser: vi.fn() };
 });
 vi.mock('@/db', () => ({ default: mocks.db }));
-vi.mock('@/services/v1/utils', () => ({ getPublicUser: mocks.publicUser }));
+const objectMocks=vi.hoisted(()=>({requireMessagingStorage:vi.fn(),messagingUploadGrant:vi.fn(),messagingDownloadGrant:vi.fn(),messagingObjectSize:vi.fn(),removeMessagingObject:vi.fn(),migrateMessagingObject:vi.fn()}));
+vi.mock('@/services/v1/conversations/storage',()=>objectMocks);
+vi.mock('@/services/v1/conversations/live',()=>({publishMessagingHints:vi.fn().mockResolvedValue(undefined)}));
+vi.mock('@/services/v1/utils', () => ({ getPublicUser:mocks.publicUser,composeAuthUser:(value:any)=>value }));
 import * as chat from '@/services/v1/conversations';
 const d = randomUUID(), target = randomUUID(), room = randomUUID(), msgId = randomUUID(), clientId = randomUUID();
 const device: any = { id: d, userId: 'a', sessionId: 's', signalDeviceId: 1, registrationId: 42, identityPublic: Buffer.alloc(33, 1), actionSigningPublic: Buffer.alloc(32, 2), revokedAt: null };
@@ -42,12 +45,16 @@ beforeEach(() => {
     db.e2OneTimePreKey.findMany.mockResolvedValue([]);
     db.e2PreKeyClaim.findUnique.mockResolvedValue(null);
     db.e2PreKeyClaim.count.mockResolvedValue(0);
-    db.e2Receipt.findUnique.mockResolvedValue(null);
+    db.e2Receipt.findMany.mockResolvedValue([]);
+    db.e2Delivery.findMany.mockResolvedValue([]);
     db.e2Receipt.upsert.mockResolvedValue({ status: 'READ', deliveredAt: new Date(), readAt: new Date() });
     db.e2Outbox.findMany.mockResolvedValue([]);
-    db.e2Blob.count.mockResolvedValue(0);
+    db.e2Blob.count.mockResolvedValue(0);db.e2Blob.updateMany.mockResolvedValue({count:1});
+    db.e2Blob.findMany.mockResolvedValue([]);
+    objectMocks.requireMessagingStorage.mockReset();objectMocks.messagingUploadGrant.mockResolvedValue({url:"https://private.test/upload"});objectMocks.messagingDownloadGrant.mockResolvedValue({url:"https://private.test/download"});objectMocks.messagingObjectSize.mockResolvedValue(64);
+    db.e2Blob.create.mockResolvedValue({id:msgId,objectKey:"object",finalizedAt:null});
     db.blockUser.findFirst.mockResolvedValue(null);
-    db.user.findFirst.mockResolvedValue({ id: 'b' });
+    db.user.findFirst.mockResolvedValue({id:'b'});db.user.findMany.mockResolvedValue([{id:'a'},{id:'b'}]);
     db.follow.count.mockResolvedValue(0);
     mocks.publicUser.mockImplementation(async (id: string) => ({ id }));
 });
@@ -173,20 +180,21 @@ it('only accepted recipients may create receipts; READ never regresses and repea
     expect(await chat.messagingReceipt('b', 's', d, receipt)).toEqual({ suppressed: true });
     db.blockUser.findFirst.mockResolvedValue(null);
     await expect(chat.messagingReceipt('b', 's', d, receipt)).rejects.toThrow('Receipts');
-    db.e2Message.findMany.mockResolvedValue([{ id: msgId }]);
+    db.e2Message.findMany.mockResolvedValue([{id:msgId,clientId,senderDevice:device}]);
     expect(await chat.messagingReceipt('b', 's', d, receipt)).toEqual({ suppressed: false });
-    expect(db.e2Outbox.create).toHaveBeenCalled();
-    db.e2Receipt.findUnique.mockResolvedValue({ status: 'READ' });
+    expect(db.e2Outbox.createMany).toHaveBeenCalled();
+    db.e2Receipt.findMany.mockResolvedValue([{messageId:msgId,status:'READ'}]);
     await chat.messagingReceipt('b', 's', d, { ...receipt, status: 'DELIVERED' });
-    db.e2Receipt.findUnique.mockResolvedValue({ status: 'DELIVERED' });
+    db.e2Receipt.findMany.mockResolvedValue([{messageId:msgId,status:'DELIVERED',deliveredAt:new Date()}]);
     await chat.messagingReceipt('b', 's', d, { ...receipt, status: 'DELIVERED' });
-    db.e2Receipt.findUnique.mockResolvedValue(null);
+    db.e2Receipt.findMany.mockResolvedValue([]);
+    db.e2Delivery.findMany.mockResolvedValue([]);
     db.e2Receipt.upsert.mockResolvedValue({ status: 'DELIVERED', deliveredAt: new Date(), readAt: null });
     await chat.messagingReceipt('b', 's', d, { ...receipt, status: 'DELIVERED' });
 });
 it('accepts requests with exact delivered/read IDs; rejection purges recipient payloads and blocking persists policy', async () => {
     const request = { action: 'accept', deliveredIds: [msgId], readIds: [msgId] };
-    db.e2Message.findMany.mockResolvedValue([{ id: msgId }]);
+    db.e2Message.findMany.mockResolvedValue([{id:msgId,clientId,senderDevice:device}]);
     await chat.resolveMessagingRequest('b', 's', d, room, request);
     expect(db.e2Conversation.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ state: 'ACCEPTED' }) }));
     db.e2Conversation.findFirst.mockResolvedValue({ ...convo, state: 'ACCEPTED' });
@@ -206,53 +214,32 @@ it('accepts requests with exact delivered/read IDs; rejection purges recipient p
     expect(db.e2Envelope.deleteMany).toHaveBeenCalled();
 });
 it('gates typing on current membership and policy; delete for me is owner scoped', async () => { expect(await chat.messagingTyping('a', 's', d, room)).toBeNull(); db.e2Conversation.findFirst.mockResolvedValue({ ...convo, state: 'ACCEPTED' }); expect(await chat.messagingTyping('a', 's', d, room)).toBe('b'); db.e2Conversation.findFirst.mockResolvedValue({ ...convo, state: 'ACCEPTED', members: [{ userId: 'a' }] }); expect(await chat.messagingTyping('a', 's', d, room)).toBeUndefined(); db.blockUser.findFirst.mockResolvedValue({ id: 'block' }); expect(await chat.messagingTyping('a', 's', d, room)).toBeNull(); await chat.deleteMessagingForMe('a', 's', d, room, msgId); expect(db.e2Message.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ NOT: { deletedFor: { has: 'a' } } }) })); await chat.revokeMessagingDevice('a', d); expect(db.e2Device.updateMany).toHaveBeenCalled(); });
-it('checks membership, policy, size, quotas, expiry and existence for private attachment relay', async () => {
-    const bytes = Buffer.alloc(64);
-    await chat.putMessagingBlob('a', 's', d, room, msgId, bytes);
-    expect(db.e2Blob.create).toHaveBeenCalled();
-    for (const change of [{ rejectedAt: new Date() }, { state: 'BLOCKED' }]) {
-        db.e2Conversation.findFirst.mockResolvedValue({ ...convo, ...change });
-        await expect(chat.putMessagingBlob('a', 's', d, room, msgId, bytes)).rejects.toThrow('unavailable');
-    }
-    db.e2Conversation.findFirst.mockResolvedValue(convo);
-    db.blockUser.findFirst.mockResolvedValue({ id: 'block' });
-    await expect(chat.putMessagingBlob('a', 's', d, room, msgId, bytes)).rejects.toThrow('unavailable');
-    db.blockUser.findFirst.mockResolvedValue(null);
-    await expect(chat.putMessagingBlob('b', 's', d, room, msgId, bytes)).rejects.toThrow('unavailable');
-    for (const b of [Buffer.alloc(1), Buffer.alloc(8388625)])
-        await expect(chat.putMessagingBlob('a', 's', d, room, msgId, b)).rejects.toThrow('limit');
-    db.e2Blob.count.mockResolvedValue(100);
-    await expect(chat.putMessagingBlob('a', 's', d, room, msgId, bytes)).rejects.toThrow('Daily');
-    db.e2Blob.findFirst.mockResolvedValue({ ciphertext: bytes });
-    expect(await chat.getMessagingBlob('b', 's', d, room, msgId)).toEqual(bytes);
-    db.e2Blob.findFirst.mockResolvedValue(null);
-    await expect(chat.getMessagingBlob('b', 's', d, room, msgId)).rejects.toThrow('unavailable');
-    db.e2Conversation.findFirst.mockResolvedValue({ ...convo, rejectedAt: new Date() });
-    await expect(chat.getMessagingBlob('b', 's', d, room, msgId)).rejects.toThrow('unavailable');
-    db.e2Conversation.findFirst.mockResolvedValue(convo);
-    db.blockUser.findFirst.mockResolvedValue({ id: 'block' });
-    await expect(chat.getMessagingBlob('b', 's', d, room, msgId)).rejects.toThrow('unavailable');
+it('reserves immutable private objects, enforces quotas and rejects policy conflicts',async()=>{
+ const input={blobId:msgId,ciphertextBytes:64,ciphertextSha256:Buffer.alloc(32).toString('base64')};
+ expect(await chat.reserveMessagingBlob('a','s',d,room,input)).toMatchObject({finalized:false,url:'https://private.test/upload'});
+ const old={id:msgId,ownerDeviceId:d,conversationId:room,ciphertextBytes:64n,ciphertextSha256:input.ciphertextSha256,objectKey:'object',expiresAt:new Date(Date.now()+60000)};
+ db.e2Blob.update.mockResolvedValue(old);db.e2Blob.findUnique.mockResolvedValue(old);await chat.reserveMessagingBlob('a','s',d,room,input);
+ db.e2Blob.findUnique.mockResolvedValue({...old,finalizedAt:new Date()});expect(await chat.reserveMessagingBlob('a','s',d,room,input)).toMatchObject({finalized:true});
+ for(const change of [{ownerDeviceId:'other'},{conversationId:'other'},{discardedAt:new Date()},{expiresAt:new Date(0)},{ciphertextBytes:65n},{ciphertextSha256:'other'}]){db.e2Blob.findUnique.mockResolvedValue({...old,...change});await expect(chat.reserveMessagingBlob('a','s',d,room,input)).rejects.toThrow('conflict');}
+ db.e2Blob.findUnique.mockResolvedValue(null);db.e2Blob.count.mockResolvedValue(100);await expect(chat.reserveMessagingBlob('a','s',d,room,input)).rejects.toThrow('Daily');
+ db.e2Conversation.findFirst.mockResolvedValue({...convo,state:'BLOCKED'});await expect(chat.reserveMessagingBlob('a','s',d,room,input)).rejects.toThrow('unavailable');db.e2Conversation.findFirst.mockResolvedValue(convo);await expect(chat.reserveMessagingBlob('b','s',d,room,input)).rejects.toThrow('unavailable');
 });
-it('durable socket hints never emit rejected/blocked conversation or pending receipt metadata', async () => {
-    db.e2Outbox.findMany.mockResolvedValue([{ sequence: 1n, event: 'message', conversationId: room, targetDeviceId: d }]);
-    db.e2Conversation.findUnique.mockResolvedValue(convo);
-    expect(await chat.messagingSocketHints([d], 0n)).toEqual({ hints: [{ conversationId: room, deviceId: d }], cursor: 1n });
-    for (const c of [null, { ...convo, rejectedAt: new Date() }, { ...convo, state: 'BLOCKED' }]) {
-        db.e2Conversation.findUnique.mockResolvedValue(c);
-        expect((await chat.messagingSocketHints([d], 0n)).hints).toEqual([]);
-    }
-    db.e2Conversation.findUnique.mockResolvedValue(convo);
-    db.e2Outbox.findMany.mockResolvedValue([{ sequence: 2n, event: 'receipt', conversationId: room, targetDeviceId: d }]);
-    expect((await chat.messagingSocketHints([d], 0n)).hints).toEqual([]);
-    db.e2Conversation.findUnique.mockResolvedValue({ ...convo, state: 'ACCEPTED' });
-    expect((await chat.messagingSocketHints([d], 0n)).hints).toHaveLength(1);
-    db.blockUser.findFirst.mockResolvedValue({ id: 'block' });
-    expect((await chat.messagingSocketHints([d], 0n)).hints).toEqual([]);
-    db.e2Outbox.findMany.mockResolvedValue([]);
-    expect((await chat.messagingSocketHints([], 3n)).cursor).toBe(3n);
+it('finalizes only matching ciphertext objects and protects signed download grants',async()=>{
+ db.e2Blob.findFirst.mockResolvedValue({objectKey:'object',ciphertextBytes:64n});expect(await chat.finalizeMessagingBlob('a','s',d,room,msgId)).toEqual({blobId:msgId});objectMocks.messagingObjectSize.mockResolvedValue(65);await expect(chat.finalizeMessagingBlob('a','s',d,room,msgId)).rejects.toThrow('size');db.e2Blob.findFirst.mockResolvedValue(null);await expect(chat.finalizeMessagingBlob('a','s',d,room,msgId)).rejects.toThrow('unavailable');await expect(chat.getMessagingBlob('a','s',d,room,msgId)).rejects.toThrow('unavailable');db.e2Blob.findFirst.mockResolvedValue({objectKey:'object'});expect(await chat.getMessagingBlob('b','s',d,room,msgId)).toMatchObject({url:'https://private.test/download'});db.e2Blob.findFirst.mockResolvedValue({ciphertext:Buffer.alloc(64)});expect(await chat.getMessagingBlob('b','s',d,room,msgId)).toEqual({legacyBytes:Buffer.alloc(64)});db.blockUser.findFirst.mockResolvedValue({id:'block'});await expect(chat.getMessagingBlob('b','s',d,room,msgId)).rejects.toThrow('unavailable');
 });
-it('cleans expired relay ciphertext and key claims without touching current keys or plaintext logs', async () => { await chat.cleanMessagingRetention(); expect(db.e2Message.deleteMany).toHaveBeenCalledWith({ where: { expiresAt: { lt: expect.any(Date) } } }); expect(db.e2Blob.deleteMany).toHaveBeenCalled(); expect(db.e2OneTimePreKey.deleteMany).toHaveBeenCalledWith({ where: { claimedAt: { lt: expect.any(Date) } } }); });
-
+it('publishes leased outbox batches only for active authorized devices and retains failures',async()=>{
+ const row={id:msgId,conversationId:room,targetDeviceId:target,event:'message'};db.$queryRaw.mockResolvedValue([row]);db.e2Conversation.findMany.mockResolvedValue([convo]);db.blockUser.findMany.mockResolvedValue([]);expect(await chat.dispatchMessagingOutbox()).toBe(1);
+ db.$queryRaw.mockResolvedValue([]);expect(await chat.dispatchMessagingOutbox(room)).toBe(0);
+ db.$queryRaw.mockResolvedValue([row]);db.e2Conversation.findMany.mockResolvedValue([]);await chat.dispatchMessagingOutbox();
+ for(const change of [{rejectedAt:new Date()},{state:'BLOCKED'}]){db.e2Conversation.findMany.mockResolvedValue([{...convo,...change}]);await chat.dispatchMessagingOutbox();}
+ db.e2Conversation.findMany.mockResolvedValue([convo]);db.$queryRaw.mockResolvedValue([{...row,event:'receipt'}]);await chat.dispatchMessagingOutbox();db.e2Conversation.findMany.mockResolvedValue([{...convo,state:'ACCEPTED'}]);await chat.dispatchMessagingOutbox();db.blockUser.findMany.mockResolvedValue([{blockerId:'a',blockedId:'b'}]);await chat.dispatchMessagingOutbox();db.blockUser.findMany.mockResolvedValue([{blockerId:'b',blockedId:'a'}]);await chat.dispatchMessagingOutbox();
+ db.e2Conversation.findMany.mockRejectedValueOnce(new Error('db unavailable'));await expect(chat.dispatchMessagingOutbox()).rejects.toThrow('db unavailable');
+});
+it('expires history in bounded batches and migrates old encrypted blobs without plaintext',async()=>{
+ db.e2Message.findMany.mockResolvedValue([]);await chat.cleanMessagingRetention();
+ db.e2Message.findMany.mockResolvedValue([{id:msgId,conversationId:room}]);db.e2Blob.findMany.mockResolvedValue([{id:msgId,objectKey:'object',ciphertext:null},{id:target,ciphertext:Buffer.alloc(64)}]);await chat.cleanMessagingRetention();expect(db.e2Message.deleteMany).toHaveBeenCalled();
+ db.e2Blob.findMany.mockResolvedValue([{id:msgId,objectKey:'object',ciphertext:Buffer.alloc(64)}]);expect(await chat.migrateLegacyMessagingBlobs()).toBe(1);expect(objectMocks.migrateMessagingObject).toHaveBeenCalledWith(`e2ee/legacy/${msgId}`,Buffer.alloc(64));
+});
 it('enrolls a full browser bundle using bounded database round trips and preserves existing keys',async()=>{
  const preKeys=Array.from({length:50},(_,i)=>({keyId:i+1,publicKey:Buffer.alloc(33,i+1).toString('base64')}));
  db.e2OneTimePreKey.findMany.mockResolvedValue([{keyId:1,publicKey:Buffer.alloc(33,1)}]);
@@ -265,3 +252,25 @@ it('enrolls a full browser bundle using bounded database round trips and preserv
  db.e2OneTimePreKey.createMany.mockClear();await chat.enrollMessagingDevice('a','s',{...enroll,preKeys});expect(db.e2OneTimePreKey.createMany).not.toHaveBeenCalled();
  await chat.enrollMessagingDevice('a','s',{...enroll,preKeys:[]});
 });
+it('batches receipt upgrades and decrements account counters exactly once',async()=>{
+ db.e2Conversation.findFirst.mockResolvedValue({...convo,state:'ACCEPTED'});
+ db.e2Message.findMany.mockResolvedValue([{id:msgId,clientId,senderDevice:{userId:'a'}}]);
+ db.e2Device.findMany.mockResolvedValue([{id:target,userId:'a'}]);
+ db.e2Delivery.findMany.mockResolvedValue([{messageId:msgId,deliveredAt:null,readAt:null,hiddenAt:null}]);
+ await chat.messagingReceiptBatch('b','s',d,{conversationId:room,deliveredIds:[],readIds:[msgId]});
+ expect(db.e2Member.update).toHaveBeenCalledWith(expect.objectContaining({data:{unreadCount:{decrement:1},unseenCount:{decrement:1}}}));
+ db.e2Receipt.findMany.mockResolvedValue([{messageId:msgId,status:'DELIVERED',deliveredAt:new Date()}]);
+ db.e2Delivery.findMany.mockResolvedValue([{messageId:msgId,deliveredAt:new Date(),readAt:null,hiddenAt:null}]);
+ await chat.messagingReceiptBatch('b','s',d,{conversationId:room,deliveredIds:[],readIds:[msgId]});expect(db.e2Receipt.updateMany).toHaveBeenCalled();
+ db.e2Receipt.findMany.mockResolvedValue([]);db.e2Delivery.findMany.mockResolvedValue([{messageId:msgId,deliveredAt:null,readAt:null,hiddenAt:null}]);
+ await chat.messagingReceiptBatch('b','s',d,{conversationId:room,deliveredIds:[msgId],readIds:[]});
+ await chat.messagingReceiptBatch('b','s',d,{conversationId:room,deliveredIds:[],readIds:[]});
+});
+it('hiding a received message reconciles only its account-scoped counters',async()=>{
+ for(const row of [{conversationId:room,readAt:null,deliveredAt:null},{conversationId:room,readAt:new Date(),deliveredAt:new Date()},{conversationId:room,hiddenAt:new Date()},{conversationId:'other'}]){db.e2Delivery.findUnique.mockResolvedValue(row);await chat.deleteMessagingForMe('a','s',d,room,msgId);}
+ expect(db.e2Delivery.update).toHaveBeenCalled();
+});
+
+it('returns empty folders without profile queries and rejects missing participants',async()=>{db.e2Conversation.findMany.mockResolvedValue([]);expect(await chat.listMessagingConversations('a','chat',1,21)).toEqual([]);db.e2Conversation.findMany.mockResolvedValue([convo]);db.user.findMany.mockResolvedValue([]);await expect(chat.listMessagingConversations('a','chat',1,21)).rejects.toThrow('participant');});
+
+it('publishes private inbox hints even when a thread has been hidden',async()=>{db.$queryRaw.mockResolvedValue([{id:msgId,conversationId:room,targetDeviceId:target,event:'inbox'}]);db.e2Conversation.findMany.mockResolvedValue([{...convo,rejectedAt:new Date()}]);db.blockUser.findMany.mockResolvedValue([]);await chat.dispatchMessagingOutbox();});

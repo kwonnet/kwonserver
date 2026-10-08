@@ -2169,6 +2169,9 @@ model E2Member {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   hiddenAt DateTime?
   clearedBefore BigInt @default(0)
+  unreadCount Int @default(0)
+  unseenCount Int @default(0)
+  deliveries E2Delivery[]
   @@id([conversationId, userId])
   @@index([userId, hiddenAt])
 }
@@ -2186,8 +2189,11 @@ model E2Message {
   envelopes E2Envelope[]
   receipts E2Receipt[]
   deletedFor String[] @default([])
+  deliveries E2Delivery[]
   @@unique([senderDeviceId, clientId])
   @@index([conversationId, serverSequence])
+  @@index([senderDeviceId, createdAt])
+  @@index([expiresAt])
 }
 model E2Envelope {
   messageId String @db.Uuid
@@ -2209,17 +2215,36 @@ model E2Receipt {
   readAt DateTime?
   @@id([messageId, recipientDeviceId])
 }
+model E2Delivery {
+  messageId String @db.Uuid
+  message E2Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  conversationId String @db.Uuid
+  userId String
+  member E2Member @relation(fields: [conversationId, userId], references: [conversationId, userId], onDelete: Cascade)
+  deliveredAt DateTime?
+  readAt DateTime?
+  hiddenAt DateTime?
+  @@id([messageId, userId])
+  @@index([conversationId, userId])
+}
 model E2Blob {
   id String @id @default(uuid()) @db.Uuid
   conversationId String @db.Uuid
   conversation E2Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   ownerDeviceId String @db.Uuid
   objectKey String @unique
-  ciphertext Bytes?
+  ciphertext Bytes? // Read-only compatibility until old encrypted blobs are migrated to private storage.
+  ciphertextSha256 String?
+  uploadGrantExpiresAt DateTime?
+  createdAt DateTime @default(now())
+  discardedAt DateTime?
   ciphertextBytes BigInt
   finalizedAt DateTime?
   expiresAt DateTime
   // No file key, nonce, original filename, MIME type, or plaintext thumbnail.
+  @@index([ownerDeviceId, createdAt])
+  @@index([expiresAt])
+  @@index([discardedAt])
 }
 model E2Outbox {
   sequence BigInt @unique @default(autoincrement())
@@ -2236,6 +2261,8 @@ model E2Outbox {
   leaseUntil DateTime?
   attempts Int @default(0)
   @@index([publishedAt, availableAt, leaseUntil])
+  @@index([conversationId, targetDeviceId, event, sequence])
+  @@index([createdAt])
 }
 
 model E2PreKeyClaim {

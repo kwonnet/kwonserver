@@ -1,3 +1,4 @@
+import {closeMessagingPublisher} from '@/services/v1/conversations/live';
 import {closeEmailTransport} from '@/services/email';
 import logger from '@/logger';
 import {logWorkerLifecycle} from '@/logger/events';
@@ -43,6 +44,7 @@ async function closeCronJobs() {
   if (quiz) await quiz.close();
   await closeQuestionInventory();
   await closeEmailTransport();
+  await closeMessagingPublisher();
   await Promise.all([workers?.workerConnection.quit(), queues.closeJobQueues(), closeCacheStore()]);
   started = false;
 }

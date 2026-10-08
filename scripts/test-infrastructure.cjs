@@ -20,7 +20,8 @@ try {
   run(process.execPath, ['scripts/database-analytics.cjs', 'extensions']);
   run(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy']);
   run(process.execPath, ['scripts/database-analytics.cjs', 'setup']);
-  run(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', '--config', 'vitest.integration.config.mts', ...process.argv.slice(2)]);
+  const args=process.argv.slice(2);const load=args[0]==='--messaging-load';if(load)args.shift();
+  run(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', '--config', load?'vitest.messaging-load.config.mts':'vitest.integration.config.mts', ...args]);
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

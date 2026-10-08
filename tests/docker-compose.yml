@@ -23,3 +23,14 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+  objects:
+    image: chrislusf/seaweedfs:4.05@sha256:295b8f7bd2209afdf5b3fe5bc3a2ca8a72747365fe111b4de412511aa9f56e99
+    command: server -dir=/data -ip=objects -ip.bind=0.0.0.0 -volume.max=5 -master.volumeSizeLimitMB=128 -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+    ports: ["127.0.0.1:19000:8333"]
+    tmpfs: [/data]
+    volumes: ["./s3-identities.json:/etc/seaweedfs/s3.json:ro"]
+    healthcheck:
+      test: [CMD-SHELL, "wget -S -O /dev/null http://localhost:8333/ 2>&1 | grep -q '403 Forbidden'"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

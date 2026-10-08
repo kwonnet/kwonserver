@@ -3,10 +3,10 @@ import { recurringJobs, registerRecurringJobs, processRecurringJob } from '@/cro
 const run = vi.hoisted(() => vi.fn());
 vi.mock('@/cron/recurring/sync_redis_prisma_wallet', () => ({ run }));
 beforeEach(() => { run.mockReset(); });
-it('registers the seventeen active schedules with stable IDs and explicit timezone', async () => {
+it('registers the nineteen active schedules with stable IDs and explicit timezone', async () => {
   const queue = { upsertJobScheduler: vi.fn(), removeJobScheduler: vi.fn() };
   await registerRecurringJobs(queue, {});
-  expect(queue.upsertJobScheduler).toHaveBeenCalledTimes(17);
+  expect(queue.upsertJobScheduler).toHaveBeenCalledTimes(19);
   for (const [id, repeat, template] of queue.upsertJobScheduler.mock.calls) {
     expect(template.name).toBe(id); expect(repeat.tz).toBe('UTC'); expect(template.opts.attempts).toBe(1);
   }

@@ -1,3 +1,4 @@
+vi.mock('@/services/v1/conversations/live',()=>({closeMessagingPublisher:vi.fn()}));
 import { expect, it, vi } from 'vitest';
 const loaded = vi.hoisted(() => vi.fn());
 vi.mock('@/cron/jobs/workers', () => { loaded(); return {}; });

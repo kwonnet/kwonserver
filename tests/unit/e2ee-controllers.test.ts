@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { response } from './fixtures';
-const services = vi.hoisted(() => Object.fromEntries(['enrollMessagingDevice', 'messagingRoster', 'claimMessagingPreKey', 'createMessagingConversation', 'listMessagingConversations', 'messagingPeer', 'sendMessagingEvent', 'messagingSync', 'messagingReceipt', 'resolveMessagingRequest', 'deleteMessagingForMe', 'revokeMessagingDevice', 'putMessagingBlob', 'getMessagingBlob'].map(name => [name, vi.fn()])));
+const services = vi.hoisted(() => Object.fromEntries(['enrollMessagingDevice', 'messagingRoster', 'claimMessagingPreKey', 'createMessagingConversation', 'listMessagingConversations', 'messagingPeer', 'sendMessagingEvent', 'messagingSync', 'messagingReceipt', 'resolveMessagingRequest', 'deleteMessagingForMe', 'revokeMessagingDevice', 'reserveMessagingBlob','finalizeMessagingBlob','messagingReceiptBatch', 'getMessagingBlob'].map(name => [name, vi.fn()])));
 vi.mock('@/services/v1/conversations', () => ({ ...services, MessagingError: class extends Error {
         constructor(public status: number, message: string) { super(message); }
     } }));
@@ -24,7 +24,9 @@ const cases = [
     [c.messagingRequestController, 'resolveMessagingRequest', { body: { action: 'accept' } }],
     [c.messagingDeleteController, 'deleteMessagingForMe', {}],
     [c.messagingRevokeController, 'revokeMessagingDevice', {}],
-    [c.messagingUploadController, 'putMessagingBlob', { body: Buffer.alloc(64) }],
+    [c.messagingReserveController,'reserveMessagingBlob',{body:{blobId:message,ciphertextBytes:64,ciphertextSha256:Buffer.alloc(32).toString('base64')}}],
+    [c.messagingFinalizeController,'finalizeMessagingBlob',{}],
+    [c.messagingReceiptBatchController,'messagingReceiptBatch',{body:{conversationId:room,deliveredIds:[message],readIds:[]}}],
 ] as const;
 beforeEach(() => { Object.values(services).forEach(fn => fn.mockReset().mockResolvedValue({ ok: true })); });
 for (const [controller, name, input] of cases) {
@@ -49,7 +51,8 @@ it('rejects plaintext additions, malformed key material and invalid payload boun
     expect(res.statusCode).toBe(400);
 });
 it('maps known messaging errors to their bounded status', async () => { services.createMessagingConversation.mockRejectedValue(new MessagingError(409, 'Device changed')); const res = response(); await c.messagingCreateController(req({ body: { recipientId: 'r' } }), res); expect(res.statusCode).toBe(409); expect(res.body).toBe('Device changed'); });
-it('rejects nonbinary attachment uploads before the size check in services', async () => { await c.messagingUploadController(req({ body: { ciphertext: 'not binary' } }), response()); expect(services.putMessagingBlob).toHaveBeenCalledWith('u', 's', device, room, message, Buffer.alloc(0)); });
-it('downloads only opaque attachment bytes with safe private headers and sanitizes all failures', async () => { services.getMessagingBlob.mockResolvedValue(Buffer.alloc(64)); const res = response(); res.set = vi.fn(); await c.messagingDownloadController(req(), res); expect(res.set).toHaveBeenCalledWith(expect.objectContaining({ 'Cache-Control': 'private, no-store', 'Content-Type': 'application/octet-stream' })); expect(res.body).toEqual(Buffer.alloc(64)); services.getMessagingBlob.mockRejectedValue(new MessagingError(404, 'gone')); await c.messagingDownloadController(req(), res); expect(res.statusCode).toBe(404); services.getMessagingBlob.mockRejectedValue(new Error('private')); await c.messagingDownloadController(req(), res); expect(res.statusCode).toBe(400); expect(res.body).toBe('Attachment unavailable'); });
+it('downloads only opaque attachment bytes with safe private headers and sanitizes all failures', async () => { services.getMessagingBlob.mockResolvedValue({legacyBytes:Buffer.alloc(64)}); const res = response(); res.set = vi.fn(); await c.messagingDownloadController(req(), res); expect(res.set).toHaveBeenCalledWith(expect.objectContaining({'Content-Type':'application/octet-stream'})); expect(res.body).toEqual(Buffer.alloc(64)); services.getMessagingBlob.mockRejectedValue(new MessagingError(404, 'gone')); await c.messagingDownloadController(req(), res); expect(res.statusCode).toBe(404); services.getMessagingBlob.mockRejectedValue(new Error('private')); await c.messagingDownloadController(req(), res); expect(res.statusCode).toBe(400); expect(res.body).toBe('Attachment unavailable'); });
 
 it('returns a retryable transaction message without exposing database internals',async()=>{services.enrollMessagingDevice.mockRejectedValue(Object.assign(new Error('sensitive database details'),{code:'P2028'}));const res=response();await c.messagingEnrollController(req({body:enrollment}),res);expect(res.statusCode).toBe(503);expect(res.body).toBe('Messaging is temporarily unavailable. Please try again.');});
+
+it('returns signed object grants as JSON and reports configuration errors',async()=>{services.getMessagingBlob.mockResolvedValue({url:'https://private.test/signed'});const res=response();res.set=vi.fn();await c.messagingDownloadController(req(),res);expect(res.body).toEqual({url:'https://private.test/signed'});services.reserveMessagingBlob.mockRejectedValue(Object.assign(new Error('missing'),{code:'MESSAGING_STORAGE_CONFIG'}));await c.messagingReserveController(req({body:{blobId:message,ciphertextBytes:64,ciphertextSha256:Buffer.alloc(32).toString('base64')}}),res);expect(res.statusCode).toBe(503);});

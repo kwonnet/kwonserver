@@ -1,0 +1,1 @@
+{"identities":[{"name":"disposable-test","credentials":[{"accessKey":"disposable-storage","secretKey":"disposable-storage-password"}],"actions":["Admin","Read","Write","List"]}]}

@@ -42,12 +42,14 @@
     "db:extensions": "node scripts/database-analytics.cjs extensions",
     "db:analytics": "node scripts/database-analytics.cjs setup",
     "auth:cleanup": "node scripts/auth-retention.cjs",
-    "topics:evaluate": "node scripts/evaluate-post-topics.cjs"
+    "topics:evaluate": "node scripts/evaluate-post-topics.cjs",
+    "test:messaging:load": "node scripts/test-infrastructure.cjs --messaging-load"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@privacyresearch/libsignal-protocol-typescript": "0.0.16",
     "@types/bcrypt": "6.0.0",
     "@types/cookie-parser": "1.4.10",
     "@types/express": "5.0.6",
@@ -59,11 +61,14 @@
     "@types/web-push": "^3.6.4",
     "@vitest/coverage-v8": "^5.0.3",
     "prisma-json-types-generator": "5.1.1",
+    "socket.io-client": "4.8.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "vitest": "^5.0.3"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1146.0",
+    "@aws-sdk/s3-request-presigner": "3.1146.0",
     "@clickhouse/client": "1.24.0",
     "@faker-js/faker": "10.6.0",
     "@google/genai": "2.27.0",

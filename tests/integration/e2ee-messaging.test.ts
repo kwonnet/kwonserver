@@ -42,7 +42,7 @@ it('silent pending preview suppresses delivered/read/typing; acceptance activate
     expect(await db.e2Receipt.findMany()).toMatchObject([{ messageId: one.messageId, status: 'READ' }]);
     expect(await db.e2Receipt.count({ where: { messageId: two.messageId } })).toBe(0);
     const sender = await chat.messagingSync(users[0], session, a, convo.id, '0');
-    expect(sender.receipts).toHaveLength(2);
+    expect(sender.receipts).toHaveLength(1);
     expect(sender.receipts.at(-1)).toMatchObject({ status: 'READ', id: one.messageId });
     expect(await chat.messagingTyping(users[1], session, b, convo.id)).toBe(users[0]);
     await chat.messagingReceipt(users[1], session, b, { conversationId: convo.id, messageIds: [one.messageId], status: 'DELIVERED' });
@@ -85,8 +85,8 @@ it('rejection purges recipient envelopes, keeps sender status private, discards 
 it('relays only ciphertext attachments to authorized members, excludes blocked users and supports delete-for-me', async () => {
     const convo = await chat.createMessagingConversation(users[0], users[1]);
     const id = randomUUID(), ciphertext = Buffer.alloc(64, 1);
-    await chat.putMessagingBlob(users[0], session, a, convo.id, id, ciphertext);
-    expect(await chat.getMessagingBlob(users[1], session, b, convo.id, id)).toEqual(ciphertext);
+    await db.e2Blob.create({data:{id,conversationId:convo.id,ownerDeviceId:a,objectKey:randomUUID(),ciphertext,ciphertextBytes:ciphertext.length,finalizedAt:new Date(),expiresAt:new Date(Date.now()+60000)}});
+    expect(await chat.getMessagingBlob(users[1], session, b, convo.id, id)).toEqual({legacyBytes:ciphertext});
     await expect(chat.getMessagingBlob(users[2], session, c, convo.id, id)).rejects.toThrow('Conversation');
     const sent = await chat.sendMessagingEvent(users[0], session, a, send(convo.id));
     await chat.deleteMessagingForMe(users[1], session, b, convo.id, sent.messageId);

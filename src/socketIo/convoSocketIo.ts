@@ -1,3 +1,4 @@
+import { subscribeMessagingHints } from '@/services/v1/conversations/live';
 import { validateAuthSession } from '@/services/v1/auth';
 import { registerAuthNamespace } from '@/utils/auth-session-sockets';
 import { getAuthTokenUser } from '@/utils';
@@ -8,7 +9,7 @@ import { Server } from 'socket.io';
 import { randomBytes, createPublicKey, verify } from 'node:crypto';
 import { z } from 'zod/v3';
 import * as messaging from '@/services/v1/conversations';
-import { SendSchema, ReceiptSchema } from '@/services/v1/conversations/e2ee-contracts';
+import { SendSchema, ReceiptSchema, ReceiptBatchSchema, SyncSchema } from '@/services/v1/conversations/e2ee-contracts';
 const uuid = z.string().uuid();
 export default function convoSocketIo(server: Server) {
     const io = server.of('/conversations');
@@ -29,28 +30,20 @@ export default function convoSocketIo(server: Server) {
             next(new Error('Unauthenticated'));
         }
     });
-    const boundDevices = new Map<string, number>();
-    let hintCursor = 0n;
-    let pumping = false;
-    const timer = setInterval(async () => {
-        if (pumping || !boundDevices.size)
-            return;
-        pumping = true;
-        try {
-            const result = await messaging.messagingSocketHints([...boundDevices.keys()], hintCursor);
-            hintCursor = result.cursor;
-            for (const hint of result.hints)
-                io.to(`e2-device:${hint.deviceId}`).emit('message:available', { conversationId: hint.conversationId });
-        }
-        catch (error) {
-            logger.warn({ event: 'messaging_hint_relay_failed', err: safeError(error) }, 'Messaging live hints unavailable; durable sync remains active');
-        }
-        finally {
-            pumping = false;
-        }
-    }, 1000);
-    timer.unref();
-    server.engine.on('close', () => clearInterval(timer));
+    let closing = false;
+    let stop: (() => Promise<void>) | undefined;
+    void subscribeMessagingHints(hints => { for (const hint of hints)
+        io.to(`e2-device:${hint.deviceId}`).emit('message:available', { conversationId: hint.conversationId }); })
+        .then(close => { if (closing)
+        void close();
+    else
+        stop = close; })
+        .catch(err => logger.warn({ event: 'messaging_pubsub_start_failed', err }, 'Live messaging hints unavailable; clients use fallback sync'));
+    const close = () => { if (closing)
+        return; closing = true; if (stop)
+        void stop().catch(err => logger.warn({ event: 'messaging_pubsub_close_failed', err }, 'Messaging subscriber shutdown failed')); };
+    server.engine.on('close', close);
+    server.httpServer?.on('close', close);
     io.on('connection', socket => {
         const user = socket.data.user;
         const challenge = randomBytes(32).toString('base64');
@@ -82,33 +75,26 @@ export default function convoSocketIo(server: Server) {
             if (!verify(null, bytes, pub, Buffer.from(input.signature, 'base64')))
                 throw new messaging.MessagingError(403, 'Invalid device proof');
             if (deviceId) {
-                boundDevices.set(deviceId, Math.max(0, (boundDevices.get(deviceId) ?? 1) - 1));
                 await socket.leave(`e2-device:${deviceId}`);
             }
             deviceId = device.id;
-            boundDevices.set(deviceId, (boundDevices.get(deviceId) ?? 0) + 1);
             await socket.join(`e2-device:${deviceId}`);
             return { deviceId };
         });
-        socket.on('disconnect', () => { if (deviceId) {
-            const n = (boundDevices.get(deviceId) ?? 1) - 1;
-            if (n)
-                boundDevices.set(deviceId, n);
-            else
-                boundDevices.delete(deviceId);
-        } });
-        const bound = () => { if (!deviceId)
-            throw new messaging.MessagingError(403, 'Unlock messaging first'); return deviceId; };
+        const bound = () => {
+            if (!deviceId)
+                throw new messaging.MessagingError(403, 'Unlock messaging first');
+            return deviceId;
+        };
         handle('convo:join', async (body) => { const id = uuid.parse(body.convoId); await messaging.messagingSync(user.id, user.sessionId, bound(), id, '0'); await socket.join(`e2-convo:${id}`); return {}; });
         handle('convo:leave', async (body) => { await socket.leave(`e2-convo:${uuid.parse(body.convoId)}`); return {}; });
         handle('message:send', async (body) => {
             const input = SendSchema.parse(body);
             const result = await messaging.sendMessagingEvent(user.id, user.sessionId, bound(), input);
-            // Hint contains no ciphertext. Device-scoped durable sync is authoritative across API instances.
-            for (const envelope of input.envelopes)
-                io.to(`e2-device:${envelope.recipientDeviceId}`).emit('message:available', { conversationId: input.conversationId });
             return result;
         });
+        handle('messages:sync', async (body) => { const input = SyncSchema.parse(body); return messaging.messagingSync(user.id, user.sessionId, bound(), input.conversationId, input.after, input.receiptAfter); });
+        handle('receipts:batch', async (body) => messaging.messagingReceiptBatch(user.id, user.sessionId, bound(), ReceiptBatchSchema.parse(body)));
         for (const event of ['message:delivered', 'message:read'])
             handle(event, async (body) => messaging.messagingReceipt(user.id, user.sessionId, bound(), ReceiptSchema.parse({ ...body, status: event === 'message:read' ? 'READ' : 'DELIVERED' })));
         for (const event of ['typing:start', 'typing:stop'])

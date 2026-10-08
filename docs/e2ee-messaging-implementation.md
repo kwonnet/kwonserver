@@ -1,6 +1,6 @@
 # How Kwonnet encrypted messaging works
 
-This describes the implemented service in `kwonserver/src/services/v1/conversations`, its existing HTTP controllers/routes and Socket.IO namespace, and the web client under `kwonweb/src/lib/signal`, `src/lib/conversations` and the messages UI. PostgreSQL is the only messaging database. See [deployment notes](e2ee-messaging-deployment.md) for release steps and limits.
+This describes the implemented service in `kwonserver/src/services/v1/conversations`, its existing HTTP controllers/routes and Socket.IO namespace, and the web client under `kwonweb/src/lib/signal`, `src/lib/conversations` and the messages UI. PostgreSQL stores messaging metadata and ciphertext envelopes. Private R2/S3 stores encrypted file bytes, and Redis carries live socket hints. See [deployment notes](e2ee-messaging-deployment.md) for release steps and limits.
 
 ## 1. Overall architecture
 
@@ -37,7 +37,7 @@ flowchart LR
 
 The browser encrypts the message before sending it. The server checks who is sending, which device they enrolled, whether they belong to the conversation, and whether request/block rules permit delivery. PostgreSQL stores an encrypted envelope for each destination device. The receiver downloads only envelopes addressed to their own enrolled device and decrypts them locally.
 
-The Socket.IO hint does not contain message text. Each API instance reads committed relay-outbox records to issue hints. Incremental HTTP polling every three seconds catches up if a hint is lost, a browser reconnects, or another API instance handled the send. Typing travels as an ephemeral socket event rather than a durable message.
+The Socket.IO hint does not contain message text. Committed relay-outbox batches publish hints through Redis to all API instances. Device-bound socket sync is primary; reconnect catch-up and a slower adaptive fallback recover lost hints. Typing travels as an ephemeral socket event rather than a durable message.
 
 The server can see routing IDs, timing, sizes and receipt metadata. It cannot read message text, encrypted actions or attachment secrets. First-use identity trust is not anonymity or key transparency; contacts can compare device fingerprints through a trusted channel.
 
@@ -136,7 +136,7 @@ DELIVERED requires successful decrypt, validation and local storage commit. READ
 flowchart LR
   FILE[File on sender device] --> AES[AES-GCM with fresh 256-bit key and 12-byte nonce]
   AES --> BLOB[Encrypted blob uploaded to private API relay]
-  BLOB --> STORE[(PostgreSQL E2Blob)]
+  BLOB --> STORE[(Private R2 or S3)]
   AES --> SECRET[Key, nonce, blob ID, hash, name and MIME]
   SECRET --> SIGNAL[Descriptor inside encrypted Signal event]
   SIGNAL --> RECV[Receiver decrypts descriptor]
@@ -144,7 +144,7 @@ flowchart LR
   RECV --> CHECK --> MEDIA[Render locally using revocable blob URL]
 ```
 
-File bytes are encrypted before upload. The server stores blob ciphertext; the key, nonce, filename and MIME remain inside the encrypted message. Encryption authenticates the conversation and blob IDs, so moving a file to another context fails. Files are opened explicitly. This implementation uses a private PostgreSQL bytea relay, not a public CDN: 8 MiB per file, ten attachments per event and 100 uploads per device per day.
+File bytes are encrypted before upload. The server stores blob ciphertext; the key, nonce, filename and MIME remain inside the encrypted message. Encryption authenticates the conversation and blob IDs, so moving a file to another context fails. Files are opened explicitly. This implementation uses short-lived authenticated grants to private R2/S3: 8 MiB per file, ten attachments per event and 100 uploads per device per day.
 
 All content-bearing actions use the same encrypted channel:
 
@@ -185,7 +185,8 @@ erDiagram
 | `E2Message`, `E2Envelope` | Logical event IDs, ordered sequence and opaque per-device ciphertext |
 | `E2Receipt`, `E2Outbox` | Monotonic receipt records and transactional socket/catch-up events |
 | `E2PreKeyClaim` | Idempotent prekey claim results |
-| `E2Blob` | Private encrypted attachment bytes |
+| `E2Blob` | Object keys, ciphertext lengths/hashes and lifecycle metadata |
+| Private R2/S3 | Encrypted attachment bytes |
 | Existing `BlockUser` | Blocking policy shared with the rest of the app |
 
 The daily worker removes expired relay records after 90 days. Local history remains until removed on that browser. Device revocation prevents further authenticated delivery to that identity; resetting local messaging revokes the old device before deleting its vault.
@@ -195,3 +196,5 @@ The daily worker removes expired relay records after 90 days. Local history rema
 The application no longer imports Mongoose, opens Mongo connections, maintains Mongo message/session/device models, or uses the old custom X3DH/ratchet implementation. Anonymous-chat routes/components, stale registration wrappers and prototype code have been removed. The retirement migration drops only the seven obsolete SQL messaging tables and old call-status enum; active `E2*` tables remain.
 
 Historical Prisma migrations remain immutable so fresh deployments can replay migration history before applying the retirement migration. No external production Mongo database is deleted by this repository cleanup. Direct messaging is supported; groups, anonymous identities, calls and history/key backup require separate implementations. The implementation has automated validation but is not independently cryptographically audited.
+
+The [scaling guide](messaging/scaling.md) contains storage configuration, counter/batching behavior, migration steps and measured local workload results.

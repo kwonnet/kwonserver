@@ -1,16 +1,19 @@
+const pubsub=vi.hoisted(()=>({subscribe:vi.fn(),stop:vi.fn()}));
+vi.mock('@/services/v1/conversations/live',()=>({subscribeMessagingHints:pubsub.subscribe}));
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { generateKeyPairSync, sign, randomUUID } from 'node:crypto';
 const deps = vi.hoisted(() => ({ validate: vi.fn(), user: vi.fn(), device: vi.fn(), sync: vi.fn(), send: vi.fn(), receipt: vi.fn(), typing: vi.fn(), roster: vi.fn(), hints: vi.fn() }));
 vi.mock('@/services/v1/auth', () => ({ validateAuthSession: deps.validate }));
 vi.mock('@/utils/auth-session-sockets', () => ({ registerAuthNamespace: vi.fn() }));
 vi.mock('@/utils', () => ({ getAuthTokenUser: deps.user }));
-vi.mock('@/services/v1/conversations', () => ({ messagingDevice: deps.device, messagingSync: deps.sync, sendMessagingEvent: deps.send, messagingReceipt: deps.receipt, messagingTyping: deps.typing, messagingRoster: deps.roster, messagingSocketHints: deps.hints, MessagingError: class extends Error {
+vi.mock('@/services/v1/conversations', () => ({ messagingDevice: deps.device, messagingSync: deps.sync, sendMessagingEvent: deps.send, messagingReceipt: deps.receipt, messagingTyping: deps.typing, messagingRoster: deps.roster, messagingReceiptBatch:deps.receipt, MessagingError: class extends Error {
         constructor(public status: number, message: string) { super(message); }
     } }));
 import configure from '@/socketIo/convoSocketIo';
 const deviceId = randomUUID(), conversationId = randomUUID();
 const keys = generateKeyPairSync('ed25519');
 const publicKey = keys.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
+let listener:(hints:any[])=>void;
 let events: Record<string, Function>, middleware: Function, connection: Function, socket: any, io: any, server: any, close: Function;
 beforeEach(() => {
     vi.useFakeTimers();
@@ -29,6 +32,7 @@ beforeEach(() => {
     io = { use: vi.fn(fn => middleware = fn), on: vi.fn((name, fn) => { if (name === 'connection')
             connection = fn; }), to: vi.fn(() => ({ emit: vi.fn() })) };
     server = { of: () => io, engine: { on: vi.fn((_name, fn) => { close = fn; }) } };
+    pubsub.stop.mockResolvedValue(undefined);pubsub.subscribe.mockImplementation(async(fn:any)=>{listener=fn;return pubsub.stop;});
     configure(server);
     connection(socket);
 });
@@ -83,7 +87,6 @@ it('uses the same authorized opaque send path for messages and encrypted actions
         await events[event](payload, ack);
         expect(deps.send).toHaveBeenCalledWith('u', 's', deviceId, payload);
     }
-    expect(io.to).toHaveBeenCalledWith(`e2-device:${deviceId}`);
     await events['message:send']({ ...payload, senderId: 'victim' }, ack);
     expect(ack).toHaveBeenCalledWith({ ok: false, error: 'Unable to process event' });
 });
@@ -111,16 +114,5 @@ it('suppresses typing via server policy, throttles indicators, and emits short-l
     await events['typing:start']({ conversationId }, ack);
     expect(ack).toHaveBeenCalledWith({ ok: true });
 });
-it('replays durable message/receipt hints on every API instance and cleans up its pump', async () => {
-    await bind();
-    deps.hints.mockResolvedValue({ hints: [{ deviceId, conversationId }], cursor: 1n });
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(io.to).toHaveBeenCalledWith(`e2-device:${deviceId}`);
-    deps.hints.mockRejectedValue(new Error('database unavailable'));
-    await vi.advanceTimersByTimeAsync(1000);
-    events.disconnect();
-    await vi.advanceTimersByTimeAsync(1000);
-    close();
-    expect(vi.getTimerCount()).toBe(0);
-});
-it('removes disconnected devices and handles errors even without an ack callback', async () => { events.disconnect(); await events['convo:join']({ convoId: 'bad' }); await bind(); await bind(); events.disconnect(); events.disconnect(); });
+it('relays Redis hints without polling the database and cleans up subscriptions',async()=>{await bind();listener([{deviceId,conversationId}]);expect(io.to).toHaveBeenCalledWith(`e2-device:${deviceId}`);await Promise.resolve();close();expect(pubsub.stop).toHaveBeenCalled();expect(vi.getTimerCount()).toBe(0);});
+it('provides authorized socket catch-up and batched receipts',async()=>{await bind();const ack=vi.fn();await events['messages:sync']({conversationId,after:'1',receiptAfter:'2'},ack);expect(deps.sync).toHaveBeenCalledWith('u','s',deviceId,conversationId,'1','2');await events['receipts:batch']({conversationId,deliveredIds:[],readIds:[deviceId]},ack);expect(deps.receipt).toHaveBeenCalled();await events['convo:join']({convoId:'bad'});});
