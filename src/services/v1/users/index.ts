@@ -72,18 +72,19 @@ export const searchUser = async (query: string) => {
   }
 };
 
-export const searchUsers = async ({ query, limit, page, viewerId = '' }: {
-  query: string; limit: number; page: number; viewerId?: string;
+export const searchUsers = async ({ query, limit, page, viewerId = '', messaging = false }: {
+  query: string; limit: number; page: number; viewerId?: string; messaging?: boolean;
 }) => {
   try {
+    if (messaging && !viewerId) return {data: 'Sign in to search messaging recipients.', status: 401};
     const users = await prisma.user.findMany({
-      where: { status: 'ACTIVE', deletedAt: null, deactivatedAt: null, isPrivate: false,
+      where: { status: 'ACTIVE', deletedAt: null, deactivatedAt: null, ...(messaging ? {} : {isPrivate: false}),
         OR: [{ username: { contains: query.replace(/^[@#]/, ''), mode: 'insensitive' } }, { name: { contains: query.replace(/^[@#]/, ''), mode: 'insensitive' } }],
-        NOT: [{ blockedUsers: { some: { blockedId: viewerId } } }, { blockedBy: { some: { blockerId: viewerId } } }, { mutedBy: { some: { muterId: viewerId } } }],
-      }, select: { id: true, username: true, avatar: true, name: true, bio: true },
+        NOT: [{ blockedUsers: { some: { blockedId: viewerId } } }, { blockedBy: { some: { blockerId: viewerId } } }, ...(messaging ? [{id: viewerId}] : [{ mutedBy: { some: { muterId: viewerId } } }])],
+      }, select: { id: true, username: true, avatar: true, name: true, bio: !messaging },
       orderBy: [{ username: 'asc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit,
     });
-    return { data: users.map(({ id, name, username, avatar, bio }) => ({ id, name, username, avatar, bio })), status: 200 };
+    return { data: users.map(({ id, name, username, avatar, bio }) => ({ id, name, username, avatar, bio: messaging ? null : bio })), status: 200 };
   } catch (serviceError) {
     logServiceError("v1/users/index", "searchUsers", serviceError);
  return { data: 'Unable to search people', status: 500 }; }

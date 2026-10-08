@@ -55,3 +55,22 @@ it.each(['search', 'searches', 'notifications', 'receipts', 'achievements'])('ha
   const result = kind === 'search' ? await service.searchUser('u') : kind === 'searches' ? await service.searchUsers({ query: 'q', page: 1, limit: 10 }) : kind === 'notifications' ? await service.getUserNotifications(user(), { page: 1, limit: 10 }) : kind === 'receipts' ? await service.updateUserNotifications({ recipientId: 'u' }) : await service.getUserAchievements({ userId: 'u', page: 1, limit: 10 } as any);
   expect(result.status).toBe(500); expect(result.data).not.toContain('private');
 });
+
+it('messaging search includes private profiles but excludes self and blocks without exposing private bio', async () => {
+  db.user.findMany.mockResolvedValue([user({isPrivate: true, bio: 'private biography'})]);
+  const result = await service.searchUsers({query: 'ada', page: 1, limit: 20, viewerId: 'viewer', messaging: true});
+  const args = db.user.findMany.mock.calls[0][0];
+  expect(args.where).not.toHaveProperty('isPrivate');
+  expect(args.where).toMatchObject({status: 'ACTIVE', deletedAt: null, deactivatedAt: null});
+  expect(args.where.NOT).toEqual(expect.arrayContaining([
+    {id: 'viewer'}, {blockedUsers: {some: {blockedId: 'viewer'}}}, {blockedBy: {some: {blockerId: 'viewer'}}},
+  ]));
+  expect(args.select.bio).toBe(false);
+  expect((result.data as any[])[0].bio).toBeNull();
+  await service.searchUsers({query: 'ada', page: 1, limit: 20, viewerId: 'viewer'});
+  expect(db.user.findMany.mock.calls[1][0].where.isPrivate).toBe(false);
+});
+it('messaging search requires an authenticated viewer', async () => {
+  expect((await service.searchUsers({query: 'ada', page: 1, limit: 20, messaging: true})).status).toBe(401);
+  expect(db.user.findMany).not.toHaveBeenCalled();
+});

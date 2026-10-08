@@ -65,11 +65,13 @@ export const searchUsersController = async (req: Request, res: Response) => {
       query: z.string().trim().min(1).max(200),
       page: z.coerce.number().int().min(1).max(500).default(1),
       limit: z.coerce.number().int().min(1).max(50).default(20),
+      scope: z.enum(['messaging']).optional(),
     });
-    const { query, limit, page } = await SearchSchema.parseAsync({
-      query: req.query.q, page: req.query.page, limit: req.query.limit,
+    const { query, limit, page, scope } = await SearchSchema.parseAsync({
+      query: req.query.q, page: req.query.page, limit: req.query.limit, scope: req.query.scope,
     });
-    const result = await searchUsers({ query, limit, page, viewerId: req.user?.id });
+    if (scope === 'messaging' && !req.user?.id) return res.status(401).send('Sign in to search messaging recipients.');
+    const result = await searchUsers({ query, limit, page, viewerId: req.user?.id, messaging: scope === 'messaging' });
     return res.status(result.status).send(result.data);
   } catch (error: any) {
     if (error instanceof z.ZodError) {
