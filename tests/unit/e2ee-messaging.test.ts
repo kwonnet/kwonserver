@@ -274,3 +274,12 @@ it('hiding a received message reconciles only its account-scoped counters',async
 it('returns empty folders without profile queries and rejects missing participants',async()=>{db.e2Conversation.findMany.mockResolvedValue([]);expect(await chat.listMessagingConversations('a','chat',1,21)).toEqual([]);db.e2Conversation.findMany.mockResolvedValue([convo]);db.user.findMany.mockResolvedValue([]);await expect(chat.listMessagingConversations('a','chat',1,21)).rejects.toThrow('participant');});
 
 it('publishes private inbox hints even when a thread has been hidden',async()=>{db.$queryRaw.mockResolvedValue([{id:msgId,conversationId:room,targetDeviceId:target,event:'inbox'}]);db.e2Conversation.findMany.mockResolvedValue([{...convo,rejectedAt:new Date()}]);db.blockUser.findMany.mockResolvedValue([]);await chat.dispatchMessagingOutbox();});
+
+it('caps encrypted image upload reservations at 500 KB plus the AES-GCM tag', async () => {
+    const { BlobReserveSchema } = await import('@/services/v1/conversations/e2ee-contracts');
+    const input = { blobId: randomUUID(), ciphertextBytes: 512016, ciphertextSha256: Buffer.alloc(32).toString('base64') };
+    expect(BlobReserveSchema.safeParse(input).success).toBe(true);
+    expect(BlobReserveSchema.safeParse({ ...input, ciphertextBytes: 512017 }).success).toBe(false);
+    await expect(chat.reserveMessagingBlob('a', 's', d, room, { ...input, ciphertextBytes: 512017 })).rejects.toThrow('500 KB');
+    expect(db.e2Blob.create).not.toHaveBeenCalled();
+});

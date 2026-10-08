@@ -187,9 +187,11 @@ async function storeReceiptBatch(tx: Tx, userId: string, deviceId: string, input
     const readIds = new Set(input.readIds), ids = [...new Set([...input.deliveredIds, ...input.readIds])];
     if (!ids.length)
         return;
-    const messages = await tx.e2Message.findMany({ where: { id: { in: ids }, conversationId: input.conversationId, senderDevice: { userId: { not: userId } }, envelopes: { some: { recipientDeviceId: deviceId } } }, select: { id: true, clientId: true, senderDevice: { select: { userId: true } } } });
+    // A newly enrolled device can acknowledge history restored by its account.
+    // E2Delivery proves original account ownership without requiring an old device envelope.
+    const messages = await tx.e2Message.findMany({ where: { id: { in: ids }, conversationId: input.conversationId, senderDevice: { userId: { not: userId } }, OR: [{ envelopes: { some: { recipientDeviceId: deviceId } } }, { deliveries: { some: { userId, hiddenAt: null } } }] }, select: { id: true, clientId: true, senderDevice: { select: { userId: true } } } });
     if (messages.length !== ids.length)
-        throw new MessagingError(403, 'Receipts must refer to messages for this device');
+        throw new MessagingError(403, 'Receipts must refer to messages for this account or device');
     const [existing, deliveries, devices] = await Promise.all([
         tx.e2Receipt.findMany({ where: { messageId: { in: ids }, recipientDeviceId: deviceId } }),
         tx.e2Delivery.findMany({ where: { messageId: { in: ids }, userId, hiddenAt: null } }),
@@ -294,6 +296,8 @@ export async function reserveMessagingBlob(userId: string, sessionId: string, de
     ciphertextBytes: number;
     ciphertextSha256: string;
 }) {
+    if (!Number.isSafeInteger(input.ciphertextBytes) || input.ciphertextBytes < 16 || input.ciphertextBytes > 500 * 1024 + 16)
+        throw new MessagingError(400, 'Messaging images must be no larger than 500 KB');
     objects.requireMessagingStorage();
     const blob = await db.$transaction(async (tx) => {
         await messagingDevice(userId, sessionId, deviceId, tx);

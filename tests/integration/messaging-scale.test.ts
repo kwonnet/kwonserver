@@ -51,3 +51,16 @@ it('publishes durable hints to subscribers on multiple API instances',async()=>{
  const first:any[]=[],second:any[]=[];const closeA=await subscribeMessagingHints(h=>first.push(...h)),closeB=await subscribeMessagingHints(h=>second.push(...h));
  try{const c=await chat.createMessagingConversation(users[0],users[1]);await message(c.id);for(let i=0;i<30&&!first.length;i++)await new Promise(r=>setTimeout(r,20));expect(first).toEqual(expect.arrayContaining([{conversationId:c.id,deviceId:b}]));expect(second).toEqual(expect.arrayContaining([{conversationId:c.id,deviceId:b}]));}finally{await closeA();await closeB();}
 });
+it('a later device acknowledges restored account history without getting historical ciphertext or acknowledging another account',async()=>{
+ const c=await chat.createMessagingConversation(users[0],users[1]);
+ const row=await message(c.id);
+ const later=randomUUID();await chat.enrollMessagingDevice(users[1],'s',enrollment(later,4));
+ expect((await chat.messagingSync(users[1],'s',later,c.id,'0')).messages).toEqual([]);
+ expect(await chat.messagingReceiptBatch(users[1],'s',later,{conversationId:c.id,deliveredIds:[],readIds:[row.messageId]})).toEqual({suppressed:true});
+ await chat.resolveMessagingRequest(users[1],'s',later,c.id,{action:'accept',deliveredIds:[row.messageId],readIds:[row.messageId]});
+ expect(await db.e2Member.findUnique({where:{conversationId_userId:{conversationId:c.id,userId:users[1]}}})).toMatchObject({unreadCount:0,unseenCount:0});
+ expect(await db.e2Receipt.findUnique({where:{messageId_recipientDeviceId:{messageId:row.messageId,recipientDeviceId:later}}})).toMatchObject({status:'READ'});
+ await expect(chat.messagingReceiptBatch(users[0],'s',a,{conversationId:c.id,deliveredIds:[],readIds:[row.messageId]})).rejects.toThrow('Receipts');
+ await chat.messagingReceiptBatch(users[1],'s',b,{conversationId:c.id,deliveredIds:[],readIds:[row.messageId]});
+ expect(await db.e2Member.findUnique({where:{conversationId_userId:{conversationId:c.id,userId:users[1]}}})).toMatchObject({unreadCount:0,unseenCount:0});
+});

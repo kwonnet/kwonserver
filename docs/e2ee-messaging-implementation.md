@@ -82,7 +82,7 @@ Each browser is a separate device. The vault key is random; the messaging passph
 
 New sessions use the installed Signal library's classical prekey exchange and Double Ratchet. A one-time public prekey is atomically claimed once. If none remain, the library uses the signed-prekey fallback. Public prekeys replenish and signed prekeys rotate on unlock; old private signed prekeys are retained for delayed messages for up to 90 days. Successfully consumed private one-time prekeys are removed as part of the decrypt commit.
 
-Existing sessions skip new bundle claims. The sender encrypts to every active peer device and to their other enrolled devices. New devices receive future messages; this does not transfer historical keys. An account password reset cannot recover a forgotten messaging passphrase.
+Existing sessions skip new bundle claims. The sender encrypts to every active peer device and to their other enrolled devices. New devices receive future messages automatically. Older locally loaded history can be exported and restored through Messaging devices → Transfer older messages; device keys and live ratchet sessions never transfer. An account password reset cannot recover a forgotten messaging passphrase.
 
 ## 3. Message requests and silent previews
 
@@ -144,7 +144,7 @@ flowchart LR
   RECV --> CHECK --> MEDIA[Render locally using revocable blob URL]
 ```
 
-File bytes are encrypted before upload. The server stores blob ciphertext; the key, nonce, filename and MIME remain inside the encrypted message. Encryption authenticates the conversation and blob IDs, so moving a file to another context fails. Files are opened explicitly. This implementation uses short-lived authenticated grants to private R2/S3: 8 MiB per file, ten attachments per event and 100 uploads per device per day.
+File bytes are encrypted before upload. The server stores blob ciphertext; the key, nonce, filename and MIME remain inside the encrypted message. Encryption authenticates the conversation and blob IDs, so moving a file to another context fails. Files are opened explicitly. Existing attachments remain readable; new videos, audio, documents and SVG uploads are disabled. The client checks image signatures before encryption; the relay checks ciphertext length (500 KiB plus the 16-byte AES-GCM tag) without seeing the MIME or plaintext. This implementation uses short-lived authenticated grants to private R2/S3: 500 KiB per new image (PNG, JPEG or WebP only), ten attachments per event and 100 uploads per device per day.
 
 All content-bearing actions use the same encrypted channel:
 
@@ -195,6 +195,34 @@ The daily worker removes expired relay records after 90 days. Local history rema
 
 The application no longer imports Mongoose, opens Mongo connections, maintains Mongo message/session/device models, or uses the old custom X3DH/ratchet implementation. Anonymous-chat routes/components, stale registration wrappers and prototype code have been removed. The retirement migration drops only the seven obsolete SQL messaging tables and old call-status enum; active `E2*` tables remain.
 
-Historical Prisma migrations remain immutable so fresh deployments can replay migration history before applying the retirement migration. No external production Mongo database is deleted by this repository cleanup. Direct messaging is supported; groups, anonymous identities, calls and history/key backup require separate implementations. The implementation has automated validation but is not independently cryptographically audited.
+Historical Prisma migrations remain immutable so fresh deployments can replay migration history before applying the retirement migration. No external production Mongo database is deleted by this repository cleanup. Direct messaging and passphrase-encrypted portable history snapshots are supported; groups, anonymous identities, calls and automatic cloud/key backup require separate implementations. The implementation has automated validation but is not independently cryptographically audited.
 
 The [scaling guide](messaging/scaling.md) contains storage configuration, counter/batching behavior, migration steps and measured local workload results.
+
+
+## Restoring older messages on a new browser
+
+1. On an existing browser, unlock messaging and open the chats whose history you want to transfer. Export includes authenticated history already stored locally, not unsent queues or failed decryptions.
+2. Open **Messaging devices → Export history**, choose and confirm a separate transfer passphrase (12–1024 characters), and download the encrypted JSON file.
+3. Transfer the file to the new browser. Sign into the same account and set up its own messaging device/passphrase.
+4. Open **Messaging devices → Restore history**, select the file, and enter the transfer passphrase. Opening a restored chat projects text, replies, reactions, edits and signed deletion events from the restored event log.
+
+```mermaid
+sequenceDiagram
+  participant Old as Existing unlocked browser
+  participant File as Encrypted transfer file
+  participant New as New unlocked browser
+  participant Relay as PostgreSQL / relay
+  Old->>Old: Snapshot authenticated events + hidden IDs
+  Old->>File: Argon2id + AES-256-GCM seal
+  Note over File: No private identities, ratchets, cursors or retry queues
+  File->>New: Select file and provide transfer passphrase
+  New->>New: Authenticate account, schema and deletion signatures
+  New->>New: Atomic merge into its own encrypted IndexedDB vault
+  New->>Relay: Normal receipts for restored IDs when accepted/viewed
+  Relay->>Relay: Validate original recipient account; decrement once
+```
+
+The archive uses a fresh 16-byte salt, Argon2id (3 operations, 64 MiB), a fresh 12-byte AES-GCM nonce and account-bound authenticated data. Schema validation, account checks, signed deletion verification, immutable event conflict checks and a single atomic vault commit protect restoration. Existing records, sessions, cursors and newer receipts remain intact. Hidden IDs merge by union. Files are capped at 48 MiB, decrypted snapshots at 32 MiB and 50,000 events; oversized exports fail explicitly.
+
+This is a portable snapshot, not automatic device synchronization or recovery from the server. Without a saved export or an unlocked device, older plaintext cannot be recovered. Keep the file and its passphrase separately. Snapshots reflect deletion/hiding state at export time; later changes require a fresh export or live catch-up. Attachment descriptors and keys are restored, but encrypted media blobs are not embedded: original private objects must remain available and authorized, and the 90-day relay/object retention policy still applies. The recipient account can acknowledge restored message IDs still present in the relay; pending-request preview remains silent, acceptance activates receipts, and counters remain account-wide. Expired relay messages can be displayed from local history but cannot acquire new server receipts.

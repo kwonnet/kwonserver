@@ -10,5 +10,5 @@ export type SendInput = z.infer<typeof SendSchema>;
 export type ReceiptInput = z.infer<typeof ReceiptSchema>;
 export const ReceiptBatchSchema = z.object({ conversationId: id, deliveredIds: z.array(id).max(100).default([]), readIds: z.array(id).max(100).default([]) }).strict().refine(value => new Set([...value.deliveredIds, ...value.readIds]).size <= 100, 'At most 100 receipt IDs per batch');
 export type ReceiptBatchInput = z.infer<typeof ReceiptBatchSchema>;
-export const BlobReserveSchema = z.object({ blobId: id, ciphertextBytes: z.number().int().min(16).max(8388624), ciphertextSha256: z.string().regex(/^[A-Za-z0-9+/]{43}=$/) }).strict();
+export const BlobReserveSchema = z.object({ blobId: id, ciphertextBytes: z.number().int().min(16).max(512016), ciphertextSha256: z.string().regex(/^[A-Za-z0-9+/]{43}=$/) }).strict();
 export const SyncSchema = z.object({ conversationId: id, after: z.string().regex(/^\d{1,19}$/).default('0'), receiptAfter: z.string().regex(/^\d{1,19}$/).default('0') }).strict();
