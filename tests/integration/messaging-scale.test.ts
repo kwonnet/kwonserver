@@ -49,7 +49,7 @@ it('migrates old encrypted blob bytes without changing their encrypted descripto
 });
 it('publishes durable hints to subscribers on multiple API instances',async()=>{
  const first:any[]=[],second:any[]=[];const closeA=await subscribeMessagingHints(h=>first.push(...h)),closeB=await subscribeMessagingHints(h=>second.push(...h));
- try{const c=await chat.createMessagingConversation(users[0],users[1]);await message(c.id);for(let i=0;i<100&&(!first.some(h=>h.conversationId===c.id&&h.deviceId===b)||!second.some(h=>h.conversationId===c.id&&h.deviceId===b));i++)await new Promise(r=>setTimeout(r,20));expect(first).toEqual(expect.arrayContaining([{conversationId:c.id,deviceId:b}]));expect(second).toEqual(expect.arrayContaining([{conversationId:c.id,deviceId:b}]));}finally{await closeA();await closeB();}
+ try{const c=await chat.createMessagingConversation(users[0],users[1]);await message(c.id);for(let i=0;i<100&&(!first.some(h=>h.conversationId===c.id&&h.deviceId===b)||!second.some(h=>h.conversationId===c.id&&h.deviceId===b));i++)await new Promise(r=>setTimeout(r,20));expect(first,JSON.stringify(await db.e2Outbox.findMany({where:{conversationId:c.id},select:{event:true,publishedAt:true,leaseUntil:true,availableAt:true,attempts:true}}))).toEqual(expect.arrayContaining([{conversationId:c.id,deviceId:b}]));expect(second).toEqual(expect.arrayContaining([{conversationId:c.id,deviceId:b}]));}finally{await closeA();await closeB();}
 });
 it('a later device acknowledges restored account history without getting historical ciphertext or acknowledging another account',async()=>{
  const c=await chat.createMessagingConversation(users[0],users[1]);
@@ -109,4 +109,17 @@ it('allows one pending request across sender devices, keeps exact retries idempo
  await chat.resolveMessagingRequest(users[1],'s',b,c.id,{action:'accept',deliveredIds:[],readIds:[]});
  expect(await db.e2Outbox.count({where:{conversationId:c.id,targetDeviceId:a,event:'inbox'}})).toBeGreaterThan(0);
  expect(await chat.sendMessagingEvent(users[0],'s',a,{...input,clientId:randomUUID()})).toMatchObject({status:'SENT'});
+});
+
+it('preloads only the authenticated session device ciphertext for server rendering',async()=>{
+ const c=await chat.createMessagingConversation(users[0],users[1]),sent=await message(c.id);
+ const owner=await chat.messagingPeer(users[0],users[1],'s');
+ expect(owner.initialSync).toMatchObject({userId:users[0],deviceId:a,result:{messages:[{id:sent.messageId,ownDevice:true}]}});
+ const recipient=await chat.messagingPeer(users[1],users[0],'s');
+ expect(recipient.initialSync?.userId).toBe(users[1]);
+ expect([b,b2]).toContain(recipient.initialSync?.deviceId);
+ expect(recipient.initialSync?.result.messages[0]).toMatchObject({id:sent.messageId,toDeviceId:recipient.initialSync?.deviceId,fromUserId:users[0]});
+ expect((await chat.messagingPeer(users[1],users[0],'unrelated-session')).initialSync).toBeUndefined();
+ expect((await chat.messagingPeer(users[1],users[0])).initialSync).toBeUndefined();
+ expect(JSON.stringify(recipient.initialSync)).not.toMatch(/privKey|privateKey|wrappedKey|passphrase/);
 });

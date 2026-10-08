@@ -42,7 +42,7 @@ export const messagingListController = messagingController((req, u) => {
 export const messagingPeerController = messagingController((req, u) => {
     if (u.id !== req.params.id)
         throw new messaging.MessagingError(403, 'Not permitted');
-    return messaging.messagingPeer(u.id, String(req.params.recipientId));
+    return messaging.messagingPeer(u.id, String(req.params.recipientId), u.sessionId);
 });
 export const messagingSendController = messagingController((req, u) => messaging.sendMessagingEvent(u.id, session(u), device(req), SendSchema.parse(req.body)));
 export const messagingSyncController = messagingController((req, u) => messaging.messagingSync(u.id, session(u), device(req), UUID.parse(req.params.id), z.string().regex(/^\d{1,20}$/).parse(req.query.after ?? '0'), z.string().regex(/^\d{1,20}$/).parse(req.query.receiptAfter ?? '0')));

@@ -130,10 +130,17 @@ export async function listMessagingConversations(userId: string, kind: string, p
     return rows.map(c => { const dto = messagingConversationDTO(c, userId), a = users.get(c.initiatorId), b = users.get(c.approverId); if (!a || !b)
         throw new MessagingError(404, 'Conversation participant unavailable'); return { ...dto, initiator: { ...dto.initiator, user: a }, responder: { ...dto.responder, user: b } }; });
 }
-export async function messagingPeer(userId: string, recipientId: string) {
+export async function messagingPeer(userId: string, recipientId: string, sessionId?: string) {
     const pairKey = digest(['kwonnet-direct-v2', ...[userId, recipientId].sort()]).toString('hex');
-    const c = await db.e2Conversation.findUnique({ where: { pairKey }, include: { members: true } });
-    return { recipient: await getPublicUser(recipientId), recipientDevices: await messagingRoster(userId, recipientId), convo: c ? messagingConversationDTO(c, userId) : undefined, messages: [] };
+    const [c, recipient, recipientDevices, ownDevice] = await Promise.all([
+        db.e2Conversation.findUnique({ where: { pairKey }, include: { members: true } }),
+        getPublicUser(recipientId), messagingRoster(userId, recipientId),
+        sessionId ? db.e2Device.findFirst({ where: { userId, sessionId, revokedAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true } }) : Promise.resolve(null),
+    ]);
+    // Only the authenticated session's enrolled device may receive a server preload.
+    // Its browser still verifies device identity and decrypts with its local keys.
+    const initialSync = c && ownDevice && sessionId ? { userId, deviceId: ownDevice.id, result: await messagingSync(userId, sessionId, ownDevice.id, c.id, '0', '0') } : undefined;
+    return { recipient, recipientDevices, convo: c ? messagingConversationDTO(c, userId) : undefined, messages: [], initialSync };
 }
 export async function sendMessagingEvent(userId: string, sessionId: string, deviceId: string, input: SendInput) {
     const result = await db.$transaction(async (tx) => {
