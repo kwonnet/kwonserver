@@ -218,7 +218,7 @@ it('Google registration and the login event share one trusted location lookup', 
 });
 
 it('loads account settings for the authenticated owner and handles failure', async () => {
- deps.account.mockResolvedValue({username: 'owner', hasPassword: true}); const res = response(); await accountSettingsController({user: {id: 'owner'}} as any, res); expect(deps.account).toHaveBeenCalledWith('owner');
+ deps.account.mockResolvedValue({username: 'owner', hasPassword: true}); const res = response(); await accountSettingsController({user: {id: 'owner'}} as any, res); expect(deps.account).toHaveBeenCalledWith('owner', undefined);
  deps.account.mockRejectedValue(new Error('private')); await accountSettingsController({user: {id: 'owner'}} as any, res); expect(res.statusCode).toBe(503);
 });
 it('validates password updates and binds the active session to the authenticated owner', async () => {

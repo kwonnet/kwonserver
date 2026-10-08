@@ -11,7 +11,7 @@ beforeEach(() => {
  deps.compare.mockResolvedValueOnce(true).mockResolvedValueOnce(false); deps.hash.mockResolvedValue('new-hash');
  deps.db.$transaction.mockImplementation(fn => fn(deps.db)); deps.db.userSession.findMany.mockResolvedValue([{id: 'other'}]);
 });
-it('returns safe account settings without the password hash', async () => {expect(await getAccountSettings('owner')).toEqual({username: 'owner', hasPassword: true});});
+it('returns safe account settings without the password hash', async () => {expect(await getAccountSettings('owner')).toEqual({username: 'owner', hasPassword: true, passwordSetupVerifiedUntil: null});});
 it('updates a verified password atomically and revokes only other sessions', async () => {
  expect(await updateAccountPassword('owner', 'current', {currentPassword: 'correct', newPassword: 'new-password'})).toEqual({status: 200, data: {updated: true, reloginRequired: false}});
  expect(deps.db.user.update).toHaveBeenCalledWith({where: {id: 'owner'}, data: {password: 'new-hash', passwordChangedAt: expect.any(Date)}});
@@ -48,3 +48,21 @@ it('revokes all tracked sessions when a legacy token has no current session ID',
  expect(deps.db.userSession.findMany).toHaveBeenCalledWith({where: {userId: 'owner', revokedAt: null}, select: {id: true}});
 });
 it.each([{newPassword: 'short'}, {newPassword: 'x'.repeat(33)}, {newPassword: '🔒'.repeat(20)}, {newPassword: 'valid-password', userId: 'another'}])('rejects invalid or spoofed password inputs %j', input => {expect(PasswordUpdateSchema.safeParse(input).success).toBe(false);});
+
+it.each([undefined, 'current'])('does not show verification for a missing or ineligible session %s', async sessionId => {
+ deps.db.user.findUniqueOrThrow.mockResolvedValue({username: 'owner', password: null, googleSubject: 'sub'});
+ deps.db.userSession.findFirst.mockResolvedValue(null);
+ expect((await getAccountSettings('owner', sessionId)).passwordSetupVerifiedUntil).toBeNull();
+});
+it('requires a linked Google identity for first password verification', async () => {
+ deps.db.user.findUniqueOrThrow.mockResolvedValue({username: 'owner', password: null, googleSubject: null});
+ expect((await getAccountSettings('owner', 'current')).passwordSetupVerifiedUntil).toBeNull();
+ expect(deps.db.userSession.findFirst).not.toHaveBeenCalled();
+});
+it('reports the authenticated Google verification expiry without leaking its identity', async () => {
+ const createdAt = new Date();
+ deps.db.user.findUniqueOrThrow.mockResolvedValue({username: 'owner', password: null, googleSubject: 'private-sub'});
+ deps.db.userSession.findFirst.mockResolvedValue({createdAt});
+ expect(await getAccountSettings('owner', 'current')).toEqual({username: 'owner', hasPassword: false, passwordSetupVerifiedUntil: new Date(createdAt.getTime() + 300000).toISOString()});
+ expect(deps.db.userSession.findFirst).toHaveBeenCalledWith(expect.objectContaining({where: expect.objectContaining({id: 'current', userId: 'owner', provider: 'GOOGLE', revokedAt: null, events: {some: {provider: 'GOOGLE', kind: 'SIGN_IN'}}})}));
+});

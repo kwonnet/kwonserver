@@ -421,9 +421,10 @@ export async function sessionProvider(userId: string, id: string) {
   return session.provider;
 }
 
-export async function getAccountSettings(userId: string) {
-  const user = await prisma.user.findUniqueOrThrow({where: {id: userId}, select: {username: true, password: true}});
-  return {username: user.username, hasPassword: !!user.password};
+export async function getAccountSettings(userId: string, sessionId?: string) {
+  const user = await prisma.user.findUniqueOrThrow({where: {id: userId}, select: {username: true, password: true, googleSubject: true}});
+  const recent = !user.password && sessionId && user.googleSubject && await prisma.userSession.findFirst({where: {id: sessionId, userId, provider: 'GOOGLE', revokedAt: null, expiresAt: {gt: new Date()}, createdAt: {gte: new Date(Date.now() - 5 * 60_000)}, events: {some: {provider: 'GOOGLE', kind: 'SIGN_IN'}}}, select: {createdAt: true}});
+  return {username: user.username, hasPassword: !!user.password, passwordSetupVerifiedUntil: recent ? new Date(recent.createdAt.getTime() + 5 * 60_000).toISOString() : null};
 }
 export async function updateAccountPassword(userId: string, sessionId: string | undefined, input: {currentPassword?: string; newPassword: string}) {
   const user = await prisma.user.findUnique({where: {id: userId}, select: {password: true, googleSubject: true}});

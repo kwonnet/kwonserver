@@ -221,7 +221,7 @@ export const guardAuthStream = (req: Request, res: Response, next: import('expre
 
 export const accountSettingsController = async (req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'private, no-store');
-  try {return res.json(await getAccountSettings(req.user!.id));}
+  try {return res.json(await getAccountSettings(req.user!.id, req.user!.sessionId));}
   catch {return res.status(503).json({error: 'Account settings unavailable'});}
 };
 export const passwordUpdateController = async (req: Request, res: Response) => {
