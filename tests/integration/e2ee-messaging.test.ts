@@ -31,15 +31,19 @@ it('prekey claims are single-use under contention, idempotent and public-only', 
 it('silent pending preview suppresses delivered/read/typing; acceptance activates only exact processed IDs', async () => {
     const convo = await chat.createMessagingConversation(users[0], users[1]);
     const one = await chat.sendMessagingEvent(users[0], session, a, send(convo.id));
-    const two = await chat.sendMessagingEvent(users[0], session, a, send(convo.id));
+    await expect(chat.sendMessagingEvent(users[0], session, a, send(convo.id))).rejects.toThrow('accepted');
     const preview = await chat.messagingSync(users[1], session, b, convo.id, '0');
-    expect(preview.messages).toHaveLength(2);
+    expect(preview.messages).toHaveLength(1);
     expect(await chat.messagingReceipt(users[1], session, b, { conversationId: convo.id, messageIds: [one.messageId], status: 'READ' })).toEqual({ suppressed: true });
     expect(await db.e2Receipt.count()).toBe(0);
     expect(await chat.messagingTyping(users[1], session, b, convo.id)).toBeNull();
     await expect(chat.resolveMessagingRequest(users[0], session, a, convo.id, { action: 'accept', deliveredIds: [], readIds: [] })).rejects.toThrow('Request unavailable');
+    await expect(chat.resolveMessagingRequest(users[1], session, b, convo.id, { action: 'accept', deliveredIds: [one.messageId, randomUUID()], readIds: [one.messageId] })).rejects.toThrow('Receipts');
+    expect((await chat.messagingSync(users[1], session, b, convo.id, '0')).conversation.state).toBe('PENDING_REQUEST');
+    expect(await db.e2Receipt.count()).toBe(0);
     await chat.resolveMessagingRequest(users[1], session, b, convo.id, { action: 'accept', deliveredIds: [one.messageId], readIds: [one.messageId] });
     expect(await db.e2Receipt.findMany()).toMatchObject([{ messageId: one.messageId, status: 'READ' }]);
+    const two = await chat.sendMessagingEvent(users[0], session, a, send(convo.id));
     expect(await db.e2Receipt.count({ where: { messageId: two.messageId } })).toBe(0);
     const sender = await chat.messagingSync(users[0], session, a, convo.id, '0');
     expect(sender.receipts).toHaveLength(1);
@@ -68,6 +72,8 @@ it('keeps exact ciphertext retries idempotent and rejects changed bytes or inval
     expect(await chat.sendMessagingEvent(users[0], session, a, input)).toEqual(one);
     expect(await db.e2Message.count()).toBe(1);
     await expect(chat.sendMessagingEvent(users[0], session, a, { ...input, envelopes: [{ ...input.envelopes[0], ciphertextB64: Buffer.alloc(64, 8).toString('base64') }] })).rejects.toThrow('different ciphertext');
+    await expect(chat.sendMessagingEvent(users[0], session, a, send(convo.id))).rejects.toThrow('accepted');
+    await chat.resolveMessagingRequest(users[1], session, b, convo.id, { action: 'accept', deliveredIds: [], readIds: [] });
     await expect(chat.sendMessagingEvent(users[0], session, a, { ...send(convo.id), envelopes: [{ ...input.envelopes[0], recipientDeviceId: c }] })).rejects.toThrow('roster');
 });
 it('rejection purges recipient envelopes, keeps sender status private, discards later sends and persists block policy', async () => {
