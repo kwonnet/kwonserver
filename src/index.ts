@@ -9,7 +9,6 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import v1Routes from "./routes/v1";
-import { startMongodb } from "./db/mongodb";
 import gameSocketIo from "./socketIo/gameSocketIo";
 import convoSocketIo from "./socketIo/convoSocketIo";
 import { bigintConverterMiddleware } from "./middleware";
@@ -63,8 +62,6 @@ server.listen(port, () => {
   logger.info({event:'server_started',port},'API server listening');
   // Warm the existing geo database in the background, outside the login deadline.
   void ipLookup.warmup();
-  // start mongo db
-  startMongodb();
   // start cron jobs
   void startCronJobs().catch(error => {
     logger.error({event:'worker_startup_failed',err:error},'Background job startup failed');

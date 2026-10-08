@@ -1,11 +1,11 @@
 # Integrated encrypted messaging
 
-Signal v2 now backs the existing `/v1/conversations` HTTP module, `/conversations` Socket.IO namespace and web messages UI. PostgreSQL is the relay's authoritative store. The old MongoDB collections remain untouched for archival purposes; old homemade-ratchet ciphertext is not converted to Signal or served as new messages. Deploy API and web together: outdated messaging clients receive an upgrade response.
+Signal v2 now backs the existing `/v1/conversations` HTTP module, `/conversations` Socket.IO namespace and web messages UI. PostgreSQL is the relay's authoritative store. The Mongo runtime, models, dependencies and old crypto paths have been removed. Old ciphertext is not converted to Signal. Deploy API and web together: retired endpoints have been removed and outdated clients must update.
 
 ## Deployment
 
-1. Back up PostgreSQL and the existing Mongo chat archive.
-2. Generate the Prisma client and run the normal release migration step (`npm run db:deploy`). The additive migration `20261008040000_e2ee_messaging` creates device, public prekey, conversation membership, ciphertext envelope, receipt and relay outbox tables.
+1. Back up PostgreSQL before applying the legacy-table removal migration. This repository no longer connects to Mongo. Existing external Mongo databases are not deleted by this code change.
+2. Generate the Prisma client and run the normal release migration step (`npm run db:deploy`). Migration `20261008040000_e2ee_messaging` creates the active E2 tables. Migration `20261008050000_remove_legacy_messaging` drops the seven obsolete SQL messaging tables and their old call-status enum. It does not touch active E2 data.
 3. Deploy the API, existing background worker, and web client. The daily `clean_messaging_retention` recurring job purges expired relay records. No additional environment variables are required; existing PostgreSQL, authenticated session, application origin, and worker/Redis settings apply.
 4. Check credential/Google login, then visit Messages. Each browser creates its own identity after the user chooses a messaging passphrase of at least 12 characters. Returning users unlock with that passphrase. The account password and messaging passphrase are independent.
 5. Test a first message between non-mutual contacts: request appears only in the receiver's Requests folder; preview causes no typing, delivered or read notification to the sender. Accept moves the thread to the main inbox and acknowledges actual processed/visible IDs. Reject hides the receiver's thread and discards payloads; block also writes the existing blocking policy.
@@ -24,4 +24,4 @@ Signal v2 now backs the existing `/v1/conversations` HTTP module, `/conversation
 - Ciphertext, receipts, attachment bytes and prekey claims have 90-day relay retention; local keys/cache remain on the browser until explicitly cleared. Signed prekeys rotate on unlock after 30 days; old private signed prekeys remain locally for up to 90 days for delayed messages. Private one-time prekeys are removed only after successful ratchet decrypt and storage commit.
 - No email/OS push content is generated for E2EE messages. The service cannot construct a plaintext preview. It still observes account/device identities, recipient sets, timing and ciphertext sizes. “Silent preview” means no sender-facing status/presence events under an honest relay, not anonymity from the relay or network.
 
-Direct one-to-one messages are supported. Group messaging, anonymous identities, calls, cross-device history transfer, cloud key backup and post-quantum Signal are separate protocols, not silently claimed by this implementation. The old anonymous UI has been replaced with an explicit unavailable notice rather than using incompatible legacy encryption.
+Direct one-to-one messages are supported. Group messaging, anonymous identities, calls, cross-device history transfer, cloud key backup and post-quantum Signal are separate protocols, not silently claimed by this implementation. Anonymous messaging routes, UI controls and obsolete crypto code have been removed.

@@ -104,3 +104,16 @@ it('does not replace device identities or reset consumed prekeys during reenroll
     await expect(chat.enrollMessagingDevice(users[1], session, input)).rejects.toThrow('identity');
     await expect(chat.enrollMessagingDevice(users[0], session, { ...input, identityPublic: Buffer.alloc(33, 9).toString('base64') })).rejects.toThrow('identity');
 });
+
+it('enrolls fifty prekeys atomically and retries without republishing consumed keys',async()=>{
+ const id=randomUUID();const input={...bundle(id,4),preKeys:Array.from({length:50},(_,i)=>({keyId:i+1,publicKey:Buffer.alloc(33,i+1).toString('base64')}))};
+ await chat.enrollMessagingDevice(users[0],session,input);
+ expect(await db.e2OneTimePreKey.count({where:{deviceId:id}})).toBe(50);
+ const claimed=await chat.claimMessagingPreKey(users[1],session,b,id,randomUUID()) as any;
+ await chat.enrollMessagingDevice(users[0],session,input);
+ expect(await db.e2OneTimePreKey.count({where:{deviceId:id}})).toBe(50);
+ expect(await db.e2OneTimePreKey.count({where:{deviceId:id,claimedAt:null}})).toBe(49);
+ const conflicting={...input,preKeys:input.preKeys.map(k=>k.keyId===claimed.preKey.keyId?{...k,publicKey:Buffer.alloc(33,99).toString('base64')}:k)};
+ await expect(chat.enrollMessagingDevice(users[0],'changed-session',conflicting)).rejects.toThrow('Prekey ID cannot be reused');
+ expect((await db.e2Device.findUniqueOrThrow({where:{id}})).sessionId).toBe(session);
+});

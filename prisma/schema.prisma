@@ -139,9 +139,6 @@ model User {
   profileVisits    ProfileVisit[]    @relation("Visitor")
   profileVisitors  ProfileVisit[]
   mediaPostLogs    PostMediaLog[]
-  convoDevices     ConvoDevice[]   
-  convoMemberships ConvoMembership[]
-  convoMessages    ConvoMessage[]
   sharePosts       PostShare[]
 
   @@index([name])
@@ -149,110 +146,6 @@ model User {
   @@index([phone])
   @@index([username])
   @@index([createdAt])
-}
-
-model ConvoDevice {
-  id                String   @id @default(cuid())
-  userId            String
-  user              User     @relation(fields: [userId], references: [id])
-  // E2E keys — public material only
-  identityKeyPub    Bytes    // Curve25519 public key
-  signedPrekeyPub   Bytes
-  oneTimePrekeys    OneTimePrekey[]
-  meta              Json?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-}
-
-model OneTimePrekey {
-  id         String       @id @default(cuid())
-  deviceId   String
-  device     ConvoDevice  @relation(fields: [deviceId], references: [id])
-  keyPub     Bytes
-  consumed   Boolean      @default(false)
-  createdAt  DateTime     @default(now())
-}
-
-model Conversation {
-  id            String        @id @default(cuid())
-  // one-on-one only in this starter
-  memberships   ConvoMembership[]
-  messages      ConvoMessage[]
-  callLogs      CallLog[]
-
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-}
-
-model ConvoMembership {
-  id              String        @id @default(cuid())
-
-  conversationId  String
-  conversation    Conversation  @relation(fields: [conversationId], references: [id])
-
-  userId          String        @unique
-  user            User          @relation(fields: [userId], references: [id])
-  // Stores encrypted shared secret material sealed to device keys if you want multi-device support
-  // For simple single-device use, derive per-message keys from a root via a ratchet and do not store here.
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-}
-
-model ConvoMessage {
-  id              String        @id @default(cuid())
-  // ciphertext & metadata
-  cipherText      Bytes
-  nonce           Bytes
-  // optional additional data (JSON) e.g., mime type, file ref, thumbnails – encrypted separately if sensitive
-  metaEnc         Bytes?
-  // plaintext preview/safety not stored — keep server blind
-  conversationId  String
-  conversation    Conversation  @relation(fields: [conversationId], references: [id])
-
-  senderId        String
-  sender          User          @relation(fields: [senderId], references: [id])
-
-  attachments     Attachment[]
-
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-
-}
-
-model Attachment {
-  id         String        @id @default(cuid())
-  messageId  String
-  message    ConvoMessage  @relation(fields: [messageId], references: [id])
-  // store blobs externally, server holds only opaque IDs/paths
-  storageKey String   // e.g., S3 key or file path
-  cipherKey  Bytes    // encrypted file key (sealed to recipient devices)
-  mimeType   String
-  size       Int
-
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-}
-
-model CallLog {
-  id              String       @id @default(cuid())
-  callerId        String
-  calleeId        String
-  startedAt       DateTime     @default(now())
-  endedAt         DateTime?
-  status          CallStatus
-  
-  conversationId  String
-  conversation    Conversation @relation(fields: [conversationId], references: [id])
-
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-}
-
-enum CallStatus {
-  RINGING
-  CONNECTED
-  ENDED
-  MISSED
 }
 
 model ProfileVisit {

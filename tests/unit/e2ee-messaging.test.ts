@@ -39,7 +39,7 @@ beforeEach(() => {
     db.e2Message.findUniqueOrThrow.mockResolvedValue({ id: msgId, clientId, senderDevice: device });
     db.e2SignedPreKey.findUnique.mockResolvedValue(null);
     db.e2SignedPreKey.findFirst.mockResolvedValue({ keyId: 1, publicKey: Buffer.alloc(33, 3), signature: Buffer.alloc(64, 4) });
-    db.e2OneTimePreKey.findUnique.mockResolvedValue(null);
+    db.e2OneTimePreKey.findMany.mockResolvedValue([]);
     db.e2PreKeyClaim.findUnique.mockResolvedValue(null);
     db.e2PreKeyClaim.count.mockResolvedValue(0);
     db.e2Receipt.findUnique.mockResolvedValue(null);
@@ -57,7 +57,7 @@ it('enrolls public-only keys and reenrollment does not reset existing private id
     expect(db.e2Device.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { sessionId: 's' } }));
     db.e2Device.findUnique.mockResolvedValue(device);
     db.e2SignedPreKey.findUnique.mockResolvedValue({ publicKey: Buffer.from(enroll.signedPreKey.publicKey, 'base64'), signature: Buffer.from(enroll.signedPreKey.signature, 'base64') });
-    db.e2OneTimePreKey.findUnique.mockResolvedValue({ publicKey: Buffer.from(enroll.preKeys[0].publicKey, 'base64') });
+    db.e2OneTimePreKey.findMany.mockResolvedValue([{keyId:1,publicKey:Buffer.from(enroll.preKeys[0].publicKey, 'base64')}]);
     await chat.enrollMessagingDevice('a', 's', enroll);
 });
 it.each([{ userId: 'other' }, { revokedAt: new Date() }, { identityPublic: Buffer.alloc(33, 9) }, { actionSigningPublic: Buffer.alloc(32, 9) }, { registrationId: 99 }, { signalDeviceId: 99 }])('rejects immutable device changes %o', async (change) => { db.e2Device.findUnique.mockResolvedValue({ ...device, ...change }); await expect(chat.enrollMessagingDevice('a', 's', enroll)).rejects.toThrow('identity'); });
@@ -71,7 +71,7 @@ it('enforces device quota and rejects reused signed/one-time key identifiers and
     await expect(chat.enrollMessagingDevice('a', 's', enroll)).rejects.toThrow('Signed');
     db.e2SignedPreKey.findUnique.mockResolvedValue(null);
     await expect(chat.enrollMessagingDevice('a', 's', { ...enroll, preKeys: [...enroll.preKeys, ...enroll.preKeys] })).rejects.toThrow('Duplicate');
-    db.e2OneTimePreKey.findUnique.mockResolvedValue({ publicKey: Buffer.alloc(33) });
+    db.e2OneTimePreKey.findMany.mockResolvedValue([{keyId:1,publicKey:Buffer.alloc(33)}]);
     await expect(chat.enrollMessagingDevice('a', 's', enroll)).rejects.toThrow('Prekey');
 });
 it('returns only active public device keys and hides blocked peers', async () => { db.e2Device.findMany.mockResolvedValue([device]); expect(await chat.messagingRoster('b', 'a')).toMatchObject([{ deviceId: d, identityPublic: enroll.identityPublic, actionSigningPublic: enroll.actionSigningPublic }]); db.blockUser.findFirst.mockResolvedValue({ id: 'block' }); expect(await chat.messagingRoster('b', 'a')).toEqual([]); });
@@ -252,3 +252,16 @@ it('durable socket hints never emit rejected/blocked conversation or pending rec
     expect((await chat.messagingSocketHints([], 3n)).cursor).toBe(3n);
 });
 it('cleans expired relay ciphertext and key claims without touching current keys or plaintext logs', async () => { await chat.cleanMessagingRetention(); expect(db.e2Message.deleteMany).toHaveBeenCalledWith({ where: { expiresAt: { lt: expect.any(Date) } } }); expect(db.e2Blob.deleteMany).toHaveBeenCalled(); expect(db.e2OneTimePreKey.deleteMany).toHaveBeenCalledWith({ where: { claimedAt: { lt: expect.any(Date) } } }); });
+
+it('enrolls a full browser bundle using bounded database round trips and preserves existing keys',async()=>{
+ const preKeys=Array.from({length:50},(_,i)=>({keyId:i+1,publicKey:Buffer.alloc(33,i+1).toString('base64')}));
+ db.e2OneTimePreKey.findMany.mockResolvedValue([{keyId:1,publicKey:Buffer.alloc(33,1)}]);
+ await chat.enrollMessagingDevice('a','s',{...enroll,preKeys});
+ expect(db.e2OneTimePreKey.findMany).toHaveBeenCalledOnce();expect(db.e2OneTimePreKey.createMany).toHaveBeenCalledOnce();
+ expect(db.e2OneTimePreKey.createMany.mock.calls[0][0].data).toHaveLength(49);
+ expect(db.e2OneTimePreKey.findUnique).not.toHaveBeenCalled();expect(db.e2OneTimePreKey.create).not.toHaveBeenCalled();
+ expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function),{maxWait:5000,timeout:15000});
+ db.e2OneTimePreKey.findMany.mockResolvedValue(preKeys.map(k=>({keyId:k.keyId,publicKey:Buffer.from(k.publicKey,'base64')})));
+ db.e2OneTimePreKey.createMany.mockClear();await chat.enrollMessagingDevice('a','s',{...enroll,preKeys});expect(db.e2OneTimePreKey.createMany).not.toHaveBeenCalled();
+ await chat.enrollMessagingDevice('a','s',{...enroll,preKeys:[]});
+});

@@ -18,7 +18,6 @@ import notificationsRoutes from './notifications';
 import {notificationStreamController} from '@/controllers/v1/notifications';
 import tipRoutes from './tips';
 import conversationRoutes from './conversations';
-import anonymousRoutes from './anonymous';
 import discoverRoutes from './discover';
 
 const router = express.Router();
@@ -51,7 +50,6 @@ router.use("/notifications/", notificationsRoutes)
 
 router.use("/conversations/", conversationRoutes)
 
-router.use("/anonymous/", anonymousRoutes)
 
 router.use("/discover/", discoverRoutes)
 

@@ -50,7 +50,7 @@ for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
     if value.startswith(('"', "'")):
         raise SystemExit('Remove surrounding quotes from KWONSERVER_ENV values (Docker env-file syntax)')
     values[key] = value
-for key in ('DATABASE_URL', 'REDIS_URL', 'JWT_SECRET', 'MONGO_URL', 'API_DOMAIN', 'ACME_EMAIL'):
+for key in ('DATABASE_URL', 'REDIS_URL', 'JWT_SECRET', 'API_DOMAIN', 'ACME_EMAIL'):
     if not values.get(key): raise SystemExit('Missing runtime setting: '+key)
 domain = values['API_DOMAIN']
 if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', domain) or '.' not in domain:

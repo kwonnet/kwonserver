@@ -217,7 +217,7 @@ After preparing a **new database**, run kwonrec's `docker compose run --rm setup
 
 ### Local Docker Compose
 
-`docker-compose.yml` uses the PostgreSQL, Redis, MongoDB, and other service settings already in `kwonserver/.env`. It joins the existing kwonrec Docker network, so its recommendation URL is `http://kwonrec:8001` inside Docker. Keep the same `KWONREC_API_KEY` in both projects. If kwonrec uses a custom Compose project name, set `KWONREC_NETWORK` to that project's network name (default: `kwonrec_default`).
+`docker-compose.yml` uses the PostgreSQL, Redis, and other service settings already in `kwonserver/.env`. It joins the existing kwonrec Docker network, so its recommendation URL is `http://kwonrec:8001` inside Docker. Keep the same `KWONREC_API_KEY` in both projects. If kwonrec uses a custom Compose project name, set `KWONREC_NETWORK` to that project's network name (default: `kwonrec_default`).
 
 Start the prepared recommendation stack first, then kwonserver:
 
@@ -1036,7 +1036,7 @@ container's start time too. No migration or new configuration is required.
 ### Server dependency upgrade — 7 October 2026
 
 Runtime upgrades include Express 5.2.1, Prisma/client/adapter 7.10.0, Redis 6.3.0,
-BullMQ 6.3.11, ioredis 6.0.0, Mongoose 9.11.0, Transformers.js 4.3.1,
+BullMQ 6.3.11, ioredis 6.0.0, Transformers.js 4.3.1,
 Google GenAI 2.27.0, Google Auth 11.1.0, Zod 4.6.5, Pino 10.4.0 and UUID 14.0.2.
 The package manifest and lockfile record every direct and transitive version.
 Unused Xenova Transformers, legacy faker, uninstall and ts-node-dev packages were
@@ -1057,8 +1057,7 @@ Compatibility choices:
 
 Express retains extended query parsing and scalar named-route parameter types.
 Redis scan consumers handle arrays of keys and string cursors; JSON array append
-keeps individual score records flat. Mongoose serialization returns public IDs
-without mutating required `_id` fields, and message receipt types match stored Dates.
+keeps individual score records flat. Messaging ciphertext and receipts use PostgreSQL.
 Pino calls use object-first structured logging so errors retain their stack traces.
 
 Prisma connection/seed CLI configuration now lives in `prisma.config.ts`. Runtime,

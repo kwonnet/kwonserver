@@ -17,7 +17,4 @@ router.post('/:id/request', c.messagingRequestController);
 router.delete('/:id/messages/:messageId', c.messagingDeleteController);
 router.put('/:id/blobs/:blobId', express.raw({ type: 'application/octet-stream', limit: '8388624b' }), c.messagingUploadController);
 router.get('/:id/blobs/:blobId', c.messagingDownloadController);
-// Never allow old clients to send incompatible homemade-ratchet ciphertext.
-router.post('/users/:id/register-device', (_req, res) => res.status(426).send('Update the app and unlock encrypted messaging'));
-router.patch('/users/:id/conversations', (_req, res) => res.status(426).send('Update the app to use device-bound receipts'));
 export default router;

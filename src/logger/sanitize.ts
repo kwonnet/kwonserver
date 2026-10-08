@@ -26,7 +26,7 @@ export function safeError(error: unknown, depth = 0): Record<string,unknown> {
   if (name==='SyntaxError') message='Input parsing failed';
   else if(name==='ZodError') message='Input validation failed';
   else if (name.startsWith('Prisma') || /^P\d{4}$/.test(code ?? '')) {
-    const reasons: Record<string,string> = {P2002:'Unique constraint violation', P2003:'Foreign key constraint violation', P2025:'Required record not found', P2024:'Database connection pool timed out', P2010:'Database query failed'};
+    const reasons: Record<string,string> = {P2002:'Unique constraint violation', P2003:'Foreign key constraint violation', P2025:'Required record not found', P2024:'Database connection pool timed out', P2028:'Database transaction failed or expired', P2010:'Database query failed'};
     message = reasons[code ?? ''] ?? 'Database operation failed';
   } else if (smtpErrors[code ?? '']) message = ['EAUTH','EENVELOPE','CONFIG'].includes(code!) ? smtpErrors[code!] : message.startsWith(`${smtpErrors[code!]}:`) ? message : `${smtpErrors[code!]}: ${safeLogText(message)}`;
   else if (value.isAxiosError) message = 'HTTP service request failed';

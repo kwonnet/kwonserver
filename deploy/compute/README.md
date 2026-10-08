@@ -6,7 +6,7 @@ script over IAP, and installs/starts Docker containers on the VM. No Compose
 file, manual install command or separate initialization run is required.
 
 Only kwonserver and its BullMQ worker deploy here. kwonweb, kwonrec and existing
-PostgreSQL, MongoDB and Redis remain on their current hosts.
+PostgreSQL and Redis remain on their current hosts.
 
 ## GitHub configuration
 
@@ -35,7 +35,6 @@ API_DOMAIN=api.example.com
 ACME_EMAIL=admin@example.com
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE
 REDIS_URL=redis://HOST:6379
-MONGO_URL=mongodb://HOST/DATABASE
 JWT_SECRET=YOUR_EXISTING_SECRET
 ENCRYPTION_KEY=YOUR_EXISTING_KEY
 REMOTE_APP_URL=https://YOUR_EXISTING_WEB_DOMAIN

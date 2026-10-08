@@ -2,8 +2,7 @@ import { beforeAll, afterAll, expect, it, vi } from 'vitest';
 import express from 'express';
 import http from 'node:http';
 import cookieParser from 'cookie-parser';
-import mongoose from 'mongoose';
-// Authentication, routes, controllers, profile hydration, PostgreSQL and MongoDB
+// Authentication, routes, controllers, profile hydration, PostgreSQL
 // are real. The unused root route tree is isolated to avoid background workers.
 vi.mock('@/routes/v1', () => ({ default: express.Router() }));
 import prisma from '@/db';
@@ -24,7 +23,6 @@ beforeAll(async () => {
         devices[id] = randomUUID();
         await enrollMessagingDevice(id, sessions[id], { deviceId: devices[id], signalDeviceId: 1, registrationId: 1, identityPublic: Buffer.alloc(33, 1).toString('base64'), actionSigningPublic: Buffer.alloc(32, 1).toString('base64'), signedPreKey: { keyId: 1, publicKey: Buffer.alloc(33, 1).toString('base64'), signature: Buffer.alloc(64, 1).toString('base64') }, preKeys: [] });
     }
-    await mongoose.connect('mongodb://127.0.0.1:17017/kwonserver_test');
     const app = express();
     app.use(express.json());
     app.use(cookieParser());
@@ -33,7 +31,7 @@ beforeAll(async () => {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     base = `http://127.0.0.1:${(server.address() as any).port}`;
 });
-afterAll(async () => { await new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve())); await mongoose.disconnect(); await prisma.$disconnect(); });
+afterAll(async () => { await new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve())); await prisma.$disconnect(); });
 it('rejects unauthenticated HTTP requests', async () => {
     expect((await fetch(`${base}/conversations/users/u/conversations?kind=chat`)).status).toBe(401);
 });

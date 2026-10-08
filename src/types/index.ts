@@ -525,8 +525,3 @@ export enum UserFollowAction {
     REJECT = "REJECT",
     CANCEL = "CANCEL"
 }
-
-export enum ConvoKind {
-    CHAT = "chat",
-    ANONYMOUS = "anonymous"
-}

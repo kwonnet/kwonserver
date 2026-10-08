@@ -5,7 +5,6 @@ const db = vi.hoisted(() => {
   return { user: model(), notification: model(), subscription: model(), userTaskSettings: model(), gameAchievement: model() };
 });
 vi.mock('@/db', () => ({ default: db }));
-vi.mock('@/db/models', () => ({ MessageModel: {} }));
 vi.mock('@/utils/helpers', () => ({ cleanTextContent: vi.fn(), commentClassifier: vi.fn(), AppError: class extends Error {} }));
 import * as service from '@/services/v1/users';
 beforeEach(() => resetMocks(db));

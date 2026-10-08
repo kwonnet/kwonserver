@@ -8,7 +8,7 @@ external-provider boundaries. They require no running services. Controller
 unit tests use request/response fixtures and are not HTTP tests.
 
 Infrastructure tests use disposable PostgreSQL (with pgvector), Redis and
-MongoDB containers. HTTP flows use real Express routes, controllers, JWT/AES
+PostgreSQL containers. HTTP flows use real Express routes, controllers, JWT/AES
 authentication, password hashing and databases; external geolocation is stubbed.
 They do not start production workers or contact production services.
 
@@ -88,9 +88,8 @@ cancellation, authenticated financial controllers, and queue scheduling/removal.
 The third pass adds conversation lookup, membership checks, pagination, key
 registration/consumption/revocation, read/seen receipts, discovery SQL parameter
 binding and serialization, follow/block/mute history, report cooldowns and
-profile visits. Discovery SQL execution and MongoDB query semantics still need
-integration coverage for discovery SQL; MongoDB conversation behavior is now
-covered by the infrastructure suite. The fourth unit pass adds account-status
+profile visits. PostgreSQL messaging, including request isolation and concurrent
+prekey claims, is covered by the infrastructure suite. The fourth unit pass adds account-status
 authorization, user queries/notifications, post reaction/bookmark/delete/restore
 mutations, game catalog/room lookup and administrator-only wallet funding.
 
@@ -157,7 +156,7 @@ npm run test:all
 
 The runner starts only the `kwonserver-tests` Compose project from
 `tests/docker-compose.yml`. It uses loopback ports 15432 (PostgreSQL), 16379
-(Redis), and 17017 (MongoDB), hardcoded test credentials and an isolated
+(Redis), hardcoded test credentials and an isolated
 `kwonserver_test` database. Data lives in disposable containers/tmpfs. It runs
 **the committed Prisma migration history with `migrate deploy`**, then removes
 test containers and volumes after success or failure. It never runs deployment
@@ -174,8 +173,8 @@ Coverage of real infrastructure:
 - PostgreSQL follows/cancellations, block/mute histories, post counters and
   notifications. Failure-injection triggers prove follow-history and like-counter
   rollback against PostgreSQL, not just mocked transaction calls.
-- MongoDB conversation reuse, pagination, membership rejection, receipt retries,
-  persisted device revocation and concurrent one-time prekey consumption.
+- PostgreSQL Signal messaging: pending request previews, exact receipts, device
+  revocation, idempotent sends, private blobs and concurrent prekey claims.
 - Redis delayed-job persistence/removal and duplicate job IDs, plus actual wallet
   balance synchronization between Redis and PostgreSQL.
 - HTTP signup, duplicate signup, bad-password rejection, signin, bearer/cookie

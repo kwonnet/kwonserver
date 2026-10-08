@@ -23,12 +23,3 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
-  mongo:
-    image: mongo:8
-    ports: ["127.0.0.1:17017:27017"]
-    tmpfs: [/data/db, /data/configdb]
-    healthcheck:
-      test: [CMD, mongosh, --quiet, --eval, "db.adminCommand('ping').ok"]
-      interval: 2s
-      timeout: 5s
-      retries: 30

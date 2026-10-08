@@ -6,7 +6,6 @@ const deps = vi.hoisted(() => {
   return { tx, db: { $transaction: vi.fn(), followHistory: model(), blockHistory: model(), muteHistory: model(), user: model(), userReport: model(), userLocation: { upsert: vi.fn() } } };
 });
 vi.mock('@/db', () => ({ default: deps.db }));
-vi.mock('@/db/models', () => ({ MessageModel: {} }));
 vi.mock('@/utils/helpers', () => ({ cleanTextContent: vi.fn(), commentClassifier: vi.fn() }));
 import * as users from '@/services/v1/users';
 import { UserFollowAction } from '@/types';
