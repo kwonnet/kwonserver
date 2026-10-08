@@ -120,7 +120,7 @@ export async function createMessagingConversation(userId: string, recipientId: s
 function messagingConversationDTO(c: any, viewerId: string) {
     // Rejection/block are private to the approver. Sender sees their unchanged request.
     const accepted = !!c.acceptedAt;
-    return { id: c.id, kind: 'chat', state: accepted ? 'ACCEPTED' : 'PENDING_REQUEST', epoch: c.epoch, initiator: { id: c.initiatorId, acceptedAt: c.createdAt, isPaid: false }, responder: { id: c.approverId, acceptedAt: c.acceptedAt, isPaid: false }, unreadCount: c.members?.find((m: any) => m.userId === viewerId)?.unreadCount ?? 0, unseenCount: c.members?.find((m: any) => m.userId === viewerId)?.unseenCount ?? 0, createdAt: c.createdAt, updatedAt: c.lastActivityAt ?? c.createdAt, lastSequence: String(c.messages?.[0]?.serverSequence ?? 0) };
+    return { id: c.id, kind: 'chat', state: accepted ? 'ACCEPTED' : 'PENDING_REQUEST', epoch: c.epoch, requestMessageSent: !!c.requestSentAt, initiator: { id: c.initiatorId, acceptedAt: c.createdAt, isPaid: false }, responder: { id: c.approverId, acceptedAt: c.acceptedAt, isPaid: false }, unreadCount: c.members?.find((m: any) => m.userId === viewerId)?.unreadCount ?? 0, unseenCount: c.members?.find((m: any) => m.userId === viewerId)?.unseenCount ?? 0, createdAt: c.createdAt, updatedAt: c.lastActivityAt ?? c.createdAt, lastSequence: String(c.messages?.[0]?.serverSequence ?? 0) };
 }
 export async function listMessagingConversations(userId: string, kind: string, page: number, limit: number) {
     const rows = await db.e2Conversation.findMany({ where: { members: { some: { userId, hiddenAt: null } }, ...(kind === 'requests' ? { approverId: userId, acceptedAt: null, rejectedAt: null } : { OR: [{ acceptedAt: { not: null } }, { initiatorId: userId }] }) }, include: { members: true, messages: { where: { expiresAt: { gt: new Date() }, NOT: { deletedFor: { has: userId } } }, take: 1, orderBy: { serverSequence: 'desc' }, select: { serverSequence: true } } }, orderBy: [{ lastActivityAt: 'desc' }, { id: 'desc' }], take: Math.min(limit, 100), skip: Math.max(0, page - 1) * limit });
@@ -157,14 +157,14 @@ export async function sendMessagingEvent(userId: string, sessionId: string, devi
         const recent = await tx.e2Message.count({ where: { senderDeviceId: sender.id, createdAt: { gte: new Date(Date.now() - 60000) } } });
         if (recent >= 60)
             throw new MessagingError(429, 'Too many messages');
-        if (convo.state === 'PENDING_REQUEST' && await tx.e2Message.count({ where: { conversationId: convo.id } }) >= 10)
-            throw new MessagingError(429, 'Wait for this request to be accepted');
+        if (convo.state === 'PENDING_REQUEST' && (convo.requestSentAt || await tx.e2Message.count({ where: { conversationId: convo.id } }) > 0))
+            throw new MessagingError(403, 'Wait for this request to be accepted before sending another message');
         const roster = await tx.e2Device.findMany({ where: { userId: { in: convo.members.map(m => m.userId) }, revokedAt: null, id: { not: deviceId } }, select: { id: true, userId: true } });
         const targetIds = input.envelopes.map(e => e.recipientDeviceId);
         if (new Set(targetIds).size !== targetIds.length || targetIds.some(id => !roster.some(d => d.id === id)) || roster.some(d => !targetIds.includes(d.id)) || !roster.some(d => d.userId === peer.userId))
             throw new MessagingError(409, 'Device roster changed; refresh before sending');
         const msg = await tx.e2Message.create({ data: { conversationId: convo.id, senderDeviceId: deviceId, clientId: input.clientId, requestDigest: hash, expiresAt: new Date(Date.now() + 90 * 86400000), envelopes: { createMany: { data: input.envelopes.map(e => ({ recipientDeviceId: e.recipientDeviceId, wireType: e.wireType, ciphertext: Buffer.from(e.ciphertextB64, 'base64') })) } }, deliveries: { create: { conversationId: convo.id, userId: peer.userId } } } });
-        await tx.e2Conversation.update({ where: { id: convo.id }, data: { lastActivityAt: new Date() } });
+        await tx.e2Conversation.update({ where: { id: convo.id }, data: { lastActivityAt: new Date(), ...(convo.state === 'PENDING_REQUEST' ? { requestSentAt: new Date() } : {}) } });
         await tx.e2Member.update({ where: { conversationId_userId: { conversationId: convo.id, userId: peer.userId } }, data: { unreadCount: { increment: 1 }, unseenCount: { increment: 1 } } });
         await tx.e2Outbox.createMany({ data: input.envelopes.map(envelope => ({ dedupeKey: `message:${msg.id}:${envelope.recipientDeviceId}`, conversationId: convo.id, targetDeviceId: envelope.recipientDeviceId, expectedEpoch: convo.epoch, event: 'message', payload: { conversationId: convo.id } })) });
         return { messageId: msg.id, status: 'SENT', serverSequence: String(msg.serverSequence) };
@@ -182,7 +182,9 @@ export async function messagingSync(userId: string, sessionId: string, deviceId:
     const rows = await db.e2Message.findMany({ where: { conversationId, serverSequence: { gt: min }, OR: [{ senderDeviceId: device.id }, { envelopes: { some: { recipientDeviceId: device.id } } }], expiresAt: { gt: new Date() } }, include: { senderDevice: true, envelopes: { where: { recipientDeviceId: device.id } }, receipts: { include: { recipientDevice: { select: { userId: true } } } } }, orderBy: { serverSequence: 'asc' }, take: 100 });
     const messages = rows.filter(m => !m.deletedFor.includes(userId)).map(m => ({ id: m.id, eventId: m.clientId, conversation: m.conversationId, fromUserId: m.senderDevice.userId, fromDeviceId: m.senderDeviceId, senderSignalDeviceId: m.senderDevice.signalDeviceId, senderActionSigningPublic: b64(m.senderDevice.actionSigningPublic), senderIdentityPublic: b64(m.senderDevice.identityPublic), toUserId: userId, toDeviceId: deviceId, serverSequence: String(m.serverSequence), createdAt: m.createdAt, seen: m.receipts.map(r => ({ userId: r.recipientDevice.userId, seenAt: r.deliveredAt })), read: m.receipts.filter(r => r.readAt).map(r => ({ userId: r.recipientDevice.userId, readAt: r.readAt })), deletedFor: [], reactions: [], ...(m.envelopes[0] ? { wireType: m.envelopes[0].wireType, ciphertextB64: b64(m.envelopes[0].ciphertext) } : { ownDevice: true }) }));
     const receiptRows = convo.state === 'ACCEPTED' ? await db.e2Outbox.findMany({ where: { conversationId, targetDeviceId: deviceId, sequence: { gt: BigInt(receiptAfter) }, event: 'receipt' }, orderBy: { sequence: 'asc' }, take: 100 }) : [];
-    return { messages, receipts: receiptRows.map(row => row.payload), nextReceiptCursor: String(receiptRows.at(-1)?.sequence ?? BigInt(receiptAfter)), nextCursor: String(rows.at(-1)?.serverSequence ?? min), conversation: messagingConversationDTO(convo, userId) };
+    const accountReceipts = receiptRows.some(row => (row.payload as any)?.userId === userId);
+    const accountTotals = accountReceipts ? await db.e2Member.aggregate({ where: { userId, hiddenAt: null }, _sum: { unreadCount: true, unseenCount: true } }) : undefined;
+    return { ...(accountTotals ? { accountTotals: { totalUnreadMsg: accountTotals._sum.unreadCount ?? 0, totalUnseenMsg: accountTotals._sum.unseenCount ?? 0 } } : {}), messages, receipts: receiptRows.map(row => row.payload), nextReceiptCursor: String(receiptRows.at(-1)?.sequence ?? BigInt(receiptAfter)), nextCursor: String(rows.at(-1)?.serverSequence ?? min), conversation: messagingConversationDTO(convo, userId) };
 }
 async function storeReceiptBatch(tx: Tx, userId: string, deviceId: string, input: ReceiptBatchInput, epoch: number) {
     const readIds = new Set(input.readIds), ids = [...new Set([...input.deliveredIds, ...input.readIds])];
@@ -216,7 +218,7 @@ async function storeReceiptBatch(tx: Tx, userId: string, deviceId: string, input
     if (unread || unseen)
         await tx.e2Outbox.createMany({ data: devices.filter(d => d.userId === userId).map(d => ({ dedupeKey: `inbox:${randomUUID()}`, conversationId: input.conversationId, targetDeviceId: d.id, expectedEpoch: epoch, event: 'inbox', payload: { conversationId: input.conversationId } })) });
     if (changes.length)
-        await tx.e2Outbox.createMany({ data: changes.flatMap(m => devices.filter(d => d.userId === m.senderDevice.userId).map(d => ({ dedupeKey: `receipt:${m.id}:${deviceId}:${readIds.has(m.id) ? 'READ' : 'DELIVERED'}:${d.id}`, conversationId: input.conversationId, targetDeviceId: d.id, expectedEpoch: epoch, event: 'receipt', payload: { id: m.id, eventId: m.clientId, userId, status: readIds.has(m.id) ? 'READ' : 'DELIVERED', deliveredAt: (old.get(m.id)?.deliveredAt ?? now).toISOString(), readAt: readIds.has(m.id) ? now.toISOString() : null } }))) });
+        await tx.e2Outbox.createMany({ data: changes.flatMap(m => devices.filter(d => d.userId === m.senderDevice.userId || d.userId === userId).map(d => ({ dedupeKey: `receipt:${m.id}:${deviceId}:${readIds.has(m.id) ? 'READ' : 'DELIVERED'}:${d.id}`, conversationId: input.conversationId, targetDeviceId: d.id, expectedEpoch: epoch, event: 'receipt', payload: { id: m.id, eventId: m.clientId, userId, status: readIds.has(m.id) || deliveries.find(delivery => delivery.messageId === m.id)?.readAt ? 'READ' : 'DELIVERED', deliveredAt: (deliveries.find(delivery => delivery.messageId === m.id)?.deliveredAt ?? old.get(m.id)?.deliveredAt ?? now).toISOString(), readAt: readIds.has(m.id) ? now.toISOString() : deliveries.find(delivery => delivery.messageId === m.id)?.readAt?.toISOString() ?? null } }))) });
 }
 export async function messagingReceiptBatch(userId: string, sessionId: string, deviceId: string, input: ReceiptBatchInput) {
     const result = await db.$transaction(async (tx) => {
@@ -252,6 +254,9 @@ export async function resolveMessagingRequest(userId: string, sessionId: string,
             if (c.state !== 'ACCEPTED')
                 await tx.e2Conversation.update({ where: { id: conversationId }, data: { state: 'ACCEPTED', acceptedAt: new Date(), epoch: { increment: 1 } } });
             await storeReceiptBatch(tx, userId, deviceId, { conversationId, deliveredIds: input.deliveredIds, readIds: input.readIds }, c.epoch + (c.state === 'ACCEPTED' ? 0 : 1));
+            // Acceptance is a state transition even if no preview could be decrypted yet.
+            const active = await tx.e2Device.findMany({ where: { userId: { in: [c.initiatorId, c.approverId] }, revokedAt: null }, select: { id: true } });
+            await tx.e2Outbox.createMany({ data: active.map(device => ({ dedupeKey: `accepted:${conversationId}:${randomUUID()}`, conversationId, targetDeviceId: device.id, expectedEpoch: c.epoch + (c.state === 'ACCEPTED' ? 0 : 1), event: 'inbox', payload: { conversationId } })) });
         }
         else {
             if (input.action === 'block')
@@ -290,7 +295,7 @@ export async function deleteMessagingForMe(userId: string, sessionId: string, de
 }
 async function blobPolicy(tx: Tx, userId: string, conversationId: string, write = false) {
     const c = await membership(tx, conversationId, userId);
-    if (c.rejectedAt || c.state === 'BLOCKED' || await blocked(tx, c.initiatorId, c.approverId) || (write && c.state === 'PENDING_REQUEST' && c.initiatorId !== userId))
+    if (c.rejectedAt || c.state === 'BLOCKED' || await blocked(tx, c.initiatorId, c.approverId) || (write && c.state === 'PENDING_REQUEST' && (c.initiatorId !== userId || !!c.requestSentAt)))
         throw new MessagingError(403, 'Attachment unavailable');
     return c;
 }

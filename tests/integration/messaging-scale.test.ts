@@ -24,7 +24,7 @@ it('counts once per recipient account and batches receipts across multiple devic
  await chat.messagingReceiptBatch(users[1],'s',b,{conversationId:c.id,deliveredIds:ids,readIds:[]});expect(await member()).toMatchObject({unreadCount:0,unseenCount:0});
 });
 it('delete-for-me, request rejection and expiry reconcile counters',async()=>{
- const c=await chat.createMessagingConversation(users[0],users[1]);const one=await message(c.id),two=await message(c.id);
+ const c=await chat.createMessagingConversation(users[0],users[1]);await chat.resolveMessagingRequest(users[1],'s',b,c.id,{action:'accept',deliveredIds:[],readIds:[]});const one=await message(c.id),two=await message(c.id);
  await chat.deleteMessagingForMe(users[1],'s',b,c.id,one.messageId);await chat.deleteMessagingForMe(users[1],'s',b2,c.id,one.messageId);
  expect(await db.e2Member.findUnique({where:{conversationId_userId:{conversationId:c.id,userId:users[1]}}})).toMatchObject({unreadCount:1,unseenCount:1});
  await db.e2Message.update({where:{id:two.messageId},data:{expiresAt:new Date(0)}});await chat.cleanMessagingRetention();
@@ -79,4 +79,34 @@ it('orders the inbox by latest committed activity and includes a ciphertext catc
  expect(new Date(rows[0].updatedAt).getTime()).toBeGreaterThanOrEqual(new Date(rows[0].createdAt).getTime());
  expect(JSON.stringify(rows)).not.toContain('ciphertextB64');
  expect((await chat.messagingSync(users[1],'s',b,older.id,'0')).messages[0].id).toBe(latest.messageId);
+});
+
+it('reading on one recipient device synchronizes shared read state and zero counters to the other device',async()=>{
+ const c=await chat.createMessagingConversation(users[0],users[1]);await chat.resolveMessagingRequest(users[1],'s',b,c.id,{action:'accept',deliveredIds:[],readIds:[]});
+ const sent=await message(c.id),before=await chat.messagingSync(users[1],'s',b2,c.id,'0');
+ expect(before.conversation.unreadCount).toBe(1);
+ await chat.messagingReceiptBatch(users[1],'s',b,{conversationId:c.id,deliveredIds:[],readIds:[sent.messageId]});
+ const other=await chat.messagingSync(users[1],'s',b2,c.id,before.nextCursor,before.nextReceiptCursor);
+ expect(other.messages).toEqual([]);expect(other.conversation).toMatchObject({unreadCount:0,unseenCount:0});
+ expect(other.accountTotals).toEqual({totalUnreadMsg:0,totalUnseenMsg:0});
+ expect(other.receipts).toEqual(expect.arrayContaining([expect.objectContaining({id:sent.messageId,userId:users[1],status:'READ',readAt:expect.any(String)})]));
+ await chat.messagingReceiptBatch(users[1],'s',b2,{conversationId:c.id,deliveredIds:[sent.messageId],readIds:[]});
+ const late=await chat.messagingSync(users[1],'s',b2,c.id,other.nextCursor,other.nextReceiptCursor);
+ expect(late.accountTotals).toEqual({totalUnreadMsg:0,totalUnseenMsg:0});
+ expect(late.receipts.at(-1)).toMatchObject({id:sent.messageId,status:'READ'});
+});
+it('allows one pending request across sender devices, keeps exact retries idempotent, and blocks further sends/uploads until acceptance',async()=>{
+ const a2=randomUUID();await chat.enrollMessagingDevice(users[0],'s',enrollment(a2,4));
+ const c=await chat.createMessagingConversation(users[0],users[1]);
+ const input={conversationId:c.id,clientId:randomUUID(),envelopes:[a2,b,b2].map(recipientDeviceId=>({recipientDeviceId,wireType:3 as const,ciphertextB64:Buffer.alloc(64,7).toString('base64')}))};
+ const first=await chat.sendMessagingEvent(users[0],'s',a,input);expect(await chat.sendMessagingEvent(users[0],'s',a,input)).toMatchObject({messageId:first.messageId});
+ expect((await chat.messagingPeer(users[0],users[1])).convo?.requestMessageSent).toBe(true);
+ await expect(chat.sendMessagingEvent(users[0],'s',a,{...input,clientId:randomUUID()})).rejects.toThrow('accepted');
+ await expect(chat.sendMessagingEvent(users[0],'s',a2,{...input,clientId:randomUUID(),envelopes:[a,b,b2].map(recipientDeviceId=>({...input.envelopes[0],recipientDeviceId}))})).rejects.toThrow('accepted');
+ await expect(chat.reserveMessagingBlob(users[0],'s',a,c.id,{blobId:randomUUID(),ciphertextBytes:64,ciphertextSha256:Buffer.alloc(32).toString('base64')})).rejects.toThrow('unavailable');
+ await db.e2Message.delete({where:{id:first.messageId}});
+ await expect(chat.sendMessagingEvent(users[0],'s',a,{...input,clientId:randomUUID()})).rejects.toThrow('accepted');
+ await chat.resolveMessagingRequest(users[1],'s',b,c.id,{action:'accept',deliveredIds:[],readIds:[]});
+ expect(await db.e2Outbox.count({where:{conversationId:c.id,targetDeviceId:a,event:'inbox'}})).toBeGreaterThan(0);
+ expect(await chat.sendMessagingEvent(users[0],'s',a,{...input,clientId:randomUUID()})).toMatchObject({status:'SENT'});
 });

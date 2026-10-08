@@ -101,7 +101,7 @@ flowchart TD
   ACCEPTED --> NORMAL[Normal delivery, visible read receipts and typing]
 ```
 
-A pending receiver can preview messages without changing the sender's `SENT` status. Both the client and the server suppress receipts and typing while the request is pending. This is not merely a hidden UI indicator.
+A pending sender may send exactly one initial encrypted message. Further sends and new attachment reservations are blocked by the server until acceptance, across every sender device. The persistent request-sent marker prevents deletion or expiry from resetting that allowance; exact ciphertext retries remain idempotent. The sender's composer is disabled while waiting. A pending receiver can preview messages without changing the sender's `SENT` status. Both the client and the server suppress receipts and typing while the request is pending. This is not merely a hidden UI indicator.
 
 Accept is restricted to the intended receiver. It updates the conversation, acknowledges messages their device actually processed, and sends READ only for messages they viewed in the focused chat. Those exact IDs become retroactive receipts, and the thread moves to Inbox. Subsequent receipts work normally.
 
@@ -230,3 +230,7 @@ This is a portable snapshot, not automatic device synchronization or recovery fr
 ### Inbox activity and loading
 
 Conversation metadata includes the latest relay sequence and stored last-activity time; the activity migration backfills existing conversations. Lists sort by committed activity, not creation date or the last locally viewed message. The client returns list metadata first, catches up two conversations at a time, and projects previews from authenticated encrypted events. Cached chat history renders before outbox retries/network catch-up; loading indicators distinguish loading, decrypting and syncing. Read-only vault projections no longer rewrite the encrypted snapshot. Deploy the new migration before the server and client.
+
+### Account-wide read state
+
+Unread/unseen counters belong to the recipient account, not individual devices. A receipt on one device decrements the shared delivery row once and publishes receipt catch-up events to both accounts' active devices. Recipient-device catch-up returns authoritative account totals, so another device's cached badge clears without fetching historical ciphertext again. Late delivery acknowledgements cannot downgrade shared READ state or recreate counters. Pending requests still suppress every receipt until acceptance. The single-request migration backfills existing pending conversations and must run before deploying the updated relay.

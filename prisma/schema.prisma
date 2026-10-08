@@ -2156,6 +2156,7 @@ model E2Conversation {
   approverId String
   epoch Int @default(1) // Increment on acceptance/block/rejection; never expose rejection to sender.
   acceptedAt DateTime?
+  requestSentAt DateTime?
   rejectedAt DateTime?
   createdAt DateTime @default(now())
   lastActivityAt DateTime @default(now())
