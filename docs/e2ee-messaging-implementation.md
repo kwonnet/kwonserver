@@ -78,7 +78,7 @@ sequenceDiagram
   BB->>BB: Commit ratchet and decrypted cache to encrypted local vault
 ```
 
-Each browser is a separate device. The vault key is random; the messaging passphrase wraps it using Argon2id and AES-GCM. Private identity keys, ratchet sessions, pending ciphertext and decrypted history are encrypted in IndexedDB. The passphrase and unlocked vault key are not persisted. Keys lock on explicit Lock, account/provider teardown and 15 minutes without activity.
+Each browser is a separate device. The vault key is random; the messaging passphrase wraps it using Argon2id and AES-GCM. Private identity keys, ratchet sessions, pending ciphertext and decrypted history are encrypted in IndexedDB. The passphrase is never persisted. The unlocked runtime stays in memory across app navigation for the signed-in session. An explicit **Remember this private browser for 30 days** option retains the non-extractable vault CryptoKey in account/device-scoped IndexedDB, enabling automatic unlock after sign-in; expiry, account change, sign-out, explicit Lock and device reset remove that remembered key. This option is appropriate only for private browser profiles: someone with access to that profile can access local messages. Without opting in, a full reload requires the passphrase.
 
 New sessions use the installed Signal library's classical prekey exchange and Double Ratchet. A one-time public prekey is atomically claimed once. If none remain, the library uses the signed-prekey fallback. Public prekeys replenish and signed prekeys rotate on unlock; old private signed prekeys are retained for delayed messages for up to 90 days. Successfully consumed private one-time prekeys are removed as part of the decrypt commit.
 
@@ -114,7 +114,7 @@ stateDiagram-v2
   [*] --> Queued: Local encrypted outbox committed
   Queued --> SENT: Server committed ciphertext
   SENT --> DELIVERED: Recipient decrypted and persisted successfully
-  DELIVERED --> READ: Message visible in unlocked focused chat
+  DELIVERED --> READ: Accepted chat opened in visible tab
   SENT --> READ: Accepted request acknowledges a viewed message
   note right of SENT
     Pending request previews stay SENT.
@@ -128,7 +128,7 @@ stateDiagram-v2
 
 Queued is a local state before server acknowledgement. The browser retries the same ciphertext and event ID. The server's idempotency check returns the original result for the same bytes and rejects different bytes under an existing ID. Uncommitted roster changes preserve existing ciphertext and add encryption only for new devices.
 
-DELIVERED requires successful decrypt, validation and local storage commit. READ additionally requires an unlocked chat, a visible message and a focused browser. Receipts are stored durably and replayed through a separate incremental cursor. Invalid ciphertext or changed identities produce an authentication-failure placeholder without advancing the ratchet or acknowledging that message; valid later messages can continue.
+DELIVERED requires successful decrypt, validation and local storage commit. READ additionally requires an unlocked, accepted conversation open in a visible browser tab. Opening that conversation acknowledges authenticated received history through the latest cached message; pending-request previews remain silent. Background inbox catch-up acknowledges only delivery, never read. Receipts are stored durably and replayed through a separate incremental cursor. Invalid ciphertext or changed identities produce an authentication-failure placeholder without advancing the ratchet or acknowledging that message; valid later messages can continue.
 
 ## 5. Attachments and message actions
 
@@ -226,3 +226,7 @@ sequenceDiagram
 The archive uses a fresh 16-byte salt, Argon2id (3 operations, 64 MiB), a fresh 12-byte AES-GCM nonce and account-bound authenticated data. Schema validation, account checks, signed deletion verification, immutable event conflict checks and a single atomic vault commit protect restoration. Existing records, sessions, cursors and newer receipts remain intact. Hidden IDs merge by union. Files are capped at 48 MiB, decrypted snapshots at 32 MiB and 50,000 events; oversized exports fail explicitly.
 
 This is a portable snapshot, not automatic device synchronization or recovery from the server. Without a saved export or an unlocked device, older plaintext cannot be recovered. Keep the file and its passphrase separately. Snapshots reflect deletion/hiding state at export time; later changes require a fresh export or live catch-up. Attachment descriptors and keys are restored, but encrypted media blobs are not embedded: original private objects must remain available and authorized, and the 90-day relay/object retention policy still applies. The recipient account can acknowledge restored message IDs still present in the relay; pending-request preview remains silent, acceptance activates receipts, and counters remain account-wide. Expired relay messages can be displayed from local history but cannot acquire new server receipts.
+
+### Inbox activity and loading
+
+Conversation metadata includes the latest relay sequence and stored last-activity time; the activity migration backfills existing conversations. Lists sort by committed activity, not creation date or the last locally viewed message. The client returns list metadata first, catches up two conversations at a time, and projects previews from authenticated encrypted events. Cached chat history renders before outbox retries/network catch-up; loading indicators distinguish loading, decrypting and syncing. Read-only vault projections no longer rewrite the encrypted snapshot. Deploy the new migration before the server and client.

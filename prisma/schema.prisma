@@ -2158,9 +2158,11 @@ model E2Conversation {
   acceptedAt DateTime?
   rejectedAt DateTime?
   createdAt DateTime @default(now())
+  lastActivityAt DateTime @default(now())
   members E2Member[]
   messages E2Message[]
   blobs E2Blob[]
+  @@index([lastActivityAt, id])
 }
 model E2Member {
   conversationId String @db.Uuid

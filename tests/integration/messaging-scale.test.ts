@@ -49,7 +49,7 @@ it('migrates old encrypted blob bytes without changing their encrypted descripto
 });
 it('publishes durable hints to subscribers on multiple API instances',async()=>{
  const first:any[]=[],second:any[]=[];const closeA=await subscribeMessagingHints(h=>first.push(...h)),closeB=await subscribeMessagingHints(h=>second.push(...h));
- try{const c=await chat.createMessagingConversation(users[0],users[1]);await message(c.id);for(let i=0;i<30&&!first.length;i++)await new Promise(r=>setTimeout(r,20));expect(first).toEqual(expect.arrayContaining([{conversationId:c.id,deviceId:b}]));expect(second).toEqual(expect.arrayContaining([{conversationId:c.id,deviceId:b}]));}finally{await closeA();await closeB();}
+ try{const c=await chat.createMessagingConversation(users[0],users[1]);await message(c.id);for(let i=0;i<100&&(!first.some(h=>h.conversationId===c.id&&h.deviceId===b)||!second.some(h=>h.conversationId===c.id&&h.deviceId===b));i++)await new Promise(r=>setTimeout(r,20));expect(first).toEqual(expect.arrayContaining([{conversationId:c.id,deviceId:b}]));expect(second).toEqual(expect.arrayContaining([{conversationId:c.id,deviceId:b}]));}finally{await closeA();await closeB();}
 });
 it('a later device acknowledges restored account history without getting historical ciphertext or acknowledging another account',async()=>{
  const c=await chat.createMessagingConversation(users[0],users[1]);
@@ -63,4 +63,20 @@ it('a later device acknowledges restored account history without getting histori
  await expect(chat.messagingReceiptBatch(users[0],'s',a,{conversationId:c.id,deliveredIds:[],readIds:[row.messageId]})).rejects.toThrow('Receipts');
  await chat.messagingReceiptBatch(users[1],'s',b,{conversationId:c.id,deliveredIds:[],readIds:[row.messageId]});
  expect(await db.e2Member.findUnique({where:{conversationId_userId:{conversationId:c.id,userId:users[1]}}})).toMatchObject({unreadCount:0,unseenCount:0});
+});
+
+it('orders the inbox by latest committed activity and includes a ciphertext catch-up watermark',async()=>{
+ const third='scale-third',thirdDevice=randomUUID();
+ await db.user.upsert({where:{id:third},create:{id:third,name:third,username:third,email:`${third}@test.invalid`,emailVerifiedAt:new Date()},update:{}});
+ await chat.enrollMessagingDevice(third,'s',enrollment(thirdDevice,4));
+ const older=await chat.createMessagingConversation(users[0],users[1]);
+ const newer=await chat.createMessagingConversation(users[0],third);
+ await chat.sendMessagingEvent(users[0],'s',a,{conversationId:newer.id,clientId:randomUUID(),envelopes:[{recipientDeviceId:thirdDevice,wireType:3,ciphertextB64:Buffer.alloc(64,7).toString('base64')}]});
+ const latest=await message(older.id);
+ const rows=await chat.listMessagingConversations(users[0],'chat',1,21);
+ expect(rows[0].id).toBe(older.id);
+ expect(rows[0].lastSequence).toBe(latest.serverSequence);
+ expect(new Date(rows[0].updatedAt).getTime()).toBeGreaterThanOrEqual(new Date(rows[0].createdAt).getTime());
+ expect(JSON.stringify(rows)).not.toContain('ciphertextB64');
+ expect((await chat.messagingSync(users[1],'s',b,older.id,'0')).messages[0].id).toBe(latest.messageId);
 });
