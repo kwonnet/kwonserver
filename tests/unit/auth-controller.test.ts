@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response, user } from './fixtures';
+import logger from '@/logger';
 const deps = vi.hoisted(() => ({ requestEmail: vi.fn(), consumeEmail: vi.fn(), create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn(), startSession: vi.fn(), validateSession: vi.fn(), touch: vi.fn(), provider: vi.fn(), revoke: vi.fn(), sessions: vi.fn(), events: vi.fn(), account: vi.fn(), password: vi.fn() }));
 vi.mock('@/services/v1/auth', () => ({ requestAuthEmail: deps.requestEmail, consumeAuthEmail: deps.consumeEmail, getAccountSettings: deps.account, updateAccountPassword: deps.password, createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google, startAuthSession: deps.startSession, validateAuthSession: deps.validateSession, touchAuthSession: deps.touch, sessionProvider: deps.provider, revokeAuthSession: deps.revoke, listAuthSessions: deps.sessions, listLoginEvents: deps.events }));
 vi.mock('@/services/v1/utils', () => ({ getAuthUser: deps.getUser }));
@@ -254,4 +255,11 @@ it.each([new Error('private database details'), 'private provider details'])('ma
  deps.requestEmail.mockRejectedValue(error);
  const res = response(); await authEmailActionController({path: '/forgot-password', body: {email: 'ada@example.test'}} as any, res);
  expect(res.statusCode).toBe(503); expect(JSON.stringify(res.body)).not.toContain('private');
+});
+it('logs a safe database error code while keeping account action details out of the response and logs', async () => {
+ deps.requestEmail.mockRejectedValue(Object.assign(new Error('Database invocation email: private@example.test token: private-reset-token'), {name: 'PrismaClientKnownRequestError', code: 'P2021'}));
+ const res = response(); await authEmailActionController({path: '/forgot-password', body: {email: 'ada@example.test'}} as any, res);
+ expect(res.statusCode).toBe(503);
+ expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({event: 'auth_email_action_failed', err: expect.objectContaining({code: 'P2021', message: 'Database operation failed'})}), expect.any(String));
+ expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toMatch(/private@example|private-reset-token/);
 });

@@ -10,6 +10,7 @@ import { lookup } from '@/utils/ipLocation';
 import { PasswordUpdateSchema, SignInSchema, SignUpSchema } from "@/schema/auth";
 import { ZodError } from "zod/v3";
 import logger from "@/logger";
+import {safeError} from '@/logger/sanitize';
 import { SessionUser, AuthUser } from "@/types/user";
 import { getAuthUser } from "@/services/v1/utils";
 import { allowedOrigins } from "@/config";
@@ -248,7 +249,7 @@ export async function authEmailActionController(req: Request, res: Response) {
     return res.status(result.status).json(result.data);
   } catch (err) {
     if (err instanceof ZodError) return res.status(400).json({message: 'Check your email address, link and password. Passwords must be 8–32 characters.'});
-    logger.error({event: 'auth_email_action_failed', errorType: err instanceof Error ? err.name : 'Unknown'}, 'Account email action failed');
+    logger.error({event: 'auth_email_action_failed', errorType: err instanceof Error ? err.name : 'Unknown', err: safeError(err)}, 'Account email action failed');
     return res.status(503).json({message: 'Unable to process this request. Please try again.'});
   }
 }
