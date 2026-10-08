@@ -225,7 +225,9 @@ export async function messagingReceiptBatch(userId: string, sessionId: string, d
         if (c.state !== 'ACCEPTED' || await blocked(tx, c.initiatorId, c.approverId))
             return { suppressed: true };
         await storeReceiptBatch(tx, userId, deviceId, input, c.epoch);
-        return { suppressed: false };
+        const totals = await tx.e2Member.findUniqueOrThrow({ where: { conversationId_userId: { conversationId: input.conversationId, userId } }, select: { unreadCount: true, unseenCount: true } });
+        const accountTotals = await tx.e2Member.aggregate({ where: { userId, hiddenAt: null }, _sum: { unreadCount: true, unseenCount: true } });
+        return { suppressed: false, conversationId: input.conversationId, ...totals, totalUnreadMsg: accountTotals._sum.unreadCount ?? 0, totalUnseenMsg: accountTotals._sum.unseenCount ?? 0 };
     });
     if (!result.suppressed)
         wakeMessagingRelay(input.conversationId);

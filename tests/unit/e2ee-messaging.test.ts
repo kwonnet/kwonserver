@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 const mocks = vi.hoisted(() => {
-    const model = () => Object.fromEntries(['findFirst', 'findMany', 'findUnique', 'findUniqueOrThrow', 'create', 'createMany', 'count', 'upsert', 'update', 'updateMany', 'deleteMany'].map(k => [k, vi.fn()]));
+    const model = () => Object.fromEntries(['findFirst', 'findMany', 'findUnique', 'findUniqueOrThrow', 'create', 'createMany', 'count', 'aggregate', 'upsert', 'update', 'updateMany', 'deleteMany'].map(k => [k, vi.fn()]));
     const db: any = { $transaction: vi.fn(), $executeRaw: vi.fn(), $queryRaw: vi.fn(), e2Device: model(), e2SignedPreKey: model(), e2OneTimePreKey: model(), e2PreKeyClaim: model(), e2Conversation: model(), e2Member: model(), e2Message: model(), e2Envelope: model(), e2Receipt: model(), e2Delivery:model(), e2Blob: model(), e2Outbox: model(), blockUser: model(), follow: model(), user: model() };
     return { db, publicUser: vi.fn() };
 });
@@ -34,6 +34,8 @@ beforeEach(() => {
     db.e2Conversation.findFirst.mockResolvedValue(convo);
     db.e2Conversation.findUnique.mockResolvedValue(null);
     db.e2Conversation.findUniqueOrThrow.mockResolvedValue(convo);
+    db.e2Member.findUniqueOrThrow.mockResolvedValue({ unreadCount: 0, unseenCount: 0 });
+    db.e2Member.aggregate.mockResolvedValue({ _sum: { unreadCount: 0, unseenCount: 0 } });
     db.e2Conversation.create.mockResolvedValue(convo);
     db.e2Message.count.mockResolvedValue(0);
     db.e2Message.findUnique.mockResolvedValue(null);
@@ -181,7 +183,7 @@ it('only accepted recipients may create receipts; READ never regresses and repea
     db.blockUser.findFirst.mockResolvedValue(null);
     await expect(chat.messagingReceipt('b', 's', d, receipt)).rejects.toThrow('Receipts');
     db.e2Message.findMany.mockResolvedValue([{id:msgId,clientId,senderDevice:device}]);
-    expect(await chat.messagingReceipt('b', 's', d, receipt)).toEqual({ suppressed: false });
+    expect(await chat.messagingReceipt('b', 's', d, receipt)).toEqual({ suppressed: false, conversationId: room, unreadCount: 0, unseenCount: 0, totalUnreadMsg: 0, totalUnseenMsg: 0 });
     expect(db.e2Outbox.createMany).toHaveBeenCalled();
     db.e2Receipt.findMany.mockResolvedValue([{messageId:msgId,status:'READ'}]);
     await chat.messagingReceipt('b', 's', d, { ...receipt, status: 'DELIVERED' });
