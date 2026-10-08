@@ -1,0 +1,152 @@
+// Standalone design schema. Map E2User to the existing User in an actual migration.
+generator client {
+  provider = "prisma-client-js"
+  output = "./generated-reference-client"
+}
+datasource db {
+  provider = "postgresql"
+}
+enum E2ConversationState {
+  PENDING_REQUEST
+  ACCEPTED
+  BLOCKED
+}
+enum E2MessageStatus {
+  SENT
+  DELIVERED
+  READ
+}
+model E2User {
+  id String @id
+  devices E2Device[]
+  memberships E2Member[]
+}
+model E2Device {
+  id String @id @default(uuid()) @db.Uuid
+  userId String
+  user E2User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signalDeviceId Int // Positive numeric device ID required by SignalProtocolAddress.
+  registrationId Int
+  identityPublic Bytes
+  actionSigningPublic Bytes // Ed25519; separately bound by authenticated enrollment.
+  bundleVersion Int @default(1)
+  revokedAt DateTime?
+  signedPreKeys E2SignedPreKey[]
+  oneTimePreKeys E2OneTimePreKey[]
+  sent E2Message[]
+  envelopes E2Envelope[]
+  receipts E2Receipt[]
+  @@unique([userId, signalDeviceId])
+}
+model E2SignedPreKey {
+  deviceId String @db.Uuid
+  device E2Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  keyId Int
+  publicKey Bytes
+  signature Bytes
+  createdAt DateTime @default(now())
+  retiredAt DateTime?
+  @@id([deviceId, keyId])
+}
+model E2OneTimePreKey {
+  deviceId String @db.Uuid
+  device E2Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  keyId Int
+  publicKey Bytes
+  claimedAt DateTime?
+  claimId String? @db.Uuid
+  claimedByDeviceId String? @db.Uuid
+  @@id([deviceId, keyId])
+  @@index([deviceId, claimedAt, keyId])
+}
+model E2Conversation {
+  id String @id @default(uuid()) @db.Uuid
+  pairKey String @unique // Canonical sorted user IDs, domain-separated hash for direct conversations.
+  state E2ConversationState @default(PENDING_REQUEST)
+  initiatorId String
+  approverId String
+  epoch Int @default(1) // Increment on acceptance/block/rejection; never expose rejection to sender.
+  acceptedAt DateTime?
+  rejectedAt DateTime?
+  createdAt DateTime @default(now())
+  members E2Member[]
+  messages E2Message[]
+  blobs E2Blob[]
+}
+model E2Member {
+  conversationId String @db.Uuid
+  conversation E2Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId String
+  user E2User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hiddenAt DateTime?
+  @@id([conversationId, userId])
+  @@index([userId, hiddenAt])
+}
+model E2Message {
+  id String @id @default(uuid()) @db.Uuid
+  conversationId String @db.Uuid
+  conversation E2Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderDeviceId String @db.Uuid
+  senderDevice E2Device @relation(fields: [senderDeviceId], references: [id])
+  clientId String @db.Uuid // Same logical event ID across all per-device envelopes.
+  requestDigest Bytes // Idempotency: reject different bytes under an existing clientId.
+  serverSequence BigInt @unique @default(autoincrement())
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  envelopes E2Envelope[]
+  receipts E2Receipt[]
+  @@unique([senderDeviceId, clientId])
+  @@index([conversationId, serverSequence])
+}
+model E2Envelope {
+  messageId String @db.Uuid
+  message E2Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  recipientDeviceId String @db.Uuid
+  recipientDevice E2Device @relation(fields: [recipientDeviceId], references: [id])
+  wireType Int // 1 Signal message; 3 Signal prekey message. Headers/nonces embedded in ciphertext.
+  ciphertext Bytes
+  @@id([messageId, recipientDeviceId])
+  @@index([recipientDeviceId, messageId])
+}
+model E2Receipt {
+  messageId String @db.Uuid
+  message E2Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  recipientDeviceId String @db.Uuid
+  recipientDevice E2Device @relation(fields: [recipientDeviceId], references: [id])
+  status E2MessageStatus
+  deliveredAt DateTime
+  readAt DateTime?
+  @@id([messageId, recipientDeviceId])
+}
+model E2Block {
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  @@id([blockerId, blockedId])
+}
+model E2Blob {
+  id String @id @default(uuid()) @db.Uuid
+  conversationId String @db.Uuid
+  conversation E2Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  ownerDeviceId String @db.Uuid
+  objectKey String @unique
+  ciphertextBytes BigInt
+  finalizedAt DateTime?
+  expiresAt DateTime
+  // No file key, nonce, original filename, MIME type, or plaintext thumbnail.
+}
+model E2Outbox {
+  id String @id @default(uuid()) @db.Uuid
+  dedupeKey String @unique
+  conversationId String @db.Uuid
+  targetDeviceId String @db.Uuid
+  expectedEpoch Int
+  event String
+  payload Json // Routing IDs/ciphertext/status only, never plaintext or private keys.
+  createdAt DateTime @default(now())
+  availableAt DateTime @default(now())
+  publishedAt DateTime?
+  leaseUntil DateTime?
+  attempts Int @default(0)
+  @@index([publishedAt, availableAt, leaseUntil])
+}

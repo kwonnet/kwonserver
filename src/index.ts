@@ -29,7 +29,9 @@ app.use(
   })
 );
 // Middleware
-app.use(express.json());
+const regularJson = express.json();
+const encryptedMessageJson = express.json({limit: '2mb'});
+app.use((req, res, next) => (req.path === '/api/v1/conversations/messages' ? encryptedMessageJson : regularJson)(req, res, next));
 
 app.use(express.urlencoded({ extended: true }));
 

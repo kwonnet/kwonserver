@@ -1,25 +1,23 @@
-import express from "express";
-import { authMiddleware } from "@/middleware";
-import { getConvoMessagesController, getUserAndRecipientMessagesController, getUserChatDevicesController, getUserConversationsController, createConversationController, registerUserChatDeviceController, revokeUserChatDeviceController, updateUserConvoController } from "@/controllers/v1/conversations";
-
+import express from 'express';
+import { authMiddleware } from '@/middleware';
+import * as c from '@/controllers/v1/conversations';
 const router = express.Router();
-
-router.post("/", authMiddleware({checkPermission: true}), createConversationController)
-
-router.post("/users/:id/register-device", authMiddleware({checkPermission: true}), registerUserChatDeviceController)
-
-router.get("/users/:id/devices", authMiddleware({ checkPermission: true}), getUserChatDevicesController)
-
-router.get("/users/:id/conversations", authMiddleware({ checkPermission: true}), getUserConversationsController)
-
-router.get("/users/:id/recipients/:recipientId/messages", authMiddleware({ checkPermission: true}), getUserAndRecipientMessagesController)
-
-router.post("/devices/:deviceId/revoke", authMiddleware({checkPermission: true}), revokeUserChatDeviceController)
-
-router.get("/:id/messages", authMiddleware({ checkPermission: true}), getConvoMessagesController )
-
-router.patch("/users/:id/conversations", authMiddleware({ checkPermission: true}), updateUserConvoController )
-
-const conversationRoutes = router
-
-export default conversationRoutes
+router.use(authMiddleware({ checkPermission: true }));
+router.post('/', c.messagingCreateController);
+router.post('/devices', c.messagingEnrollController);
+router.get('/users/:id/devices', c.messagingRosterController);
+router.post('/devices/:deviceId/claim', c.messagingClaimController);
+router.post('/devices/:deviceId/revoke', c.messagingRevokeController);
+router.get('/users/:id/conversations', c.messagingListController);
+router.get('/users/:id/recipients/:recipientId/messages', c.messagingPeerController);
+router.get('/:id/messages', c.messagingSyncController);
+router.post('/messages', c.messagingSendController);
+router.post('/receipts', c.messagingReceiptController);
+router.post('/:id/request', c.messagingRequestController);
+router.delete('/:id/messages/:messageId', c.messagingDeleteController);
+router.put('/:id/blobs/:blobId', express.raw({ type: 'application/octet-stream', limit: '8388624b' }), c.messagingUploadController);
+router.get('/:id/blobs/:blobId', c.messagingDownloadController);
+// Never allow old clients to send incompatible homemade-ratchet ciphertext.
+router.post('/users/:id/register-device', (_req, res) => res.status(426).send('Update the app and unlock encrypted messaging'));
+router.patch('/users/:id/conversations', (_req, res) => res.status(426).send('Update the app to use device-bound receipts'));
+export default router;

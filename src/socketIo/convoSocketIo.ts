@@ -1,273 +1,132 @@
-import {validateAuthSession} from "@/services/v1/auth";
-import {registerAuthNamespace} from "@/utils/auth-session-sockets";
-import { MessageModel, SessionModel } from "@/db/models";
-import logger from "@/logger";
-import { getAuthUser, getPublicUser } from "@/services/v1/utils";
-import { User } from "@/types";
-import { getAuthTokenUser } from "@/utils";
-import { DefaultEventsMap, Server, Socket } from "socket.io";
-
-interface IoSocket
-  extends Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any> {
-  data: {
-    user: User;
-  };
-}
-
-interface SessionEvelope {
-  toUserId: string;
-  toDeviceId: string;
-  type: string;
-  initPacket: {
-    ephPub: any;
-  };
-  fromUserId: string;
-  fromDeviceId: string;
-}
-
-interface MessageEnvelope {
-  toUserId: string;
-  toDeviceId: string;
-  type: string;
-  header: {
-    dhPub_b64: string; // base64 of sender's DH public key for this message (X25519)
-    pn: number; // previous chain length
-    n: number; // message number within sending chain
-  };
-  ciphertext: string;
-  nonce: string;
-  fromUserId: string;
-  fromDeviceId: string;
-  meta?: { [key: string]: any };
-}
-
-interface SessionAckBody {
-  fromUserId: string;
-  fromDeviceId: string;
-  toUserId: string;
-  toDeviceId: string;
-}
-
-const convoSocketIo = (
-  _io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>
-) => {
-  // connect to namespace
-  const io = _io.of("/conversations");
-  // perform auth
-  registerAuthNamespace(io);
-  io.use(async (socket, next) => {
-    try {
-      const token = socket.handshake.auth?.token;
-      if (!token) return next(new Error("Convo Unauthenticated user"));
-      const user = getAuthTokenUser(token);
-      // console.log("Authenticated Socket user ", user)
-      if (!user) return next(new Error("Convo Error: Unauthenticated user"));
-      if (!await validateAuthSession(user)) return next(new Error("Session revoked or expired"));
-      socket.data.user = { ...user, name: user.username };
-      logger.info(`Convo Socket io Authenticated - ${socket.id}`);
-      next();
-    } catch (error) {
-      console.error("Convo Error authenticating socket user: ", error);
-      next(new Error("Convo Error: Unauthenticated user"));
-    }
-  });
-  // Set up socket connection
-  io.on("connection", (socket: IoSocket) => {
-    logger.info(`Connected conversations namespace - ${socket.id}`);
-    // join conversation room
-    socket.on("convo:join", ({ convoId }) => {
-      const room = `convo:${convoId}`;
-      socket.join(room);
-      logger.info(`Socket ${socket.id} joined conversation ${room}`);
-    });
-    // leave conversation room
-    socket.on("convo:leave", ({ convoId }) => {
-      const room = `convo:${convoId}`;
-      socket.leave(room);
-      logger.info(`Socket ${socket.id} left conversation ${room}`);
-    });
-    // join personal room
-    socket.on("room:join", ({ room }) => {
-      socket.join(room);
-      logger.info(`Socket ${socket.id} joined room ${room}`);
-    });
-    /**
-     * Handle bootstrap packets for first-time device-to-device sessions.
-     * These are sent when no session exists yet between two devices.
-     */
-    socket.on("session:init", async (payload) => {
-      try {
-        // payload.envelopes: array of envelopes targeted per device
-      const envelopes: SessionEvelope[] = payload.envelopes;
-      for (const env of envelopes || []) {
-        // Upsert session entry between devices
-        const body = {
-          fromUserId: env.fromUserId,
-          fromDeviceId: env.fromDeviceId,
-          toUserId: env.toUserId,
-          toDeviceId: env.toDeviceId,
-        };
-        // update or create session
-        const session = await SessionModel.findOneAndUpdate(
-          body,
-          {
-            $setOnInsert: {
-              initPacket: env.initPacket,
-              createdAt: new Date(),
-            },
-          },
-          { new: true, upsert: true }
-        );
-        // attempt live delivery to recipient device sockets
-        io.to(`user:${env.toUserId}:device:${env.toDeviceId}`).emit(
-          "session:init",
-          env
-        );
-        // send back to the sender
-        socket.emit("session:ack", {
-          ok: true,
-          sessionId: session._id,
-          ...body,
-        });
-
-      }
-      } catch (error: any) {
-        logger.error(`init Conversation io error: ${error?.message}`)
-      }
-    });
-    /**
-     * Acknowledge that the recipient consumed the bootstrap and established session.
-     */
-    socket.on(
-      "session:ack",
-      async ({
-        fromUserId,
-        fromDeviceId,
-        toDeviceId,
-        toUserId,
-      }: SessionAckBody) => {
+import { validateAuthSession } from '@/services/v1/auth';
+import { registerAuthNamespace } from '@/utils/auth-session-sockets';
+import { getAuthTokenUser } from '@/utils';
+import { allowedOrigins } from '@/config';
+import logger from '@/logger';
+import { safeError } from '@/logger/sanitize';
+import { Server } from 'socket.io';
+import { randomBytes, createPublicKey, verify } from 'node:crypto';
+import { z } from 'zod/v3';
+import * as messaging from '@/services/v1/conversations';
+import { SendSchema, ReceiptSchema } from '@/services/v1/conversations/e2ee-contracts';
+const uuid = z.string().uuid();
+export default function convoSocketIo(server: Server) {
+    const io = server.of('/conversations');
+    registerAuthNamespace(io);
+    io.use(async (socket, next) => {
         try {
-          await SessionModel.updateOne(
-          {
-            fromUserId,
-            fromDeviceId,
-            toUserId,
-            toDeviceId,
-          },
-          { $set: { acknowledgedAt: new Date() } }
-        );
-        } catch (error: any) {
-          logger.error(`ack Conversation io error: ${error?.message}`)
+            const origin = socket.handshake.headers.origin;
+            if (origin && !allowedOrigins.includes(origin))
+                return next(new Error('Origin not allowed'));
+            const user = getAuthTokenUser(socket.handshake.auth?.token);
+            if (!user?.sessionId || !await validateAuthSession(user))
+                return next(new Error('Sign in again'));
+            socket.data.user = user;
+            next();
         }
-      }
-    );
-
-    /**
-     * Listen to conversation emitted messages
-     */
-
-    socket.on(
-      "message:send",
-      async (payload: { convoId: string; envelopes: MessageEnvelope[] }) => {
-        const envelopes: MessageEnvelope[] = payload.envelopes || [];
-        const user = socket.data.user
-        for (const env of envelopes) {
-          try {
-            // 1. Ensure valid session exists between devices
-            // const session = await SessionModel.findOne({
-            //   fromUserId: env.fromUserId,
-            //   fromDeviceId: env.fromDeviceId,
-            //   toUserId: env.toUserId,
-            //   toDeviceId: env.toDeviceId,
-            //   acknowledgedAt: { $exists: true }, // means bootstrap acknowledged
-            // });
-
-            // if (!session) {
-            //   console.warn(
-            //     "No active session found for message, dropping:",
-            //     env
-            //   );
-            //   socket.emit("message:sent", {
-            //     ok: false,
-            //     error: "No valid E2E session between devices",
-            //     toUserId: env.toUserId,
-            //     toDeviceId: env.toDeviceId,
-            //   });
-            //   continue;
-            // }
-
-            const isCurrentUser = user.id === env.fromUserId
-            const now = new Date()
-            // 2. Persist encrypted message
-            const msg = await MessageModel.create({
-              conversation: payload.convoId,
-              fromUserId: env.fromUserId,
-              fromDeviceId: env.fromDeviceId,
-              toUserId: env.toUserId,
-              toDeviceId: env.toDeviceId,
-              ciphertext: env.ciphertext,
-              nonce: env.nonce,
-              header: env.header,
-              meta: env?.meta,
-              ...(isCurrentUser && {
-                seen: [{userId: env.fromUserId, seenAt: now }],
-                read: [{userId: env.fromUserId, readAt: now }]
-              })
-            });
-
-            const sender = await getPublicUser(env.fromUserId)
-
-            // 3. Deliver to live socket if recipient online
-            io.to(`convo:${payload.convoId}`).emit("message:new",
-              {
-                ...msg.toJSON(),
-                id: msg?._id?.toString(),
-                sender,
-              }
-            );
-            // io.to(`user:${env.toUserId}:device:${env.toDeviceId}`).emit(
-            //   "message:new",
-            //   {
-            //     ...msg.toJSON(),
-            //     id: msg?._id?.toString(),
-            //     sender,
-            //   }
-            // );
-
-            // 4. Confirm back to sender
-            socket.emit("message:sent", {
-              ok: true,
-              messageId: msg._id?.toString(),
-            });
-          } catch (error: any) {
-            console.error("message:send error", error?.message);
-            socket.emit("message:sent", {
-              ok: false,
-              error: "Message send failed",
-            });
-          }
+        catch (error) {
+            logger.warn({ event: 'messaging_socket_auth_failed', err: safeError(error) }, 'Messaging socket authentication failed');
+            next(new Error('Unauthenticated'));
         }
-      }
-    );
-
-    // Listen to message read receipt
-
-    socket.on("message:receipt", async(args: { id: string, convoId: string, userId: string}) =>{
-      try {
-        const now = new Date()
-        const result = await MessageModel.findOneAndUpdate({_id: args.id, conversation: args.convoId, toUserId: args.userId}, { $push: { seen: { userId: args.userId, seenAt: now  }, read: { userId: args.userId, readAt: now  } }}, {new: true})
-        if(result){
-          io.to(`convo:${args.convoId}`).emit("message:receipt", {...args, seen: result.seen, read: result.read})
+    });
+    const boundDevices = new Map<string, number>();
+    let hintCursor = 0n;
+    let pumping = false;
+    const timer = setInterval(async () => {
+        if (pumping || !boundDevices.size)
+            return;
+        pumping = true;
+        try {
+            const result = await messaging.messagingSocketHints([...boundDevices.keys()], hintCursor);
+            hintCursor = result.cursor;
+            for (const hint of result.hints)
+                io.to(`e2-device:${hint.deviceId}`).emit('message:available', { conversationId: hint.conversationId });
         }
-      } catch (error: any) {
-        console.error("message:send error", error?.message);
-      }
-    })
-
-
-
-
-  });
-};
-
-export default convoSocketIo;
+        catch (error) {
+            logger.warn({ event: 'messaging_hint_relay_failed', err: safeError(error) }, 'Messaging live hints unavailable; durable sync remains active');
+        }
+        finally {
+            pumping = false;
+        }
+    }, 1000);
+    timer.unref();
+    server.engine.on('close', () => clearInterval(timer));
+    io.on('connection', socket => {
+        const user = socket.data.user;
+        const challenge = randomBytes(32).toString('base64');
+        socket.emit('device:challenge', { challenge });
+        socket.on('device:challenge', () => socket.emit('device:challenge', { challenge }));
+        let deviceId: string | undefined;
+        let lastTyping = 0;
+        const handle = (name: string, work: (body: any) => Promise<any>) => socket.on(name, async (body, ack) => {
+            try {
+                if (!await validateAuthSession(user)) {
+                    socket.disconnect(true);
+                    throw new messaging.MessagingError(401, 'Session expired');
+                }
+                const result = await work(body);
+                if (typeof ack === 'function')
+                    ack({ ok: true, ...result });
+            }
+            catch (error) {
+                logger.warn({ event: 'messaging_socket_event_failed', operation: name, userId: user.id, err: safeError(error) }, 'Messaging socket event failed');
+                if (typeof ack === 'function')
+                    ack({ ok: false, error: error instanceof messaging.MessagingError ? error.message : 'Unable to process event' });
+            }
+        });
+        handle('device:bind', async (body) => {
+            const input = z.object({ deviceId: uuid, signature: z.string().max(100) }).strict().parse(body);
+            const device = await messaging.messagingDevice(user.id, user.sessionId, input.deviceId);
+            const pub = createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(device.actionSigningPublic)]), format: 'der', type: 'spki' });
+            const bytes = Buffer.from(JSON.stringify(['kwonnet-device-bind', 1, challenge, user.id, input.deviceId]));
+            if (!verify(null, bytes, pub, Buffer.from(input.signature, 'base64')))
+                throw new messaging.MessagingError(403, 'Invalid device proof');
+            if (deviceId) {
+                boundDevices.set(deviceId, Math.max(0, (boundDevices.get(deviceId) ?? 1) - 1));
+                await socket.leave(`e2-device:${deviceId}`);
+            }
+            deviceId = device.id;
+            boundDevices.set(deviceId, (boundDevices.get(deviceId) ?? 0) + 1);
+            await socket.join(`e2-device:${deviceId}`);
+            return { deviceId };
+        });
+        socket.on('disconnect', () => { if (deviceId) {
+            const n = (boundDevices.get(deviceId) ?? 1) - 1;
+            if (n)
+                boundDevices.set(deviceId, n);
+            else
+                boundDevices.delete(deviceId);
+        } });
+        const bound = () => { if (!deviceId)
+            throw new messaging.MessagingError(403, 'Unlock messaging first'); return deviceId; };
+        handle('convo:join', async (body) => { const id = uuid.parse(body.convoId); await messaging.messagingSync(user.id, user.sessionId, bound(), id, '0'); await socket.join(`e2-convo:${id}`); return {}; });
+        handle('convo:leave', async (body) => { await socket.leave(`e2-convo:${uuid.parse(body.convoId)}`); return {}; });
+        handle('message:send', async (body) => {
+            const input = SendSchema.parse(body);
+            const result = await messaging.sendMessagingEvent(user.id, user.sessionId, bound(), input);
+            // Hint contains no ciphertext. Device-scoped durable sync is authoritative across API instances.
+            for (const envelope of input.envelopes)
+                io.to(`e2-device:${envelope.recipientDeviceId}`).emit('message:available', { conversationId: input.conversationId });
+            return result;
+        });
+        for (const event of ['message:delivered', 'message:read'])
+            handle(event, async (body) => messaging.messagingReceipt(user.id, user.sessionId, bound(), ReceiptSchema.parse({ ...body, status: event === 'message:read' ? 'READ' : 'DELIVERED' })));
+        for (const event of ['typing:start', 'typing:stop'])
+            handle(event, async (body) => {
+                const id = uuid.parse(body.conversationId);
+                if (event === 'typing:start' && Date.now() - lastTyping < 2000)
+                    return {};
+                lastTyping = Date.now();
+                const peer = await messaging.messagingTyping(user.id, user.sessionId, bound(), id);
+                if (peer) {
+                    const devices = await messaging.messagingRoster(user.id, peer);
+                    for (const d of devices)
+                        io.to(`e2-device:${d.deviceId}`).emit(event, { conversationId: id, userId: user.id, expiresAt: Date.now() + 5000 });
+                }
+                return {};
+            });
+        // Actions are encrypted events on the same authorized send path, never plaintext mutations.
+        for (const name of ['reaction:add', 'message:edit', 'message:delete'])
+            handle(name, async (body) => messaging.sendMessagingEvent(user.id, user.sessionId, bound(), SendSchema.parse(body)));
+    });
+}

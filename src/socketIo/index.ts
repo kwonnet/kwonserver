@@ -9,6 +9,7 @@ import { allowedOrigins } from "@/config";
 
 const socketIo = (httpServer: http.Server<typeof http.IncomingMessage, typeof http.ServerResponse>) => {
   const io = new Server(httpServer, {
+    maxHttpBufferSize: 2 * 1024 * 1024,
     cors: {
       origin: allowedOrigins,
       methods: ["GET", "POST"],

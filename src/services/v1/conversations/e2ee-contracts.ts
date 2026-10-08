@@ -1,0 +1,10 @@
+import { z } from 'zod/v3';
+const id = z.string().uuid();
+const key = (bytes: number) => z.string().refine(v => /^[A-Za-z0-9+/]+={0,2}$/.test(v) && Buffer.from(v, 'base64').length === bytes, 'Invalid public key');
+export const EnrollSchema = z.object({ deviceId: id, signalDeviceId: z.number().int().min(1).max(2147483647), registrationId: z.number().int().min(0).max(16383), identityPublic: key(33), actionSigningPublic: key(32), signedPreKey: z.object({ keyId: z.number().int().min(1), publicKey: key(33), signature: key(64) }).strict(), preKeys: z.array(z.object({ keyId: z.number().int().min(1), publicKey: key(33) }).strict()).max(100) }).strict();
+export const SendSchema = z.object({ conversationId: id, clientId: id, envelopes: z.array(z.object({ recipientDeviceId: id, wireType: z.union([z.literal(1), z.literal(3)]), ciphertextB64: z.string().min(24).max(90000).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => Buffer.from(value, 'base64').length <= 65536, 'Ciphertext exceeds 64 KiB') }).strict()).min(1).max(20) }).strict();
+export const ReceiptSchema = z.object({ conversationId: id, messageIds: z.array(id).min(1).max(100), status: z.enum(['DELIVERED', 'READ']) }).strict();
+export const RequestSchema = z.object({ action: z.enum(['accept', 'reject', 'block']), deliveredIds: z.array(id).max(100).default([]), readIds: z.array(id).max(100).default([]) }).strict();
+export type EnrollInput = z.infer<typeof EnrollSchema>;
+export type SendInput = z.infer<typeof SendSchema>;
+export type ReceiptInput = z.infer<typeof ReceiptSchema>;

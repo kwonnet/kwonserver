@@ -34,7 +34,7 @@ import {
 import { ReportSchema } from "@/schema";
 import { DetectResult } from "node-device-detector";
 import { LookupResult } from "ip-location-api";
-import { MessageModel } from "@/db/models";
+
 import { cleanTextContent, commentClassifier} from "@/utils/helpers";
 import logger from "@/logger";
 import {logServiceError} from '@/logger/events';
@@ -254,43 +254,14 @@ export const getUserStats = async (id: string) => {
       prisma.notification.count({ where: { recipientId: id, isSeen: false, ...publicationNotificationVisibility(id) } }),
     ]);
 
-    // get message count from
-    const result: { totalUnreadMsg: number; totalUnseenMsg: number }[] =
-      await MessageModel.aggregate([
-        {
-          $match: {
-            $or: [
-              { "read.userId": { $ne: id } },
-              { "seen.userId": { $ne: id } },
-            ],
-            toUserId: id,
-          },
-        },
-        {
-          $group: {
-            _id: null,
-            totalUnreadMsg: {
-              $sum: {
-                $cond: [{ $not: { $in: [id, "$read.userId"] } }, 1, 0],
-              },
-            },
-            totalUnseenMsg: {
-              $sum: {
-                $cond: [{ $not: { $in: [id, "$seen.userId"] } }, 1, 0],
-              },
-            },
-          },
-        },
-        {
-          $project: {
-            _id: 0,
-            totalUnreadMsg: 1,
-            totalUnseenMsg: 1,
-          },
-        },
-      ]);
-
-    // console.log("unread message count ", result)
+    // Count logical encrypted events once across a user's devices. Receipt details stay private.
+        const recipientEvents = { senderDevice: { userId: { not: id } }, envelopes: { some: { recipientDevice: { userId: id } } }, conversation: { members: { some: { userId: id, hiddenAt: null } }, rejectedAt: null }, NOT: { deletedFor: { has: id } }, expiresAt: { gt: new Date() } };
+        const [totalUnreadMsg, totalUnseenMsg] = await Promise.all([
+            prisma.e2Message.count({ where: { ...recipientEvents, receipts: { none: { recipientDevice: { userId: id }, status: 'READ' } } } }),
+            prisma.e2Message.count({ where: { ...recipientEvents, receipts: { none: { recipientDevice: { userId: id } } } } }),
+        ]);
+        const result = [{ totalUnreadMsg, totalUnseenMsg }];
+        // console.log("unread message count ", result)
 
     return {
       data: {

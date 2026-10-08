@@ -257,3 +257,51 @@ export const updateUserConvoController = async (
     return res.status(400).send(error?.message);
   }
 };
+import * as messaging from '@/services/v1/conversations';
+import { EnrollSchema, SendSchema, ReceiptSchema, RequestSchema } from '@/services/v1/conversations/e2ee-contracts';
+import logger from '@/logger';
+import { safeError } from '@/logger/sanitize';
+const UUID = z.string().uuid();
+function messagingController(work: (req: Request, user: SessionUser) => Promise<any>) {
+    return async (req: Request, res: Response) => {
+        try {
+            const result = await work(req, req.user as SessionUser);
+            res.setHeader('Cache-Control', 'no-store');
+            return res.send(result);
+        }
+        catch (error) {
+            logger.error({ event: 'messaging_operation_failed', userId: req.user?.id, err: safeError(error) }, 'Messaging operation failed');
+            return res.status(error instanceof messaging.MessagingError ? error.status : error instanceof z.ZodError ? 400 : 500).send(error instanceof messaging.MessagingError ? error.message : 'Unable to process messaging request');
+        }
+    };
+}
+function session(user: SessionUser) { if (!user.sessionId)
+    throw new messaging.MessagingError(401, 'Sign in again'); return user.sessionId; }
+function device(req: Request) { return UUID.parse(req.headers['x-messaging-device']); }
+export const messagingEnrollController = messagingController((req, u) => messaging.enrollMessagingDevice(u.id, session(u), EnrollSchema.parse(req.body)));
+export const messagingRosterController = messagingController((req, u) => messaging.messagingRoster(u.id, z.string().min(1).parse(req.params.id)));
+export const messagingClaimController = messagingController((req, u) => messaging.claimMessagingPreKey(u.id, session(u), device(req), UUID.parse(req.params.deviceId), UUID.parse(req.body.claimId)));
+export const messagingCreateController = messagingController((req, u) => messaging.createMessagingConversation(u.id, z.string().min(1).parse(req.body.recipientId)));
+export const messagingListController = messagingController((req, u) => { if (u.id !== req.params.id)
+    throw new messaging.MessagingError(403, 'Not permitted'); return messaging.listMessagingConversations(u.id, String(req.query.kind ?? 'chat'), Math.max(1, Number(req.query.page) || 1), Math.min(100, Math.max(1, Number(req.query.limit) || 21))); });
+export const messagingPeerController = messagingController((req, u) => { if (u.id !== req.params.id)
+    throw new messaging.MessagingError(403, 'Not permitted'); return messaging.messagingPeer(u.id, String(req.params.recipientId)); });
+export const messagingSendController = messagingController((req, u) => messaging.sendMessagingEvent(u.id, session(u), device(req), SendSchema.parse(req.body)));
+export const messagingSyncController = messagingController((req, u) => messaging.messagingSync(u.id, session(u), device(req), UUID.parse(req.params.id), z.string().regex(/^\d{1,20}$/).parse(req.query.after ?? '0'), z.string().regex(/^\d{1,20}$/).parse(req.query.receiptAfter ?? '0')));
+export const messagingReceiptController = messagingController((req, u) => messaging.messagingReceipt(u.id, session(u), device(req), ReceiptSchema.parse(req.body)));
+export const messagingRequestController = messagingController((req, u) => messaging.resolveMessagingRequest(u.id, session(u), device(req), UUID.parse(req.params.id), RequestSchema.parse(req.body)));
+export const messagingDeleteController = messagingController((req, u) => messaging.deleteMessagingForMe(u.id, session(u), device(req), UUID.parse(req.params.id), UUID.parse(req.params.messageId)));
+export const messagingRevokeController = messagingController((req, u) => messaging.revokeMessagingDevice(u.id, UUID.parse(req.params.deviceId)));
+export const messagingUploadController = messagingController((req, u) => messaging.putMessagingBlob(u.id, session(u), device(req), UUID.parse(req.params.id), UUID.parse(req.params.blobId), Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)));
+export const messagingDownloadController = async (req: Request, res: Response) => {
+    try {
+        const u = req.user as SessionUser;
+        const bytes = await messaging.getMessagingBlob(u.id, session(u), device(req), UUID.parse(req.params.id), UUID.parse(req.params.blobId));
+        res.set({ 'Cache-Control': 'private, no-store', 'Content-Type': 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'attachment' });
+        return res.send(bytes);
+    }
+    catch (error) {
+        logger.error({ event: 'messaging_attachment_failed', err: safeError(error) }, 'Encrypted attachment unavailable');
+        return res.status(error instanceof messaging.MessagingError ? error.status : 400).send('Attachment unavailable');
+    }
+};

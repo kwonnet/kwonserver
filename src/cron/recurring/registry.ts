@@ -1,4 +1,5 @@
 export const recurringJobs = [
+  {name:'clean_messaging_retention',pattern:'0 3 * * *',load:()=>import('./clean_messaging_retention')},
   {name:'recover_email_messages',pattern:'* * * * *',load:()=>import('./recover_email_messages')},
   {name:'rotate_engagement_rewards',pattern:'0 0 * * *',tz:'UTC',load:()=>import('./rotate_engagement_rewards')},
   { name: 'publish_scheduled_posts', pattern: '* * * * *', load: () => import('./publish_scheduled_posts') },
