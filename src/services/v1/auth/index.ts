@@ -30,6 +30,7 @@ export const createUser = async (
   location?: Partial<LookupResult> | null,
   googleIdentity?: { subject: string; avatar?: string }
 ) => {
+  if (process.env.REGISTRATION_ENABLED !== 'true') return {status: 403, data: 'New registrations are temporarily disabled. Existing users can still sign in.'};
   try {
     let registrationMessageId: string | undefined;
     const dbUser = await prisma.user.findFirst({

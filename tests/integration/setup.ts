@@ -20,3 +20,6 @@ process.env.MESSAGING_STORAGE_BUCKET='kwonnet-private-test';
 process.env.MESSAGING_STORAGE_REGION='us-east-1';
 process.env.MESSAGING_STORAGE_ACCESS_KEY_ID='disposable-storage';
 process.env.MESSAGING_STORAGE_SECRET_ACCESS_KEY='disposable-storage-password';
+
+// Fixtures explicitly enable account creation; production defaults to closed registration.
+process.env.REGISTRATION_ENABLED = 'true';

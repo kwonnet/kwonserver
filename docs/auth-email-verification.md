@@ -51,3 +51,11 @@ This migration drops columns used by older server builds. Prepare the environmen
 - POST `/api/v1/auth/reset-password`: `{token, newPassword}`.
 
 Verification/reset success returns `{message}`. The existing `/auth/signin` remains the login route.
+
+## Temporarily closing registration
+
+New account creation is disabled by default. `REGISTRATION_ENABLED=false` (or unset) in the API rejects credential signup and first-time Google registration with HTTP 403 before account, wallet, referral, or email creation. Existing credential/Google sign-in, account linking, password recovery, and verification of already-created accounts remain available.
+
+Keep `NEXT_PUBLIC_REGISTRATION_ENABLED=false` (or unset) in the web deployment to hide signup controls and display the closure notice. Old signup URLs show the sign-in form. This uses the existing runtime public configuration; the API flag is authoritative even if a browser has stale UI.
+
+To reopen, set `REGISTRATION_ENABLED=true` on the API and `NEXT_PUBLIC_REGISTRATION_ENABLED=true` on the web deployment, then restart/redeploy those services. Deploy both code changes for closure to take effect; no database migration is needed.

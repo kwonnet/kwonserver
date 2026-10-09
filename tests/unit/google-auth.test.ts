@@ -11,6 +11,7 @@ import {loginGoogleUser, createUser} from '@/services/v1/auth';
 const claims = {sub: 'google-sub', email: 'ada@gmail.com', email_verified: true, name: 'Ada', picture: 'https://google.test/avatar'};
 const account = {emailVerifiedAt: new Date(), id: 'kwon-id', status: 'ACTIVE', googleSubject: 'google-sub', deletedAt: null, deactivatedAt: null};
 beforeEach(() => {
+  vi.stubEnv('REGISTRATION_ENABLED', 'true');
   vi.resetAllMocks(); vi.stubEnv('AUTH_GOOGLE_ID', 'client-id');
   mocks.db.emailMessage.create.mockResolvedValue({id:'welcome-event'});
   mocks.verify.mockResolvedValue({getPayload: () => claims});
@@ -149,4 +150,14 @@ it('never infers or overwrites an existing account country during Google signin/
   mocks.db.user.findUnique.mockResolvedValue(null); mocks.db.user.findFirst.mockResolvedValue({...account, googleSubject: null, countryId: 'chosen-country'});
   expect((await loginGoogleUser('token', location)).status).toBe(200); expect(mocks.db.country.findFirst).not.toHaveBeenCalled();
   expect(mocks.db.user.updateMany).toHaveBeenCalledWith(expect.objectContaining({data: {googleSubject: 'google-sub', emailVerifiedAt: expect.any(Date)}}));
+});
+
+it('keeps existing Google sign-in available while rejecting new Google accounts during registration closure', async () => {
+  vi.stubEnv('REGISTRATION_ENABLED','false');
+  mocks.db.user.findUnique.mockResolvedValue(account);
+  expect((await loginGoogleUser('existing-token')).status).toBe(200);
+  mocks.db.user.findUnique.mockResolvedValue(null);mocks.db.user.findFirst.mockResolvedValue(null);
+  expect((await loginGoogleUser('new-token')).status).toBe(403);
+  expect(mocks.db.user.create).not.toHaveBeenCalled();
+  expect(mocks.db.$transaction).not.toHaveBeenCalled();
 });

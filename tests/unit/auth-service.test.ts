@@ -13,6 +13,7 @@ vi.mock('@/utils/helpers', () => ({ AppError: class extends Error {} }));
 import { createUser, loginUser, handleReferral } from '@/services/v1/auth';
 
 beforeEach(() => {
+  vi.stubEnv('REGISTRATION_ENABLED', 'true');
   resetMocks(db); resetMocks(passwords);
   vi.stubEnv('AUTH_EMAIL_TOKEN_SECRET','test-secret-with-at-least-32-characters');
   db.authEmailToken.create.mockResolvedValue({id:'action'});
@@ -149,4 +150,23 @@ it('does not guess a country when lookup has no usable country or the catalog la
 it('rejects an unverified password account with verification guidance',async()=>{
  db.user.findFirst.mockResolvedValue(user({emailVerifiedAt:null}));
  expect(await loginUser(credentials)).toMatchObject({status:403,data:expect.stringContaining('resend')});
+});
+
+it('rejects new credential and OAuth accounts before database writes when registration is closed', async () => {
+  for (const value of ['', 'false', 'TRUE']) {
+    vi.stubEnv('REGISTRATION_ENABLED', value);
+    expect((await createUser({...credentials, name:'Ada'})).status).toBe(403);
+    expect((await createUser({email:credentials.email,name:'Ada'},null,{subject:'new-google-user'})).status).toBe(403);
+  }
+  expect(db.user.findFirst).not.toHaveBeenCalled();
+  expect(db.$transaction).not.toHaveBeenCalled();
+  expect(passwords.hash).not.toHaveBeenCalled();
+  expect(enqueue).not.toHaveBeenCalled();
+});
+
+it('allows verified existing password accounts to sign in while registration is closed',async()=>{
+  vi.stubEnv('REGISTRATION_ENABLED','false');
+  db.user.findFirst.mockResolvedValue(user({emailVerifiedAt:new Date()}));
+  passwords.compare.mockResolvedValue(true);
+  expect((await loginUser(credentials)).status).toBe(200);
 });
