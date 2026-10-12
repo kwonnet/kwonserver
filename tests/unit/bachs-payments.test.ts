@@ -87,9 +87,9 @@ it('rejects closed orders and old uncertain creation attempts without calling Ba
  deps.find.mockResolvedValue(await savedOrder({checkoutId:null,checkoutUrl:null,createdAt:new Date(Date.now()-24*60*60*1000)}));
  await expect(createBachsCoinCheckout({id:'buyer'} as any,createArgs)).rejects.toThrow('reconciliation');expect(fetch).not.toHaveBeenCalled();
 });
-it.each([{}, {checkout_id:''}, {checkout_id:'chk_valid',checkout_url:'https://evil.test/c/new'}])('rejects invalid provider creation responses %j',async response=>{
+it.each([{}, {checkout_id:''}, {checkout_id:'chk_valid',checkout_url:'javascript:alert(1)'}])('rejects invalid provider creation responses %j',async response=>{
  deps.find.mockResolvedValue(await savedOrder({checkoutId:null,checkoutUrl:null}));vi.mocked(fetch).mockResolvedValue(Response.json(response));
- await expect(createBachsCoinCheckout({id:'buyer'} as any,createArgs)).rejects.toThrow(/invalid/i);expect(deps.update).not.toHaveBeenCalled();
+ await expect(createBachsCoinCheckout({id:'buyer'} as any,createArgs)).rejects.toThrow(/checkout/i);expect(deps.update).not.toHaveBeenCalled();
 });
 it.each([null,{environment:'https://api.bachs.io'}])('rejects absent or different-environment orders %j',async value=>{
  deps.find.mockResolvedValue(value&&{...order(),...value});
@@ -142,6 +142,13 @@ it.each(['chk_01234567-89ab-cdef','550e8400-e29b-41d4-a716-446655440000'])('acce
 it.each([undefined,null,42,'',' ','..','.','id\nother'])('rejects unsafe or empty opaque identifiers %j',value=>{
  expect(isBachsCheckoutId(value)).toBe(false);
 });
-it.each([undefined,'not a URL','http://checkout.bachs.io/c/order','https://checkout.bachs.io:444/c/order','https://buyer@checkout.bachs.io/c/order'])('reports invalid checkout URLs clearly without accepting them: %s',value=>{
- expect(()=>bachsCheckoutUrl(value)).toThrow('invalid checkout URL');
+it.each([undefined,'not a URL','http://checkout.bachs.io/c/order','https://buyer@checkout.bachs.io/c/order'])('reports invalid checkout URLs clearly without accepting them: %s',value=>{
+ expect(()=>bachsCheckoutUrl(value)).toThrow('checkout URL');
+});
+
+it.each(['https://sandbox-checkout.bachs.io/c/test','https://pay.bachs.io/c/test','https://checkout.bachs.io:444/c/test'])('uses the hosted HTTPS URL supplied by Bachs without enforcing an example hostname: %s',async checkoutUrl=>{
+ deps.find.mockResolvedValue(await savedOrder({checkoutId:null,checkoutUrl:null}));
+ vi.mocked(fetch).mockResolvedValue(Response.json({checkout_id:'opaque-id',checkout_url:checkoutUrl}));
+ expect(await createBachsCoinCheckout({id:'buyer'} as any,createArgs)).toMatchObject({checkoutUrl});
+ expect(deps.update).toHaveBeenCalledWith(expect.objectContaining({data:{checkoutId:'opaque-id',checkoutUrl}}));
 });

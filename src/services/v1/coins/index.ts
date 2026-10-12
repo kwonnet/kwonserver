@@ -121,12 +121,14 @@ export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase
 
 export async function purchaseCoinsWithBachs(item: {orderId: string; userId: string; checkoutId: string; paymentId: string}) {
   if (verifiedPaymentId(item) !== item.paymentId) throw new WalletError('Payment has not been verified');
+  // Lock and deduplicate settlement by checkout ID.
   return await walletOperation('bachs', item.checkoutId, {orderId:item.orderId,userId:item.userId}, [item.userId], async tx => {
     const order = await tx.bachsCheckout.findUniqueOrThrow({where:{id:item.orderId}});
     if (order.userId !== item.userId || order.checkoutId !== item.checkoutId) throw new WalletError('Payment recipient mismatch');
     if (order.status === 'PAID') return {status:'paid',orderId:order.id};
     const wallet = await tx.wallet.findUniqueOrThrow({where:{userId:order.userId}});
     if (wallet.isLocked) throw new WalletError('Wallet is locked', 409);
+    // Commit the balance, ledger entries and paid status together.
     await tx.wallet.update({where:{id:wallet.id},data:{coins:{increment:order.coins},bonus:{increment:order.bonus}}});
     const common = {userId:order.userId,walletId:wallet.id,coinPackageId:order.packageId,txnRef:generateUniqueRef(),exTxnRef:item.checkoutId,
       category:TxnCategoryEnum.COIN_PURCHASE,gateway:TxnGatewayEnum.BACHS,source:TxnSourceEnum.FIAT,status:TxnStatusEnum.COMPLETED,

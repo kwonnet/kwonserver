@@ -102,16 +102,22 @@ export async function bachsStatusController(req:Request,res:Response) {
   try {
     if (!req.user?.id) return res.status(401).json({message:'Sign in to view your payment'});
     if (!/^[a-f0-9]{64}$/.test(req.params.id)) return res.status(400).json({message:'Invalid order ID'});
-    return res.json(await (req.method === 'POST' ? reconcileBachsCheckout(req.params.id,req.user.id) : getBachsCheckoutStatus(req.params.id,req.user.id)));
+    // GET reads the receipt; POST refreshes it from Bachs.
+    const result = req.method === 'POST'
+      ? await reconcileBachsCheckout(req.params.id,req.user.id)
+      : await getBachsCheckoutStatus(req.params.id,req.user.id);
+    return res.json(result);
   } catch(error) { return bachsHttpError(res,error); }
 }
 export async function bachsWebhookController(req:Request,res:Response) {
+  // Verify the original bytes before parsing JSON.
   if (!verifyBachsSignature(req.body,req.get('X-Bachs-Signature'),req.get('X-Bachs-Timestamp'),req.get('X-Bachs-Signature-V2'))) return res.status(400).json({message:'Invalid webhook signature'});
   let event;
   try { event = JSON.parse(req.body.toString('utf8')); }
   catch { return res.status(400).json({message:'Invalid webhook payload'}); }
   if (!event || typeof event.id !== 'string' || typeof event.type !== 'string') return res.status(400).json({message:'Invalid webhook event'});
   try { await processBachsWebhook(event); return res.json({received:true}); }
+  // A temporary failure lets Bachs retry delivery.
   catch { return res.status(503).json({message:'Webhook processing temporarily unavailable'}); }
 }
 function bachsHttpError(res:Response,error:unknown) {

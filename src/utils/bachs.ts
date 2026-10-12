@@ -1,5 +1,4 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import logger from '@/logger';
 import { WalletError } from '@/services/walletLedger';
 
 export function bachsConfigured() {
@@ -27,16 +26,13 @@ export function isBachsCheckoutId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 512 &&
     !/[\s\x00-\x1f\x7f]/.test(value) && value !== '.' && value !== '..';
 }
-export function invalidBachsCheckoutResponse(field: 'checkout_id' | 'checkout_url', value: unknown): never {
-  logger.warn({provider:'bachs',field,valueType:typeof value}, 'Invalid Bachs checkout response field');
-  throw new WalletError(`Bachs returned an invalid ${field === 'checkout_id' ? 'checkout identifier' : 'checkout URL'}. Retry the same purchase or contact support.`,503);
-}
-export function bachsCheckoutUrl(value: unknown) {
-  if (typeof value !== 'string') return invalidBachsCheckoutResponse('checkout_url',value);
+export function bachsCheckoutUrl(value: unknown): string {
+  // The API supplies the hosted URL. Its hostname is not part of the API contract.
+  if (typeof value !== 'string') throw new WalletError('Bachs did not return a checkout URL',503);
   let url: URL;
-  try { url = new URL(value); } catch { return invalidBachsCheckoutResponse('checkout_url',value); }
-  if (url.protocol !== 'https:' || url.hostname !== 'checkout.bachs.io' || url.username || url.password || url.port) return invalidBachsCheckoutResponse('checkout_url',value);
-  return url.href;
+  try { url = new URL(value); } catch { throw new WalletError('Bachs returned an invalid checkout URL',503); }
+  if (url.protocol !== 'https:' || url.username || url.password) throw new WalletError('Bachs returned an invalid checkout URL',503);
+  return value;
 }
 export function verifyBachsSignature(raw: Buffer, signature: string | undefined, timestamp: string | undefined, v2?: string, now = Date.now()) {
   const secret = process.env.BACHS_WEBHOOK_SECRET;
@@ -49,6 +45,7 @@ export function verifyBachsSignature(raw: Buffer, signature: string | undefined,
     timestamp = times[0][1]; signatures = parts.filter(([key]) => key === 'v1').map(([,value]) => value);
   }
   if (!timestamp || !/^\d{1,12}$/.test(timestamp) || Math.abs(now / 1000 - Number(timestamp)) > 300) return false;
+  // Sign timestamp + raw body and compare without timing leaks.
   const expected = createHmac('sha256', secret).update(`${timestamp}.`).update(raw).digest();
   return signatures.some(value => /^[a-f0-9]{64}$/i.test(value) && timingSafeEqual(expected, Buffer.from(value, 'hex')));
 }
