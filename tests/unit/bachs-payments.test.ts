@@ -6,7 +6,7 @@ vi.mock('@/db',()=>({default:{bachsCheckout:{findUnique:deps.find,upsert:deps.up
 vi.mock('@/services/v1/coins',()=>({purchaseCoinsWithBachs:deps.settle}));
 import {createBachsCoinCheckout,getBachsCheckoutStatus,reconcileBachsCheckout,processBachsWebhook} from '@/services/v1/payments';
 import {verifiedPaymentId} from '@/services/walletLedger/verifiedPayment';
-import {bachsApiOrigin,verifyBachsSignature} from '@/utils/bachs';
+import {bachsApiOrigin,verifyBachsSignature,isBachsCheckoutId,bachsCheckoutUrl} from '@/utils/bachs';
 const D=(n:number)=>new Prisma.Decimal(n),id='a'.repeat(64);
 const order=()=>({id,userId:'buyer',packageId:'pack',environment:'https://sandbox-api.bachs.io',currency:'USD',amount:D(10),coins:D(1000),bonus:D(20),request:{success_url:`https://kwonnet.test/store?bachs_order=${id}`},status:'PENDING',createdAt:new Date(),checkoutId:'chk_order',checkoutUrl:'https://checkout.bachs.io/c/abc'});
 const checkout=(overrides={})=>({checkout_id:'chk_order',reference:id,currency:'USD',amount:'10.00',status:'completed',charge:{payment_id:'pay_test',checkout_id:'chk_order',status:'succeeded',currency:'USD',amount_paid:'10.00',amount_remaining:'0.00'},...overrides});
@@ -87,9 +87,9 @@ it('rejects closed orders and old uncertain creation attempts without calling Ba
  deps.find.mockResolvedValue(await savedOrder({checkoutId:null,checkoutUrl:null,createdAt:new Date(Date.now()-24*60*60*1000)}));
  await expect(createBachsCoinCheckout({id:'buyer'} as any,createArgs)).rejects.toThrow('reconciliation');expect(fetch).not.toHaveBeenCalled();
 });
-it.each([{}, {checkout_id:'bad'}, {checkout_id:'chk_valid',checkout_url:'https://evil.test/c/new'}])('rejects invalid provider creation responses %j',async response=>{
+it.each([{}, {checkout_id:''}, {checkout_id:'chk_valid',checkout_url:'https://evil.test/c/new'}])('rejects invalid provider creation responses %j',async response=>{
  deps.find.mockResolvedValue(await savedOrder({checkoutId:null,checkoutUrl:null}));vi.mocked(fetch).mockResolvedValue(Response.json(response));
- await expect(createBachsCoinCheckout({id:'buyer'} as any,createArgs)).rejects.toThrow('Invalid');expect(deps.update).not.toHaveBeenCalled();
+ await expect(createBachsCoinCheckout({id:'buyer'} as any,createArgs)).rejects.toThrow(/invalid/i);expect(deps.update).not.toHaveBeenCalled();
 });
 it.each([null,{environment:'https://api.bachs.io'}])('rejects absent or different-environment orders %j',async value=>{
  deps.find.mockResolvedValue(value&&{...order(),...value});
@@ -120,10 +120,28 @@ it('accepts an overpaid completed charge with no remaining-amount field',async()
  vi.mocked(fetch).mockResolvedValue(Response.json({...valid,charge:{...charge,status:'overpaid',amount_paid:'11.00'}}));
  expect(await reconcileBachsCheckout(id,'buyer')).toMatchObject({status:'paid'});expect(deps.settle).toHaveBeenCalledTimes(1);
 });
-it.each([{type:'checkout.completed',data:{}},{type:'checkout.completed',data:{checkout_id:'bad'}},{type:'checkout.completed',data:{checkout_id:'chk_other',reference:'foreign'}},{type:'checkout.completed',data:{checkout_id:'chk_other',reference:id}}])('ignores malformed or foreign-account-product events %j',async event=>{
+it.each([{type:'checkout.completed',data:{}},{type:'checkout.completed',data:{checkout_id:''}},{type:'checkout.completed',data:{checkout_id:'chk_other',reference:'foreign'}},{type:'checkout.completed',data:{checkout_id:'chk_other',reference:id}}])('ignores malformed or foreign-account-product events %j',async event=>{
  deps.find.mockResolvedValue(null);await processBachsWebhook(event);expect(fetch).not.toHaveBeenCalled();expect(deps.settle).not.toHaveBeenCalled();
 });
 it('finds an order by signed metadata when creation response was lost',async()=>{
  deps.find.mockResolvedValueOnce(null).mockResolvedValue(order());vi.mocked(fetch).mockResolvedValue(Response.json(checkout()));
  await processBachsWebhook({type:'collection.succeeded',data:{checkout_id:'chk_order',metadata:{order_id:id}}});expect(deps.settle).toHaveBeenCalledTimes(1);
+});
+
+it.each(['chk_01234567-89ab-cdef','550e8400-e29b-41d4-a716-446655440000'])('accepts opaque checkout IDs through creation and payment verification: %s',async checkoutId=>{
+ deps.find.mockResolvedValue(await savedOrder({checkoutId:null,checkoutUrl:null}));
+ vi.mocked(fetch).mockResolvedValue(Response.json({checkout_id:checkoutId,checkout_url:'https://checkout.bachs.io/c/opaque'}));
+ expect(await createBachsCoinCheckout({id:'buyer'} as any,createArgs)).toMatchObject({checkoutId});
+ deps.find.mockResolvedValue({...order(),checkoutId});
+ const payment=checkout({checkout_id:checkoutId});payment.charge.checkout_id=checkoutId;
+ vi.mocked(fetch).mockResolvedValue(Response.json(payment));
+ await processBachsWebhook({type:'checkout.completed',data:{checkout_id:checkoutId}});
+ expect(deps.settle).toHaveBeenCalledWith(expect.objectContaining({checkoutId}));
+});
+
+it.each([undefined,null,42,'',' ','..','.','id\nother'])('rejects unsafe or empty opaque identifiers %j',value=>{
+ expect(isBachsCheckoutId(value)).toBe(false);
+});
+it.each([undefined,'not a URL','http://checkout.bachs.io/c/order','https://checkout.bachs.io:444/c/order','https://buyer@checkout.bachs.io/c/order'])('reports invalid checkout URLs clearly without accepting them: %s',value=>{
+ expect(()=>bachsCheckoutUrl(value)).toThrow('invalid checkout URL');
 });

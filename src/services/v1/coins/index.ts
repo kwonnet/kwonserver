@@ -121,7 +121,7 @@ export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase
 
 export async function purchaseCoinsWithBachs(item: {orderId: string; userId: string; checkoutId: string; paymentId: string}) {
   if (verifiedPaymentId(item) !== item.paymentId) throw new WalletError('Payment has not been verified');
-  return walletOperation('bachs', item.checkoutId, {orderId:item.orderId,userId:item.userId}, [item.userId], async tx => {
+  return await walletOperation('bachs', item.checkoutId, {orderId:item.orderId,userId:item.userId}, [item.userId], async tx => {
     const order = await tx.bachsCheckout.findUniqueOrThrow({where:{id:item.orderId}});
     if (order.userId !== item.userId || order.checkoutId !== item.checkoutId) throw new WalletError('Payment recipient mismatch');
     if (order.status === 'PAID') return {status:'paid',orderId:order.id};

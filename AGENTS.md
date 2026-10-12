@@ -10,3 +10,5 @@ Keep business rules and database queries in services; controllers handle validat
 HTTP input/output. Bind personalized queries to the authenticated user, never to
 an arbitrary client-supplied viewer ID. Follow existing test infrastructure and
 use disposable databases for integration tests.
+
+Use async/await for Promise-based operations. Avoid `.then()` chains and `void` fire-and-forget calls; handle failures with try/catch. React effects must remain synchronous and invoke an inner async function when needed.

@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {Prisma} from '@prisma/client';
 import {WalletError, requestKey} from '@/services/walletLedger';
 import {purchaseCoinsWithBachs} from '@/services/v1/coins';
-import {bachsConfigured, bachsApiOrigin, bachsRequest, bachsCheckoutUrl} from '@/utils/bachs';
+import {bachsConfigured, bachsApiOrigin, bachsRequest, bachsCheckoutUrl, isBachsCheckoutId, invalidBachsCheckoutResponse} from '@/utils/bachs';
 import {allowedOrigins} from '@/config';
 import { markVerifiedPayment } from '@/services/walletLedger/verifiedPayment';
 import { subscriptionPrice } from '@/services/walletLedger/pricing';
@@ -351,7 +351,7 @@ export async function createBachsCoinCheckout(user: import('@/types/user').Sessi
   if (order.checkoutId && order.checkoutUrl) return {orderId:order.id,checkoutId:order.checkoutId,checkoutUrl:order.checkoutUrl};
   if (Date.now()-order.createdAt.getTime() > 23*60*60*1000) throw new WalletError('Checkout creation needs reconciliation. Contact support with the order ID.',409);
   const result = await bachsRequest('/checkout-sessions',order.request as object,id);
-  if (typeof result?.checkout_id !== 'string' || !/^chk_[A-Za-z0-9]+$/.test(result.checkout_id)) throw new WalletError('Invalid Bachs checkout response',503);
+  if (!isBachsCheckoutId(result?.checkout_id)) return invalidBachsCheckoutResponse('checkout_id',result?.checkout_id);
   const checkoutUrl = bachsCheckoutUrl(result.checkout_url);
   await prisma.bachsCheckout.update({where:{id},data:{checkoutId:result.checkout_id,checkoutUrl}});
   return {orderId:id,checkoutId:result.checkout_id,checkoutUrl};
@@ -368,14 +368,14 @@ export async function reconcileBachsCheckout(orderId:string,userId?:string,provi
   if (!order || order.environment !== bachsApiOrigin() || (userId && order.userId !== userId)) throw new WalletError('Checkout not found',404);
   if (order.status === 'PAID') return {orderId:order.id,status:'paid',packageId:order.packageId};
   const checkoutId = order.checkoutId ?? providerCheckoutId;
-  if (!checkoutId || !/^chk_[A-Za-z0-9]+$/.test(checkoutId)) return {orderId:order.id,status:'pending',packageId:order.packageId};
+  if (!isBachsCheckoutId(checkoutId)) return {orderId:order.id,status:'pending',packageId:order.packageId};
   const result = await bachsRequest(`/checkout-sessions/${encodeURIComponent(checkoutId)}`);
   if (result.checkout_id !== checkoutId || result.reference !== order.id || result.currency !== order.currency || bachsAmount(result.amount) !== cents(order.amount)) throw new WalletError('Bachs checkout verification mismatch',409);
   if (!order.checkoutId) order = await prisma.bachsCheckout.update({where:{id:order.id},data:{checkoutId}});
   if (['expired','cancelled'].includes(result.status)) {
     // Never overwrite a paid order if a delayed expiry races fulfillment.
     await prisma.bachsCheckout.updateMany({where:{id:order.id,status:'PENDING'},data:{status:result.status.toUpperCase()}});
-    return getBachsCheckoutStatus(order.id,order.userId);
+    return await getBachsCheckoutStatus(order.id,order.userId);
   }
   if (result.status !== 'completed') return {orderId:order.id,status:'pending',packageId:order.packageId};
   const charge = result.charge;
@@ -393,7 +393,7 @@ function bachsAmount(value:unknown) {
 export async function processBachsWebhook(event:any) {
   if (!['checkout.completed','collection.succeeded'].includes(event?.type)) return;
   const checkoutId = event?.data?.checkout_id;
-  if (typeof checkoutId !== 'string' || !/^chk_[A-Za-z0-9]+$/.test(checkoutId)) return;
+  if (!isBachsCheckoutId(checkoutId)) return;
   const known = await prisma.bachsCheckout.findUnique({where:{checkoutId}});
   // A signed event can refer to other products sold through the same Bachs account.
   const reference = known?.id ?? event?.data?.reference ?? event?.data?.metadata?.order_id;
