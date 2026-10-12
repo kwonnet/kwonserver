@@ -106,6 +106,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           catId: room.catId,
           socketId: socket.id,
           name: socket.data.user.name,
+          avatar: socket.data.user.avatar ?? "",
           voteCount: 0,
           mode
         });

@@ -1147,3 +1147,38 @@ covering that subdomain only. Keep the noindex header permanently after the temp
 removal request expires; other search engines remove entries after recrawling.
 The main kwonnet.com website remains indexable. Reference:
 [Google's noindex guidance](https://developers.google.com/search/docs/crawling-indexing/block-indexing).
+
+### Bachs coin checkout
+
+The store payment chooser now supports Bachs alongside Flutterwave and wallet
+credit. Bachs uses server-priced one-time coin-package checkout; this does not
+change the existing Flutterwave subscription flow.
+
+- Keep `BACHS_API_KEY` and `BACHS_WEBHOOK_SECRET` on the API server only. Keys
+  beginning `sk_sandbox_` select `https://sandbox-api.bachs.io`; `sk_live_` selects
+  `https://api.bachs.io`. The key needs `payments:read` and `payments:write`.
+- Apply migration `20261012190000_bachs_checkout` before deploying the API. It
+  adds the BACHS ledger gateway and durable checkout snapshots; no existing
+  balances or transactions are modified.
+- Register `https://<API_HOST>/api/v1/payments/bachs/webhook` in the Bachs dashboard
+  for `checkout.completed` and `collection.succeeded`. Set
+  `BACHS_WEBHOOK_SECRET` to that endpoint's signing secret. The handler verifies
+  the timestamp and HMAC over raw bytes (including rotated V2 signatures), and
+  returns 5xx when settlement needs a retry.
+- Return URLs are the initiating trusted Kwonnet HTTPS origin's `/store` route.
+  Bachs refuses localhost/private-network return URLs, including in sandbox.
+  Run sandbox flows on a public test origin and a disposable/test database.
+- Checkout pricing, coins and bonus amounts are snapshotted from the active
+  server catalog. USD/NGN billing is fixed to the selected package currency.
+  Never send prices, buyer IDs or coin quantities from the client.
+- Creation retries retain the same request body, reference and idempotency key.
+  Ambiguous creations older than 23 hours require reconciliation rather than
+  blindly creating another provider operation. The provider reference is unique.
+- Authenticated return-page verification and signed webhooks use the same
+  atomic settlement. The order binds the buyer, package, amount, currency and
+  API environment. A redirect or webhook payload cannot by itself credit coins;
+  payment is retrieved from Bachs first. Concurrent/duplicate success events
+  credit one wallet once.
+
+Docs: https://docs.bachs.io/guides/checkout/checkout-sessions and
+https://docs.bachs.io/guides/webhooks/overview.

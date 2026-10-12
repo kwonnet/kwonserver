@@ -27,8 +27,9 @@ app.use(
 );
 // Middleware
 const regularJson = express.json();
+const bachsWebhookRaw = express.raw({type:'application/json',limit:'256kb'});
 const encryptedMessageJson = express.json({limit: '2mb'});
-app.use((req, res, next) => (req.path === '/api/v1/conversations/messages' ? encryptedMessageJson : regularJson)(req, res, next));
+app.use((req, res, next) => (/^\/api\/v1\/payments\/bachs\/webhook\/?$/.test(req.path) ? bachsWebhookRaw : req.path === '/api/v1/conversations/messages' ? encryptedMessageJson : regularJson)(req, res, next));
 
 app.use(express.urlencoded({ extended: true }));
 

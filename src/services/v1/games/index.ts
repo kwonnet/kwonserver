@@ -587,6 +587,7 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
     const playerInfo = {
       id: params.playerId,
       name: params.name,
+      avatar: params.avatar ?? "",
       createdAt: currDate,
       lastLoggedIn: currDate,
     };
@@ -650,6 +651,7 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
         // update user details on join game
         redisClient.hSet(playerKeys.info, "lastLoggedIn", currDate),
         redisClient.hSet(playerKeys.info, "name", params.name),
+        redisClient.hSet(playerKeys.info, "avatar", params.avatar ?? ""),
         // update current room data
         redisClient.hSet(`room:${params.playerId}:player`, { ...params }),
         redisClient.sAdd(`room:${roomId}:players`, params.playerId),

@@ -80,8 +80,9 @@ it('normalizes valid modes and owns delayed initialization failures',async()=>{
   games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
   games.getGameRoomPlayer.mockResolvedValue(null);games.addGameRoomPlayer.mockResolvedValue({data:{room:{id:'room'}}});
   games.getTotalRoomPlayers.mockResolvedValue(2);games.getTotalRoomParticipants.mockResolvedValue(2);games.getGameRoomPlayersWithRank.mockRejectedValue(new Error('redis unavailable'));
-  socket.broadcast={to:()=>({emit:vi.fn()})};const ack=vi.fn();await handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'multi'},ack);
-  expect(games.addGameRoomPlayer).toHaveBeenCalledWith(expect.objectContaining({mode:'MULTI'}));expect(ack).toHaveBeenCalledWith({isError:false,message:'User joined room'});
+  socket.data.user.avatar='https://images.example/player.webp';
+  socket.broadcast={to:()=>({emit:vi.fn()})};const ack=vi.fn();await handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'multi',avatar:'https://untrusted.example/spoof.webp'},ack);
+  expect(games.addGameRoomPlayer).toHaveBeenCalledWith(expect.objectContaining({mode:'MULTI',avatar:'https://images.example/player.webp'}));expect(ack).toHaveBeenCalledWith({isError:false,message:'User joined room'});
   await vi.advanceTimersByTimeAsync(500);expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ERROR_NOTIFY,expect.stringContaining('initialize'));expect(vi.getTimerCount()).toBe(0);
  }finally{vi.useRealTimers();}
 });

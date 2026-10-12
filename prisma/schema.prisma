@@ -20,6 +20,7 @@ datasource db {
 }
 
 model User {
+  bachsCheckouts BachsCheckout[]
   e2Devices E2Device[]
   e2Memberships E2Member[]
   authEmailTokens AuthEmailToken[]
@@ -1189,6 +1190,7 @@ model RewardTip {
 
 
 model CoinPackage {
+  bachsCheckouts BachsCheckout[]
   id              String            @id @default(cuid())
   name            String
   amount          Decimal @db.Decimal(20, 2)
@@ -1709,6 +1711,7 @@ enum TxnCategoryEnum {
 }
 
 enum TxnGatewayEnum {
+  BACHS
   WALLET
   FLUTTERWAVE
   PAYSTACK
@@ -2274,4 +2277,25 @@ model E2PreKeyClaim {
   targetDeviceId String @db.Uuid
   bundle Json
   createdAt DateTime @default(now())
+}
+
+// Durable server-priced order and fulfillment snapshot for hosted Bachs checkout.
+model BachsCheckout {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId String
+  package CoinPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  environment String
+  currency TxnCurrencyEnum
+  amount Decimal @db.Decimal(20, 2)
+  coins Decimal @db.Decimal(20, 2)
+  bonus Decimal @db.Decimal(20, 2)
+  request Json
+  checkoutId String? @unique
+  checkoutUrl String?
+  status String @default("PENDING")
+  createdAt DateTime @default(now())
+  paidAt DateTime?
+  @@index([userId, createdAt])
 }

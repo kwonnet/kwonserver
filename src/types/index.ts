@@ -203,6 +203,7 @@ export enum CoinPayTypeEnum {
 }
 
 export interface GameRoomPlayer {
+    avatar?: string;
     playerId: string;
     gameId: string;
     name: string;
@@ -213,6 +214,7 @@ export interface GameRoomPlayer {
     mode: GameMode
 }
 export interface GamePlayerInfo {
+    avatar?: string;
     id: string;
     name: string;
     createdAt: string,
