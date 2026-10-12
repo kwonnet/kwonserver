@@ -51,7 +51,11 @@ export const deepSeekAi = new OpenAi({
   apiKey: process.env.DEEP_SEEK_API_KEY,
 });
 
+export const allowedOrigins = process.env.REMOTE_APP_URL ? ["http://localhost:3000", ...process.env.REMOTE_APP_URL.split(",")] : ["http://localhost:3000"];
 
-export const allowedOrigins = process.env.NODE_ENV === "production" ? [String(process.env.REMOTE_APP_URL)] : [String(process.env.LOCAL_APP_URL), String(process.env.LOCAL_TUNNEL_URL)]
+// export const allowedOrigins = process.env.NODE_ENV === "production" ? [String(process.env.REMOTE_APP_URL)] : [String(process.env.LOCAL_APP_URL), String(process.env.LOCAL_TUNNEL_URL)]
 
 export const kwonrecAPI = String(process.env.KWONREC_API)
+
+
+

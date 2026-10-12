@@ -14,14 +14,14 @@ import convoSocketIo from "./socketIo/convoSocketIo";
 import { bigintConverterMiddleware } from "./middleware";
 import { startCronJobs, stopCronJobs } from "./cron";
 import logger from '@/logger';
+import { allowedOrigins } from "./config";
 
 const port = process.env.PORT || 8000;
 
-const origin = process.env.REMOTE_APP_URL ? ["http://localhost:3000", ...process.env.REMOTE_APP_URL.split(",")] : ["http://localhost:3000"];
 // cors
 app.use(
   cors({
-    origin: origin,
+    origin: allowedOrigins,
     credentials: true,
   })
 );
