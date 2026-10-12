@@ -1,8 +1,9 @@
+import { Prisma } from '@prisma/client';
 import { setupWalletTransaction } from './wallet-fixture';
 import { markVerifiedPayment } from '@/services/walletLedger/verifiedPayment';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { resetMocks } from './fixtures';
-const db = vi.hoisted(() => ({ coinPackage: { findMany: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn() },
+const db = vi.hoisted(() => ({ bachsCheckout: { findUniqueOrThrow: vi.fn(), update: vi.fn() }, coinPackage: { findMany: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn() },
   wallet: { findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), update: vi.fn() }, user: { findFirst: vi.fn() },
   transaction: { findFirst: vi.fn(), create: vi.fn() }, transactionLogs: { create: vi.fn() }, $transaction: vi.fn() }));
 const sync = vi.hoisted(() => ({ from: vi.fn(), to: vi.fn() }));
@@ -86,4 +87,39 @@ it('refuses verified payments into a locked wallet without minting',async()=>{
 it('rejects unsupported provider currencies',async()=>{
  expect((await c.purchaseCoinsWithFlutterwave({...item,currency:'TON'})).status).toBe(400);
  expect(db.wallet.update).not.toHaveBeenCalled();
+});
+
+const bachsItem = {orderId:'order',userId:'u',checkoutId:'chk_order',paymentId:'pay_order'};
+const bachsOrder = (bonus = 10) => ({id:'order',userId:'u',checkoutId:'chk_order',packageId:'pack',status:'PENDING',
+  amount:new Prisma.Decimal(5),currency:'USD',coins:new Prisma.Decimal(100),bonus:new Prisma.Decimal(bonus)});
+it('rejects forged Bachs settlement before opening a wallet transaction',async()=>{
+ await expect(c.purchaseCoinsWithBachs({...bachsItem})).rejects.toThrow('not been verified');
+ expect(db.$transaction).not.toHaveBeenCalled();
+});
+it.each([0,10])('credits the Bachs order snapshot and records the fiat and coin ledger entries (bonus %s)',async bonus=>{
+ db.bachsCheckout.findUniqueOrThrow.mockResolvedValue(bachsOrder(bonus));
+ expect(await c.purchaseCoinsWithBachs(markVerifiedPayment({...bachsItem},bachsItem.paymentId))).toEqual({status:'paid',orderId:'order'});
+ expect(db.coinPackage.findUniqueOrThrow).not.toHaveBeenCalled();
+ expect(db.wallet.update).toHaveBeenCalledWith({where:{id:'wallet'},data:{coins:{increment:new Prisma.Decimal(100)},bonus:{increment:new Prisma.Decimal(bonus)}}});
+ const entries=db.transaction.create.mock.calls.map(([query])=>query.data);
+ expect(entries).toEqual([
+   expect.objectContaining({gateway:'BACHS',type:'DEBIT',currency:'USD',amount:new Prisma.Decimal(5)}),
+   expect.objectContaining({gateway:'BACHS',type:'CREDIT',currency:'COINS',amount:new Prisma.Decimal(100+bonus),source:bonus?'COINS_BONUS':'COINS',metadata:{providerId:'pay_order',orderId:'order',coins:100,bonus}}),
+ ]);
+ expect(db.bachsCheckout.update).toHaveBeenCalledWith({where:{id:'order'},data:{status:'PAID',paidAt:expect.any(Date)}});
+});
+it.each([{userId:'other'},{checkoutId:'chk_other'}])('rejects Bachs recipient or checkout mismatch %j',async override=>{
+ db.bachsCheckout.findUniqueOrThrow.mockResolvedValue({...bachsOrder(),...override});
+ await expect(c.purchaseCoinsWithBachs(markVerifiedPayment({...bachsItem},bachsItem.paymentId))).rejects.toThrow('recipient mismatch');
+ expect(db.wallet.update).not.toHaveBeenCalled();expect(db.transaction.create).not.toHaveBeenCalled();
+});
+it('does not credit a Bachs order already marked paid',async()=>{
+ db.bachsCheckout.findUniqueOrThrow.mockResolvedValue({...bachsOrder(),status:'PAID'});
+ expect(await c.purchaseCoinsWithBachs(markVerifiedPayment({...bachsItem},bachsItem.paymentId))).toEqual({status:'paid',orderId:'order'});
+ expect(db.wallet.update).not.toHaveBeenCalled();expect(db.transaction.create).not.toHaveBeenCalled();
+});
+it('leaves a Bachs order unsettled when the wallet is locked',async()=>{
+ db.bachsCheckout.findUniqueOrThrow.mockResolvedValue(bachsOrder());db.wallet.findUniqueOrThrow.mockResolvedValue({...wallet,isLocked:true});
+ await expect(c.purchaseCoinsWithBachs(markVerifiedPayment({...bachsItem},bachsItem.paymentId))).rejects.toThrow('Wallet is locked');
+ expect(db.wallet.update).not.toHaveBeenCalled();expect(db.bachsCheckout.update).not.toHaveBeenCalled();
 });
