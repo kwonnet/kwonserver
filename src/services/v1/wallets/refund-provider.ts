@@ -1,11 +1,30 @@
 import { bachsApiOrigin } from "@/utils/bachs";
 import { WalletError, cents } from "@/services/walletLedger";
 import { Prisma, PurchaseRefund } from "@prisma/client";
+import { logServiceError } from "@/logger/events";
 
 export class RefundProviderError extends WalletError {
-  constructor(public definitive: boolean) {
+  constructor(public definitive: boolean, cause?: Error) {
     super("The payment provider could not accept this refund", 503);
+    this.name = "RefundProviderError";
+    this.cause = cause;
   }
+}
+function providerFailure(gateway: string, path: string, status: number, body: unknown, definitive: boolean) {
+  const operation = path.endsWith("/verify") || path.startsWith("/payments/")
+    ? "verify payment"
+    : path.startsWith("/refunds/by-charge/") ? "find refund by payment"
+    : path.startsWith("/refunds/") ? "retrieve refund"
+    : path.startsWith("/refunds?") ? "list refunds"
+    : path === "/refunds" || path.endsWith("/refund") ? "create refund"
+    : "refund request";
+  const code = (body as { error_code?: unknown } | null)?.error_code;
+  // Log diagnostic fields without provider bodies or customer details.
+  const cause = Object.assign(new Error(`${gateway} ${operation} returned HTTP ${status}`), {
+    statusCode: status,
+    ...(typeof code === "string" && /^[A-Z_]{1,80}$/.test(code) ? { code } : {}),
+  });
+  return new RefundProviderError(definitive, cause);
 }
 export function refundEnvironment(gateway: string) {
   return gateway === "BACHS"
@@ -40,13 +59,19 @@ async function request(
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  if (!response.ok)
-    throw new RefundProviderError(
-      [400, 401, 403, 404, 422].includes(response.status),
-    );
+  if (!response.ok) {
+    let details: unknown;
+    try {
+      details = await response.json();
+    } catch (error) {
+      logServiceError("v1/wallets/refund-provider", "readProviderError", error, true);
+    }
+    throw providerFailure(gateway, path, response.status, details,
+      [400, 401, 403, 404, 422].includes(response.status));
+  }
   const result = await response.json();
   if (gateway === "FLUTTERWAVE" && result.status !== "success")
-    throw new RefundProviderError(false);
+    throw providerFailure(gateway, path, response.status, result, false);
   return gateway === "BACHS" ? result : result.data;
 }
 const amount = (value: unknown) => {
@@ -75,6 +100,8 @@ export async function verifyRefundPayment(
     )
   )
     throw new WalletError("Original payment could not be verified", 409);
+  if (gateway === "BACHS" && data.is_refundable === false)
+    throw new WalletError("Bachs does not allow a refund for this payment. Bank-transfer payments cannot be refunded automatically; please contact support.", 409);
 }
 export async function createProviderRefund(row: PurchaseRefund) {
   if (row.environment !== refundEnvironment(row.gateway))
@@ -103,15 +130,15 @@ export async function createProviderRefund(row: PurchaseRefund) {
 export async function readProviderRefund(row: PurchaseRefund) {
   if (row.environment !== refundEnvironment(row.gateway))
     throw new WalletError("Refund belongs to another payment environment", 409);
-  if (row.gateway === "BACHS")
-    return await request(
-      row.gateway,
-      `/refunds/by-charge/${encodeURIComponent(row.paymentId)}`,
-    );
   if (row.providerRefundId)
     return await request(
       row.gateway,
       `/refunds/${encodeURIComponent(row.providerRefundId)}`,
+    );
+  if (row.gateway === "BACHS")
+    return await request(
+      row.gateway,
+      `/refunds/by-charge/${encodeURIComponent(row.paymentId)}`,
     );
   // A timed-out Flutterwave POST must be found, never submitted a second time.
   for (let page = 1; page <= 20; page++) {
