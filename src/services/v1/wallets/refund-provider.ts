@@ -3,6 +3,7 @@ import { WalletError, cents } from "@/services/walletLedger";
 import { Prisma, PurchaseRefund } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { logServiceError, logServiceTrace } from "@/logger/events";
+import { safeLogText } from "@/logger/sanitize";
 
 export class RefundProviderError extends WalletError {
   constructor(public definitive: boolean, cause?: Error) {
@@ -23,7 +24,7 @@ function providerFailure(gateway: string, path: string, status: number, body: un
   // Log diagnostic fields without provider bodies or customer details.
   const cause = Object.assign(new Error(`${gateway} ${operation} returned HTTP ${status}`), {
     statusCode: status,
-    ...(typeof code === "string" && /^[A-Z_]{1,80}$/.test(code) ? { code } : {}),
+    ...(typeof code === "string" ? { code: safeLogText(code).slice(0,80) } : {}),
   });
   return new RefundProviderError(definitive, cause);
 }
@@ -36,7 +37,7 @@ export function refundEnvironment(gateway: string) {
 }
 // Flutterwave uses both snake_case and legacy PascalCase refund fields.
 function flutterwaveRefund(data: any) {
-  return { id: data?.id, tx_id: data?.tx_id ?? data?.TransactionId,
+  return { id: data?.id, tx_id: data?.transaction_id ?? data?.TransactionId ?? data?.tx_id,
     amount_refunded: data?.amount_refunded ?? data?.AmountRefunded,
     status: data?.status };
 }
@@ -131,7 +132,7 @@ export async function verifyRefundPayment(
 export async function createProviderRefund(row: PurchaseRefund) {
   if (row.environment !== refundEnvironment(row.gateway))
     throw new WalletError("Refund belongs to another payment environment", 409);
-  return await request(
+  const response = await request(
     row.gateway,
     row.gateway === "BACHS"
       ? "/refunds"
@@ -152,6 +153,21 @@ export async function createProviderRefund(row: PurchaseRefund) {
     row.id,
     { refundId: row.id, purchaseId: row.transactionId, providerPaymentId: row.paymentId, amount: row.amount.toFixed(2), currency: row.currency },
   );
+  if (row.gateway !== "FLUTTERWAVE") return response;
+  if ((typeof response?.id !== "string" && typeof response?.id !== "number") || String(response.id).trim() === "")
+    throw new WalletError("Flutterwave did not return a refund ID",503);
+  const refundId = String(response.id);
+  // Verify the refund resource using data.id returned by the initiation call.
+  try {
+    const verified = await readProviderRefund({ ...row, providerRefundId: refundId });
+    if (String(verified?.id) !== refundId) throw new WalletError("Refund confirmation mismatch",409);
+    return verified;
+  } catch (error) {
+    logServiceError("v1/wallets/refund-provider", "refund.verification.failed", error, false, { refundId: row.id, providerRefundId: refundId });
+    // Initiation succeeded; a failed GET does not mean the refund was rejected.
+    if (error instanceof RefundProviderError) throw new RefundProviderError(false,error);
+    throw error;
+  }
 }
 export async function readProviderRefund(row: PurchaseRefund) {
   const context = { refundId: row.id, purchaseId: row.transactionId, providerPaymentId: row.paymentId, providerRefundId: row.providerRefundId };
@@ -187,24 +203,19 @@ export async function readProviderRefund(row: PurchaseRefund) {
 export function providerRefundResult(row: PurchaseRefund, data: any) {
   if (row.gateway === "FLUTTERWAVE") data = flutterwaveRefund(data);
   const id = String(row.gateway === "BACHS" ? data.refund_id : data.id);
-  if (
-    !id ||
-    id === "undefined" || id === "null" ||
-    (row.providerRefundId && id !== row.providerRefundId) ||
-    String(row.gateway === "BACHS" ? data.charge_id : data.tx_id) !==
-      row.paymentId ||
-    (row.gateway === "BACHS" && data.reference !== row.id) ||
-    amount(
-      row.gateway === "BACHS" ? data.requested_amount : data.amount_refunded,
-    ) !== cents(row.amount)
-  ) {
-    logServiceTrace("v1/wallets/refund-provider", "refund.response.mismatch", "Refund response failed correlation checks", {
+  if (!id || id === "undefined" || id === "null" || typeof data?.status !== "string")
+    throw new WalletError("Provider refund ID or status is missing",503);
+  const paymentId = row.gateway === "BACHS" ? data.charge_id : data.tx_id;
+  const requestedAmount = row.gateway === "BACHS" ? data.requested_amount : data.amount_refunded;
+  if (String(paymentId) !== row.paymentId || amount(requestedAmount) !== cents(row.amount) ||
+      (row.providerRefundId && id !== row.providerRefundId) ||
+      (row.gateway === "BACHS" && data.reference !== row.id)) {
+    logServiceTrace("v1/wallets/refund-provider", "refund.response.mismatch", "Refund response failed verification", {
       refundId: row.id, gateway: row.gateway, providerPaymentId: row.paymentId,
-      responsePaymentId: row.gateway === "BACHS" ? data.charge_id : data.tx_id,
-      responseRefundId: id, expectedRefundId: row.providerRefundId,
-      expectedAmount: row.amount.toString(), responseAmount: row.gateway === "BACHS" ? data.requested_amount : data.amount_refunded,
+      responsePaymentId: String(paymentId), responseRefundId: id, expectedRefundId: row.providerRefundId,
+      expectedAmount: row.amount.toString(), responseAmount: String(requestedAmount),
     });
-    throw new WalletError("Refund confirmation mismatch", 409);
+    throw new WalletError("Refund confirmation mismatch",409);
   }
   const status = String(data.status).toLowerCase();
   // Flutterwave 'completed' acknowledges initiation, not final disbursement.
@@ -222,10 +233,7 @@ export function providerRefundResult(row: PurchaseRefund, data: any) {
       "completed-preauth",
     ].includes(status)
   ) {
-    if (
-      row.gateway === "BACHS" &&
-      amount(data.refunded_amount) !== cents(row.amount)
-    )
+    if (row.gateway === "BACHS" && amount(data.refunded_amount) !== cents(row.amount))
       return { id, status: "REVIEW" };
     return { id, status: "SUCCEEDED" };
   }

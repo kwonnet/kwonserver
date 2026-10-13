@@ -441,7 +441,7 @@ export async function processPurchaseRefund(id: string, userId?: string) {
       ? await createProviderRefund(row)
       : await readProviderRefund(row);
     const result = providerRefundResult(row, response);
-    logServiceTrace("v1/wallets/refunds", "refund.provider.verified", "Gateway refund response correlation verified", { ...context, providerRefundId: result.id, targetStatus: result.status });
+    logServiceTrace("v1/wallets/refunds", "refund.provider.verified", "Gateway refund response verified", { ...context, providerRefundId: result.id, targetStatus: result.status });
     return await settleRefund(row, result.status, result.id);
   } catch (error) {
     logServiceError("v1/wallets/refunds", "processPurchaseRefund", error, false, { ...context, action: claimed.count ? "submit" : "check", definitive: error instanceof RefundProviderError ? error.definitive : false });

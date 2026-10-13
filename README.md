@@ -1208,9 +1208,11 @@ The API reserves the wallet deduction under PostgreSQL row locks before submitti
 one provider refund. Unknown/network outcomes retain that reservation and are
 reconciled with provider GET requests; they do not cause another Flutterwave POST.
 Confirmed failure restores the exact reservation once. Confirmed success marks the
-original purchase refunded and records the returned fiat amount. Partial or
-mismatched provider results require manual review; do not release their reserved
-coins without checking the provider refund. A failed refund remains recorded and
+original purchase refunded and records the original fiat refund amount.
+Refund responses supply the provider refund ID and status. Amounts, original
+payment IDs, Bachs references, and saved refund IDs are compared with stored
+values using simple equality and decimal comparisons, without regex format checks.
+Partial Bachs refunds require review. A failed refund remains recorded and
 requires support for a new attempt.
 
 Run the existing background worker: `reconcile_purchase_refunds` checks outstanding
@@ -1232,7 +1234,7 @@ Refund tracing uses structured `service_progress` events under
 `v1/wallets/refunds` and `v1/wallets/refund-provider`. Search logs by `refundId`
 or `purchaseId` to follow validation, original-payment verification, reservation
 start/commit, submission claim (`action=submit` or `check`), gateway response,
-correlation verification, and settlement commit. Each gateway call has a unique
+refund ID/status extraction, and settlement commit. Each gateway call has a unique
 `providerAttemptId`, method, endpoint, environment, HTTP status, duration, and
 provider request ID when supplied. HTTP-triggered events also retain the API
 `requestId`; background batches have a `reconciliationId` linked to each refund.
@@ -1242,11 +1244,16 @@ only selected identifiers, amounts, and status fields, never full gateway bodies
 authorization headers, keys, card data, or customer contact details. Logging does
 not resubmit a refund or alter its processing policy.
 
+Flutterwave initiation uses `POST /v3/transactions/{paymentId}/refund`, then
+verifies using `GET /v3/refunds/{data.id}`. The fetched resource's `transaction_id`
+is the primary original-payment field; legacy `TransactionId` and `tx_id` are
+also supported. A failed verification GET after accepted initiation retains
+the reservation and never causes another submission or an automatic restoration.
 Flutterwave refund responses support both `tx_id`/`amount_refunded` and the
 documented legacy `TransactionId`/`AmountRefunded` fields. Single-refund reads may
-return a bare resource or a success envelope. All variants still require the
-original transaction ID and exact amount to match; a saved provider refund ID
-must also match. Flutterwave `completed` means initiated and awaiting disbursement,
+return a bare resource or a success envelope. The refund ID, original transaction
+ID and exact amount are verified before settlement. IDs are treated as opaque
+values, without regex matching. Flutterwave `completed` means initiated and awaiting disbursement,
 so it remains processing until a final `completed-mpgs`, `completed-bank-transfer`,
 `completed-momo`, `completed-preauth`, or `completed-offline` status is confirmed.
 Existing uncertain refunds are found with GET requests without another POST.

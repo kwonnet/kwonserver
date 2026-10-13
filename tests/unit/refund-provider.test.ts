@@ -22,7 +22,39 @@ it('traces network failures with the attempt ID without resubmission',async()=>{
  expect(fetch).toHaveBeenCalledTimes(1);
 });
 it('posts the original Bachs payment with a stable refund reference and org fee bearer',async()=>{vi.mocked(fetch).mockResolvedValue(Response.json({refund_id:'refund-provider'}));await createProviderRefund(row());const [url,request]=vi.mocked(fetch).mock.calls[0];expect(url).toBe('https://sandbox-api.bachs.io/v1/refunds');expect(JSON.parse(request!.body as string)).toMatchObject({charge_id:'pay_test',reference:'refund',amount:'5.00',fee_bearer:'org',idempotency_key:'refund'});});
-it('posts a Flutterwave refund against the verified original transaction',async()=>{vi.mocked(fetch).mockResolvedValue(Response.json({status:'success',data:{id:1234}}));await createProviderRefund(row('FLUTTERWAVE'));expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.flutterwave.com/v3/transactions/123/refund');expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toMatchObject({amount:5});});
+it('posts a Flutterwave refund against the verified original transaction',async()=>{vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:1234}})).mockResolvedValueOnce(Response.json({id:1234,transaction_id:123,amount_refunded:5,status:'completed-mpgs'}));await createProviderRefund(row('FLUTTERWAVE'));expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.flutterwave.com/v3/transactions/123/refund');expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toMatchObject({amount:5});});
+it('verifies the initiated Flutterwave refund by data.id and transaction_id',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:99,tx_id:999,amount_refunded:5,status:'completed'}}))
+   .mockResolvedValueOnce(Response.json({id:99,transaction_id:123,amount_refunded:5,status:'completed-mpgs'}));
+ const response=await createProviderRefund(row('FLUTTERWAVE'));
+ expect(vi.mocked(fetch).mock.calls.map(([url,options])=>[url,options!.method])).toEqual([
+   ['https://api.flutterwave.com/v3/transactions/123/refund','POST'],
+   ['https://api.flutterwave.com/v3/refunds/99','GET'],
+ ]);
+ expect(providerRefundResult(row('FLUTTERWAVE'),response)).toEqual({id:'99',status:'SUCCEEDED'});
+});
+it('reconciles old Flutterwave refunds using transaction_id with GET only',async()=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({status:'success',data:[{id:99,transaction_id:123,amount_refunded:5,status:'completed-mpgs'}]}));
+ expect(providerRefundResult(row('FLUTTERWAVE'),await readProviderRefund(row('FLUTTERWAVE')))).toEqual({id:'99',status:'SUCCEEDED'});
+ expect(vi.mocked(fetch).mock.calls.every(([,options])=>options!.method==='GET')).toBe(true);
+});
+it('compares the verification response ID with the initiated refund ID',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:99}}))
+   .mockResolvedValueOnce(Response.json({id:88,transaction_id:123,amount_refunded:5,status:'completed-mpgs'}));
+ await expect(createProviderRefund(row('FLUTTERWAVE'))).rejects.toThrow('mismatch');
+});
+it('retains an uncertain verification failure without sending another POST',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:99}})).mockRejectedValueOnce(new Error('timeout'));
+ await expect(createProviderRefund(row('FLUTTERWAVE'))).rejects.toThrow('timeout');
+ expect(vi.mocked(fetch).mock.calls.filter(([,options])=>options!.method==='POST')).toHaveLength(1);
+});
+it('never treats a verification HTTP 404 as rejection of an accepted refund',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:99}}))
+   .mockResolvedValueOnce(Response.json({status:'error',message:'Not found'},{status:404}));
+ try {await createProviderRefund(row('FLUTTERWAVE'));throw new Error('expected failure');} catch(error) {
+   expect(error).toBeInstanceOf(RefundProviderError);expect((error as RefundProviderError).definitive).toBe(false);
+ }
+});
 it.each([400,401,403,404,422,409,500])('classifies provider HTTP %s without claiming an uncertain refund failed',async status=>{vi.mocked(fetch).mockResolvedValue(new Response('{}',{status}));try {await createProviderRefund(row());throw new Error('expected rejection');} catch(error) {expect(error).toBeInstanceOf(RefundProviderError);expect((error as RefundProviderError).definitive).toBe([400,401,403,404,422].includes(status));}});
 it('matches verified original payment amount, currency and ID before reserving',async()=>{vi.mocked(fetch).mockImplementation(async()=>Response.json({payment_id:'pay_test',status:'succeeded',amount:'5.00',currency:'USD'}));await verifyRefundPayment('BACHS','pay_test','USD',new Prisma.Decimal(5));await expect(verifyRefundPayment('BACHS','pay_test','NGN',new Prisma.Decimal(5))).rejects.toThrow('verified');});
 it('looks up Bachs refund by original payment ID after an unknown outcome',async()=>{vi.mocked(fetch).mockResolvedValue(Response.json({refund_id:'refund-provider'}));await readProviderRefund(row());expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://sandbox-api.bachs.io/v1/refunds/by-charge/pay_test');});
@@ -70,12 +102,19 @@ it.each(['completed','processing','pending-mpgs','pending-bank-transfer'])('keep
 it.each(['completed-bank-transfer','completed-momo','completed-preauth','completed-mpgs','completed-offline'])('recognizes Flutterwave terminal %s',status=>{
  expect(providerRefundResult(row('FLUTTERWAVE'),{id:99,TransactionId:123,AmountRefunded:5,status}).status).toBe('SUCCEEDED');
 });
-it.each([{TransactionId:456,AmountRefunded:5},{TransactionId:123,AmountRefunded:4}])('rejects unrelated or incorrect legacy refunds %j',data=>{
+it.each([{TransactionId:456,AmountRefunded:5},{TransactionId:123,AmountRefunded:4}])('compares the original payment and amount %j',data=>{
  expect(()=>providerRefundResult(row('FLUTTERWAVE'),{id:99,status:'completed-mpgs',...data})).toThrow('mismatch');
 });
-it('rejects a different saved provider refund ID',()=>{
- expect(()=>providerRefundResult({...row('FLUTTERWAVE'),providerRefundId:'88'},{id:99,TransactionId:123,AmountRefunded:5,status:'completed-mpgs'})).toThrow('mismatch');
+it('compares the saved provider refund ID',()=>{
+ expect(()=>providerRefundResult({...row('FLUTTERWAVE'),providerRefundId:'88'},{id:99,transaction_id:123,amount_refunded:5,status:'completed-mpgs'})).toThrow('mismatch');
 });
 it.each(['processing','success','failed'])('checks Bachs refund correlation and %s state',status=>{expect(providerRefundResult(row(),{refund_id:'r',charge_id:'pay_test',reference:'refund',requested_amount:'5.00',refunded_amount:'5.00',status}).status).toBe(status==='success'?'SUCCEEDED':status==='failed'?'FAILED':'PROCESSING');});
-it('never claims a partial Bachs refund completed',()=>{expect(providerRefundResult(row(),{refund_id:'r',charge_id:'pay_test',reference:'refund',requested_amount:'5.00',refunded_amount:'3.00',status:'success'}).status).toBe('REVIEW');});
-it('rejects mismatched refund amounts or unrelated payment references',()=>{expect(()=>providerRefundResult(row(),{refund_id:'r',charge_id:'another',requested_amount:'5',status:'processing'})).toThrow('mismatch');});
+it('flags a partial Bachs refund for review',()=>{expect(providerRefundResult(row(),{refund_id:'r',charge_id:'pay_test',reference:'refund',requested_amount:'5.00',refunded_amount:'3.00',status:'success'})).toEqual({id:'r',status:'REVIEW'});});
+it('compares the Bachs refund reference',()=>{expect(()=>providerRefundResult(row(),{refund_id:'r',charge_id:'pay_test',reference:'other',requested_amount:'5.00',status:'processing'})).toThrow('mismatch');});
+it.each([{status:'success'},{refund_id:'r'}])('requires the properties used to update refund state %j',data=>{expect(()=>providerRefundResult(row(),data)).toThrow('ID or status is missing');});
+
+it('accepts an opaque refund ID without regex format checks',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:'refund-opaque'}}))
+  .mockResolvedValueOnce(Response.json({id:'refund-opaque',transaction_id:123,amount_refunded:5,status:'completed-mpgs'}));
+ expect(providerRefundResult(row('FLUTTERWAVE'),await createProviderRefund(row('FLUTTERWAVE')))).toEqual({id:'refund-opaque',status:'SUCCEEDED'});
+});
