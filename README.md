@@ -1294,6 +1294,10 @@ retry its full-refund POST with the same charge, reference, reason, and idempote
 within Bachs's documented 24-hour window. Outside that window, or with unknown
 refund information, retain the reservation for manual review. A definitive
 rejection of a recovery POST restores the reservation; a failed GET never does.
+For Bachs HTTP 400 rejections, `request.failed` also records
+`providerErrorDetails` (the explanation and validation messages) alongside
+`providerHttpStatus` and `providerRequestId`. Details are bounded; secrets,
+wallet addresses and echoed validation inputs are excluded or redacted.
 Provider errors retain the real HTTP status and stable Bachs `error_code` under
 the logged error's `cause`, without recording response bodies or credentials.
 A failed status lookup is not proof that a refund failed: keep its reservation

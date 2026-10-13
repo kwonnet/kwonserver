@@ -266,3 +266,19 @@ it('blocks an old USD-priced Bachs purchase actually collected in NGN',async()=>
  await expect(verifyRefundPayment('BACHS','pay_test','USD',new Prisma.Decimal(5))).rejects.toThrow('Bachs NGN');
  expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+it('logs Bachs 400 explanations and validation details without secrets or destination addresses',async()=>{
+ const address='0x'+'a'.repeat(40);
+ vi.mocked(fetch).mockResolvedValue(Response.json({error_code:'BAD_REQUEST',detail:`Refund address ${address} is invalid for this network`,errors:[{loc:['body','refund_address'],msg:'Unsupported network',type:'value_error',input:address}],token:'private-token',customer:{email:'private@example.test'}},{status:400,headers:{'x-request-id':'bachs-rejection-id'}}));
+ await expect(createProviderRefund({...row(),refundAddress:address})).rejects.toBeInstanceOf(RefundProviderError);
+ const failure=vi.mocked(logger.error).mock.calls.map(([entry])=>entry as any).find(entry=>entry.operation==='request.failed');
+ expect(failure).toMatchObject({providerHttpStatus:400,providerRequestId:'bachs-rejection-id',providerErrorDetails:{error_code:'BAD_REQUEST',detail:'Refund address [REDACTED_ADDRESS] is invalid for this network',errors:[{loc:['body','refund_address'],msg:'Unsupported network',type:'value_error'}]}});
+ expect(JSON.stringify(failure)).not.toMatch(new RegExp(address+'|private-token|private@example'));
+});
+it('bounds Bachs error details and redacts emails and bearer credentials',async()=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({detail:'Bearer sk_sandbox_test private@example.test '+ 'x'.repeat(3000)},{status:400}));
+ await expect(createProviderRefund(row())).rejects.toBeInstanceOf(RefundProviderError);
+ const failure=vi.mocked(logger.error).mock.calls.map(([entry])=>entry as any).find(entry=>entry.operation==='request.failed');
+ expect(failure.providerErrorDetails.detail.length).toBeLessThanOrEqual(1000);
+ expect(failure.providerErrorDetails.detail).toContain('[REDACTED_EMAIL]');expect(failure.providerErrorDetails.detail).not.toContain('sk_sandbox_test');
+});
