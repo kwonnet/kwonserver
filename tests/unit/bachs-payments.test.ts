@@ -11,6 +11,17 @@ const D=(n:number)=>new Prisma.Decimal(n),id='a'.repeat(64);
 const order=()=>({id,userId:'buyer',packageId:'pack',environment:'https://sandbox-api.bachs.io',currency:'USD',amount:D(10),coins:D(1000),bonus:D(20),request:{success_url:`https://kwonnet.test/store?bachs_order=${id}`},status:'PENDING',createdAt:new Date(),checkoutId:'chk_order',checkoutUrl:'https://checkout.bachs.io/c/abc'});
 const checkout=(overrides={})=>({checkout_id:'chk_order',reference:id,currency:'USD',amount:'10.00',status:'completed',charge:{payment_id:'pay_test',checkout_id:'chk_order',status:'succeeded',currency:'USD',amount_paid:'10.00',amount_remaining:'0.00'},...overrides});
 beforeEach(()=>{Object.values(deps).forEach(fn=>fn.mockReset());vi.stubEnv('BACHS_API_KEY','sk_sandbox_unit_test');vi.stubEnv('BACHS_WEBHOOK_SECRET','unit-secret');deps.find.mockResolvedValue(order());deps.settle.mockResolvedValue({status:'paid'});deps.coin.mockResolvedValue({id:'pack',isActive:true,price:D(10),ngnPrice:D(15000),amount:D(1000),bonus:D(20),ngnBonus:D(30)});});
+it('captures verified crypto method and network metadata before crediting a USD checkout',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json(checkout({payment_method:'CRYPTO'})))
+  .mockResolvedValueOnce(Response.json({payment_id:'pay_test',checkout_id:'chk_order',payment_method:'CRYPTO',currency:'USD',payment_method_details:{crypto:{asset:'USDT',network:'Tron (TRC-20)'}}}));
+ await reconcileBachsCheckout(id,'buyer');
+ expect(deps.settle).toHaveBeenCalledWith(expect.objectContaining({paymentMetadata:{paymentMethod:'CRYPTO',isCrypto:true,cryptoCurrency:'USDT',cryptoNetwork:'Tron (TRC-20)'}}));
+});
+it('does not credit crypto metadata from an unrelated payment',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json(checkout({payment_method:'CRYPTO'})))
+  .mockResolvedValueOnce(Response.json({payment_id:'another',checkout_id:'chk_order',payment_method:'CRYPTO'}));
+ await expect(reconcileBachsCheckout(id,'buyer')).rejects.toThrow('metadata verification mismatch');expect(deps.settle).not.toHaveBeenCalled();
+});
 it('validates raw bytes, timestamp, both signature formats and rotated signatures',()=>{
  const raw=Buffer.from('{ "type": "checkout.completed" }'),t=String(Math.floor(Date.now()/1000));
  const signature=createHmac('sha256','unit-secret').update(`${t}.`).update(raw).digest('hex');

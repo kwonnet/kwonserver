@@ -1185,6 +1185,23 @@ https://docs.bachs.io/guides/webhooks/overview.
 
 ### Purchase refunds
 
+Crypto refunds require migration `20261013200000_crypto_refund_address` before
+deployment. Bachs purchases retain verified `paymentMethod`, `isCrypto`, and
+available crypto asset/network metadata on their original ledger entries. A USD
+checkout may have been paid with crypto; its settlement currency alone is not
+used to decide the refund route. Old purchases without routing metadata are
+checked against Bachs when their refund preview is requested.
+
+The crypto refund preview asks for a destination wallet address and confirmation
+that it supports the original asset on the original network. Bachs requires the
+same network; the UI shows it when the provider supplies it. Input validation
+checks address characters and length, not wallet ownership or network support.
+The server re-verifies the payment method before reserving coins, requires both
+address and confirmation for crypto, and rejects an address for fiat purchases.
+The accepted address is stored on `PurchaseRefund` and sent as `refund_address`
+on creation or a recovery attempt. It is excluded from logs. Fiat requests retain
+the four existing body fields; crypto requests add only `refund_address`.
+
 `refunds.ts` owns purchase eligibility, wallet reservation, durable receipt storage,
 and settlement. It selects `getRefundProvider()` using the stored purchase gateway.
 `refund-bachs.ts` owns Bachs payment verification, refund requests, and responses;

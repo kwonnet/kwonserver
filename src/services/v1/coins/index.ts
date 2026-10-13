@@ -1,3 +1,4 @@
+import type {BachsPaymentMetadata} from '@/utils/bachs';
 import { cachedCatalogRead } from "@/store";
 import { cents, moneyNumber, requestKey, WalletError, walletFailure, walletOperation } from '@/services/walletLedger';
 import { verifiedPaymentId } from '@/services/walletLedger/verifiedPayment';
@@ -119,7 +120,7 @@ export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase
  return walletFailure(error); }
 };
 
-export async function purchaseCoinsWithBachs(item: {orderId: string; userId: string; checkoutId: string; paymentId: string}) {
+export async function purchaseCoinsWithBachs(item: {orderId: string; userId: string; checkoutId: string; paymentId: string; paymentMetadata?: BachsPaymentMetadata}) {
   if (verifiedPaymentId(item) !== item.paymentId) throw new WalletError('Payment has not been verified');
   // Lock and deduplicate settlement by checkout ID.
   return await walletOperation('bachs', item.checkoutId, {orderId:item.orderId,userId:item.userId}, [item.userId], async tx => {
@@ -132,7 +133,7 @@ export async function purchaseCoinsWithBachs(item: {orderId: string; userId: str
     await tx.wallet.update({where:{id:wallet.id},data:{coins:{increment:order.coins},bonus:{increment:order.bonus}}});
     const common = {userId:order.userId,walletId:wallet.id,coinPackageId:order.packageId,txnRef:generateUniqueRef(),exTxnRef:item.checkoutId,
       category:TxnCategoryEnum.COIN_PURCHASE,gateway:TxnGatewayEnum.BACHS,source:TxnSourceEnum.FIAT,status:TxnStatusEnum.COMPLETED,
-      metadata:{providerId:item.paymentId,orderId:order.id,coins:moneyNumber(order.coins),bonus:moneyNumber(order.bonus)}};
+      metadata:{...item.paymentMetadata,providerId:item.paymentId,orderId:order.id,coins:moneyNumber(order.coins),bonus:moneyNumber(order.bonus)}};
     await tx.transaction.create({data:{...common,amount:order.amount,currency:order.currency,type:TxnTypeEnum.DEBIT,description:'Verified Bachs payment'}});
     await tx.transaction.create({data:{...common,amount:order.coins.add(order.bonus),currency:TxnCurrencyEnum.COINS,source:order.bonus.gt(0)?TxnSourceEnum.COINS_BONUS:TxnSourceEnum.COINS,type:TxnTypeEnum.CREDIT,description:'Coin package and bonus credited'}});
     await tx.bachsCheckout.update({where:{id:order.id},data:{status:'PAID',paidAt:new Date()}});

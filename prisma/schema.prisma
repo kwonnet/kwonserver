@@ -2328,6 +2328,7 @@ model PurchaseRefund {
   environment String
   paymentId String
   providerRefundId String?
+  refundAddress String? @db.VarChar(255)
   amount Decimal @db.Decimal(20,2)
   currency TxnCurrencyEnum
   coinsDebit Decimal @db.Decimal(20,2)

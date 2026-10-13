@@ -1,3 +1,4 @@
+import {bachsPaymentMetadata} from '@/utils/bachs';
 import {createHash} from 'node:crypto';
 import {Prisma} from '@prisma/client';
 import {WalletError, requestKey} from '@/services/walletLedger';
@@ -389,7 +390,13 @@ export async function reconcileBachsCheckout(orderId:string,userId?:string,provi
   const charge = result.charge;
   if (!charge || !['succeeded','overpaid'].includes(charge.status) || charge.currency !== order.currency || charge.checkout_id !== checkoutId || typeof charge.payment_id !== 'string' || !charge.payment_id ||
     bachsAmount(charge.amount_paid) < cents(order.amount) || (charge.amount_remaining !== undefined && bachsAmount(charge.amount_remaining) !== 0)) throw new WalletError('Bachs payment has not been fully confirmed',409);
-  await purchaseCoinsWithBachs(markVerifiedPayment({orderId:order.id,userId:order.userId,checkoutId,paymentId:charge.payment_id},charge.payment_id));
+  let paymentMetadata = bachsPaymentMetadata({...charge,payment_method:charge.payment_method ?? result.payment_method});
+  if (paymentMetadata.isCrypto) {
+    const payment = await bachsRequest(`/payments/${encodeURIComponent(charge.payment_id)}`);
+    if (payment.payment_id !== charge.payment_id || (payment.checkout_id != null && payment.checkout_id !== checkoutId)) throw new WalletError('Bachs payment metadata verification mismatch',409);
+    paymentMetadata = bachsPaymentMetadata({...payment,payment_method:payment.payment_method ?? 'CRYPTO'});
+  }
+  await purchaseCoinsWithBachs(markVerifiedPayment({orderId:order.id,userId:order.userId,checkoutId,paymentId:charge.payment_id,paymentMetadata},charge.payment_id));
   return {orderId:order.id,status:'paid',packageId:order.packageId};
 }
 

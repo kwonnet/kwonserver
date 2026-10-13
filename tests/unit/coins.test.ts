@@ -96,6 +96,12 @@ it('rejects forged Bachs settlement before opening a wallet transaction',async()
  await expect(c.purchaseCoinsWithBachs({...bachsItem})).rejects.toThrow('not been verified');
  expect(db.$transaction).not.toHaveBeenCalled();
 });
+it('stores verified crypto routing metadata with both purchase ledger entries',async()=>{
+ db.bachsCheckout.findUniqueOrThrow.mockResolvedValue(bachsOrder(10));
+ const paymentMetadata={paymentMethod:'CRYPTO',isCrypto:true,cryptoCurrency:'USDT',cryptoNetwork:'Tron (TRC-20)'};
+ await c.purchaseCoinsWithBachs(markVerifiedPayment({...bachsItem,paymentMetadata},bachsItem.paymentId));
+ for(const [query] of db.transaction.create.mock.calls) expect(query.data.metadata).toMatchObject(paymentMetadata);
+});
 it.each([0,10])('credits the Bachs order snapshot and records the fiat and coin ledger entries (bonus %s)',async bonus=>{
  db.bachsCheckout.findUniqueOrThrow.mockResolvedValue(bachsOrder(bonus));
  expect(await c.purchaseCoinsWithBachs(markVerifiedPayment({...bachsItem},bachsItem.paymentId))).toEqual({status:'paid',orderId:'order'});

@@ -26,6 +26,31 @@ it.each([.015,18])('calculates 60 percent bonus cover using base price %s and ro
 it('returns all bonus when available without an extra coin charge',()=>{expect(refundDeduction(D(30),D(12),D(20),D(.015),D(.6)).coinsDebit.toString()).toBe('30');});
 it.each([0,-1])('rejects invalid base price %s',price=>{expect(()=>refundDeduction(D(30),D(12),D(10),D(price),D(.6))).toThrow();});
 it('quotes the original payment and original coin quantities, not current package pricing',async()=>{expect(await getRefundQuote('purchase','buyer')).toMatchObject({amount:5,currency:'USD',coinsDebit:31.2,bonusDebit:10,bonusFee:.6,baseRate:.015});});
+it('requires crypto address and network confirmation before reserving wallet balances',async()=>{
+ provider.verify.mockResolvedValue({isCrypto:true,paymentMethod:'CRYPTO',cryptoNetwork:'Ethereum',cryptoCurrency:'ETH'});
+ await expect(requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10})).rejects.toThrow('wallet address');
+ await expect(requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10,refundAddress:'0x'+'a'.repeat(40)})).rejects.toThrow('original payment network');
+ expect(db.wallet.update).not.toHaveBeenCalled();expect(provider.create).not.toHaveBeenCalled();
+});
+it('persists the confirmed crypto refund address for background retries',async()=>{
+ provider.verify.mockResolvedValue({isCrypto:true,paymentMethod:'CRYPTO'});
+ await requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10,refundAddress:'0x'+'a'.repeat(40),confirmCryptoNetwork:true});
+ expect(db.purchaseRefund.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({refundAddress:'0x'+'a'.repeat(40)})}));
+});
+it('allows a zero bonus deduction when coins cover the full bonus shortfall',async()=>{
+ db.wallet.findUniqueOrThrow.mockResolvedValue({id:'wallet',coins:D(50),bonus:D(0)});
+ await requestPurchaseRefund('purchase','buyer',{coinsDebit:37.2,bonusDebit:0});
+ expect(db.wallet.update).toHaveBeenCalledWith({where:{id:'wallet'},data:{coins:{decrement:D(37.2)},bonus:{decrement:D(0)}}});
+});
+it('rejects refund addresses for fiat purchases before deduction',async()=>{
+ provider.verify.mockResolvedValue({isCrypto:false,paymentMethod:'CARD'});
+ await expect(requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10,refundAddress:'0x'+'a'.repeat(40),confirmCryptoNetwork:true})).rejects.toThrow('only allowed for crypto');
+ expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it('quotes crypto metadata recorded with the original purchase',async()=>{
+ db.transaction.findFirst.mockImplementation(async args=>args.where.type==='CREDIT'?{...row(),metadata:{...row().metadata,isCrypto:true,paymentMethod:'CRYPTO',cryptoNetwork:'Solana',cryptoCurrency:'USDC'}}:{amount:D(5),currency:'USD'});
+ expect(await getRefundQuote('purchase','buyer')).toMatchObject({requiresRefundAddress:true,cryptoNetwork:'Solana',cryptoCurrency:'USDC'});
+});
 it.each([{status:'REFUNDED'},{createdAt:new Date(Date.now()-REFUND_WINDOW_MS-1000)},{createdAt:new Date(Date.now()+1000)}])('rejects ineligible purchase %j',async override=>{db.transaction.findFirst.mockImplementation(async args=>args.where.type==='CREDIT'?{...row(),...override}:{amount:D(5),currency:'USD'});await expect(getRefundQuote('purchase','buyer')).rejects.toThrow('14-day');});
 it('requires enough purchased coins plus bonus cover before contacting provider',async()=>{db.wallet.findUniqueOrThrow.mockResolvedValue({id:'wallet',coins:D(30),bonus:D(10)});await expect(requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10})).rejects.toThrow('Insufficient');expect(provider.verify).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();});
 it('does not reserve coins or create a refund when the original payment cannot be refunded',async()=>{

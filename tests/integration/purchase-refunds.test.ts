@@ -29,3 +29,12 @@ it('confirmed failure restores once even when confirmations race',async()=>{
  await Promise.all(Array.from({length:8},()=>processPurchaseRefund(refund.id,buyer)));
  const wallet=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});expect(wallet.coins.toString()).toBe('50');expect(wallet.bonus.toString()).toBe('10');expect(await db.transaction.count({where:{userId:buyer,category:'COIN_REFUND',type:'CREDIT'}})).toBe(1);
 });
+it('persists the confirmed crypto destination for later processing',async()=>{
+ provider.verify.mockResolvedValue({isCrypto:true,paymentMethod:'CRYPTO'});provider.result.mockReturnValue({id:'provider-crypto-refund',status:'PROCESSING'});
+ const common={description:'Crypto refund fixture purchase',userId:buyer,txnRef:'crypto-refund-fixture-ref',exTxnRef:'chk_crypto_refund',category:'COIN_PURCHASE' as const,gateway:'BACHS' as const,status:'COMPLETED' as const,metadata:{providerId:'pay_crypto_refund',coins:1,bonus:0}};
+ await db.transaction.create({data:{...common,type:'DEBIT',currency:'USD',source:'FIAT',amount:1}});
+ const purchase=await db.transaction.create({data:{...common,type:'CREDIT',currency:'COINS',source:'COINS',amount:1}});
+ const address='0x'+'a'.repeat(40);
+ await requestPurchaseRefund(purchase.id,buyer,{coinsDebit:1,bonusDebit:0,refundAddress:address,confirmCryptoNetwork:true});
+ expect((await db.purchaseRefund.findUniqueOrThrow({where:{transactionId:purchase.id}})).refundAddress).toBe(address);
+});

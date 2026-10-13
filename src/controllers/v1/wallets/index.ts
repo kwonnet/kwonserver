@@ -154,7 +154,7 @@ export async function getRefundQuoteController(req:Request,res:Response) {
   try {return res.json(await getRefundQuote(req.params.id,String(req.user?.id)));} catch(error) {return refundError(res,error);}
 }
 export async function requestRefundController(req:Request,res:Response) {
-  const parsed=z.object({coinsDebit:z.number().finite().nonnegative(),bonusDebit:z.number().finite().nonnegative()}).strict().safeParse(req.body);
+  const parsed=z.object({coinsDebit:z.number().finite().nonnegative(),bonusDebit:z.number().finite().nonnegative(),refundAddress:z.string().min(20).max(255).optional(),confirmCryptoNetwork:z.boolean().optional()}).strict().safeParse(req.body);
   if(!parsed.success) return res.status(400).json({message:'Invalid refund request'});
   try {return res.json(await requestPurchaseRefund(req.params.id,String(req.user?.id),parsed.data));} catch(error) {return refundError(res,error);}
 }

@@ -1,3 +1,4 @@
+import {type BachsPaymentMetadata,validateCryptoRefundAddress} from '@/utils/bachs';
 import prisma from "@/db";
 import { Prisma, PurchaseRefund } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
@@ -41,6 +42,10 @@ async function purchase(db: DB, id: string, userId: string) {
     coins?: number;
     bonus?: number;
     providerId?: string;
+    paymentMethod?: string | null;
+    isCrypto?: boolean | null;
+    cryptoCurrency?: string | null;
+    cryptoNetwork?: string | null;
   } | null;
   const fiat = await db.transaction.findFirst({
     where: {
@@ -134,7 +139,16 @@ async function quote(db: DB, id: string, userId: string) {
 }
 export async function getRefundQuote(id: string, userId: string) {
   const { p, deduction } = await quote(prisma, id, userId);
+  const paymentDetails = p.row.gateway === "BACHS"
+    ? typeof p.meta?.isCrypto === "boolean" && p.meta.paymentMethod
+      ? p.meta as BachsPaymentMetadata
+      : await getRefundProvider("BACHS").verifyPayment(p.meta!.providerId!,p.fiat!.currency,p.fiat!.amount,{purchaseId:id})
+    : undefined;
   return moneyJson({
+    requiresRefundAddress: !!paymentDetails?.isCrypto,
+    paymentMethod: paymentDetails?.paymentMethod ?? null,
+    cryptoNetwork: paymentDetails?.cryptoNetwork ?? null,
+    cryptoCurrency: paymentDetails?.cryptoCurrency ?? null,
     transactionId: id,
     amount: p.fiat!.amount,
     currency: p.fiat!.currency,
@@ -198,6 +212,10 @@ export async function listPurchases(
         name: row.package?.name ?? "Coin purchase",
         createdAt: row.createdAt,
         gateway: row.gateway,
+        paymentMethod: meta?.paymentMethod ?? null,
+        isCrypto: meta?.isCrypto ?? null,
+        cryptoNetwork: meta?.cryptoNetwork ?? null,
+        cryptoCurrency: meta?.cryptoCurrency ?? null,
         coins: meta?.coins ?? null,
         bonus: meta?.bonus ?? null,
         status: row.status,
@@ -216,7 +234,7 @@ export async function listPurchases(
     nextPage: rows.length > limit ? page + 1 : null,
   });
 }
-export async function requestPurchaseRefund(id: string, userId: string, expected: { coinsDebit: number; bonusDebit: number }) {
+export async function requestPurchaseRefund(id: string, userId: string, expected: { coinsDebit: number; bonusDebit: number; refundAddress?: string; confirmCryptoNetwork?: boolean }) {
   const context = { purchaseId: id, userId };
   logServiceTrace("v1/wallets/refunds", "refund.requested", "Purchase refund requested", context);
   try {
@@ -231,7 +249,7 @@ export async function requestPurchaseRefund(id: string, userId: string, expected
 async function requestRefund(
   id: string,
   userId: string,
-  expected: { coinsDebit: number; bonusDebit: number },
+  expected: { coinsDebit: number; bonusDebit: number; refundAddress?: string; confirmCryptoNetwork?: boolean },
 ) {
   const existing = await prisma.purchaseRefund.findUnique({
     where: { transactionId: id },
@@ -255,12 +273,16 @@ async function requestRefund(
   }
   logServiceTrace("v1/wallets/refunds", "refund.validation.passed", "Purchase eligibility and wallet deduction validated", { purchaseId: id, gateway: preview.p.row.gateway, providerPaymentId: preview.p.meta!.providerId, amount: preview.p.fiat!.amount.toString(), currency: preview.p.fiat!.currency, coinsDebit: preview.deduction.coinsDebit.toString(), bonusDebit: preview.deduction.bonusDebit.toString() });
   const provider = getRefundProvider(preview.p.row.gateway);
-  await provider.verifyPayment(
+  const paymentDetails = await provider.verifyPayment(
     preview.p.meta!.providerId!,
     preview.p.fiat!.currency,
     preview.p.fiat!.amount,
     { purchaseId: id },
   );
+  const refundAddress = paymentDetails && paymentDetails.isCrypto
+    ? validateCryptoRefundAddress(expected.refundAddress,expected.confirmCryptoNetwork)
+    : null;
+  if (!refundAddress && expected.refundAddress) throw new WalletError('A refund address is only allowed for crypto purchases',400);
   logServiceTrace("v1/wallets/refunds", "refund.payment.verified", "Original gateway payment verified", { purchaseId: id, gateway: preview.p.row.gateway, providerPaymentId: preview.p.meta!.providerId });
   const refundId = createHash("sha256")
     .update(`purchase-refund:${id}`)
@@ -275,7 +297,7 @@ async function requestRefund(
       const { p, wallet, deduction } = await quote(tx, id, userId);
       if (
         cents(expected.coinsDebit, true) !== cents(deduction.coinsDebit) ||
-        cents(expected.bonusDebit, true) !== cents(deduction.bonusDebit)
+        cents(expected.bonusDebit, true) !== cents(deduction.bonusDebit, true)
       )
         throw new WalletError(
           "Your wallet balance changed. Review the refund again.",
@@ -296,6 +318,7 @@ async function requestRefund(
           gateway: p.row.gateway,
           environment: refundEnvironment(p.row.gateway),
           paymentId: p.meta!.providerId!,
+          ...(refundAddress ? {refundAddress} : {}),
           amount: p.fiat!.amount,
           currency: p.fiat!.currency,
           ...deduction,

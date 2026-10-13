@@ -13,6 +13,10 @@ it('keeps safe identifiers while excluding nested credentials and provider paylo
  expect(record.jobId).toBe('job-1');expect(record.userId).toBe('user-1');expect(JSON.stringify(record)).not.toContain('unsafe');expect(JSON.stringify(record)).not.toContain('private@test.invalid');
  expect(record.nested.err.message).toBe('SMTP authentication failed');
 });
+it('redacts crypto refund destinations in structured logs',()=>{
+ const address='0x'+'a'.repeat(40);
+ expect(JSON.stringify(safeLogRecord({refundId:'refund',refundAddress:address,nested:{refund_address:address}}))).not.toContain(address);
+});
 it('removes SQL argument dumps, URLs with credentials, bearer tokens, emails and user IPs',()=>{
  const err=Object.assign(new Error('Invalid Prisma invocation data: password: value, email: person@test.invalid'),{name:'PrismaClientKnownRequestError',code:'P2002'});
  expect(safeError(err).message).toBe('Unique constraint violation');

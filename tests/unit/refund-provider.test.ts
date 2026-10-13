@@ -7,6 +7,11 @@ import {safeError} from '@/logger/sanitize';
 import logger from '@/logger';
 const row=(gateway='BACHS'):any=>({id:'refund',gateway,paymentId:gateway==='BACHS'?'pay_test':'123',environment:gateway==='BACHS'?'https://sandbox-api.bachs.io':'flutterwave:test',amount:new Prisma.Decimal(5),currency:'USD',createdAt:new Date('2026-10-13T00:00:00Z')});
 beforeEach(()=>{vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');vi.stubEnv('FLUTTERWAVE_SECK','FLWSECK_TEST_fixture');});
+it('adds the persisted refund_address only for a crypto refund',async()=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({refund_id:'ref_crypto'}));
+ await createProviderRefund({...row(),refundAddress:'0x'+'a'.repeat(40)});
+ expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toEqual({charge_id:'pay_test',reference:'refund',reason:'Coin purchase refund within 14 days',idempotency_key:'refund',refund_address:'0x'+'a'.repeat(40)});
+});
 it('recovers a Bachs refund using the verified payment refund IDs when by-charge returns 404',async()=>{
  vi.mocked(fetch).mockResolvedValueOnce(Response.json({error_code:'NOT_FOUND'},{status:404}))
   .mockResolvedValueOnce(Response.json({payment_id:'pay_test',currency:'USD',amount:'5.00',refunds:['ref_saved']}))

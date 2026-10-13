@@ -1,5 +1,5 @@
 import { Prisma, PurchaseRefund } from "@prisma/client";
-import { bachsApiOrigin } from "@/utils/bachs";
+import { bachsApiOrigin, bachsPaymentMetadata, validateCryptoRefundAddress } from "@/utils/bachs";
 import { cents, WalletError } from "@/services/walletLedger";
 import { logServiceError, logServiceTrace } from "@/logger/events";
 import {
@@ -61,6 +61,7 @@ export async function verifyBachsRefundPayment(
       "Bachs does not allow a refund for this payment. It cannot be refunded automatically; please contact support.",
       409,
     );
+  return bachsPaymentMetadata(data);
 }
 export async function createBachsRefund(
   row: PurchaseRefund,
@@ -74,6 +75,7 @@ export async function createBachsRefund(
       reference: row.id,
       reason: "Coin purchase refund within 14 days",
       idempotency_key: row.id,
+      ...(row.refundAddress ? {refund_address:validateCryptoRefundAddress(row.refundAddress,true)} : {}),
     },
     row.id,
     {
@@ -179,6 +181,7 @@ export async function readBachsRefund(row: PurchaseRefund) {
     payment.is_refundable === true &&
     (payment.refunds === null || Array.isArray(payment.refunds))
   ) {
+    if (bachsPaymentMetadata(payment).isCrypto && !row.refundAddress) throw new WalletError("Crypto refund requires a destination address; contact support",409);
     logServiceTrace(
       "v1/wallets/refund-provider",
       "refund.bachs.retry",

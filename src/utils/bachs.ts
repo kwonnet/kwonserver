@@ -49,3 +49,29 @@ export function verifyBachsSignature(raw: Buffer, signature: string | undefined,
   const expected = createHmac('sha256', secret).update(`${timestamp}.`).update(raw).digest();
   return signatures.some(value => /^[a-f0-9]{64}$/i.test(value) && timingSafeEqual(expected, Buffer.from(value, 'hex')));
 }
+
+export type BachsPaymentMetadata = {
+  paymentMethod: string | null;
+  isCrypto: boolean | null;
+  cryptoCurrency: string | null;
+  cryptoNetwork: string | null;
+};
+// Retain payment routing facts only; never copy the complete provider/customer payload.
+export function bachsPaymentMetadata(payment: any): BachsPaymentMetadata {
+  const text = (value: unknown) => typeof value === 'string' && value.length <= 100 ? value : null;
+  const paymentMethod = text(payment?.payment_method)?.toUpperCase() ?? null;
+  const crypto = payment?.payment_method_details?.crypto;
+  const codes: Record<string,string> = {BNB_BEP20:'BNB Chain (BEP-20)',ETH_ETH:'Ethereum',SOL_SOL:'Solana',USDC_BEP20:'BNB Chain (BEP-20)',USDT_BEP20:'BNB Chain (BEP-20)',USDT_ERC20:'Ethereum (ERC-20)',USDT_SOL:'Solana',USDT_TRC20:'Tron (TRC-20)'};
+  const currency = text(crypto?.currency) ?? text(payment?.currency);
+  const isCrypto = paymentMethod === 'CRYPTO' || !!codes[currency ?? ''];
+  return {paymentMethod,isCrypto:paymentMethod || isCrypto ? isCrypto : null,
+    cryptoCurrency:isCrypto ? text(crypto?.asset) ?? (codes[currency ?? ''] ? currency : text(crypto?.currency)) : null,
+    cryptoNetwork:isCrypto ? text(crypto?.network) ?? codes[currency ?? ''] ?? null : null};
+}
+export function validateCryptoRefundAddress(address: unknown, confirmed: unknown): string {
+  if (typeof address !== 'string' || address.length < 20 || address.length > 255 ||
+      !Array.from(address).every(char => char >= '0' && char <= '9' || char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z'))
+    throw new WalletError('Enter a valid crypto refund wallet address',400);
+  if (confirmed !== true) throw new WalletError('Confirm that the refund address uses the original payment network',400);
+  return address;
+}
