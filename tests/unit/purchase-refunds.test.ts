@@ -24,6 +24,11 @@ it.each([0,-1])('rejects invalid base price %s',price=>{expect(()=>refundDeducti
 it('quotes the original payment and original coin quantities, not current package pricing',async()=>{expect(await getRefundQuote('purchase','buyer')).toMatchObject({amount:5,currency:'USD',coinsDebit:31.2,bonusDebit:10,bonusFee:.6,baseRate:.015});});
 it.each([{status:'REFUNDED'},{createdAt:new Date(Date.now()-REFUND_WINDOW_MS-1000)},{createdAt:new Date(Date.now()+1000)}])('rejects ineligible purchase %j',async override=>{db.transaction.findFirst.mockImplementation(async args=>args.where.type==='CREDIT'?{...row(),...override}:{amount:D(5),currency:'USD'});await expect(getRefundQuote('purchase','buyer')).rejects.toThrow('14-day');});
 it('requires enough purchased coins plus bonus cover before contacting provider',async()=>{db.wallet.findUniqueOrThrow.mockResolvedValue({id:'wallet',coins:D(30),bonus:D(10)});await expect(requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10})).rejects.toThrow('Insufficient');expect(provider.verify).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();});
+it('does not reserve coins or create a refund when the original payment cannot be refunded',async()=>{
+ provider.verify.mockRejectedValue(new Error('Payment cannot be refunded'));
+ await expect(requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10})).rejects.toThrow('cannot be refunded');
+ expect(db.wallet.update).not.toHaveBeenCalled();expect(db.purchaseRefund.create).not.toHaveBeenCalled();expect(provider.create).not.toHaveBeenCalled();
+});
 it('binds the purchase lookup to its authenticated owner',async()=>{db.transaction.findFirst.mockResolvedValue(null);await expect(getRefundQuote('purchase','other')).rejects.toThrow('not found');expect(db.transaction.findFirst.mock.calls[0][0].where.userId).toBe('other');});
 it('rejects a changed deduction instead of charging more than the confirmed preview',async()=>{await expect(requestPurchaseRefund('purchase','buyer',{coinsDebit:30,bonusDebit:12})).rejects.toThrow('balance changed');expect(db.wallet.update).not.toHaveBeenCalled();});
 it('reserves wallet quantities and persists an order before initiating the provider refund',async()=>{

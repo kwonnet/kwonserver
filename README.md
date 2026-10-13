@@ -1219,6 +1219,15 @@ Flutterwave uses the existing server secret. Refunds return to the original paym
 method, never an address or bank account supplied by the browser. Provider costs
 are borne by the merchant where Bachs supports `fee_bearer=org`.
 
+Bachs payment verification rejects `is_refundable=false` before reserving wallet
+coins. Bachs currently supports USD/NGN card refunds, but not NGN bank-transfer
+refunds; those purchases require support. Status checks use a saved refund ID,
+falling back to payment lookup only when submission did not return an ID.
+Provider errors retain the real HTTP status and stable Bachs `error_code` under
+the logged error's `cause`, without recording response bodies or credentials.
+A failed status lookup is not proof that a refund failed: keep its reservation
+and investigate the gateway result before changing balances or resubmitting.
+
 Provider references:
 - https://docs.bachs.io/api-reference/refunds/create-refund
 - https://docs.bachs.io/api-reference/refunds/get-refund-by-charge
