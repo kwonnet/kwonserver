@@ -1257,6 +1257,11 @@ values, without regex matching. Flutterwave `completed` means initiated and awai
 so it remains processing until a final `completed-mpgs`, `completed-bank-transfer`,
 `completed-momo`, `completed-preauth`, or `completed-offline` status is confirmed.
 Existing uncertain refunds are found with GET requests without another POST.
+Multiple-refund reads use the documented success envelope's `data` array and
+`meta.page_info.total_pages`. Queries include `from`, `to`, original transaction
+`id`, and `currency`; pagination stops at the final page. Single-refund reads
+accept the documented bare object from `/v3/refunds/{refundId}`. Both responses
+use `transaction_id`, `amount_refunded`, `id`, and `status` for verification.
 
 Provider references:
 - https://docs.bachs.io/api-reference/refunds/create-refund

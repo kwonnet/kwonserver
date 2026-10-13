@@ -5,6 +5,32 @@ import {safeError} from '@/logger/sanitize';
 import logger from '@/logger';
 const row=(gateway='BACHS'):any=>({id:'refund',gateway,paymentId:gateway==='BACHS'?'pay_test':'123',environment:gateway==='BACHS'?'https://sandbox-api.bachs.io':'flutterwave:test',amount:new Prisma.Decimal(5),currency:'USD',createdAt:new Date('2026-10-13T00:00:00Z')});
 beforeEach(()=>{vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');vi.stubEnv('FLUTTERWAVE_SECK','FLWSECK_TEST_fixture');});
+it('reads the documented multiple-refund envelope and query filters',async()=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({status:'success',message:'Refunds fetched',meta:{page_info:{total:1,current_page:1,total_pages:1,page_size:20}},data:[{
+   id:258505,amount_refunded:5,status:'completed-mpgs',flw_ref:'FLW265072855',comment:'',settlement_id:'412245',meta:{source:'ledgerbalance'},created_at:'2026-10-13T00:00:00Z',account_id:82796,transaction_id:123,
+ }]}));
+ const original=row('FLUTTERWAVE');
+ expect(providerRefundResult(original,await readProviderRefund(original))).toEqual({id:'258505',status:'SUCCEEDED'});
+ const query=new URL(String(vi.mocked(fetch).mock.calls[0][0])).searchParams;
+ expect(query.get('id')).toBe('123');expect(query.get('currency')).toBe('USD');expect(query.get('page')).toBe('1');
+ expect(vi.mocked(fetch).mock.calls[0][1]!.method).toBe('GET');
+});
+it('stops at the last page in the documented pagination metadata',async()=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({status:'success',meta:{page_info:{total_pages:1}},data:[{id:99,transaction_id:456,amount_refunded:5,status:'completed-mpgs'}]}));
+ await expect(readProviderRefund(row('FLUTTERWAVE'))).rejects.toThrow('pending');expect(fetch).toHaveBeenCalledTimes(1);
+});
+it('reads later refund pages when pagination indicates more results',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',meta:{page_info:{total_pages:2}},data:[{id:88,transaction_id:456}]}))
+  .mockResolvedValueOnce(Response.json({status:'success',meta:{page_info:{total_pages:2}},data:[{id:99,transaction_id:123,amount_refunded:5,status:'completed-mpgs'}]}));
+ expect(providerRefundResult(row('FLUTTERWAVE'),await readProviderRefund(row('FLUTTERWAVE')))).toEqual({id:'99',status:'SUCCEEDED'});
+ expect(new URL(String(vi.mocked(fetch).mock.calls[1][0])).searchParams.get('page')).toBe('2');
+});
+it('reads the documented bare single-refund response by saved refund ID',async()=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({id:469462,amount_refunded:5,status:'completed-mpgs',flw_ref:'ZRIR3520596614954',comment:null,settlement_id:'735099',meta:{source:'ledgerbalance',uniquereference:'659725551792',provider:'GTBANK_DIRECT'},created_at:'2026-10-13T00:00:00Z',account_id:35308,transaction_id:123}));
+ const original={...row('FLUTTERWAVE'),providerRefundId:'469462'};
+ expect(providerRefundResult(original,await readProviderRefund(original))).toEqual({id:'469462',status:'SUCCEEDED'});
+ expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.flutterwave.com/v3/refunds/469462');
+});
 it('traces gateway submission and response with shared IDs and no private payload',async()=>{
  vi.mocked(fetch).mockResolvedValue(Response.json({refund_id:'provider-refund',status:'processing',customer:{email:'private@example.test'}},{status:201,headers:{'x-request-id':'gateway-request'}}));
  await createProviderRefund({...row(),transactionId:'purchase'});

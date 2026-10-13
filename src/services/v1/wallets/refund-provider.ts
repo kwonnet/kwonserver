@@ -92,6 +92,8 @@ async function request(
       throw providerFailure(gateway, path, response.status, result, false);
     const data = gateway === "BACHS" || bareRefund ? result : result.data;
     logServiceTrace("v1/wallets/refund-provider", "request.accepted", "Refund gateway response parsed", { ...trace, providerStatus: typeof data?.status === "string" ? data.status : undefined, providerRefundId: data?.refund_id ?? (gateway === "FLUTTERWAVE" ? data?.id : undefined), isRefundable: typeof data?.is_refundable === "boolean" ? data.is_refundable : undefined, resultCount: Array.isArray(data) ? data.length : undefined });
+    if (gateway === "FLUTTERWAVE" && path.startsWith("/refunds?"))
+      return { data, pageInfo: result.meta?.page_info };
     return data;
   } catch (error) {
     logServiceError("v1/wallets/refund-provider", "request.failed", error, false, { ...trace, durationMs: Math.round(performance.now() - started) });
@@ -187,16 +189,16 @@ export async function readProviderRefund(row: PurchaseRefund) {
     );
   // A timed-out Flutterwave POST must be found, never submitted a second time.
   for (let page = 1; page <= 20; page++) {
-    const data = await request(
+    const { data, pageInfo } = await request(
       row.gateway,
-      `/refunds?from=${row.createdAt.toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}&page=${page}`,
+      `/refunds?from=${row.createdAt.toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}&currency=${encodeURIComponent(row.currency)}&id=${encodeURIComponent(row.paymentId)}&page=${page}`,
       undefined, undefined, { ...context, page },
     );
     if (!Array.isArray(data))
       throw new WalletError("Unable to reconcile refund", 503);
     const match = data.find((item) => String(flutterwaveRefund(item).tx_id) === row.paymentId);
     if (match) return match;
-    if (!data.length) break;
+    if (!data.length || (Number.isInteger(pageInfo?.total_pages) && page >= pageInfo.total_pages)) break;
   }
   throw new WalletError("Refund confirmation is pending", 503);
 }
