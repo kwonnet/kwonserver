@@ -231,3 +231,32 @@ it('verifies a fresh refund by the returned refund ID, exact comment and amount'
  expect(providerRefundResult(row('FLUTTERWAVE'),await createProviderRefund(row('FLUTTERWAVE')))).toEqual({id:'99',status:'SUCCEEDED'});
  expect(vi.mocked(fetch).mock.calls.map(([,options])=>options!.method)).toEqual(['POST','GET']);
 });
+
+const convertedPayment=()=>({payment_id:'pay_test',checkout_id:'chk_crypto',currency:'USDT_BEP20',amount:'5.12345678',amount_paid:'5.12345678',amount_remaining:'0',status:'succeeded',is_refundable:true,payment_method:'CRYPTO'});
+const convertedCheckout=()=>({checkout_id:'chk_crypto',reference:'order_saved',currency:'USD',amount:'5.00',status:'completed',charge:{payment_id:'pay_test',currency:'USDT_BEP20',amount:'5.12345678'}});
+it.each(['USDT_BEP20','ETH_ETH','GHS'])('verifies a refund collected in %s against its original USD checkout',async currency=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({...convertedPayment(),currency}))
+  .mockResolvedValueOnce(Response.json({...convertedCheckout(),charge:{...convertedCheckout().charge,currency}}));
+ await verifyRefundPayment('BACHS','pay_test','USD',new Prisma.Decimal(5),{checkoutId:'chk_crypto',orderId:'order_saved'});
+ expect(vi.mocked(fetch).mock.calls.map(([url])=>url)).toEqual(['https://sandbox-api.bachs.io/v1/payments/pay_test','https://sandbox-api.bachs.io/v1/checkout-sessions/chk_crypto']);
+});
+it.each([{amount:'4.00'},{currency:'NGN'},{checkout_id:'other'},{reference:'other'},{status:'open'},{charge:{payment_id:'other'}},{charge:{payment_id:'pay_test',currency:'USDT_BEP20',amount:'1.00'}}])('rejects an unrelated or mismatched original checkout %j',async override=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json(convertedPayment())).mockResolvedValueOnce(Response.json({...convertedCheckout(),...override}));
+ await expect(verifyRefundPayment('BACHS','pay_test','USD',new Prisma.Decimal(5),{checkoutId:'chk_crypto',orderId:'order_saved'})).rejects.toThrow('Original payment');
+});
+it.each([{payment_id:'other'},{checkout_id:'other'},{amount:'NaN'},{amount:'0'},{currency:null},{amount_paid:'5.12345677'},{amount_remaining:'0.00000001'}])('rejects insufficient or unrelated crypto collection %j',async override=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({...convertedPayment(),...override})).mockResolvedValueOnce(Response.json(convertedCheckout()));
+ await expect(verifyRefundPayment('BACHS','pay_test','USD',new Prisma.Decimal(5),{checkoutId:'chk_crypto',orderId:'order_saved'})).rejects.toThrow();
+});
+it('uses the saved checkout ID when a crypto payment omits its optional checkout ID',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({...convertedPayment(),checkout_id:null})).mockResolvedValueOnce(Response.json(convertedCheckout()));
+ await verifyRefundPayment('BACHS','pay_test','USD',new Prisma.Decimal(5),{checkoutId:'chk_crypto',orderId:'order_saved'});
+});
+it('recovers an uncertain crypto submission after verifying the price and collection separately',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({error_code:'NOT_FOUND'},{status:404}))
+  .mockResolvedValueOnce(Response.json({...convertedPayment(),refunds:[]}))
+  .mockResolvedValueOnce(Response.json(convertedCheckout()))
+  .mockResolvedValueOnce(Response.json({refund_id:'ref_crypto',reference:'refund'}));
+ await readProviderRefund({...row(),status:'SUBMITTING',createdAt:new Date(),refundAddress:'0x'+'a'.repeat(40)});
+ expect(JSON.parse(vi.mocked(fetch).mock.calls[3][1]!.body as string)).toMatchObject({charge_id:'pay_test',refund_address:'0x'+'a'.repeat(40),idempotency_key:'refund'});
+});

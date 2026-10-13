@@ -1200,6 +1200,12 @@ checkout may have been paid with crypto; its settlement currency alone is not
 used to decide the refund route. Old purchases without routing metadata are
 checked against Bachs when their refund preview is requested.
 
+Refund verification also distinguishes the catalog price from the collected
+currency. For crypto or converted local-currency payments, it verifies the
+original checkout ID, price, reference and payment ID, then checks received funds
+in the payment's own currency with full decimal precision. The refund request
+still omits `amount` for a full refund and sends the confirmed crypto destination.
+
 The crypto refund preview asks for a destination wallet address and confirmation
 that it supports the original asset on the original network. Bachs requires the
 same network; the UI shows it when the provider supplies it. Input validation

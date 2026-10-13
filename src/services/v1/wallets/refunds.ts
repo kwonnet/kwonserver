@@ -42,6 +42,7 @@ async function purchase(db: DB, id: string, userId: string) {
     coins?: number;
     bonus?: number;
     providerId?: string;
+    orderId?: string;
     paymentMethod?: string | null;
     isCrypto?: boolean | null;
     cryptoCurrency?: string | null;
@@ -142,7 +143,7 @@ export async function getRefundQuote(id: string, userId: string) {
   const paymentDetails = p.row.gateway === "BACHS"
     ? typeof p.meta?.isCrypto === "boolean" && p.meta.paymentMethod
       ? p.meta as BachsPaymentMetadata
-      : await getRefundProvider("BACHS").verifyPayment(p.meta!.providerId!,p.fiat!.currency,p.fiat!.amount,{purchaseId:id})
+      : await getRefundProvider("BACHS").verifyPayment(p.meta!.providerId!,p.fiat!.currency,p.fiat!.amount,{purchaseId:id,checkoutId:p.row.exTxnRef,orderId:p.meta?.orderId})
     : undefined;
   return moneyJson({
     requiresRefundAddress: !!paymentDetails?.isCrypto,
@@ -277,7 +278,7 @@ async function requestRefund(
     preview.p.meta!.providerId!,
     preview.p.fiat!.currency,
     preview.p.fiat!.amount,
-    { purchaseId: id },
+    { purchaseId: id, ...(preview.p.row.gateway === 'BACHS' ? {checkoutId:preview.p.row.exTxnRef,orderId:preview.p.meta?.orderId} : {}) },
   );
   const refundAddress = paymentDetails && paymentDetails.isCrypto
     ? validateCryptoRefundAddress(expected.refundAddress,expected.confirmCryptoNetwork)

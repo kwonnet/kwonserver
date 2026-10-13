@@ -1,5 +1,5 @@
 import { Prisma, PurchaseRefund } from "@prisma/client";
-import { bachsApiOrigin, bachsPaymentMetadata, validateCryptoRefundAddress } from "@/utils/bachs";
+import { bachsApiOrigin, bachsPaymentMetadata, isBachsCheckoutId, validateCryptoRefundAddress } from "@/utils/bachs";
 import { cents, WalletError } from "@/services/walletLedger";
 import { logServiceError, logServiceTrace } from "@/logger/events";
 import {
@@ -33,6 +33,39 @@ function checkEnvironment(row: PurchaseRefund) {
   if (row.environment !== bachsApiOrigin())
     throw new WalletError("Refund belongs to another payment environment", 409);
 }
+function collectionAmount(value: unknown): Prisma.Decimal {
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const amount = new Prisma.Decimal(value);
+      if (amount.isFinite() && !amount.isNegative()) return amount;
+    } catch(error) { logServiceError('v1/wallets/refund-provider','refund.bachs.amount.invalid',error); }
+  }
+  throw new WalletError('Invalid Bachs payment amount',409);
+}
+async function verifyOriginalAmount(data: any, paymentId: string, currency: string, paid: Prisma.Decimal, context: Record<string,unknown>) {
+  if (String(data.payment_id) !== paymentId || typeof data.currency !== 'string' || !data.currency) throw new WalletError('Original payment could not be verified',409);
+  const requested = collectionAmount(data.amount);
+  if (!requested.gt(0)) throw new WalletError('Original payment could not be verified',409);
+  if (data.currency === currency) {
+    if (!requested.eq(paid)) throw new WalletError('Original payment could not be verified',409);
+  } else {
+    // The saved fiat price and the crypto/local collection are different units.
+    // Verify their relationship through the original server-created checkout.
+    const checkoutId = context.checkoutId ?? data.checkout_id;
+    if (!isBachsCheckoutId(checkoutId) || (data.checkout_id != null && data.checkout_id !== checkoutId)) throw new WalletError('Original payment could not be verified',409);
+    const checkout = await request(`/checkout-sessions/${encodeURIComponent(checkoutId)}`,undefined,undefined,context);
+    if (checkout.checkout_id !== checkoutId || checkout.status !== 'completed' || checkout.currency !== currency ||
+        refundAmount(checkout.amount) !== cents(paid) || String(checkout.charge?.payment_id) !== paymentId ||
+        (context.orderId != null && checkout.reference !== context.orderId) ||
+        (checkout.charge?.currency != null && checkout.charge.currency !== data.currency) ||
+        (checkout.charge?.amount != null && !collectionAmount(checkout.charge.amount).eq(requested))) throw new WalletError('Original payment could not be verified',409);
+  }
+  if ((data.amount_paid != null && collectionAmount(data.amount_paid).lt(requested)) ||
+      (data.amount_remaining != null && !collectionAmount(data.amount_remaining).isZero())) throw new WalletError('Original payment does not cover this refund',409);
+  logServiceTrace('v1/wallets/refund-provider','refund.bachs.payment.verified','Original checkout price and collected payment verified',{
+    ...context,providerPaymentId:paymentId,priceCurrency:currency,priceAmount:paid.toString(),collectionCurrency:data.currency,collectionAmount:requested.toString(),
+  });
+}
 export async function verifyBachsRefundPayment(
   paymentId: string,
   currency: string,
@@ -46,16 +79,12 @@ export async function verifyBachsRefundPayment(
     { ...context, providerPaymentId: paymentId },
   );
   if (
-    String(data.payment_id) !== paymentId ||
-    data.currency !== currency ||
-    refundAmount(data.amount) !== cents(paid) ||
     !["succeeded", "accepted", "underpaid", "overpaid"].includes(
       String(data.status).toLowerCase(),
     )
   )
     throw new WalletError("Original payment could not be verified", 409);
-  if (data.amount_paid != null && refundAmount(data.amount_paid) < cents(paid))
-    throw new WalletError("Original payment does not cover this refund", 409);
+  await verifyOriginalAmount(data,paymentId,currency,paid,context);
   if (data.is_refundable === false)
     throw new WalletError(
       "Bachs does not allow a refund for this payment. It cannot be refunded automatically; please contact support.",
@@ -150,12 +179,7 @@ export async function readBachsRefund(row: PurchaseRefund) {
     undefined,
     context,
   );
-  if (
-    String(payment.payment_id) !== row.paymentId ||
-    payment.currency !== row.currency ||
-    refundAmount(payment.amount) !== cents(row.amount)
-  )
-    throw new WalletError("Original payment could not be verified", 409);
+  await verifyOriginalAmount(payment,row.paymentId,row.currency,row.amount,context);
   // The payment object exposes refund IDs even if the by-charge lookup is unavailable.
   if (Array.isArray(payment.refunds) && payment.refunds.length) {
     for (const refundId of payment.refunds) {
