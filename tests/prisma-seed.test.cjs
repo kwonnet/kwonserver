@@ -11,12 +11,18 @@ const output = ts.transpileModule(source, { compilerOptions: {
 } }).outputText;
 function load({ demo = false, failure = false, topicsOnly = false } = {}) {
   let transactions = 0;
+  const chargeRateWrites = [];
   const tx = { $executeRaw: async () => {} };
+  tx.chargeRate = { upsert: async args => {
+    if (failure) throw new Error('Database failure');
+    chargeRateWrites.push(args);
+    return { id: 'default' };
+  } };
   for (const name of ['coinPackage', 'tipPackage', 'gameMilestone', 'game', 'subscriptionPlan', 'country', 'continent']) {
     tx[name] = { count: async () => { if (failure) throw new Error('Database failure'); return 1; } };
   }
   tx.gameCategory = { findMany: async () => [], update: async () => { throw new Error("Unexpected update"); } };
-  const prisma = { $transaction: async callback => { transactions++; return callback(tx); } };
+  const prisma = { $transaction: async callback => { transactions++; return await callback(tx); } };
   const exports = {};
   const requireMock = name => {
     if (name === '@prisma/adapter-pg') return {PrismaPg: class {}};
@@ -28,10 +34,13 @@ function load({ demo = false, failure = false, topicsOnly = false } = {}) {
   vm.runInNewContext(output, { exports, module: { exports }, require: requireMock,
     console: { log() {}, error() {} }, process: { argv: demo ? ['node', 'seed', '--demo'] : topicsOnly ? ['node', 'seed', '--game-topics'] : [], env: { NODE_ENV: 'production' } },
   });
-  return { main: exports.main, sync: exports.syncGameCategoryTopics, tx, transactions: () => transactions };
+  return { main: exports.main, sync: exports.syncGameCategoryTopics, tx, chargeRateWrites, transactions: () => transactions };
 }
 test('production seed only accesses reference tables and runs transactionally', async () => {
   const seed = load(); await seed.main(); assert.equal(seed.transactions(), 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(seed.chargeRateWrites)), [
+    { where: { id: 'default' }, update: {}, create: { id: 'default' } },
+  ]);
 });
 test('seed failures propagate to the release command', async () => {
   await assert.rejects(load({ failure: true }).main(), /Database failure/);
@@ -45,6 +54,7 @@ test('production rejects demo seeding before any database work', async () => {
 test('topic-only mode never initializes unrelated reference tables', async () => {
   const seed = load({ topicsOnly: true, failure: true });
   await seed.main(); assert.equal(seed.transactions(), 1);
+  assert.equal(seed.chargeRateWrites.length, 0);
 });
 test('topic sync backfills by game/category, preserves existing values and is repeatable', async () => {
   const seed = load();
