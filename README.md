@@ -1169,7 +1169,8 @@ change the existing Flutterwave subscription flow.
   Bachs refuses localhost/private-network return URLs, including in sandbox.
   Run sandbox flows on a public test origin and a disposable/test database.
 - Checkout pricing, coins and bonus amounts are snapshotted from the active
-  server catalog. USD/NGN billing is fixed to the selected package currency.
+  server catalog. NGN pricing stays fixed; USD pricing leaves the collection
+  currency to Bachs so buyers can pay in supported local currencies or crypto.
   Never send prices, buyer IDs or coin quantities from the client.
 - Creation retries retain the same request body, reference and idempotency key.
   Ambiguous creations older than 23 hours require reconciliation rather than
@@ -1179,6 +1180,13 @@ change the existing Flutterwave subscription flow.
   API environment. A redirect or webhook payload cannot by itself credit coins;
   payment is retrieved from Bachs first. Concurrent/duplicate success events
   credit one wallet once.
+- Verification compares the checkout's price with the saved order, then checks
+  the collection in its own currency against its requested/received amounts.
+  Crypto collection amounts retain their decimal precision. A minimal checkout
+  charge is resolved through the payment endpoint; missing optional charge
+  fields do not cause a completed payment to fail verification. Pending orders
+  from earlier failed verification can use the same authenticated verify
+  endpoint or a retried signed webhook, without making another payment.
 
 Docs: https://docs.bachs.io/guides/checkout/checkout-sessions and
 https://docs.bachs.io/guides/webhooks/overview.

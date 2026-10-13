@@ -13,7 +13,7 @@ const checkout=(overrides={})=>({checkout_id:'chk_order',reference:id,currency:'
 beforeEach(()=>{Object.values(deps).forEach(fn=>fn.mockReset());vi.stubEnv('BACHS_API_KEY','sk_sandbox_unit_test');vi.stubEnv('BACHS_WEBHOOK_SECRET','unit-secret');deps.find.mockResolvedValue(order());deps.settle.mockResolvedValue({status:'paid'});deps.coin.mockResolvedValue({id:'pack',isActive:true,price:D(10),ngnPrice:D(15000),amount:D(1000),bonus:D(20),ngnBonus:D(30)});});
 it('captures verified crypto method and network metadata before crediting a USD checkout',async()=>{
  vi.mocked(fetch).mockResolvedValueOnce(Response.json(checkout({payment_method:'CRYPTO'})))
-  .mockResolvedValueOnce(Response.json({payment_id:'pay_test',checkout_id:'chk_order',payment_method:'CRYPTO',currency:'USD',payment_method_details:{crypto:{asset:'USDT',network:'Tron (TRC-20)'}}}));
+  .mockResolvedValueOnce(Response.json({payment_id:'pay_test',checkout_id:'chk_order',status:'succeeded',amount:'10.00',amount_paid:'10.00',payment_method:'CRYPTO',currency:'USD',payment_method_details:{crypto:{asset:'USDT',network:'Tron (TRC-20)'}}}));
  await reconcileBachsCheckout(id,'buyer');
  expect(deps.settle).toHaveBeenCalledWith(expect.objectContaining({paymentMetadata:{paymentMethod:'CRYPTO',isCrypto:true,cryptoCurrency:'USDT',cryptoNetwork:'Tron (TRC-20)'}}));
 });
@@ -119,7 +119,7 @@ it.each(['expired','cancelled'])('records provider %s status only while the orde
  expect(await reconcileBachsCheckout(id,'buyer')).toMatchObject({status});
  expect(deps.updateMany).toHaveBeenCalledWith({where:{id,status:'PENDING'},data:{status:status.toUpperCase()}});expect(deps.settle).not.toHaveBeenCalled();
 });
-it.each([null,{status:'failed'},{currency:'NGN'},{checkout_id:'chk_other'},{payment_id:''},{amount_remaining:'1.00'}])('rejects incomplete or inconsistent charge confirmation %j',async override=>{
+it.each([null,{status:'failed'},{checkout_id:'chk_other'},{payment_id:''},{amount_remaining:'1.00'}])('rejects incomplete or inconsistent charge confirmation %j',async override=>{
  const valid=checkout();vi.mocked(fetch).mockResolvedValue(Response.json({...valid,charge:override===null?null:{...valid.charge,...override}}));
  await expect(reconcileBachsCheckout(id,'buyer')).rejects.toThrow('not been fully confirmed');expect(deps.settle).not.toHaveBeenCalled();
 });
@@ -162,4 +162,44 @@ it.each(['https://sandbox-checkout.bachs.io/c/test','https://pay.bachs.io/c/test
  vi.mocked(fetch).mockResolvedValue(Response.json({checkout_id:'opaque-id',checkout_url:checkoutUrl}));
  expect(await createBachsCoinCheckout({id:'buyer'} as any,createArgs)).toMatchObject({checkoutUrl});
  expect(deps.update).toHaveBeenCalledWith(expect.objectContaining({data:{checkoutId:'opaque-id',checkoutUrl}}));
+});
+
+// Checkout price stays USD while Bachs collects the buyer's chosen currency.
+it.each([
+ {currency:'GHS',amount:'150.00',method:'MOMO_GHS'},
+ {currency:'KES',amount:'1300.00',method:'MOMO_KES'},
+ {currency:'NGN',amount:'15000.00',method:'NGN_BANK_TRANSFER'},
+ {currency:'USDT_TRC20',amount:'10.12345678',method:'CRYPTO'},
+ {currency:'ETH_ETH',amount:'0.003123456789123456',method:'CRYPTO'},
+])('credits a verified converted collection in $currency',async ({currency,amount,method})=>{
+ const charge={payment_id:'pay_test',status:'succeeded',amount,currency};
+ const payment={...charge,checkout_id:'chk_order',amount_paid:amount,amount_remaining:'0',payment_method:method};
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json(checkout({payment_method:method,charge})))
+  .mockResolvedValueOnce(Response.json(payment));
+ expect(await reconcileBachsCheckout(id,'buyer')).toMatchObject({status:'paid'});
+ expect(vi.mocked(fetch).mock.calls[1][0]).toBe('https://sandbox-api.bachs.io/v1/payments/pay_test');
+ expect(deps.settle).toHaveBeenCalledTimes(1);
+ expect(deps.settle).toHaveBeenCalledWith(expect.objectContaining({paymentId:'pay_test',paymentMetadata:expect.objectContaining({isCrypto:method==='CRYPTO'})}));
+});
+it('accepts the documented minimal checkout charge with a verified successful payment',async()=>{
+ const charge={payment_id:'pay_test',status:'succeeded',amount:'10.00',currency:'USD'};
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json(checkout({charge})))
+  .mockResolvedValueOnce(Response.json({...charge,checkout_id:null,amount_paid:null,amount_remaining:null,payment_method:'USD_CARD'}));
+ expect(await reconcileBachsCheckout(id,'buyer')).toMatchObject({status:'paid'});expect(deps.settle).toHaveBeenCalledTimes(1);
+});
+it.each([
+ {payment_id:'other'}, {checkout_id:'chk_other'}, {status:'underpaid'},
+ {amount_paid:'0.001'}, {amount_remaining:'0.00000001'},
+ {currency:'SOL_SOL'}, {amount:'0.009'}, {amount:'NaN'},
+])('rejects an inconsistent or unpaid converted collection %j',async override=>{
+ const charge={payment_id:'pay_test',status:'succeeded',amount:'0.003123456789',currency:'ETH_ETH'};
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json(checkout({payment_method:'CRYPTO',charge})))
+  .mockResolvedValueOnce(Response.json({...charge,checkout_id:'chk_order',amount_paid:charge.amount,amount_remaining:'0',...override}));
+ await expect(reconcileBachsCheckout(id,'buyer')).rejects.toThrow();expect(deps.settle).not.toHaveBeenCalled();
+});
+it('does not pin USD checkouts to a collection currency',async()=>{
+ deps.find.mockResolvedValue(null);deps.upsert.mockImplementation(async({create}:any)=>({...create,createdAt:new Date(),status:'PENDING'}));
+ vi.mocked(fetch).mockResolvedValue(Response.json({checkout_id:'chk_new',checkout_url:'https://checkout.bachs.io/c/new'}));
+ await createBachsCoinCheckout({id:'buyer'} as any,createArgs);
+ expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).not.toHaveProperty('billing_currency');
 });

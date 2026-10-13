@@ -5,6 +5,7 @@ vi.mock('@/db',async()=>{const {PrismaClient}=await import('@prisma/client');ret
 import db from '@/db';
 import {purchaseCoinsWithBachs} from '@/services/v1/coins';
 import {markVerifiedPayment} from '@/services/walletLedger/verifiedPayment';
+import {reconcileBachsCheckout} from '@/services/v1/payments';
 const buyer='bachs-fixture-buyer',orderId='b'.repeat(64);let packageId:string;
 beforeAll(async()=>{
  await db.user.create({data:{id:buyer,name:'Buyer',username:buyer,email:'bachs-buyer@example.test',wallet:{create:{coins:0,bonus:0}}}});
@@ -19,4 +20,21 @@ it('concurrent webhook and return-page settlement credit once from the checkout 
  await Promise.all(Array.from({length:8},()=>purchaseCoinsWithBachs(payload())));
  const wallet=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});expect(wallet.coins.toString()).toBe('1000');expect(wallet.bonus.toString()).toBe('20');
  expect(await db.transaction.count({where:{userId:buyer,gateway:'BACHS'}})).toBe(2);expect((await db.bachsCheckout.findUniqueOrThrow({where:{id:orderId}})).status).toBe('PAID');
+});
+
+it('recovers a pending crypto checkout and credits the saved package once',async()=>{
+ vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');
+ const recoveryId='c'.repeat(64),checkoutId='chk_crypto_fixture',paymentId='pay_crypto_fixture';
+ await db.bachsCheckout.create({data:{id:recoveryId,userId:buyer,packageId,currency:'USD',environment:'https://sandbox-api.bachs.io',amount:10,coins:30,bonus:12,request:{},checkoutId}});
+ const charge={payment_id:paymentId,status:'succeeded',currency:'ETH_ETH',amount:'0.003123456789123456'};
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.includes('/checkout-sessions/')
+  ? {checkout_id:checkoutId,reference:recoveryId,amount:'10.00',currency:'USD',status:'completed',payment_method:'CRYPTO',charge}
+  : {...charge,checkout_id:checkoutId,amount_paid:charge.amount,amount_remaining:'0',payment_method:'CRYPTO'})));
+ const before=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});
+ await Promise.all(Array.from({length:8},()=>reconcileBachsCheckout(recoveryId,buyer)));
+ const after=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});
+ expect(after.coins.sub(before.coins).toString()).toBe('30');expect(after.bonus.sub(before.bonus).toString()).toBe('12');
+ expect((await db.bachsCheckout.findUniqueOrThrow({where:{id:recoveryId}})).status).toBe('PAID');
+ expect(await db.transaction.count({where:{userId:buyer,exTxnRef:checkoutId}})).toBe(2);
+ vi.unstubAllGlobals();vi.unstubAllEnvs();
 });

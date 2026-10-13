@@ -22,7 +22,7 @@ import {
 import { flwAPI } from "@/utils/flutterwave";
 import { TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum } from "@prisma/client";
 import axios from "axios";
-import {logServiceError} from '@/logger/events';
+import {logServiceError,logServiceTrace} from '@/logger/events';
 
 const flwAxiosAPI = axios.create({
   baseURL: "https://api.flutterwave.com/v3",
@@ -343,7 +343,9 @@ export async function createBachsCoinCheckout(user: import('@/types/user').Sessi
     const bonus = args.currency === 'NGN' ? coin.ngnBonus : coin.bonus;
     cents(amount); cents(coin.amount); cents(bonus,true);
     // Snapshot catalog pricing and coin quantities before contacting Bachs.
-    const request = {pricing:{currency:args.currency,amount:amount.toFixed(2)},billing_currency:args.currency,
+    const request = {pricing:{currency:args.currency,amount:amount.toFixed(2)},
+      // USD pricing can be collected in the buyer's local currency or crypto.
+      ...(args.currency === 'NGN' ? {billing_currency:args.currency} : {}),
       ...(user.email ? {customer:{email:user.email,...(user.name?.trim()?{name:user.name.trim()}:{})}} : {}),
       // Overlay events handle completion; omit hosted-page return redirects.
       reference:id,metadata:{order_id:id,purpose:'COIN_PACKAGE',origin:origin.origin}};
@@ -386,16 +388,32 @@ export async function reconcileBachsCheckout(orderId:string,userId?:string,provi
     return await getBachsCheckoutStatus(order.id,order.userId);
   }
   if (result.status !== 'completed') return {orderId:order.id,status:'pending',packageId:order.packageId};
-  // Check the paid amount and currency before crediting the wallet.
+  // Checkout amount/currency are the catalog price; the charge may be in a
+  // different collection currency. Never compare crypto units with fiat cents.
   const charge = result.charge;
-  if (!charge || !['succeeded','overpaid'].includes(charge.status) || charge.currency !== order.currency || charge.checkout_id !== checkoutId || typeof charge.payment_id !== 'string' || !charge.payment_id ||
-    bachsAmount(charge.amount_paid) < cents(order.amount) || (charge.amount_remaining !== undefined && bachsAmount(charge.amount_remaining) !== 0)) throw new WalletError('Bachs payment has not been fully confirmed',409);
+  if (!charge || !['succeeded','overpaid','accepted'].includes(charge.status) || !isBachsCheckoutId(charge.payment_id) ||
+      (charge.checkout_id != null && charge.checkout_id !== checkoutId)) throw new WalletError('Bachs payment has not been fully confirmed',409);
   let paymentMetadata = bachsPaymentMetadata({...charge,payment_method:charge.payment_method ?? result.payment_method});
-  if (paymentMetadata.isCrypto) {
-    const payment = await bachsRequest(`/payments/${encodeURIComponent(charge.payment_id)}`);
+  let payment = charge;
+  if (paymentMetadata.isCrypto || charge.currency !== order.currency || charge.amount_paid == null) {
+    payment = await bachsRequest(`/payments/${encodeURIComponent(charge.payment_id)}`);
     if (payment.payment_id !== charge.payment_id || (payment.checkout_id != null && payment.checkout_id !== checkoutId)) throw new WalletError('Bachs payment metadata verification mismatch',409);
-    paymentMetadata = bachsPaymentMetadata({...payment,payment_method:payment.payment_method ?? 'CRYPTO'});
+    if ((charge.currency != null && payment.currency !== charge.currency) ||
+        (charge.amount != null && !bachsCollectionAmount(payment.amount).eq(bachsCollectionAmount(charge.amount)))) throw new WalletError('Bachs payment has not been fully confirmed',409);
+    paymentMetadata = bachsPaymentMetadata({...payment,payment_method:payment.payment_method ?? charge.payment_method ?? result.payment_method});
   }
+  if (!['succeeded','overpaid','accepted'].includes(payment.status) || typeof payment.currency !== 'string' || !payment.currency) throw new WalletError('Bachs payment has not been fully confirmed',409);
+  const expectedCollection = payment.amount != null ? bachsCollectionAmount(payment.amount)
+    : payment.currency === order.currency ? new Prisma.Decimal(order.amount) : null;
+  if (!expectedCollection || !expectedCollection.gt(0) ||
+      (payment.currency === order.currency && !expectedCollection.eq(order.amount)) ||
+      (payment.amount_paid != null && bachsCollectionAmount(payment.amount_paid).lt(expectedCollection)) ||
+      (payment.amount_remaining != null && !bachsCollectionAmount(payment.amount_remaining).isZero()) ||
+      (payment.status === 'accepted' && payment.amount_paid == null)) throw new WalletError('Bachs payment has not been fully confirmed',409);
+  logServiceTrace('v1/payments/index','bachs.payment.verified','Bachs checkout and collection verified',{
+    orderId:order.id,checkoutId,paymentId:charge.payment_id,priceCurrency:order.currency,priceAmount:order.amount.toString(),
+    collectionCurrency:payment.currency,collectionAmount:expectedCollection.toString(),paymentMethod:paymentMetadata.paymentMethod,
+  });
   await purchaseCoinsWithBachs(markVerifiedPayment({orderId:order.id,userId:order.userId,checkoutId,paymentId:charge.payment_id,paymentMetadata},charge.payment_id));
   return {orderId:order.id,status:'paid',packageId:order.packageId};
 }
@@ -403,6 +421,16 @@ export async function reconcileBachsCheckout(orderId:string,userId?:string,provi
 function bachsAmount(value:unknown) {
   if (typeof value !== 'string' || !/^\d+(\.\d{1,2})?$/.test(value)) throw new WalletError('Invalid Bachs payment amount',409);
   return cents(new Prisma.Decimal(value),true);
+}
+
+function bachsCollectionAmount(value:unknown) {
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const amount = new Prisma.Decimal(value);
+      if (amount.isFinite() && !amount.isNegative()) return amount;
+    } catch(error) { logServiceError('v1/payments/index','bachsCollectionAmount',error); }
+  }
+  throw new WalletError('Invalid Bachs payment amount',409);
 }
 
 export async function processBachsWebhook(event:any) {
