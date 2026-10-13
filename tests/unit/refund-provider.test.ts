@@ -51,6 +51,31 @@ it('retains HTTP diagnostics when the provider returns HTML instead of JSON',asy
  }
 });
 it('reconciles a lost Flutterwave response by original transaction without another POST',async()=>{vi.mocked(fetch).mockResolvedValue(Response.json({status:'success',data:[{id:99,tx_id:123}]}));expect(await readProviderRefund(row('FLUTTERWAVE'))).toMatchObject({id:99});expect(vi.mocked(fetch).mock.calls[0][1]!.method).toBe('GET');});
+it('reconciles a lost response using Flutterwave legacy TransactionId without another POST',async()=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({status:'success',data:[{id:99,TransactionId:123,AmountRefunded:5,status:'completed'}]}));
+ const response=await readProviderRefund(row('FLUTTERWAVE'));
+ expect(providerRefundResult(row('FLUTTERWAVE'),response)).toEqual({id:'99',status:'PROCESSING'});
+ expect(fetch).toHaveBeenCalledTimes(1);expect(vi.mocked(fetch).mock.calls[0][1]!.method).toBe('GET');
+});
+it.each(['wrapped','bare'])('reads a %s Flutterwave refund resource with legacy fields',async shape=>{
+ const data={id:99,TransactionId:123,AmountRefunded:5,status:'completed-mpgs'};
+ vi.mocked(fetch).mockResolvedValue(Response.json(shape==='wrapped'?{status:'success',data}:data));
+ const saved={...row('FLUTTERWAVE'),providerRefundId:'99'};
+ expect(providerRefundResult(saved,await readProviderRefund(saved))).toEqual({id:'99',status:'SUCCEEDED'});
+ expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.flutterwave.com/v3/refunds/99');
+});
+it.each(['completed','processing','pending-mpgs','pending-bank-transfer'])('keeps Flutterwave %s pending',status=>{
+ expect(providerRefundResult(row('FLUTTERWAVE'),{id:99,tx_id:123,amount_refunded:5,status}).status).toBe('PROCESSING');
+});
+it.each(['completed-bank-transfer','completed-momo','completed-preauth','completed-mpgs','completed-offline'])('recognizes Flutterwave terminal %s',status=>{
+ expect(providerRefundResult(row('FLUTTERWAVE'),{id:99,TransactionId:123,AmountRefunded:5,status}).status).toBe('SUCCEEDED');
+});
+it.each([{TransactionId:456,AmountRefunded:5},{TransactionId:123,AmountRefunded:4}])('rejects unrelated or incorrect legacy refunds %j',data=>{
+ expect(()=>providerRefundResult(row('FLUTTERWAVE'),{id:99,status:'completed-mpgs',...data})).toThrow('mismatch');
+});
+it('rejects a different saved provider refund ID',()=>{
+ expect(()=>providerRefundResult({...row('FLUTTERWAVE'),providerRefundId:'88'},{id:99,TransactionId:123,AmountRefunded:5,status:'completed-mpgs'})).toThrow('mismatch');
+});
 it.each(['processing','success','failed'])('checks Bachs refund correlation and %s state',status=>{expect(providerRefundResult(row(),{refund_id:'r',charge_id:'pay_test',reference:'refund',requested_amount:'5.00',refunded_amount:'5.00',status}).status).toBe(status==='success'?'SUCCEEDED':status==='failed'?'FAILED':'PROCESSING');});
 it('never claims a partial Bachs refund completed',()=>{expect(providerRefundResult(row(),{refund_id:'r',charge_id:'pay_test',reference:'refund',requested_amount:'5.00',refunded_amount:'3.00',status:'success'}).status).toBe('REVIEW');});
 it('rejects mismatched refund amounts or unrelated payment references',()=>{expect(()=>providerRefundResult(row(),{refund_id:'r',charge_id:'another',requested_amount:'5',status:'processing'})).toThrow('mismatch');});

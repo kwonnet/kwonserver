@@ -34,6 +34,12 @@ export function refundEnvironment(gateway: string) {
       ? "flutterwave:test"
       : "flutterwave:live";
 }
+// Flutterwave uses both snake_case and legacy PascalCase refund fields.
+function flutterwaveRefund(data: any) {
+  return { id: data?.id, tx_id: data?.tx_id ?? data?.TransactionId,
+    amount_refunded: data?.amount_refunded ?? data?.AmountRefunded,
+    status: data?.status };
+}
 async function request(
   gateway: string,
   path: string,
@@ -77,9 +83,13 @@ async function request(
         [400, 401, 403, 404, 422].includes(response.status));
     }
     const result = await response.json();
-    if (gateway === "FLUTTERWAVE" && result.status !== "success")
+    const bareRefund = gateway === "FLUTTERWAVE" && result.status !== "error" &&
+      (path.startsWith("/refunds/") || path.endsWith("/refund")) &&
+      (typeof result.id === "number" || typeof result.id === "string") &&
+      (typeof flutterwaveRefund(result).amount_refunded === "number" || typeof flutterwaveRefund(result).amount_refunded === "string");
+    if (gateway === "FLUTTERWAVE" && result.status !== "success" && !bareRefund)
       throw providerFailure(gateway, path, response.status, result, false);
-    const data = gateway === "BACHS" ? result : result.data;
+    const data = gateway === "BACHS" || bareRefund ? result : result.data;
     logServiceTrace("v1/wallets/refund-provider", "request.accepted", "Refund gateway response parsed", { ...trace, providerStatus: typeof data?.status === "string" ? data.status : undefined, providerRefundId: data?.refund_id ?? (gateway === "FLUTTERWAVE" ? data?.id : undefined), isRefundable: typeof data?.is_refundable === "boolean" ? data.is_refundable : undefined, resultCount: Array.isArray(data) ? data.length : undefined });
     return data;
   } catch (error) {
@@ -168,26 +178,37 @@ export async function readProviderRefund(row: PurchaseRefund) {
     );
     if (!Array.isArray(data))
       throw new WalletError("Unable to reconcile refund", 503);
-    const match = data.find((item) => String(item.tx_id) === row.paymentId);
+    const match = data.find((item) => String(flutterwaveRefund(item).tx_id) === row.paymentId);
     if (match) return match;
     if (!data.length) break;
   }
   throw new WalletError("Refund confirmation is pending", 503);
 }
 export function providerRefundResult(row: PurchaseRefund, data: any) {
+  if (row.gateway === "FLUTTERWAVE") data = flutterwaveRefund(data);
   const id = String(row.gateway === "BACHS" ? data.refund_id : data.id);
   if (
     !id ||
-    id === "undefined" ||
+    id === "undefined" || id === "null" ||
+    (row.providerRefundId && id !== row.providerRefundId) ||
     String(row.gateway === "BACHS" ? data.charge_id : data.tx_id) !==
       row.paymentId ||
     (row.gateway === "BACHS" && data.reference !== row.id) ||
     amount(
       row.gateway === "BACHS" ? data.requested_amount : data.amount_refunded,
     ) !== cents(row.amount)
-  )
+  ) {
+    logServiceTrace("v1/wallets/refund-provider", "refund.response.mismatch", "Refund response failed correlation checks", {
+      refundId: row.id, gateway: row.gateway, providerPaymentId: row.paymentId,
+      responsePaymentId: row.gateway === "BACHS" ? data.charge_id : data.tx_id,
+      responseRefundId: id, expectedRefundId: row.providerRefundId,
+      expectedAmount: row.amount.toString(), responseAmount: row.gateway === "BACHS" ? data.requested_amount : data.amount_refunded,
+    });
     throw new WalletError("Refund confirmation mismatch", 409);
+  }
   const status = String(data.status).toLowerCase();
+  // Flutterwave 'completed' acknowledges initiation, not final disbursement.
+  if (row.gateway === "FLUTTERWAVE" && status === "completed") return { id, status: "PROCESSING" };
   if (
     [
       "success",
@@ -196,6 +217,9 @@ export function providerRefundResult(row: PurchaseRefund, data: any) {
       "completed",
       "completed-mpgs",
       "completed-offline",
+      "completed-bank-transfer",
+      "completed-momo",
+      "completed-preauth",
     ].includes(status)
   ) {
     if (

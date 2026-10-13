@@ -1242,8 +1242,18 @@ only selected identifiers, amounts, and status fields, never full gateway bodies
 authorization headers, keys, card data, or customer contact details. Logging does
 not resubmit a refund or alter its processing policy.
 
+Flutterwave refund responses support both `tx_id`/`amount_refunded` and the
+documented legacy `TransactionId`/`AmountRefunded` fields. Single-refund reads may
+return a bare resource or a success envelope. All variants still require the
+original transaction ID and exact amount to match; a saved provider refund ID
+must also match. Flutterwave `completed` means initiated and awaiting disbursement,
+so it remains processing until a final `completed-mpgs`, `completed-bank-transfer`,
+`completed-momo`, `completed-preauth`, or `completed-offline` status is confirmed.
+Existing uncertain refunds are found with GET requests without another POST.
+
 Provider references:
 - https://docs.bachs.io/api-reference/refunds/create-refund
 - https://docs.bachs.io/api-reference/refunds/get-refund-by-charge
 - https://developer.flutterwave.com/reference/transaction-refund
 - https://developer.flutterwave.com/reference/get-all-refunds
+- https://developer.flutterwave.com/docs/refunds
