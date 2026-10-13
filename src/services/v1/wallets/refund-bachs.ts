@@ -17,10 +17,12 @@ function checkEnvironment(row: PurchaseRefund) {
 export async function verifyBachsRefundPayment(paymentId: string, currency: string, paid: Prisma.Decimal, context: Record<string, unknown> = {}) {
   const data = await request(`/payments/${encodeURIComponent(paymentId)}`,undefined,undefined,{...context,providerPaymentId:paymentId});
   if (String(data.payment_id) !== paymentId || data.currency !== currency || refundAmount(data.amount) !== cents(paid) ||
-      !["succeeded","overpaid","successful"].includes(String(data.status).toLowerCase()))
+      !["succeeded","accepted","underpaid","overpaid"].includes(String(data.status).toLowerCase()))
     throw new WalletError("Original payment could not be verified",409);
+  if (data.amount_paid != null && refundAmount(data.amount_paid) < cents(paid))
+    throw new WalletError("Original payment does not cover this refund",409);
   if (data.is_refundable === false)
-    throw new WalletError("Bachs does not allow a refund for this payment. Bank-transfer payments cannot be refunded automatically; please contact support.",409);
+    throw new WalletError("Bachs does not allow a refund for this payment. It cannot be refunded automatically; please contact support.",409);
 }
 export async function createBachsRefund(row: PurchaseRefund, saveProviderId?: (id: string) => Promise<void>) {
   checkEnvironment(row);
@@ -41,8 +43,33 @@ export async function createBachsRefund(row: PurchaseRefund, saveProviderId?: (i
 }
 export async function readBachsRefund(row: PurchaseRefund) {
   checkEnvironment(row);
-  const path = row.providerRefundId ? `/refunds/${encodeURIComponent(row.providerRefundId)}` : `/refunds/by-charge/${encodeURIComponent(row.paymentId)}`;
-  return await request(path,undefined,undefined,{refundId:row.id,purchaseId:row.transactionId,providerPaymentId:row.paymentId,providerRefundId:row.providerRefundId});
+  const context = {refundId:row.id,purchaseId:row.transactionId,providerPaymentId:row.paymentId,providerRefundId:row.providerRefundId};
+  if (row.providerRefundId) return await request(`/refunds/${encodeURIComponent(row.providerRefundId)}`,undefined,undefined,context);
+  try {
+    return await request(`/refunds/by-charge/${encodeURIComponent(row.paymentId)}`,undefined,undefined,context);
+  } catch (error) {
+    logServiceError("v1/wallets/refund-provider","refund.bachs.lookup.failed",error,false,context);
+    if (!(error instanceof RefundProviderError) || (error.cause as {statusCode?:number}|undefined)?.statusCode !== 404) throw error;
+  }
+  const payment = await request(`/payments/${encodeURIComponent(row.paymentId)}`,undefined,undefined,context);
+  if (String(payment.payment_id) !== row.paymentId || payment.currency !== row.currency || refundAmount(payment.amount) !== cents(row.amount))
+    throw new WalletError("Original payment could not be verified",409);
+  // The payment object exposes refund IDs even if the by-charge lookup is unavailable.
+  if (Array.isArray(payment.refunds) && payment.refunds.length) {
+    for (const refundId of payment.refunds) {
+      const refund = await request(`/refunds/${encodeURIComponent(String(refundId))}`,undefined,undefined,context);
+      if (refund.reference === row.id) return refund;
+    }
+    throw new WalletError("Bachs payment has another refund; manual review is required",409);
+  }
+  const age = Date.now() - row.createdAt.getTime();
+  // Bachs retains idempotency keys for 24 hours. Never retry outside that window.
+  if (row.status === "SUBMITTING" && age >= 0 && age < 24 * 60 * 60 * 1000 &&
+      payment.is_refundable === true && (payment.refunds === null || Array.isArray(payment.refunds))) {
+    logServiceTrace("v1/wallets/refund-provider","refund.bachs.retry","Retrying the original Bachs request with the same idempotency key",context);
+    return await createBachsRefund(row);
+  }
+  throw new WalletError("Bachs refund needs manual review before another submission",409);
 }
 export function bachsRefundResult(row: PurchaseRefund, data: any) {
   const id = String(data?.refund_id);
@@ -57,9 +84,9 @@ export function bachsRefundResult(row: PurchaseRefund, data: any) {
     throw new WalletError("Refund confirmation mismatch",409);
   }
   const status = data.status.toLowerCase();
-  if (["success","successful","succeeded","completed","completed-mpgs","completed-offline","completed-bank-transfer","completed-momo","completed-preauth"].includes(status))
-    return {id,status:refundAmount(data.refunded_amount) === cents(row.amount) ? "SUCCEEDED" : "REVIEW"};
-  return {id,status:["failed","cancelled","canceled"].includes(status) ? "FAILED" : "PROCESSING"};
+  if (status === "success")
+    return {id,status:data.refunded_amount == null ? "REVIEW" : refundAmount(data.refunded_amount) === cents(row.amount) ? "SUCCEEDED" : "REVIEW"};
+  return {id,status:status === "failed" ? "FAILED" : "PROCESSING"};
 }
 export const bachsRefundProvider = {
   environment: bachsApiOrigin,

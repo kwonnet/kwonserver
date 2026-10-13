@@ -7,6 +7,41 @@ import {safeError} from '@/logger/sanitize';
 import logger from '@/logger';
 const row=(gateway='BACHS'):any=>({id:'refund',gateway,paymentId:gateway==='BACHS'?'pay_test':'123',environment:gateway==='BACHS'?'https://sandbox-api.bachs.io':'flutterwave:test',amount:new Prisma.Decimal(5),currency:'USD',createdAt:new Date('2026-10-13T00:00:00Z')});
 beforeEach(()=>{vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');vi.stubEnv('FLUTTERWAVE_SECK','FLWSECK_TEST_fixture');});
+it('recovers a Bachs refund using the verified payment refund IDs when by-charge returns 404',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({error_code:'NOT_FOUND'},{status:404}))
+  .mockResolvedValueOnce(Response.json({payment_id:'pay_test',currency:'USD',amount:'5.00',refunds:['ref_saved']}))
+  .mockResolvedValueOnce(Response.json({refund_id:'ref_saved',charge_id:'pay_test',reference:'refund',requested_amount:'5.00',refunded_amount:'5.00',status:'success'}));
+ const original=row();expect(providerRefundResult(original,await readProviderRefund(original))).toEqual({id:'ref_saved',status:'SUCCEEDED'});
+ expect(vi.mocked(fetch).mock.calls.map(([,options])=>options!.method)).toEqual(['GET','GET','GET']);
+});
+it('retries an uncreated Bachs refund within 24 hours with the same body and idempotency key',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({error_code:'NOT_FOUND'},{status:404}))
+  .mockResolvedValueOnce(Response.json({payment_id:'pay_test',currency:'USD',amount:'5.00',is_refundable:true,refunds:null}))
+  .mockResolvedValueOnce(Response.json({refund_id:'ref_retry',charge_id:'pay_test',reference:'refund',requested_amount:'5.00',refunded_amount:null,status:'processing'}));
+ const original={...row(),status:'SUBMITTING',createdAt:new Date()};
+ expect(providerRefundResult(original,await readProviderRefund(original))).toEqual({id:'ref_retry',status:'PROCESSING'});
+ const [url,options]=vi.mocked(fetch).mock.calls[2];expect(url).toBe('https://sandbox-api.bachs.io/v1/refunds');
+ expect(options!.headers).toMatchObject({'Idempotency-Key':'refund'});
+ expect(JSON.parse(options!.body as string)).toMatchObject({charge_id:'pay_test',reference:'refund',idempotency_key:'refund',amount:'5.00'});
+});
+it.each(['expired','not-refundable','unknown-refunds'])('does not retry Bachs when recovery is unsafe: %s',async reason=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({error_code:'NOT_FOUND'},{status:404}))
+  .mockResolvedValueOnce(Response.json({payment_id:'pay_test',currency:'USD',amount:'5.00',is_refundable:reason!=='not-refundable',...(reason==='unknown-refunds'?{}:{refunds:[]})}));
+ const original={...row(),status:'SUBMITTING',createdAt:reason==='expired'?new Date(Date.now()-25*60*60*1000):new Date()};
+ await expect(readProviderRefund(original)).rejects.toThrow('manual review');
+ expect(vi.mocked(fetch).mock.calls.every(([,options])=>options!.method==='GET')).toBe(true);
+});
+it.each(['accepted','underpaid'])('handles documented Bachs payment status %s when received funds cover the refund',async status=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({payment_id:'pay_test',currency:'USD',amount:'5.00',amount_paid:'5.00',status,is_refundable:true}));
+ await verifyRefundPayment('BACHS','pay_test','USD',new Prisma.Decimal(5));
+});
+it('does not refund more than Bachs actually received',async()=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({payment_id:'pay_test',currency:'USD',amount:'5.00',amount_paid:'4.00',status:'underpaid',is_refundable:true}));
+ await expect(verifyRefundPayment('BACHS','pay_test','USD',new Prisma.Decimal(5))).rejects.toThrow('does not cover');
+});
+it('treats a success response with no refunded amount as review, not completed',()=>{
+ expect(providerRefundResult(row(),{refund_id:'r',charge_id:'pay_test',reference:'refund',requested_amount:'5.00',refunded_amount:null,status:'success'})).toEqual({id:'r',status:'REVIEW'});
+});
 it('selects the original payment provider and rejects unsupported gateways before HTTP calls',()=>{
  expect(getRefundProvider('BACHS')).toBe(bachsRefundProvider);
  expect(getRefundProvider('FLUTTERWAVE')).toBe(flutterwaveRefundProvider);

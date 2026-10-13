@@ -13,6 +13,7 @@ export type RefundHttpProvider = {
 };
 
 export class RefundProviderError extends WalletError {
+  submission = false;
   constructor(public definitive: boolean, cause?: Error) {
     super("The payment provider could not accept this refund", 503);
     this.name = "RefundProviderError";
@@ -69,8 +70,10 @@ export async function refundRequest(
       } catch (error) {
         logServiceError("v1/wallets/refund-provider", "readProviderError", error, true);
       }
-      throw providerFailure(gateway, path, response.status, details,
+      const error = providerFailure(gateway, path, response.status, details,
         [400, 401, 403, 404, 422].includes(response.status));
+      error.submission = body !== undefined;
+      throw error;
     }
     const result = await response.json();
     const parsed = provider.parseResponse(result, path, response.status);

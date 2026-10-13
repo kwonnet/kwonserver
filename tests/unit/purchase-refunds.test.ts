@@ -71,6 +71,14 @@ it('logs a definitive gateway submission rejection before restoring the wallet',
 it('does not resubmit a refund when provider confirmation is pending',async()=>{provider.read.mockRejectedValue(new Error('timeout'));expect(await processPurchaseRefund('refund','buyer')).toMatchObject({status:'PROCESSING'});expect(provider.create).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();});
 it('restores exactly the reserved coins and bonus on a verified failure',async()=>{provider.result.mockReturnValue({id:'provider-refund',status:'FAILED'});await processPurchaseRefund('refund','buyer');expect(db.wallet.update).toHaveBeenCalledWith({where:{userId:'buyer'},data:{coins:{increment:D(31.2)},bonus:{increment:D(10)}}});});
 it('restores a newly reserved deduction on a definite provider rejection',async()=>{db.purchaseRefund.updateMany.mockResolvedValue({count:1});provider.create.mockRejectedValue(new RefundProviderError(true));await processPurchaseRefund('refund','buyer');expect(db.wallet.update).toHaveBeenCalledTimes(1);});
+it('restores a reservation when Bachs definitively rejects a same-key recovery submission',async()=>{
+ const error=new RefundProviderError(true);error.submission=true;provider.read.mockRejectedValue(error);
+ await processPurchaseRefund('refund','buyer');expect(db.wallet.update).toHaveBeenCalledTimes(1);
+});
+it('never restores a reservation merely because a status lookup returns 404',async()=>{
+ provider.read.mockRejectedValue(new RefundProviderError(true,Object.assign(new Error('not found'),{statusCode:404})));
+ await processPurchaseRefund('refund','buyer');expect(db.wallet.update).not.toHaveBeenCalled();
+});
 it('marks the original purchase refunded only after provider success',async()=>{provider.result.mockReturnValue({id:'provider-refund',status:'SUCCEEDED'});await processPurchaseRefund('refund','buyer');expect(db.transaction.update).toHaveBeenCalledWith({where:{id:'purchase'},data:{status:'REFUNDED'}});expect(db.wallet.update).not.toHaveBeenCalled();});
 it.each(['SUCCEEDED','FAILED'])('duplicate terminal %s confirmation does not change balances',async status=>{db.purchaseRefund.findUnique.mockResolvedValue({...refund(),status});await processPurchaseRefund('refund','buyer');expect(provider.read).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();});
 it('never exposes another user refund status',async()=>{await expect(processPurchaseRefund('refund','other')).rejects.toThrow('not found');expect(provider.read).not.toHaveBeenCalled();});

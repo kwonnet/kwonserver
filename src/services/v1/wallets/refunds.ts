@@ -449,8 +449,8 @@ export async function processPurchaseRefund(id: string, userId?: string) {
   } catch (error) {
     logServiceError("v1/wallets/refunds", "processPurchaseRefund", error, false, { ...context, action: claimed.count ? "submit" : "check", definitive: error instanceof RefundProviderError ? error.definitive : false });
     if (
-      claimed.count &&
       error instanceof RefundProviderError &&
+      (claimed.count || error.submission) &&
       error.definitive
     )
       return await settleRefund(row, "FAILED");

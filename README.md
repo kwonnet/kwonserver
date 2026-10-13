@@ -1241,6 +1241,13 @@ Bachs payment verification rejects `is_refundable=false` before reserving wallet
 coins. Bachs currently supports USD/NGN card refunds, but not NGN bank-transfer
 refunds; those purchases require support. Status checks use a saved refund ID,
 falling back to payment lookup only when submission did not return an ID.
+When an unsaved Bachs refund returns 404 from the by-charge lookup, read the
+original payment and try its documented `refunds` IDs. Only if the verified
+payment explicitly has no refunds and is refundable may a `SUBMITTING` record
+retry its original POST with the same reference, amount, and idempotency key,
+within Bachs's documented 24-hour window. Outside that window, or with unknown
+refund information, retain the reservation for manual review. A definitive
+rejection of a recovery POST restores the reservation; a failed GET never does.
 Provider errors retain the real HTTP status and stable Bachs `error_code` under
 the logged error's `cause`, without recording response bodies or credentials.
 A failed status lookup is not proof that a refund failed: keep its reservation
