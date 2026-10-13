@@ -8,6 +8,7 @@ import {requestPurchaseRefund,processPurchaseRefund,getRefundQuote} from '@/serv
 const buyer='refund-fixture-buyer';let id:string;
 beforeAll(async()=>{
  vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');provider.result.mockReturnValue({id:'provider-refund',status:'PROCESSING'});
+ provider.create.mockImplementation(async(_row,save)=>{await save('provider-refund');return {refund_id:'provider-refund'};});
  await db.user.create({data:{id:buyer,name:'Refund Buyer',username:buyer,email:'refund-buyer@example.test',wallet:{create:{coins:50,bonus:10}}}});
  const pkg=await db.coinPackage.create({data:{name:'Refund fixture',amount:30,price:5,bonus:12}});
  const common={userId:buyer,txnRef:'refund-fixture-ref',exTxnRef:'chk_refund',category:'COIN_PURCHASE' as const,gateway:'BACHS' as const,status:'COMPLETED' as const,coinPackageId:pkg.id,metadata:{providerId:'pay_refund',coins:30,bonus:12}};
@@ -18,7 +19,7 @@ afterAll(async()=>{await db.purchaseRefund.deleteMany({where:{userId:buyer}});aw
 it('concurrent requests reserve one deduction and submit one provider refund',async()=>{
  expect(await getRefundQuote(id,buyer)).toMatchObject({coinsDebit:31.2,bonusDebit:10,bonusFee:.6});
  await Promise.all(Array.from({length:8},()=>requestPurchaseRefund(id,buyer,{coinsDebit:31.2,bonusDebit:10})));
- const wallet=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});expect(wallet.coins.toString()).toBe('18.8');expect(wallet.bonus.toString()).toBe('0');expect(await db.purchaseRefund.count({where:{transactionId:id}})).toBe(1);expect(provider.create).toHaveBeenCalledTimes(1);
+ const wallet=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});expect(wallet.coins.toString()).toBe('18.8');expect(wallet.bonus.toString()).toBe('0');expect(await db.purchaseRefund.count({where:{transactionId:id}})).toBe(1);expect(provider.create).toHaveBeenCalledTimes(1);expect((await db.purchaseRefund.findUniqueOrThrow({where:{transactionId:id}})).providerRefundId).toBe('provider-refund');
 });
 it('confirmed failure restores once even when confirmations race',async()=>{
  const refund=await db.purchaseRefund.findUniqueOrThrow({where:{transactionId:id}});provider.result.mockReturnValue({id:'provider-refund',status:'FAILED'});

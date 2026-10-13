@@ -438,7 +438,12 @@ export async function processPurchaseRefund(id: string, userId?: string) {
   logServiceTrace("v1/wallets/refunds", "refund.submission.claimed", "Refund submission claim resolved", { ...context, action: claimed.count ? "submit" : "check", claimed: claimed.count > 0 });
   try {
     const response = claimed.count
-      ? await createProviderRefund(row)
+      ? await createProviderRefund(row, async providerRefundId => {
+          await prisma.purchaseRefund.update({where:{id},data:{providerRefundId}});
+          row.providerRefundId = providerRefundId;
+          context.providerRefundId = providerRefundId;
+          logServiceTrace("v1/wallets/refunds", "refund.receipt.saved", "Accepted gateway refund ID saved before verification", {...context});
+        })
       : await readProviderRefund(row);
     const result = providerRefundResult(row, response);
     logServiceTrace("v1/wallets/refunds", "refund.provider.verified", "Gateway refund response verified", { ...context, providerRefundId: result.id, targetStatus: result.status });

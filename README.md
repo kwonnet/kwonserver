@@ -1212,10 +1212,14 @@ original purchase refunded and records the original fiat refund amount.
 Refund responses supply the provider refund ID and status. Amounts, original
 payment IDs, Bachs references, and saved refund IDs are compared with stored
 values using simple equality and decimal comparisons, without regex format checks.
-For Flutterwave, an exact `Coin purchase refund <localRefundId>` comment plus
-the exact amount can identify the refund when its returned transaction ID differs.
-Saved provider refund IDs are still required to match. A different comment or
-amount never qualifies through this recovery path.
+The accepted provider refund ID is saved immediately, before verification.
+Flutterwave status checks use this saved ID and exact amount; the accepted POST
+already binds that refund ID to the original purchase. They do not depend on
+comments or alternate provider transaction IDs. An exact
+`Coin purchase refund <localRefundId>` comment plus the exact amount is only a
+recovery path for older or interrupted records without a saved refund ID. Once
+recovered, future checks use the saved ID. Bachs continues to verify its charge
+and reference fields. Saved refund IDs and amounts must match in every path.
 Partial Bachs refunds require review. A failed refund remains recorded and
 requires support for a new attempt.
 

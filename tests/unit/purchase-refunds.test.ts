@@ -37,6 +37,18 @@ it('reserves wallet quantities and persists an order before initiating the provi
  await requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10});
  expect(db.wallet.update.mock.calls[0][0].data).toEqual({coins:{decrement:D(31.2)},bonus:{decrement:D(10)}});expect(db.purchaseRefund.create).toHaveBeenCalledTimes(1);expect(provider.create).toHaveBeenCalledTimes(1);
 });
+it('persists the gateway refund receipt before verification and retains it after verification times out',async()=>{
+ db.purchaseRefund.updateMany.mockResolvedValue({count:1});
+ provider.create.mockImplementation(async(_row,save)=>{
+   await save('accepted-refund-id');
+   expect(db.purchaseRefund.update).toHaveBeenCalledWith({where:{id:'refund'},data:{providerRefundId:'accepted-refund-id'}});
+   throw new Error('Verification timed out');
+ });
+ await processPurchaseRefund('refund','buyer');
+ expect(db.wallet.update).not.toHaveBeenCalled();
+ expect(provider.create).toHaveBeenCalledTimes(1);
+ expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'refund.receipt.saved',providerRefundId:'accepted-refund-id'}),expect.any(String));
+});
 it('traces reservation commit before submitting and settlement after provider verification',async()=>{
  db.purchaseRefund.updateMany.mockResolvedValue({count:1});
  provider.create.mockImplementation(async()=>{

@@ -59,6 +59,20 @@ it('verifies the initiated Flutterwave refund by data.id and transaction_id',asy
  ]);
  expect(providerRefundResult(row('FLUTTERWAVE'),response)).toEqual({id:'99',status:'SUCCEEDED'});
 });
+it('saves the accepted refund ID before verification even when the GET fails',async()=>{
+ const save=vi.fn(async()=>{});
+ vi.mocked(fetch).mockImplementationOnce(async()=>Response.json({status:'success',data:{id:99}}))
+  .mockImplementationOnce(async()=>{expect(save).toHaveBeenCalledWith('99');throw new Error('timeout');});
+ await expect(createProviderRefund(row('FLUTTERWAVE'),save)).rejects.toThrow('timeout');
+ expect(vi.mocked(fetch).mock.calls.map(([,options])=>options!.method)).toEqual(['POST','GET']);
+});
+it('checks future status by saved refund ID without depending on comments or alternate transaction IDs',async()=>{
+ const saved={...row('FLUTTERWAVE'),providerRefundId:'99'};
+ vi.mocked(fetch).mockResolvedValue(Response.json({id:99,transaction_id:456,amount_refunded:5,status:'completed-bank-transfer',comment:'A changed description'}));
+ expect(providerRefundResult(saved,await readProviderRefund(saved))).toEqual({id:'99',status:'SUCCEEDED'});
+ expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.flutterwave.com/v3/refunds/99');
+ expect(fetch).toHaveBeenCalledTimes(1);
+});
 it('reconciles old Flutterwave refunds using transaction_id with GET only',async()=>{
  vi.mocked(fetch).mockResolvedValue(Response.json({status:'success',data:[{id:99,transaction_id:123,amount_refunded:5,status:'completed-mpgs'}]}));
  expect(providerRefundResult(row('FLUTTERWAVE'),await readProviderRefund(row('FLUTTERWAVE')))).toEqual({id:'99',status:'SUCCEEDED'});
@@ -161,7 +175,7 @@ it.each([
  {comment:'Coin purchase refund refund',amount_refunded:4,id:99},
  {comment:'Coin purchase refund refund',amount_refunded:5,id:88},
 ])('rejects wrong references, amounts or saved IDs even when using reference recovery %j',data=>{
- expect(()=>providerRefundResult({...row('FLUTTERWAVE'),providerRefundId:'99'},{transaction_id:456,status:'completed-bank-transfer',...data})).toThrow('mismatch');
+ expect(()=>providerRefundResult({...row('FLUTTERWAVE'),providerRefundId:data.id===88?'99':null},{transaction_id:456,status:'completed-bank-transfer',...data})).toThrow('mismatch');
 });
 it('verifies a fresh refund by the returned refund ID, exact comment and amount',async()=>{
  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:99}}))

@@ -131,7 +131,7 @@ export async function verifyRefundPayment(
   if (gateway === "BACHS" && data.is_refundable === false)
     throw new WalletError("Bachs does not allow a refund for this payment. Bank-transfer payments cannot be refunded automatically; please contact support.", 409);
 }
-export async function createProviderRefund(row: PurchaseRefund) {
+export async function createProviderRefund(row: PurchaseRefund, saveProviderId?: (id: string) => Promise<void>) {
   if (row.environment !== refundEnvironment(row.gateway))
     throw new WalletError("Refund belongs to another payment environment", 409);
   const response = await request(
@@ -155,12 +155,15 @@ export async function createProviderRefund(row: PurchaseRefund) {
     row.id,
     { refundId: row.id, purchaseId: row.transactionId, providerPaymentId: row.paymentId, amount: row.amount.toFixed(2), currency: row.currency },
   );
-  if (row.gateway !== "FLUTTERWAVE") return response;
-  if ((typeof response?.id !== "string" && typeof response?.id !== "number") || String(response.id).trim() === "")
-    throw new WalletError("Flutterwave did not return a refund ID",503);
-  const refundId = String(response.id);
+  const returnedId = row.gateway === "BACHS" ? response?.refund_id : response?.id;
+  if ((typeof returnedId !== "string" && typeof returnedId !== "number") || String(returnedId).trim() === "")
+    throw new WalletError("Payment provider did not return a refund ID",503);
+  const refundId = String(returnedId);
   // Verify the refund resource using data.id returned by the initiation call.
   try {
+    // Persist the accepted receipt before any verification request can fail.
+    if (saveProviderId) await saveProviderId(refundId);
+    if (row.gateway !== "FLUTTERWAVE") return response;
     const verified = await readProviderRefund({ ...row, providerRefundId: refundId });
     if (String(verified?.id) !== refundId) throw new WalletError("Refund confirmation mismatch",409);
     return verified;
@@ -212,8 +215,9 @@ export function providerRefundResult(row: PurchaseRefund, data: any) {
   const paymentId = row.gateway === "BACHS" ? data.charge_id : data.tx_id;
   const requestedAmount = row.gateway === "BACHS" ? data.requested_amount : data.amount_refunded;
   const paymentMatches = String(paymentId) === row.paymentId;
-  const referenceMatches = row.gateway === "FLUTTERWAVE" && data.comment === `Coin purchase refund ${row.id}`;
-  if ((!paymentMatches && !referenceMatches) || amount(requestedAmount) !== cents(row.amount) ||
+  const savedIdMatches = row.gateway === "FLUTTERWAVE" && !!row.providerRefundId && id === row.providerRefundId;
+  const referenceMatches = row.gateway === "FLUTTERWAVE" && !row.providerRefundId && data.comment === `Coin purchase refund ${row.id}`;
+  if ((!paymentMatches && !savedIdMatches && !referenceMatches) || amount(requestedAmount) !== cents(row.amount) ||
       (row.providerRefundId && id !== row.providerRefundId) ||
       (row.gateway === "BACHS" && data.reference !== row.id)) {
     logServiceTrace("v1/wallets/refund-provider", "refund.response.mismatch", "Refund response failed verification", {
