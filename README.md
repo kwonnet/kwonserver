@@ -1212,6 +1212,10 @@ original purchase refunded and records the original fiat refund amount.
 Refund responses supply the provider refund ID and status. Amounts, original
 payment IDs, Bachs references, and saved refund IDs are compared with stored
 values using simple equality and decimal comparisons, without regex format checks.
+For Flutterwave, an exact `Coin purchase refund <localRefundId>` comment plus
+the exact amount can identify the refund when its returned transaction ID differs.
+Saved provider refund IDs are still required to match. A different comment or
+amount never qualifies through this recovery path.
 Partial Bachs refunds require review. A failed refund remains recorded and
 requires support for a new attempt.
 
@@ -1258,8 +1262,9 @@ so it remains processing until a final `completed-mpgs`, `completed-bank-transfe
 `completed-momo`, `completed-preauth`, or `completed-offline` status is confirmed.
 Existing uncertain refunds are found with GET requests without another POST.
 Multiple-refund reads use the documented success envelope's `data` array and
-`meta.page_info.total_pages`. Queries include `from`, `to`, original transaction
-`id`, and `currency`; pagination stops at the final page. Single-refund reads
+`meta.page_info.total_pages`. Queries include `from`, `to`, and `currency`;
+the original transaction ID filter is omitted so it cannot hide reference-matched
+refunds with different provider transaction IDs. Pagination stops at the final page. Single-refund reads
 accept the documented bare object from `/v3/refunds/{refundId}`. Both responses
 use `transaction_id`, `amount_refunded`, `id`, and `status` for verification.
 

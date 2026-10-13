@@ -39,7 +39,7 @@ export function refundEnvironment(gateway: string) {
 function flutterwaveRefund(data: any) {
   return { id: data?.id, tx_id: data?.transaction_id ?? data?.TransactionId ?? data?.tx_id,
     amount_refunded: data?.amount_refunded ?? data?.AmountRefunded,
-    status: data?.status };
+    comment: data?.comment ?? data?.comments, status: data?.status };
 }
 async function request(
   gateway: string,
@@ -191,12 +191,14 @@ export async function readProviderRefund(row: PurchaseRefund) {
   for (let page = 1; page <= 20; page++) {
     const { data, pageInfo } = await request(
       row.gateway,
-      `/refunds?from=${row.createdAt.toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}&currency=${encodeURIComponent(row.currency)}&id=${encodeURIComponent(row.paymentId)}&page=${page}`,
+      `/refunds?from=${row.createdAt.toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}&currency=${encodeURIComponent(row.currency)}&page=${page}`,
       undefined, undefined, { ...context, page },
     );
     if (!Array.isArray(data))
       throw new WalletError("Unable to reconcile refund", 503);
-    const match = data.find((item) => String(flutterwaveRefund(item).tx_id) === row.paymentId);
+    // The exact server-generated reference also identifies refunds whose provider transaction ID differs.
+    const match = data.find((item) => flutterwaveRefund(item).comment === `Coin purchase refund ${row.id}`)
+      ?? data.find((item) => String(flutterwaveRefund(item).tx_id) === row.paymentId);
     if (match) return match;
     if (!data.length || (Number.isInteger(pageInfo?.total_pages) && page >= pageInfo.total_pages)) break;
   }
@@ -209,7 +211,9 @@ export function providerRefundResult(row: PurchaseRefund, data: any) {
     throw new WalletError("Provider refund ID or status is missing",503);
   const paymentId = row.gateway === "BACHS" ? data.charge_id : data.tx_id;
   const requestedAmount = row.gateway === "BACHS" ? data.requested_amount : data.amount_refunded;
-  if (String(paymentId) !== row.paymentId || amount(requestedAmount) !== cents(row.amount) ||
+  const paymentMatches = String(paymentId) === row.paymentId;
+  const referenceMatches = row.gateway === "FLUTTERWAVE" && data.comment === `Coin purchase refund ${row.id}`;
+  if ((!paymentMatches && !referenceMatches) || amount(requestedAmount) !== cents(row.amount) ||
       (row.providerRefundId && id !== row.providerRefundId) ||
       (row.gateway === "BACHS" && data.reference !== row.id)) {
     logServiceTrace("v1/wallets/refund-provider", "refund.response.mismatch", "Refund response failed verification", {
@@ -219,6 +223,10 @@ export function providerRefundResult(row: PurchaseRefund, data: any) {
     });
     throw new WalletError("Refund confirmation mismatch",409);
   }
+  if (!paymentMatches && referenceMatches)
+    logServiceTrace("v1/wallets/refund-provider", "refund.reference.verified", "Refund verified by exact purchase reference and amount", {
+      refundId: row.id, providerRefundId: id, providerPaymentId: row.paymentId, responsePaymentId: String(paymentId),
+    });
   const status = String(data.status).toLowerCase();
   // Flutterwave 'completed' acknowledges initiation, not final disbursement.
   if (row.gateway === "FLUTTERWAVE" && status === "completed") return { id, status: "PROCESSING" };

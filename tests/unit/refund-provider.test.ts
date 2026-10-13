@@ -12,7 +12,7 @@ it('reads the documented multiple-refund envelope and query filters',async()=>{
  const original=row('FLUTTERWAVE');
  expect(providerRefundResult(original,await readProviderRefund(original))).toEqual({id:'258505',status:'SUCCEEDED'});
  const query=new URL(String(vi.mocked(fetch).mock.calls[0][0])).searchParams;
- expect(query.get('id')).toBe('123');expect(query.get('currency')).toBe('USD');expect(query.get('page')).toBe('1');
+ expect(query.get('id')).toBeNull();expect(query.get('currency')).toBe('USD');expect(query.get('page')).toBe('1');
  expect(vi.mocked(fetch).mock.calls[0][1]!.method).toBe('GET');
 });
 it('stops at the last page in the documented pagination metadata',async()=>{
@@ -143,4 +143,29 @@ it('accepts an opaque refund ID without regex format checks',async()=>{
  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:'refund-opaque'}}))
   .mockResolvedValueOnce(Response.json({id:'refund-opaque',transaction_id:123,amount_refunded:5,status:'completed-mpgs'}));
  expect(providerRefundResult(row('FLUTTERWAVE'),await createProviderRefund(row('FLUTTERWAVE')))).toEqual({id:'refund-opaque',status:'SUCCEEDED'});
+});
+
+it('reconciles completed account refunds by exact comment when Flutterwave transaction IDs differ',async()=>{
+ const original={...row('FLUTTERWAVE'),id:'c986-refund',paymentId:'10548533',amount:new Prisma.Decimal(1590),currency:'NGN'};
+ vi.mocked(fetch).mockResolvedValue(Response.json({status:'success',meta:{page_info:{total:3,total_pages:1,current_page:1}},data:[
+  {id:109515,transaction_id:9791583,amount_refunded:560,status:'completed-bank-transfer',comment:'Coin purchase refund another-refund'},
+  {id:109516,transaction_id:9791651,amount_refunded:1590,status:'completed-bank-transfer',comment:'Coin purchase refund c986-refund'},
+  {id:109504,transaction_id:9783985,amount_refunded:5515,status:'completed-bank-transfer',comment:'Coin purchase refund third-refund'},
+ ]}));
+ expect(providerRefundResult(original,await readProviderRefund(original))).toEqual({id:'109516',status:'SUCCEEDED'});
+ expect(vi.mocked(fetch).mock.calls.every(([,options])=>options!.method==='GET')).toBe(true);
+ expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'refund.reference.verified',providerRefundId:'109516'}),expect.any(String));
+});
+it.each([
+ {comment:'Coin purchase refund another',amount_refunded:5,id:99},
+ {comment:'Coin purchase refund refund',amount_refunded:4,id:99},
+ {comment:'Coin purchase refund refund',amount_refunded:5,id:88},
+])('rejects wrong references, amounts or saved IDs even when using reference recovery %j',data=>{
+ expect(()=>providerRefundResult({...row('FLUTTERWAVE'),providerRefundId:'99'},{transaction_id:456,status:'completed-bank-transfer',...data})).toThrow('mismatch');
+});
+it('verifies a fresh refund by the returned refund ID, exact comment and amount',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:99}}))
+  .mockResolvedValueOnce(Response.json({id:99,transaction_id:456,comment:'Coin purchase refund refund',amount_refunded:5,status:'completed-bank-transfer'}));
+ expect(providerRefundResult(row('FLUTTERWAVE'),await createProviderRefund(row('FLUTTERWAVE')))).toEqual({id:'99',status:'SUCCEEDED'});
+ expect(vi.mocked(fetch).mock.calls.map(([,options])=>options!.method)).toEqual(['POST','GET']);
 });
