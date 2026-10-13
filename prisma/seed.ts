@@ -25222,6 +25222,7 @@ export async function syncGameCategoryTopics(
 }
 
 async function seedReferenceData(prisma: Prisma.TransactionClient) {
+    await prisma.chargeRate.upsert({where:{id:"default"},update:{},create:{id:"default"}});
     // seed coin packages
     const totalPackages = await prisma.coinPackage.count();
     if (totalPackages === 0) {

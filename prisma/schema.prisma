@@ -1227,6 +1227,7 @@ model Wallet {
 }
 
 model Transaction {
+  purchaseRefund PurchaseRefund?
   id             String            @id @default(cuid())
   txnRef         String
   exTxnRef       String?
@@ -1688,6 +1689,7 @@ enum TxnSourceEnum {
 }
 
 enum TxnCategoryEnum {
+  COIN_REFUND
   GAME_DEDUCTION
   GAME_BONUS
   GAME_REVENUE
@@ -2298,4 +2300,47 @@ model BachsCheckout {
   createdAt DateTime @default(now())
   paidAt DateTime?
   @@index([userId, createdAt])
+}
+
+// Decimal rates retain sub-cent prices such as USD 0.015 per coin.
+model ChargeRate {
+  id String @id @default("default")
+  price Decimal @default(0.015) @db.Decimal(20,6)
+  maxPrice Decimal @default(0.017) @db.Decimal(20,6)
+  minWithdrawal Decimal @default(5) @db.Decimal(20,2)
+  fee Decimal @default(0.25) @db.Decimal(10,6)
+  ngnPrice Decimal @default(18) @db.Decimal(20,6)
+  maxNgnPrice Decimal @default(20) @db.Decimal(20,6)
+  minNgnWithdrawal Decimal @default(1000) @db.Decimal(20,2)
+  ngnFee Decimal @default(0.2) @db.Decimal(10,6)
+  bonusFee Decimal @default(0.6) @db.Decimal(10,6)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// One durable refund per purchase, including the exact reserved wallet amounts.
+model PurchaseRefund {
+  id String @id
+  transactionId String @unique
+  transaction Transaction @relation(fields:[transactionId],references:[id],onDelete:Restrict)
+  userId String
+  gateway TxnGatewayEnum
+  environment String
+  paymentId String
+  providerRefundId String?
+  amount Decimal @db.Decimal(20,2)
+  currency TxnCurrencyEnum
+  coinsDebit Decimal @db.Decimal(20,2)
+  bonusDebit Decimal @db.Decimal(20,2)
+  bonusShortfall Decimal @db.Decimal(20,2)
+  shortfallValue Decimal @db.Decimal(20,6)
+  baseRate Decimal @db.Decimal(20,6)
+  bonusFee Decimal @db.Decimal(10,6)
+  status String @default("RESERVED")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  completedAt DateTime?
+  @@unique([gateway,environment,paymentId])
+  @@index([status,updatedAt])
+  @@index([userId,createdAt])
 }

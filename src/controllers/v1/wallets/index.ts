@@ -1,3 +1,6 @@
+import {z} from 'zod/v3';
+import {WalletError} from '@/services/walletLedger';
+import {listPurchases,getRefundQuote,requestPurchaseRefund,processPurchaseRefund} from '@/services/v1/wallets/refunds';
 import { Response } from "express";
 import type {Request} from "@/types/express";
 import { validateZodInput } from "@/utils";
@@ -140,3 +143,21 @@ export const claimDailyTaskController = async (
       .send("Error: Failed to process request, please try again later");
   }
 };
+
+function refundError(res:Response,error:unknown) {
+  return res.status(error instanceof WalletError?error.status:503).json({message:error instanceof WalletError?error.message:'Unable to process refund. Please try again.'});
+}
+export async function getPurchasesController(req:Request,res:Response) {
+  try {return res.json(await listPurchases(String(req.user?.id),Number(req.query.page??1),Number(req.query.limit??20)));} catch(error) {return refundError(res,error);}
+}
+export async function getRefundQuoteController(req:Request,res:Response) {
+  try {return res.json(await getRefundQuote(req.params.id,String(req.user?.id)));} catch(error) {return refundError(res,error);}
+}
+export async function requestRefundController(req:Request,res:Response) {
+  const parsed=z.object({coinsDebit:z.number().finite().nonnegative(),bonusDebit:z.number().finite().nonnegative()}).strict().safeParse(req.body);
+  if(!parsed.success) return res.status(400).json({message:'Invalid refund request'});
+  try {return res.json(await requestPurchaseRefund(req.params.id,String(req.user?.id),parsed.data));} catch(error) {return refundError(res,error);}
+}
+export async function refundStatusController(req:Request,res:Response) {
+  try {return res.json(await processPurchaseRefund(req.params.id,String(req.user?.id)));} catch(error) {return refundError(res,error);}
+}

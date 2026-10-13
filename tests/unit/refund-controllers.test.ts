@@ -1,0 +1,11 @@
+import {expect,it,vi} from 'vitest';
+const services=vi.hoisted(()=>({list:vi.fn(),quote:vi.fn(),request:vi.fn(),status:vi.fn()}));
+vi.mock('@/services/v1/wallets/refunds',()=>({listPurchases:services.list,getRefundQuote:services.quote,requestPurchaseRefund:services.request,processPurchaseRefund:services.status}));
+import {getPurchasesController,getRefundQuoteController,requestRefundController,refundStatusController} from '@/controllers/v1/wallets';
+import {WalletError} from '@/services/walletLedger';
+const response=()=>{const res:any={status:vi.fn(),json:vi.fn()};res.status.mockReturnValue(res);return res;};
+const req:any={user:{id:'buyer'},params:{id:'purchase'},query:{},body:{coinsDebit:31.2,bonusDebit:10}};
+it.each([[getPurchasesController,services.list],[getRefundQuoteController,services.quote],[requestRefundController,services.request],[refundStatusController,services.status]])('uses authenticated ownership and returns refund data',async(handler,service)=>{service.mockResolvedValue({status:'PROCESSING'});const res=response();await handler(req,res);expect(service.mock.calls.at(-1)).toContain('buyer');expect(res.json).toHaveBeenCalledWith({status:'PROCESSING'});});
+it.each([[getPurchasesController,services.list],[getRefundQuoteController,services.quote],[requestRefundController,services.request],[refundStatusController,services.status]])('returns a useful response for service failure',async(handler,service)=>{service.mockRejectedValue(new WalletError('Refund period ended',409));const res=response();await handler(req,res);expect(res.status).toHaveBeenCalledWith(409);});
+it('sanitizes unexpected refund errors',async()=>{services.list.mockRejectedValue(new Error('private'));const res=response();await getPurchasesController({...req,query:{page:'2',limit:'10'}},res);expect(res.status).toHaveBeenCalledWith(503);expect(res.json.mock.calls[0][0].message).not.toContain('private');});
+it('rejects client-supplied refund prices and users',async()=>{const res=response();await requestRefundController({...req,body:{...req.body,amount:999,userId:'other'}},res);expect(res.status).toHaveBeenCalledWith(400);});

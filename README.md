@@ -1182,3 +1182,45 @@ change the existing Flutterwave subscription flow.
 
 Docs: https://docs.bachs.io/guides/checkout/checkout-sessions and
 https://docs.bachs.io/guides/webhooks/overview.
+
+### Purchase refunds
+
+Deploy `20261013080000_purchase_refunds` before deploying the refund routes. It
+creates `ChargeRate` (and its default row) and `PurchaseRefund`. Reference seeding
+uses an upsert without overwriting configured rates. No production migration is
+run by this code change.
+
+Wallet → Purchases lists coin-package purchases once each, using the original
+ledger quantities. Refunds are allowed through 14 × 24 hours after purchase and
+return the original fiat payment through Bachs or Flutterwave. Older records
+without a verified provider ID and original coin/bonus quantities require support;
+we never infer refundable quantities from the current package catalog.
+
+ChargeRate percentage fields use multipliers: `bonusFee=0.6` means 60%,
+displayed as `0.6 (60%)`. Available bonus is deducted first. Missing bonus is valued using the
+currency's base price times `bonusFee`, converted back to coins and rounded
+up to two decimal places. The confirmation dialog displays the deduction. Example:
+30 coins + 12 bonus, with 10 bonus remaining → 31.20 coins + 10 bonus deducted.
+The other ChargeRate fields are stored for withdrawal configuration; existing
+withdrawal and transfer policies are unchanged by this refund feature.
+
+The API reserves the wallet deduction under PostgreSQL row locks before submitting
+one provider refund. Unknown/network outcomes retain that reservation and are
+reconciled with provider GET requests; they do not cause another Flutterwave POST.
+Confirmed failure restores the exact reservation once. Confirmed success marks the
+original purchase refunded and records the returned fiat amount. Partial or
+mismatched provider results require manual review; do not release their reserved
+coins without checking the provider refund. A failed refund remains recorded and
+requires support for a new attempt.
+
+Run the existing background worker: `reconcile_purchase_refunds` checks outstanding
+refunds every five minutes. Bachs API keys need refund read/write permissions;
+Flutterwave uses the existing server secret. Refunds return to the original payment
+method, never an address or bank account supplied by the browser. Provider costs
+are borne by the merchant where Bachs supports `fee_bearer=org`.
+
+Provider references:
+- https://docs.bachs.io/api-reference/refunds/create-refund
+- https://docs.bachs.io/api-reference/refunds/get-refund-by-charge
+- https://developer.flutterwave.com/reference/transaction-refund
+- https://developer.flutterwave.com/reference/get-all-refunds
