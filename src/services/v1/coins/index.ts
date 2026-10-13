@@ -122,11 +122,13 @@ export const purchaseCoinsWithFlutterwave = async (item: FlutterwaveCoinPurchase
 
 export async function purchaseCoinsWithBachs(item: {orderId: string; userId: string; checkoutId: string; paymentId: string; paymentMetadata?: BachsPaymentMetadata}) {
   if (verifiedPaymentId(item) !== item.paymentId) throw new WalletError('Payment has not been verified');
-  // Lock and deduplicate settlement by checkout ID.
-  return await walletOperation('bachs', item.checkoutId, {orderId:item.orderId,userId:item.userId}, [item.userId], async tx => {
+  // One provider payment can credit only one order, even across checkout IDs.
+  return await walletOperation('bachs', item.paymentId, {orderId:item.orderId,userId:item.userId,checkoutId:item.checkoutId}, [item.userId], async tx => {
     const order = await tx.bachsCheckout.findUniqueOrThrow({where:{id:item.orderId}});
     if (order.userId !== item.userId || order.checkoutId !== item.checkoutId) throw new WalletError('Payment recipient mismatch');
     if (order.status === 'PAID') return {status:'paid',orderId:order.id};
+    const credited = await tx.transaction.findFirst({where:{gateway:'BACHS',category:'COIN_PURCHASE',type:'CREDIT',metadata:{path:['providerId'],equals:item.paymentId}},select:{id:true}});
+    if (credited) throw new WalletError('This Bachs payment has already credited a purchase',409);
     const wallet = await tx.wallet.findUniqueOrThrow({where:{userId:order.userId}});
     if (wallet.isLocked) throw new WalletError('Wallet is locked', 409);
     // Commit the balance, ledger entries and paid status together.

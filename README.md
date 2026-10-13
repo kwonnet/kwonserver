@@ -1180,6 +1180,14 @@ change the existing Flutterwave subscription flow.
   API environment. A redirect or webhook payload cannot by itself credit coins;
   payment is retrieved from Bachs first. Concurrent/duplicate success events
   credit one wallet once.
+- Wallet settlement deduplicates by Bachs payment ID as well as checking the
+  original checkout binding. A payment already present in an older purchase
+  ledger cannot credit another order. Compare the ledger's `providerId` and
+  `orderId` with the `bachs.payment.verified` trace to audit delayed confirmations.
+- The browser retains uncertain checkout intents for safe retries, verifies a
+  stored checkout before reopening it, and clears terminal intents before a new
+  purchase. SDK expiry/completion events are handled once; stale overlay callbacks
+  cannot trigger confirmation for a newer checkout.
 - Verification compares the checkout's price with the saved order, then checks
   the collection in its own currency against its requested/received amounts.
   Crypto collection amounts retain their decimal precision. A minimal checkout

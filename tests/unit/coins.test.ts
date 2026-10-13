@@ -129,3 +129,9 @@ it('leaves a Bachs order unsettled when the wallet is locked',async()=>{
  await expect(c.purchaseCoinsWithBachs(markVerifiedPayment({...bachsItem},bachsItem.paymentId))).rejects.toThrow('Wallet is locked');
  expect(db.wallet.update).not.toHaveBeenCalled();expect(db.bachsCheckout.update).not.toHaveBeenCalled();
 });
+
+it('rejects a Bachs payment already credited through an older checkout receipt',async()=>{
+ db.bachsCheckout.findUniqueOrThrow.mockResolvedValue(bachsOrder());db.transaction.findFirst.mockResolvedValue({id:'already-credited'});
+ await expect(c.purchaseCoinsWithBachs(markVerifiedPayment({...bachsItem},bachsItem.paymentId))).rejects.toThrow('already credited');
+ expect(db.wallet.update).not.toHaveBeenCalled();expect(db.transaction.create).not.toHaveBeenCalled();
+});

@@ -38,3 +38,12 @@ it('recovers a pending crypto checkout and credits the saved package once',async
  expect(await db.transaction.count({where:{userId:buyer,exTxnRef:checkoutId}})).toBe(2);
  vi.unstubAllGlobals();vi.unstubAllEnvs();
 });
+
+it('cannot use one provider payment to credit another checkout',async()=>{
+ const otherId='d'.repeat(64);
+ await db.bachsCheckout.create({data:{id:otherId,userId:buyer,packageId,currency:'USD',environment:'https://sandbox-api.bachs.io',amount:10,coins:1000,bonus:20,request:{},checkoutId:'chk_other_fixture'}});
+ const before=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});
+ await expect(purchaseCoinsWithBachs(markVerifiedPayment({orderId:otherId,userId:buyer,checkoutId:'chk_other_fixture',paymentId:'pay_fixture'},'pay_fixture'))).rejects.toThrow('Idempotency key');
+ const after=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});
+ expect(after.coins.toString()).toBe(before.coins.toString());expect((await db.bachsCheckout.findUniqueOrThrow({where:{id:otherId}})).status).toBe('PENDING');
+});
