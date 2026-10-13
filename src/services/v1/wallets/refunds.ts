@@ -8,10 +8,7 @@ import {
   WalletError,
 } from "@/services/walletLedger";
 import {
-  createProviderRefund,
-  readProviderRefund,
-  providerRefundResult,
-  verifyRefundPayment,
+  getRefundProvider,
   refundEnvironment,
   RefundProviderError,
 } from "./refund-provider";
@@ -257,8 +254,8 @@ async function requestRefund(
     throw error;
   }
   logServiceTrace("v1/wallets/refunds", "refund.validation.passed", "Purchase eligibility and wallet deduction validated", { purchaseId: id, gateway: preview.p.row.gateway, providerPaymentId: preview.p.meta!.providerId, amount: preview.p.fiat!.amount.toString(), currency: preview.p.fiat!.currency, coinsDebit: preview.deduction.coinsDebit.toString(), bonusDebit: preview.deduction.bonusDebit.toString() });
-  await verifyRefundPayment(
-    preview.p.row.gateway,
+  const provider = getRefundProvider(preview.p.row.gateway);
+  await provider.verifyPayment(
     preview.p.meta!.providerId!,
     preview.p.fiat!.currency,
     preview.p.fiat!.amount,
@@ -428,7 +425,8 @@ export async function processPurchaseRefund(id: string, userId?: string) {
     logServiceTrace("v1/wallets/refunds", "refund.terminal.skipped", "Terminal refund requires no gateway call", context);
     return refundResult(row);
   }
-  if (row.environment !== refundEnvironment(row.gateway))
+  const provider = getRefundProvider(row.gateway);
+  if (row.environment !== provider.environment())
     throw new WalletError("Refund belongs to another payment environment", 409);
   // Claim submission before contacting a provider; concurrent retries only reconcile.
   const claimed = await prisma.purchaseRefund.updateMany({
@@ -438,14 +436,14 @@ export async function processPurchaseRefund(id: string, userId?: string) {
   logServiceTrace("v1/wallets/refunds", "refund.submission.claimed", "Refund submission claim resolved", { ...context, action: claimed.count ? "submit" : "check", claimed: claimed.count > 0 });
   try {
     const response = claimed.count
-      ? await createProviderRefund(row, async providerRefundId => {
+      ? await provider.createRefund(row, async providerRefundId => {
           await prisma.purchaseRefund.update({where:{id},data:{providerRefundId}});
           row.providerRefundId = providerRefundId;
           context.providerRefundId = providerRefundId;
           logServiceTrace("v1/wallets/refunds", "refund.receipt.saved", "Accepted gateway refund ID saved before verification", {...context});
         })
-      : await readProviderRefund(row);
-    const result = providerRefundResult(row, response);
+      : await provider.readRefund(row);
+    const result = provider.refundResult(row, response);
     logServiceTrace("v1/wallets/refunds", "refund.provider.verified", "Gateway refund response verified", { ...context, providerRefundId: result.id, targetStatus: result.status });
     return await settleRefund(row, result.status, result.id);
   } catch (error) {

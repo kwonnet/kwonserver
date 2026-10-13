@@ -2,7 +2,10 @@ import {PrismaPg} from '@prisma/adapter-pg';
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 vi.mock('@/db',async()=>{const {PrismaClient}=await import('@prisma/client');return {default:new PrismaClient({adapter:new PrismaPg({connectionString:process.env.DATABASE_URL})})};});
 const provider=vi.hoisted(()=>({verify:vi.fn(),create:vi.fn(),read:vi.fn(),result:vi.fn()}));
-vi.mock('@/services/v1/wallets/refund-provider',async importOriginal=>({...await importOriginal<any>(),verifyRefundPayment:provider.verify,createProviderRefund:provider.create,readProviderRefund:provider.read,providerRefundResult:provider.result}));
+vi.mock('@/services/v1/wallets/refund-provider',async importOriginal=>{
+ const actual=await importOriginal<any>();
+ return {...actual,getRefundProvider:(gateway:string)=>({...actual.getRefundProvider(gateway),verifyPayment:provider.verify,createRefund:provider.create,readRefund:provider.read,refundResult:provider.result})};
+});
 import db from '@/db';
 import {requestPurchaseRefund,processPurchaseRefund,getRefundQuote} from '@/services/v1/wallets/refunds';
 const buyer='refund-fixture-buyer';let id:string;

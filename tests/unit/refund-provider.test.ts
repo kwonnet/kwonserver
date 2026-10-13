@@ -1,10 +1,18 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import {Prisma} from '@prisma/client';
-import {createProviderRefund,readProviderRefund,providerRefundResult,verifyRefundPayment,RefundProviderError} from '@/services/v1/wallets/refund-provider';
+import {createProviderRefund,readProviderRefund,providerRefundResult,verifyRefundPayment,RefundProviderError,getRefundProvider} from '@/services/v1/wallets/refund-provider';
+import {bachsRefundProvider} from '@/services/v1/wallets/refund-bachs';
+import {flutterwaveRefundProvider} from '@/services/v1/wallets/refund-flutterwave';
 import {safeError} from '@/logger/sanitize';
 import logger from '@/logger';
 const row=(gateway='BACHS'):any=>({id:'refund',gateway,paymentId:gateway==='BACHS'?'pay_test':'123',environment:gateway==='BACHS'?'https://sandbox-api.bachs.io':'flutterwave:test',amount:new Prisma.Decimal(5),currency:'USD',createdAt:new Date('2026-10-13T00:00:00Z')});
 beforeEach(()=>{vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');vi.stubEnv('FLUTTERWAVE_SECK','FLWSECK_TEST_fixture');});
+it('selects the original payment provider and rejects unsupported gateways before HTTP calls',()=>{
+ expect(getRefundProvider('BACHS')).toBe(bachsRefundProvider);
+ expect(getRefundProvider('FLUTTERWAVE')).toBe(flutterwaveRefundProvider);
+ expect(()=>getRefundProvider('WALLET')).toThrow('Unsupported refund provider');
+ expect(fetch).not.toHaveBeenCalled();
+});
 it('reads the documented multiple-refund envelope and query filters',async()=>{
  vi.mocked(fetch).mockResolvedValue(Response.json({status:'success',message:'Refunds fetched',meta:{page_info:{total:1,current_page:1,total_pages:1,page_size:20}},data:[{
    id:258505,amount_refunded:5,status:'completed-mpgs',flw_ref:'FLW265072855',comment:'',settlement_id:'412245',meta:{source:'ledgerbalance'},created_at:'2026-10-13T00:00:00Z',account_id:82796,transaction_id:123,
@@ -136,7 +144,7 @@ it.each(['wrapped','bare'])('reads a %s Flutterwave refund resource with legacy 
  expect(providerRefundResult(saved,await readProviderRefund(saved))).toEqual({id:'99',status:'SUCCEEDED'});
  expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.flutterwave.com/v3/refunds/99');
 });
-it.each(['completed','processing','pending-mpgs','pending-bank-transfer'])('keeps Flutterwave %s pending',status=>{
+it.each(['completed','processing','pending-momo','pending-mpgs','pending-bank-transfer'])('keeps Flutterwave %s pending',status=>{
  expect(providerRefundResult(row('FLUTTERWAVE'),{id:99,tx_id:123,amount_refunded:5,status}).status).toBe('PROCESSING');
 });
 it.each(['completed-bank-transfer','completed-momo','completed-preauth','completed-mpgs','completed-offline'])('recognizes Flutterwave terminal %s',status=>{

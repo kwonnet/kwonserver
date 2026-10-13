@@ -1185,6 +1185,14 @@ https://docs.bachs.io/guides/webhooks/overview.
 
 ### Purchase refunds
 
+`refunds.ts` owns purchase eligibility, wallet reservation, durable receipt storage,
+and settlement. It selects `getRefundProvider()` using the stored purchase gateway.
+`refund-bachs.ts` owns Bachs payment verification, refund requests, and responses;
+`refund-flutterwave.ts` owns Flutterwave verification, initiation, polling, and
+legacy recovery. `refund-provider.ts` only dispatches to the appropriate provider.
+`refund-http.ts` shares bounded HTTP requests, safe tracing, error classification,
+and decimal amount conversion. Unsupported gateways fail before a provider call.
+
 Deploy `20261013080000_purchase_refunds` before deploying the refund routes. It
 creates `ChargeRate` (and its default row) and `PurchaseRefund`. Reference seeding
 uses an upsert without overwriting configured rates. No production migration is

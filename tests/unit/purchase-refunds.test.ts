@@ -4,7 +4,10 @@ import logger from '@/logger';
 const db=vi.hoisted(()=>({transaction:{findFirst:vi.fn(),findMany:vi.fn(),create:vi.fn(),update:vi.fn()},wallet:{findUniqueOrThrow:vi.fn(),update:vi.fn()},chargeRate:{findUnique:vi.fn()},purchaseRefund:{findUnique:vi.fn(),findUniqueOrThrow:vi.fn(),findMany:vi.fn(),create:vi.fn(),update:vi.fn(),updateMany:vi.fn()},$transaction:vi.fn(),$queryRaw:vi.fn()}));
 const provider=vi.hoisted(()=>({verify:vi.fn(),create:vi.fn(),read:vi.fn(),result:vi.fn()}));
 vi.mock('@/db',()=>({default:db}));
-vi.mock('@/services/v1/wallets/refund-provider',async importOriginal=>({...await importOriginal<any>(),verifyRefundPayment:provider.verify,createProviderRefund:provider.create,readProviderRefund:provider.read,providerRefundResult:provider.result}));
+vi.mock('@/services/v1/wallets/refund-provider',async importOriginal=>{
+ const actual=await importOriginal<any>();
+ return {...actual,getRefundProvider:(gateway:string)=>({...actual.getRefundProvider(gateway),verifyPayment:provider.verify,createRefund:provider.create,readRefund:provider.read,refundResult:provider.result})};
+});
 import {refundDeduction,getRefundQuote,requestPurchaseRefund,listPurchases,processPurchaseRefund,REFUND_WINDOW_MS} from '@/services/v1/wallets/refunds';
 import {RefundProviderError} from '@/services/v1/wallets/refund-provider';
 const D=(n:number)=>new Prisma.Decimal(n);
