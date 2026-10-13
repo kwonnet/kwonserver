@@ -4,13 +4,13 @@ import type {RequestHandler} from 'express';
 import logger from './index';
 import {safeError} from './sanitize';
 const requests = new AsyncLocalStorage<{requestId:string}>();
-export function logServiceError(service: string, operation: string, error: unknown, recovered = false) {
-  const details={event:recovered?'service_fallback':'service_failed',service,operation,...requests.getStore(),err:safeError(error)};
+export function logServiceError(service: string, operation: string, error: unknown, recovered = false, context: Record<string,unknown> = {}) {
+  const details={...context,event:recovered?'service_fallback':'service_failed',service,operation,...requests.getStore(),err:safeError(error)};
   if(recovered) logger.warn(details,`${service}.${operation} continued with fallback`);
   else logger.error(details, `${service}.${operation} failed`);
 }
-export function logServiceTrace(service: string, operation: string, message: string) {
-  logger.info({event:'service_progress',service,operation,...requests.getStore()},message);
+export function logServiceTrace(service: string, operation: string, message: string, context: Record<string,unknown> = {}) {
+  logger.info({...context,event:'service_progress',service,operation,...requests.getStore()},message);
 }
 export const requestLoggingMiddleware: RequestHandler = (req,res,next) => {
   const requestId=randomUUID(), started=performance.now();

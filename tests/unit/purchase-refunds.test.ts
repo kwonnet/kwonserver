@@ -1,5 +1,6 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import {Prisma} from '@prisma/client';
+import logger from '@/logger';
 const db=vi.hoisted(()=>({transaction:{findFirst:vi.fn(),findMany:vi.fn(),create:vi.fn(),update:vi.fn()},wallet:{findUniqueOrThrow:vi.fn(),update:vi.fn()},chargeRate:{findUnique:vi.fn()},purchaseRefund:{findUnique:vi.fn(),findUniqueOrThrow:vi.fn(),findMany:vi.fn(),create:vi.fn(),update:vi.fn(),updateMany:vi.fn()},$transaction:vi.fn(),$queryRaw:vi.fn()}));
 const provider=vi.hoisted(()=>({verify:vi.fn(),create:vi.fn(),read:vi.fn(),result:vi.fn()}));
 vi.mock('@/db',()=>({default:db}));
@@ -35,6 +36,22 @@ it('reserves wallet quantities and persists an order before initiating the provi
  db.purchaseRefund.updateMany.mockResolvedValue({count:1});provider.result.mockReturnValue({id:'provider-refund',status:'PROCESSING'});
  await requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10});
  expect(db.wallet.update.mock.calls[0][0].data).toEqual({coins:{decrement:D(31.2)},bonus:{decrement:D(10)}});expect(db.purchaseRefund.create).toHaveBeenCalledTimes(1);expect(provider.create).toHaveBeenCalledTimes(1);
+});
+it('traces reservation commit before submitting and settlement after provider verification',async()=>{
+ db.purchaseRefund.updateMany.mockResolvedValue({count:1});
+ provider.create.mockImplementation(async()=>{
+   expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'refund.reservation.committed',purchaseId:'purchase',refundId:expect.any(String)}),expect.any(String));
+ });
+ await requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10});
+ const operations=vi.mocked(logger.info).mock.calls.map(([entry])=>(entry as any).operation);
+ expect(operations.indexOf('refund.provider.verified')).toBeLessThan(operations.indexOf('refund.settlement.committed'));
+ expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'refund.request.finished',refundStatus:'PROCESSING'}),expect.any(String));
+});
+it('logs a definitive gateway submission rejection before restoring the wallet',async()=>{
+ db.purchaseRefund.updateMany.mockResolvedValue({count:1});provider.create.mockRejectedValue(new RefundProviderError(true));
+ await processPurchaseRefund('refund','buyer');
+ expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({operation:'processPurchaseRefund',refundId:'refund',action:'submit',definitive:true}),expect.any(String));
+ expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'refund.settlement.committed',settlementApplied:true,coinsRestored:'31.2',bonusRestored:'10'}),expect.any(String));
 });
 it('does not resubmit a refund when provider confirmation is pending',async()=>{provider.read.mockRejectedValue(new Error('timeout'));expect(await processPurchaseRefund('refund','buyer')).toMatchObject({status:'PROCESSING'});expect(provider.create).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();});
 it('restores exactly the reserved coins and bonus on a verified failure',async()=>{provider.result.mockReturnValue({id:'provider-refund',status:'FAILED'});await processPurchaseRefund('refund','buyer');expect(db.wallet.update).toHaveBeenCalledWith({where:{userId:'buyer'},data:{coins:{increment:D(31.2)},bonus:{increment:D(10)}}});});

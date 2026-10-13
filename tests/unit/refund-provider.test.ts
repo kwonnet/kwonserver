@@ -2,8 +2,25 @@ import {beforeEach,expect,it,vi} from 'vitest';
 import {Prisma} from '@prisma/client';
 import {createProviderRefund,readProviderRefund,providerRefundResult,verifyRefundPayment,RefundProviderError} from '@/services/v1/wallets/refund-provider';
 import {safeError} from '@/logger/sanitize';
+import logger from '@/logger';
 const row=(gateway='BACHS'):any=>({id:'refund',gateway,paymentId:gateway==='BACHS'?'pay_test':'123',environment:gateway==='BACHS'?'https://sandbox-api.bachs.io':'flutterwave:test',amount:new Prisma.Decimal(5),currency:'USD',createdAt:new Date('2026-10-13T00:00:00Z')});
 beforeEach(()=>{vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');vi.stubEnv('FLUTTERWAVE_SECK','FLWSECK_TEST_fixture');});
+it('traces gateway submission and response with shared IDs and no private payload',async()=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({refund_id:'provider-refund',status:'processing',customer:{email:'private@example.test'}},{status:201,headers:{'x-request-id':'gateway-request'}}));
+ await createProviderRefund({...row(),transactionId:'purchase'});
+ const entries=vi.mocked(logger.info).mock.calls.map(([entry])=>entry as any);
+ expect(entries.map(entry=>entry.operation)).toEqual(['request.started','request.response','request.accepted']);
+ expect(entries[0]).toMatchObject({refundId:'refund',purchaseId:'purchase',providerPaymentId:'pay_test',method:'POST',gateway:'BACHS'});
+ expect(entries[1]).toMatchObject({providerHttpStatus:201,providerRequestId:'gateway-request',providerAttemptId:entries[0].providerAttemptId});
+ expect(entries[2]).toMatchObject({providerRefundId:'provider-refund',providerStatus:'processing'});
+ expect(JSON.stringify(entries)).not.toMatch(/sk_sandbox_test|private@example|customer/);
+});
+it('traces network failures with the attempt ID without resubmission',async()=>{
+ vi.mocked(fetch).mockRejectedValue(new Error('Gateway timed out'));
+ await expect(createProviderRefund(row())).rejects.toThrow('timed out');
+ expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({operation:'request.failed',refundId:'refund',method:'POST',providerAttemptId:expect.any(String)}),expect.any(String));
+ expect(fetch).toHaveBeenCalledTimes(1);
+});
 it('posts the original Bachs payment with a stable refund reference and org fee bearer',async()=>{vi.mocked(fetch).mockResolvedValue(Response.json({refund_id:'refund-provider'}));await createProviderRefund(row());const [url,request]=vi.mocked(fetch).mock.calls[0];expect(url).toBe('https://sandbox-api.bachs.io/v1/refunds');expect(JSON.parse(request!.body as string)).toMatchObject({charge_id:'pay_test',reference:'refund',amount:'5.00',fee_bearer:'org',idempotency_key:'refund'});});
 it('posts a Flutterwave refund against the verified original transaction',async()=>{vi.mocked(fetch).mockResolvedValue(Response.json({status:'success',data:{id:1234}}));await createProviderRefund(row('FLUTTERWAVE'));expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.flutterwave.com/v3/transactions/123/refund');expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toMatchObject({amount:5});});
 it.each([400,401,403,404,422,409,500])('classifies provider HTTP %s without claiming an uncertain refund failed',async status=>{vi.mocked(fetch).mockResolvedValue(new Response('{}',{status}));try {await createProviderRefund(row());throw new Error('expected rejection');} catch(error) {expect(error).toBeInstanceOf(RefundProviderError);expect((error as RefundProviderError).definitive).toBe([400,401,403,404,422].includes(status));}});

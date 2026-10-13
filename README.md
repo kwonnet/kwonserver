@@ -1228,6 +1228,20 @@ the logged error's `cause`, without recording response bodies or credentials.
 A failed status lookup is not proof that a refund failed: keep its reservation
 and investigate the gateway result before changing balances or resubmitting.
 
+Refund tracing uses structured `service_progress` events under
+`v1/wallets/refunds` and `v1/wallets/refund-provider`. Search logs by `refundId`
+or `purchaseId` to follow validation, original-payment verification, reservation
+start/commit, submission claim (`action=submit` or `check`), gateway response,
+correlation verification, and settlement commit. Each gateway call has a unique
+`providerAttemptId`, method, endpoint, environment, HTTP status, duration, and
+provider request ID when supplied. HTTP-triggered events also retain the API
+`requestId`; background batches have a `reconciliationId` linked to each refund.
+Definitive submission rejections are logged before restoring coins. Timeouts and
+unknown outcomes explicitly log that the reservation is retained. Logs include
+only selected identifiers, amounts, and status fields, never full gateway bodies,
+authorization headers, keys, card data, or customer contact details. Logging does
+not resubmit a refund or alter its processing policy.
+
 Provider references:
 - https://docs.bachs.io/api-reference/refunds/create-refund
 - https://docs.bachs.io/api-reference/refunds/get-refund-by-charge
