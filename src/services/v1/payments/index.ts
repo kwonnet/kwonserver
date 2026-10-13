@@ -344,11 +344,14 @@ export async function createBachsCoinCheckout(user: import('@/types/user').Sessi
     // Snapshot catalog pricing and coin quantities before contacting Bachs.
     const request = {pricing:{currency:args.currency,amount:amount.toFixed(2)},billing_currency:args.currency,
       ...(user.email ? {customer:{email:user.email,...(user.name?.trim()?{name:user.name.trim()}:{})}} : {}),
-      reference:id,metadata:{order_id:id,purpose:'COIN_PACKAGE'},
-      success_url:`${origin.origin}/store?bachs_order=${id}`,cancel_url:`${origin.origin}/store?bachs_order=${id}&bachs_cancelled=1`};
+      // Overlay events handle completion; omit hosted-page return redirects.
+      reference:id,metadata:{order_id:id,purpose:'COIN_PACKAGE',origin:origin.origin}};
     order = await prisma.bachsCheckout.upsert({where:{id},update:{},create:{id,userId:user.id,packageId:coin.id,environment:bachsApiOrigin(),currency:args.currency,amount,coins:coin.amount,bonus,request}});
   }
-  if (order.packageId !== args.packageId || order.currency !== args.currency || (order.request as any).success_url !== `${origin.origin}/store?bachs_order=${id}`) throw new WalletError('Idempotency key already used for another checkout',409);
+  const savedRequest = order.request as {metadata?:{origin?:string};success_url?:string};
+  // Preserve retries for older hosted sessions as well as new overlay sessions.
+  const savedOrigin = savedRequest.metadata?.origin ?? (savedRequest.success_url ? new URL(savedRequest.success_url).origin : undefined);
+  if (order.packageId !== args.packageId || order.currency !== args.currency || savedOrigin !== origin.origin) throw new WalletError('Idempotency key already used for another checkout',409);
   if (order.status !== 'PENDING') throw new WalletError('This checkout is already closed. Start a new purchase.',409);
   if (order.checkoutId && order.checkoutUrl) return {orderId:order.id,checkoutId:order.checkoutId,checkoutUrl:order.checkoutUrl};
   if (Date.now()-order.createdAt.getTime() > 23*60*60*1000) throw new WalletError('Checkout creation needs reconciliation. Contact support with the order ID.',409);

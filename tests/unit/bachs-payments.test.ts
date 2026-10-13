@@ -27,7 +27,7 @@ it('builds a server-priced snapshot and stable authenticated checkout, without t
  vi.mocked(fetch).mockResolvedValue(Response.json({checkout_id:'chk_new',checkout_url:'https://checkout.bachs.io/c/new'}));
  const result=await createBachsCoinCheckout({id:'buyer',email:'buyer@example.test',name:'Buyer'} as any,{packageId:'pack',currency:'NGN',key:'retry-key-123',origin:'https://kwonnet.test'});
  const [url,options]=vi.mocked(fetch).mock.calls[0];expect(url).toBe('https://sandbox-api.bachs.io/v1/checkout-sessions');
- const body=JSON.parse(options!.body as string);expect(body.pricing).toEqual({currency:'NGN',amount:'15000.00'});expect(body.billing_currency).toBe('NGN');expect(body.metadata).toEqual({order_id:result.orderId,purpose:'COIN_PACKAGE'});
+ const body=JSON.parse(options!.body as string);expect(body.pricing).toEqual({currency:'NGN',amount:'15000.00'});expect(body.billing_currency).toBe('NGN');expect(body.success_url).toBeUndefined();expect(body.cancel_url).toBeUndefined();expect(body.metadata).toEqual({order_id:result.orderId,purpose:'COIN_PACKAGE',origin:'https://kwonnet.test'});
  expect(options!.headers).toMatchObject({'Idempotency-Key':result.orderId,Authorization:'Bearer sk_sandbox_unit_test'});
  expect(deps.upsert.mock.calls[0][0].create).toMatchObject({userId:'buyer',coins:D(1000),bonus:D(30)});
 });
