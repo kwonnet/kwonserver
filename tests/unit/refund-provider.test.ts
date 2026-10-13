@@ -22,7 +22,7 @@ it('retries an uncreated Bachs refund within 24 hours with the same body and ide
  expect(providerRefundResult(original,await readProviderRefund(original))).toEqual({id:'ref_retry',status:'PROCESSING'});
  const [url,options]=vi.mocked(fetch).mock.calls[2];expect(url).toBe('https://sandbox-api.bachs.io/v1/refunds');
  expect(options!.headers).toMatchObject({'Idempotency-Key':'refund'});
- expect(JSON.parse(options!.body as string)).toMatchObject({charge_id:'pay_test',reference:'refund',idempotency_key:'refund',amount:'5.00'});
+ expect(JSON.parse(options!.body as string)).toEqual({charge_id:'pay_test',reference:'refund',reason:'Coin purchase refund within 14 days',idempotency_key:'refund'});
 });
 it.each(['expired','not-refundable','unknown-refunds'])('does not retry Bachs when recovery is unsafe: %s',async reason=>{
  vi.mocked(fetch).mockResolvedValueOnce(Response.json({error_code:'NOT_FOUND'},{status:404}))
@@ -90,7 +90,7 @@ it('traces network failures with the attempt ID without resubmission',async()=>{
  expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({operation:'request.failed',refundId:'refund',method:'POST',providerAttemptId:expect.any(String)}),expect.any(String));
  expect(fetch).toHaveBeenCalledTimes(1);
 });
-it('posts the original Bachs payment with a stable refund reference and org fee bearer',async()=>{vi.mocked(fetch).mockResolvedValue(Response.json({refund_id:'refund-provider'}));await createProviderRefund(row());const [url,request]=vi.mocked(fetch).mock.calls[0];expect(url).toBe('https://sandbox-api.bachs.io/v1/refunds');expect(JSON.parse(request!.body as string)).toMatchObject({charge_id:'pay_test',reference:'refund',amount:'5.00',fee_bearer:'org',idempotency_key:'refund'});});
+it('posts only the full-refund fields and idempotency key to Bachs',async()=>{vi.mocked(fetch).mockResolvedValue(Response.json({refund_id:'refund-provider'}));await createProviderRefund(row());const [url,request]=vi.mocked(fetch).mock.calls[0];expect(url).toBe('https://sandbox-api.bachs.io/v1/refunds');expect(JSON.parse(request!.body as string)).toEqual({charge_id:'pay_test',reference:'refund',reason:'Coin purchase refund within 14 days',idempotency_key:'refund'});expect(request!.headers).toMatchObject({'Idempotency-Key':'refund'});});
 it('posts a Flutterwave refund against the verified original transaction',async()=>{vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:1234}})).mockResolvedValueOnce(Response.json({id:1234,transaction_id:123,amount_refunded:5,status:'completed-mpgs'}));await createProviderRefund(row('FLUTTERWAVE'));expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.flutterwave.com/v3/transactions/123/refund');expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toMatchObject({amount:5});});
 it('verifies the initiated Flutterwave refund by data.id and transaction_id',async()=>{
  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:99,tx_id:999,amount_refunded:5,status:'completed'}}))

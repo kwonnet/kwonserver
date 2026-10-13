@@ -1235,7 +1235,11 @@ Run the existing background worker: `reconcile_purchase_refunds` checks outstand
 refunds every five minutes. Bachs API keys need refund read/write permissions;
 Flutterwave uses the existing server secret. Refunds return to the original payment
 method, never an address or bank account supplied by the browser. Provider costs
-are borne by the merchant where Bachs supports `fee_bearer=org`.
+follow the Bachs account's configured refund fee handling.
+Bachs full-refund JSON contains only `charge_id`, `reference`, `reason`, and
+`idempotency_key`. The same key is sent in the `Idempotency-Key` header.
+`amount`, `currency`, `fee_bearer`, and crypto fields are omitted. Stored amounts
+and currencies are retained for accounting and response verification only.
 
 Bachs payment verification rejects `is_refundable=false` before reserving wallet
 coins. Bachs currently supports USD/NGN card refunds, but not NGN bank-transfer
@@ -1244,7 +1248,7 @@ falling back to payment lookup only when submission did not return an ID.
 When an unsaved Bachs refund returns 404 from the by-charge lookup, read the
 original payment and try its documented `refunds` IDs. Only if the verified
 payment explicitly has no refunds and is refundable may a `SUBMITTING` record
-retry its original POST with the same reference, amount, and idempotency key,
+retry its full-refund POST with the same charge, reference, reason, and idempotency key,
 within Bachs's documented 24-hour window. Outside that window, or with unknown
 refund information, retain the reservation for manual review. A definitive
 rejection of a recovery POST restores the reservation; a failed GET never does.
