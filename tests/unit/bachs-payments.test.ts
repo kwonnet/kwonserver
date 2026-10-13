@@ -15,7 +15,7 @@ it('captures verified crypto method and network metadata before crediting a USD 
  vi.mocked(fetch).mockResolvedValueOnce(Response.json(checkout({payment_method:'CRYPTO'})))
   .mockResolvedValueOnce(Response.json({payment_id:'pay_test',checkout_id:'chk_order',status:'succeeded',amount:'10.00',amount_paid:'10.00',payment_method:'CRYPTO',currency:'USD',payment_method_details:{crypto:{asset:'USDT',network:'Tron (TRC-20)'}}}));
  await reconcileBachsCheckout(id,'buyer');
- expect(deps.settle).toHaveBeenCalledWith(expect.objectContaining({paymentMetadata:{paymentMethod:'CRYPTO',isCrypto:true,cryptoCurrency:'USDT',cryptoNetwork:'Tron (TRC-20)'}}));
+ expect(deps.settle).toHaveBeenCalledWith(expect.objectContaining({paymentMetadata:{paymentMethod:'CRYPTO',isCrypto:true,cryptoCurrency:'USDT',cryptoNetwork:'Tron (TRC-20)',collectionCurrency:'USD'}}));
 });
 it('does not credit crypto metadata from an unrelated payment',async()=>{
  vi.mocked(fetch).mockResolvedValueOnce(Response.json(checkout({payment_method:'CRYPTO'})))

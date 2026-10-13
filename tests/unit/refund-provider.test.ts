@@ -144,7 +144,7 @@ it('never treats a verification HTTP 404 as rejection of an accepted refund',asy
  }
 });
 it.each([400,401,403,404,422,409,500])('classifies provider HTTP %s without claiming an uncertain refund failed',async status=>{vi.mocked(fetch).mockResolvedValue(new Response('{}',{status}));try {await createProviderRefund(row());throw new Error('expected rejection');} catch(error) {expect(error).toBeInstanceOf(RefundProviderError);expect((error as RefundProviderError).definitive).toBe([400,401,403,404,422].includes(status));}});
-it('matches verified original payment amount, currency and ID before reserving',async()=>{vi.mocked(fetch).mockImplementation(async()=>Response.json({payment_id:'pay_test',status:'succeeded',amount:'5.00',currency:'USD'}));await verifyRefundPayment('BACHS','pay_test','USD',new Prisma.Decimal(5));await expect(verifyRefundPayment('BACHS','pay_test','NGN',new Prisma.Decimal(5))).rejects.toThrow('verified');});
+it('matches verified original payment amount, currency and ID before reserving',async()=>{vi.mocked(fetch).mockImplementation(async()=>Response.json({payment_id:'pay_test',status:'succeeded',amount:'5.00',currency:'USD'}));await verifyRefundPayment('BACHS','pay_test','USD',new Prisma.Decimal(5));await expect(verifyRefundPayment('BACHS','pay_test','NGN',new Prisma.Decimal(5))).rejects.toThrow('Bachs NGN');});
 it('looks up Bachs refund by original payment ID after an unknown outcome',async()=>{vi.mocked(fetch).mockResolvedValue(Response.json({refund_id:'refund-provider'}));await readProviderRefund(row());expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://sandbox-api.bachs.io/v1/refunds/by-charge/pay_test');});
 it('uses the saved Bachs refund ID for later status checks',async()=>{
  vi.mocked(fetch).mockResolvedValue(Response.json({refund_id:'refund-provider'}));
@@ -259,4 +259,10 @@ it('recovers an uncertain crypto submission after verifying the price and collec
   .mockResolvedValueOnce(Response.json({refund_id:'ref_crypto',reference:'refund'}));
  await readProviderRefund({...row(),status:'SUBMITTING',createdAt:new Date(),refundAddress:'0x'+'a'.repeat(40)});
  expect(JSON.parse(vi.mocked(fetch).mock.calls[3][1]!.body as string)).toMatchObject({charge_id:'pay_test',refund_address:'0x'+'a'.repeat(40),idempotency_key:'refund'});
+});
+
+it('blocks an old USD-priced Bachs purchase actually collected in NGN',async()=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({...convertedPayment(),currency:'NGN',payment_method:'NGN_CARD'}));
+ await expect(verifyRefundPayment('BACHS','pay_test','USD',new Prisma.Decimal(5))).rejects.toThrow('Bachs NGN');
+ expect(fetch).toHaveBeenCalledTimes(1);
 });

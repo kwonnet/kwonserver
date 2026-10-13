@@ -1273,7 +1273,10 @@ Bachs full-refund JSON contains only `charge_id`, `reference`, `reason`, and
 and currencies are retained for accounting and response verification only.
 
 Bachs payment verification rejects `is_refundable=false` before reserving wallet
-coins. Bachs currently supports USD/NGN card refunds, but not NGN bank-transfer
+coins. Kwonnet currently disables all new Bachs NGN refunds, including USD-priced
+purchases known to have been collected in NGN. Existing pending refunds remain
+checkable. Collection currency is retained with the original purchase metadata.
+Bachs documents USD/NGN card refunds, but not NGN bank-transfer
 refunds; those purchases require support. Status checks use a saved refund ID,
 falling back to payment lookup only when submission did not return an ID.
 When an unsaved Bachs refund returns 404 from the by-charge lookup, read the

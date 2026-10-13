@@ -78,6 +78,7 @@ export async function verifyBachsRefundPayment(
     undefined,
     { ...context, providerPaymentId: paymentId },
   );
+  if (currency === 'NGN' || data.currency === 'NGN') throw new WalletError('Refunds are currently unavailable for Bachs NGN payments',409);
   if (
     !["succeeded", "accepted", "underpaid", "overpaid"].includes(
       String(data.status).toLowerCase(),

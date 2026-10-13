@@ -108,3 +108,18 @@ it('marks the original purchase refunded only after provider success',async()=>{
 it.each(['SUCCEEDED','FAILED'])('duplicate terminal %s confirmation does not change balances',async status=>{db.purchaseRefund.findUnique.mockResolvedValue({...refund(),status});await processPurchaseRefund('refund','buyer');expect(provider.read).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();});
 it('never exposes another user refund status',async()=>{await expect(processPurchaseRefund('refund','other')).rejects.toThrow('not found');expect(provider.read).not.toHaveBeenCalled();});
 it('lists purchases once each with deterministic pagination and the refund window',async()=>{db.transaction.findMany.mockResolvedValue([row(),{...row(),id:'next'}]);expect(await listPurchases('buyer',1,1)).toMatchObject({items:[{id:'purchase',eligible:true}],nextPage:2});expect(db.transaction.findMany.mock.calls[0][0].where.userId).toBe('buyer');});
+
+it.each([
+ {priceCurrency:'NGN',meta:{}},
+ {priceCurrency:'USD',meta:{collectionCurrency:'NGN'}},
+ {priceCurrency:'USD',meta:{paymentMethod:'NGN_BANK_TRANSFER'}},
+])('hides and rejects Bachs NGN refunds before wallet deduction %j',async ({priceCurrency,meta})=>{
+ const purchase={...row(),metadata:{...row().metadata,...meta}};
+ const paid={txnRef:purchase.txnRef,exTxnRef:purchase.exTxnRef,gateway:'BACHS',amount:D(5),currency:priceCurrency};
+ db.transaction.findFirst.mockImplementation(async args=>args.where.type==='CREDIT'?purchase:paid);
+ db.transaction.findMany.mockImplementation(async args=>args.where.type==='DEBIT'?[paid]:[purchase]);
+ expect(await listPurchases('buyer',1,20)).toMatchObject({items:[{eligible:false}]});
+ await expect(getRefundQuote('purchase','buyer')).rejects.toThrow('Bachs NGN');
+ await expect(requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10})).rejects.toThrow('Bachs NGN');
+ expect(provider.verify).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();
+});

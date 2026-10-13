@@ -51,11 +51,16 @@ export function verifyBachsSignature(raw: Buffer, signature: string | undefined,
 }
 
 export type BachsPaymentMetadata = {
+  collectionCurrency?: string | null;
   paymentMethod: string | null;
   isCrypto: boolean | null;
   cryptoCurrency: string | null;
   cryptoNetwork: string | null;
 };
+export function isBachsNgnPayment(priceCurrency: unknown, metadata: {collectionCurrency?:unknown;paymentMethod?:unknown} | null) {
+  return priceCurrency === 'NGN' || metadata?.collectionCurrency === 'NGN' ||
+    typeof metadata?.paymentMethod === 'string' && metadata.paymentMethod.startsWith('NGN_');
+}
 // Retain payment routing facts only; never copy the complete provider/customer payload.
 export function bachsPaymentMetadata(payment: any): BachsPaymentMetadata {
   const text = (value: unknown) => typeof value === 'string' && value.length <= 100 ? value : null;

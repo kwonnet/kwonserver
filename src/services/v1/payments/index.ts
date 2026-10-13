@@ -414,7 +414,7 @@ export async function reconcileBachsCheckout(orderId:string,userId?:string,provi
     orderId:order.id,checkoutId,paymentId:charge.payment_id,priceCurrency:order.currency,priceAmount:order.amount.toString(),
     collectionCurrency:payment.currency,collectionAmount:expectedCollection.toString(),paymentMethod:paymentMetadata.paymentMethod,
   });
-  await purchaseCoinsWithBachs(markVerifiedPayment({orderId:order.id,userId:order.userId,checkoutId,paymentId:charge.payment_id,paymentMetadata},charge.payment_id));
+  await purchaseCoinsWithBachs(markVerifiedPayment({orderId:order.id,userId:order.userId,checkoutId,paymentId:charge.payment_id,paymentMetadata:{...paymentMetadata,collectionCurrency:payment.currency}},charge.payment_id));
   return {orderId:order.id,status:'paid',packageId:order.packageId};
 }
 

@@ -1,4 +1,4 @@
-import {type BachsPaymentMetadata,validateCryptoRefundAddress} from '@/utils/bachs';
+import {type BachsPaymentMetadata,isBachsNgnPayment,validateCryptoRefundAddress} from '@/utils/bachs';
 import prisma from "@/db";
 import { Prisma, PurchaseRefund } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
@@ -43,6 +43,7 @@ async function purchase(db: DB, id: string, userId: string) {
     bonus?: number;
     providerId?: string;
     orderId?: string;
+    collectionCurrency?: string | null;
     paymentMethod?: string | null;
     isCrypto?: boolean | null;
     cryptoCurrency?: string | null;
@@ -112,6 +113,7 @@ async function quote(db: DB, id: string, userId: string) {
       "This purchase has no supported original-payment details",
       409,
     );
+  if (p.row.gateway === 'BACHS' && isBachsNgnPayment(p.fiat.currency,p.meta)) throw new WalletError('Refunds are currently unavailable for Bachs NGN payments',409);
   const originalCoins = new Prisma.Decimal(p.meta.coins),
     originalBonus = new Prisma.Decimal(p.meta.bonus);
   if (!originalCoins.add(originalBonus).eq(p.row.amount))
@@ -214,6 +216,7 @@ export async function listPurchases(
         createdAt: row.createdAt,
         gateway: row.gateway,
         paymentMethod: meta?.paymentMethod ?? null,
+        collectionCurrency: meta?.collectionCurrency ?? null,
         isCrypto: meta?.isCrypto ?? null,
         cryptoNetwork: meta?.cryptoNetwork ?? null,
         cryptoCurrency: meta?.cryptoCurrency ?? null,
@@ -228,6 +231,7 @@ export async function listPurchases(
           age >= 0 &&
           age <= REFUND_WINDOW_MS &&
           ["BACHS", "FLUTTERWAVE"].includes(row.gateway) &&
+          !(row.gateway === 'BACHS' && isBachsNgnPayment(paid?.currency,meta)) &&
           typeof meta?.providerId === "string",
         refundUntil: new Date(row.createdAt.getTime() + REFUND_WINDOW_MS),
       };
