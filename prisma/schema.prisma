@@ -2338,6 +2338,9 @@ model PurchaseRefund {
   baseRate Decimal @db.Decimal(20,6)
   bonusFee Decimal @db.Decimal(10,6)
   status String @default("RESERVED")
+  processingAttempts Int @default(0)
+  processingUntil DateTime?
+  reviewRequiredAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   completedAt DateTime?

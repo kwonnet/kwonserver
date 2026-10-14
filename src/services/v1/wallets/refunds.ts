@@ -23,8 +23,12 @@ const refundResult = (row: PurchaseRefund) =>
     currency: row.currency,
     coinsDebit: row.coinsDebit,
     bonusDebit: row.bonusDebit,
+    reviewRequiredAt: row.reviewRequiredAt,
   });
 export const REFUND_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+export const REFUND_REVIEW_MS = 8 * 24 * 60 * 60 * 1000;
+export const CRYPTO_REFUND_REVIEW_MS = 24 * 60 * 60 * 1000;
+const REFUND_PROCESSING_LEASE_MS = 10 * 60 * 1000;
 type DB = Prisma.TransactionClient;
 async function purchase(db: DB, id: string, userId: string) {
   const row = await db.transaction.findFirst({
@@ -225,6 +229,7 @@ export async function listPurchases(
         status: row.status,
         refundStatus: row.purchaseRefund?.status ?? null,
         refundId: row.purchaseRefund?.id ?? null,
+        refundReviewRequiredAt: row.purchaseRefund?.reviewRequiredAt ?? null,
         eligible:
           row.status === "COMPLETED" &&
           !row.purchaseRefund &&
@@ -364,12 +369,13 @@ async function settleRefund(
 ) {
   logServiceTrace("v1/wallets/refunds", "refund.settlement.started", "Refund settlement transaction started", { refundId: row.id, purchaseId: row.transactionId, previousStatus: row.status, targetStatus: status, providerRefundId });
   let settlementApplied = false;
+  let reviewEscalated = false;
   const receipt = await prisma.$transaction(async (tx) => {
     await lockWallets(tx, [row.userId]);
     const current = await tx.purchaseRefund.findUniqueOrThrow({
       where: { id: row.id },
     });
-    if (["SUCCEEDED", "FAILED"].includes(current.status))
+    if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(current.status))
       return refundResult(current);
     if (status === "FAILED") {
       // Restore a reserved deduction only after a definitive provider failure.
@@ -430,39 +436,61 @@ async function settleRefund(
         where: { id: row.id },
         data: {
           status,
+          ...(status==='REVIEW' && !current.reviewRequiredAt ? {reviewRequiredAt:new Date()} : {}),
           ...(providerRefundId ? { providerRefundId } : {}),
-          ...(["SUCCEEDED", "FAILED"].includes(status)
+          ...(["SUCCEEDED", "FAILED", "CANCELLED"].includes(status)
             ? { completedAt: new Date() }
             : {}),
         },
       });
     settlementApplied = true;
+    reviewEscalated=status==='REVIEW' && !current.reviewRequiredAt;
     return refundResult(updated);
   });
-  logServiceTrace("v1/wallets/refunds", "refund.settlement.committed", "Refund settlement transaction committed", { refundId: row.id, purchaseId: row.transactionId, refundStatus: receipt.status, settlementApplied, coinsRestored: settlementApplied && receipt.status === "FAILED" ? row.coinsDebit.toString() : undefined, bonusRestored: settlementApplied && receipt.status === "FAILED" ? row.bonusDebit.toString() : undefined });
+  logServiceTrace("v1/wallets/refunds", "refund.settlement.committed", "Refund settlement transaction committed", { refundId: row.id, purchaseId: row.transactionId, refundStatus: receipt.status, settlementApplied, reviewRequiredAt:receipt.reviewRequiredAt, coinsRestored: settlementApplied && receipt.status==='FAILED' ? row.coinsDebit.toString() : undefined, bonusRestored: settlementApplied && receipt.status==='FAILED' ? row.bonusDebit.toString() : undefined });
+  if (reviewEscalated) logServiceTrace('v1/wallets/refunds','refund.review.required','Refund requires support review; reserved coins retained',{refundId:row.id,purchaseId:row.transactionId,gateway:row.gateway,providerRefundId:providerRefundId??row.providerRefundId,reviewRequiredAt:receipt.reviewRequiredAt});
   return receipt;
 }
 export async function processPurchaseRefund(id: string, userId?: string) {
   logServiceTrace("v1/wallets/refunds", "refund.processing.started", "Refund processing started", { refundId: id, source: userId ? "user" : "service" });
-  const row = await prisma.purchaseRefund.findUnique({ where: { id } });
+  let row = await prisma.purchaseRefund.findUnique({ where: { id },include:{transaction:{select:{metadata:true}}} });
   if (!row) throw new WalletError("Refund not found", 404);
   if (userId && row.userId !== userId)
     throw new WalletError("Refund not found", 404);
   const context = { refundId: id, purchaseId: row.transactionId, gateway: row.gateway, environment: row.environment, providerPaymentId: row.paymentId, providerRefundId: row.providerRefundId, refundStatus: row.status };
-  if (["SUCCEEDED", "FAILED"].includes(row.status)) {
+  if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(row.status)) {
     logServiceTrace("v1/wallets/refunds", "refund.terminal.skipped", "Terminal refund requires no gateway call", context);
     return refundResult(row);
   }
   const provider = getRefundProvider(row.gateway);
   if (row.environment !== provider.environment())
     throw new WalletError("Refund belongs to another payment environment", 409);
-  // Claim submission before contacting a provider; concurrent retries only reconcile.
-  const claimed = await prisma.purchaseRefund.updateMany({
-    where: { id, status: "RESERVED" },
-    data: { status: "SUBMITTING" },
+  const now=new Date();
+  if (row.processingUntil && row.processingUntil > now) return refundResult(row);
+  // A durable lease prevents concurrent user/worker checks from consuming runs
+  // or restoring coins while another processing run is still active.
+  const lease=await prisma.purchaseRefund.updateMany({
+    where:{id,status:{in:['RESERVED','SUBMITTING','PROCESSING','REVIEW']},OR:[{processingUntil:null},{processingUntil:{lte:now}}]},
+    data:{processingAttempts:{increment:1},processingUntil:new Date(now.getTime()+REFUND_PROCESSING_LEASE_MS)},
   });
-  logServiceTrace("v1/wallets/refunds", "refund.submission.claimed", "Refund submission claim resolved", { ...context, action: claimed.count ? "submit" : "check", claimed: claimed.count > 0 });
+  if (!lease.count) return refundResult(await prisma.purchaseRefund.findUniqueOrThrow({where:{id}}));
+  row=await prisma.purchaseRefund.findUniqueOrThrow({where:{id},include:{transaction:{select:{metadata:true}}}});
+  const attempt=row.processingAttempts;
+  const purchaseMetadata=row.transaction?.metadata as {isCrypto?:boolean}|null;
+  const reviewAfter=row.refundAddress || purchaseMetadata?.isCrypto===true ? CRYPTO_REFUND_REVIEW_MS : REFUND_REVIEW_MS;
+  const needsReview=!!row.reviewRequiredAt || now.getTime()-row.createdAt.getTime()>=reviewAfter;
+  context.refundStatus=row.status;
+  logServiceTrace('v1/wallets/refunds','refund.attempt.started','Refund processing attempt claimed',{...context,attempt,needsReview,reviewAfter:new Date(row.createdAt.getTime()+reviewAfter).toISOString()});
+  // Claim submission before contacting a provider; concurrent retries only reconcile.
+  let claimed={count:0};
   try {
+    // An old unsubmitted request needs review before initiating money movement.
+    if (needsReview && row.status==='RESERVED' && !row.providerRefundId) return await settleRefund(row,'REVIEW');
+    claimed = await prisma.purchaseRefund.updateMany({
+      where: { id, status: "RESERVED" },
+      data: { status: "SUBMITTING" },
+    });
+    logServiceTrace("v1/wallets/refunds", "refund.submission.claimed", "Refund submission claim resolved", { ...context, action: claimed.count ? "submit" : "check", claimed: claimed.count > 0 });
     const response = claimed.count
       ? await provider.createRefund(row, async providerRefundId => {
           await prisma.purchaseRefund.update({where:{id},data:{providerRefundId}});
@@ -473,7 +501,8 @@ export async function processPurchaseRefund(id: string, userId?: string) {
       : await provider.readRefund(row);
     const result = provider.refundResult(row, response);
     logServiceTrace("v1/wallets/refunds", "refund.provider.verified", "Gateway refund response verified", { ...context, providerRefundId: result.id, targetStatus: result.status });
-    return await settleRefund(row, result.status, result.id);
+    const status=['SUCCEEDED','FAILED'].includes(result.status) || !needsReview ? result.status : 'REVIEW';
+    return await settleRefund(row, status, result.id);
   } catch (error) {
     logServiceError("v1/wallets/refunds", "processPurchaseRefund", error, false, { ...context, action: claimed.count ? "submit" : "check", definitive: error instanceof RefundProviderError ? error.definitive : false });
     if (
@@ -482,6 +511,7 @@ export async function processPurchaseRefund(id: string, userId?: string) {
       error.definitive
     )
       return await settleRefund(row, "FAILED");
+    if (needsReview) return await settleRefund(row,'REVIEW');
     logServiceTrace("v1/wallets/refunds", "refund.reservation.retained", "Unconfirmed gateway outcome; wallet reservation retained", context);
     // Unknown outcomes retain the reservation. Never report a timeout as refunded.
     await prisma.purchaseRefund.updateMany({
@@ -491,6 +521,8 @@ export async function processPurchaseRefund(id: string, userId?: string) {
     return refundResult(
       await prisma.purchaseRefund.findUniqueOrThrow({ where: { id } }),
     );
+  } finally {
+    await prisma.purchaseRefund.updateMany({where:{id,processingAttempts:attempt},data:{processingUntil:null}});
   }
 }
 export async function reconcilePurchaseRefunds() {

@@ -8,16 +8,16 @@ vi.mock('@/services/v1/wallets/refund-provider',async importOriginal=>{
  const actual=await importOriginal<any>();
  return {...actual,getRefundProvider:(gateway:string)=>({...actual.getRefundProvider(gateway),verifyPayment:provider.verify,createRefund:provider.create,readRefund:provider.read,refundResult:provider.result})};
 });
-import {refundDeduction,getRefundQuote,requestPurchaseRefund,listPurchases,processPurchaseRefund,REFUND_WINDOW_MS} from '@/services/v1/wallets/refunds';
+import {refundDeduction,getRefundQuote,requestPurchaseRefund,listPurchases,processPurchaseRefund,REFUND_WINDOW_MS,REFUND_REVIEW_MS,CRYPTO_REFUND_REVIEW_MS} from '@/services/v1/wallets/refunds';
 import {RefundProviderError} from '@/services/v1/wallets/refund-provider';
 const D=(n:number)=>new Prisma.Decimal(n);
 const row=()=>({id:'purchase',userId:'buyer',txnRef:'txn',exTxnRef:'chk',gateway:'BACHS',amount:D(42),status:'COMPLETED',createdAt:new Date(),metadata:{coins:30,bonus:12,providerId:'pay_test'},purchaseRefund:null,package:{name:'Pack'}});
-const refund=()=>({id:'refund',userId:'buyer',transactionId:'purchase',gateway:'BACHS',environment:'https://sandbox-api.bachs.io',paymentId:'pay_test',amount:D(5),currency:'USD',coinsDebit:D(31.2),bonusDebit:D(10),status:'PROCESSING'});
+const refund=()=>({id:'refund',userId:'buyer',transactionId:'purchase',gateway:'BACHS',environment:'https://sandbox-api.bachs.io',paymentId:'pay_test',amount:D(5),currency:'USD',coinsDebit:D(31.2),bonusDebit:D(10),status:'PROCESSING',processingAttempts:1,processingUntil:null,createdAt:new Date()});
 beforeEach(()=>{
  Object.values(db).forEach(model=>{if(typeof model==='function')model.mockReset();else Object.values(model).forEach(fn=>fn.mockReset());});Object.values(provider).forEach(fn=>fn.mockReset());
  vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');db.transaction.findFirst.mockImplementation(async args=>args.where.type==='CREDIT'?row():{amount:D(5),currency:'USD'});
  db.wallet.findUniqueOrThrow.mockResolvedValue({id:'wallet',coins:D(50),bonus:D(10)});db.wallet.update.mockResolvedValue({id:'wallet'});db.chargeRate.findUnique.mockResolvedValue({price:D(.015),ngnPrice:D(18),bonusFee:D(.6)});
- db.purchaseRefund.findUnique.mockImplementation(async args=>args.where.id?refund():null);db.purchaseRefund.findUniqueOrThrow.mockResolvedValue(refund());db.purchaseRefund.updateMany.mockResolvedValue({count:0});db.purchaseRefund.update.mockImplementation(async({data})=>({...refund(),...data}));
+ db.purchaseRefund.findUnique.mockImplementation(async args=>args.where.id?refund():null);db.purchaseRefund.findUniqueOrThrow.mockResolvedValue(refund());db.purchaseRefund.updateMany.mockImplementation(async({where})=>({count:where.OR?1:0}));db.purchaseRefund.update.mockImplementation(async({data})=>({...refund(),...data}));
  db.$queryRaw.mockResolvedValue([{id:'wallet'}]);db.$transaction.mockImplementation(async work=>await work(db));provider.result.mockReturnValue({id:'provider-refund',status:'PROCESSING'});
 });
 it.each([.015,18])('calculates 60 percent bonus cover using base price %s and rounds coins up to two places',price=>{
@@ -122,4 +122,67 @@ it.each([
  await expect(getRefundQuote('purchase','buyer')).rejects.toThrow('Bachs NGN');
  await expect(requestPurchaseRefund('purchase','buyer',{coinsDebit:31.2,bonusDebit:10})).rejects.toThrow('Bachs NGN');
  expect(provider.verify).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();
+});
+
+it('does not cancel a refund after ten runs while it is less than eight days old',async()=>{
+ const active={...refund(),processingAttempts:11,createdAt:new Date(Date.now()-7*24*60*60*1000)};
+ db.purchaseRefund.findUnique.mockResolvedValue(active);db.purchaseRefund.findUniqueOrThrow.mockResolvedValue(active);
+ expect(await processPurchaseRefund('refund','buyer')).toMatchObject({status:'PROCESSING'});expect(provider.read).toHaveBeenCalledOnce();expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it.each(['pending','timeout'])('flags an eight-day-old refund for review and retains coins on %s confirmation',async outcome=>{
+ const old={...refund(),createdAt:new Date(Date.now()-REFUND_REVIEW_MS),processingAttempts:12};
+ db.purchaseRefund.findUnique.mockResolvedValue(old);db.purchaseRefund.findUniqueOrThrow.mockResolvedValue(old);
+ if(outcome==='timeout')provider.read.mockRejectedValue(new Error('timeout'));
+ expect(await processPurchaseRefund('refund','buyer')).toMatchObject({status:'REVIEW'});
+ expect(provider.read).toHaveBeenCalledOnce();expect(provider.create).not.toHaveBeenCalled();
+ expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it('honors successful final confirmation after eight days instead of restoring coins',async()=>{
+ const old={...refund(),createdAt:new Date(Date.now()-REFUND_REVIEW_MS)};
+ db.purchaseRefund.findUnique.mockResolvedValue(old);db.purchaseRefund.findUniqueOrThrow.mockResolvedValue(old);
+ provider.result.mockReturnValue({id:'provider-refund',status:'SUCCEEDED'});
+ expect(await processPurchaseRefund('refund','buyer')).toMatchObject({status:'SUCCEEDED'});expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it('flags an overdue unsubmitted reservation for review without creating an external refund',async()=>{
+ const old={...refund(),status:'RESERVED',createdAt:new Date(Date.now()-REFUND_REVIEW_MS)};
+ db.purchaseRefund.findUnique.mockResolvedValue(old);db.purchaseRefund.findUniqueOrThrow.mockResolvedValue(old);
+ expect(await processPurchaseRefund('refund','buyer')).toMatchObject({status:'REVIEW'});expect(provider.create).not.toHaveBeenCalled();expect(provider.read).not.toHaveBeenCalled();
+});
+it('skips an active processing lease without consuming another attempt or restoring coins',async()=>{
+ db.purchaseRefund.findUnique.mockResolvedValue({...refund(),createdAt:new Date(Date.now()-REFUND_REVIEW_MS),processingUntil:new Date(Date.now()+60000)});
+ await processPurchaseRefund('refund','buyer');expect(provider.read).not.toHaveBeenCalled();expect(db.purchaseRefund.updateMany).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it('does not process or restore an already cancelled refund again',async()=>{
+ db.purchaseRefund.findUnique.mockResolvedValue({...refund(),status:'CANCELLED'});
+ expect(await processPurchaseRefund('refund','buyer')).toMatchObject({status:'CANCELLED'});expect(provider.read).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();
+});
+
+it('does not restore coins after confirmed provider success when saving settlement fails',async()=>{
+ const old={...refund(),createdAt:new Date(Date.now()-REFUND_REVIEW_MS)};
+ db.purchaseRefund.findUnique.mockResolvedValue(old);db.purchaseRefund.findUniqueOrThrow.mockResolvedValue(old);
+ provider.result.mockReturnValue({id:'provider-refund',status:'SUCCEEDED'});db.$transaction.mockRejectedValue(new Error('Database unavailable'));
+ await expect(processPurchaseRefund('refund','buyer')).rejects.toThrow('Database unavailable');expect(db.wallet.update).not.toHaveBeenCalled();expect(vi.mocked(logger.info).mock.calls.map(([entry])=>(entry as any).targetStatus)).not.toContain('CANCELLED');
+});
+
+it.each([23,25])('escalates a pending crypto refund at 24 hours, not eight days: %s hours',async hours=>{
+ const pending={...refund(),refundAddress:'0x'+'a'.repeat(40),createdAt:new Date(Date.now()-hours*60*60*1000)};
+ db.purchaseRefund.findUnique.mockResolvedValue(pending);db.purchaseRefund.findUniqueOrThrow.mockResolvedValue(pending);
+ expect(CRYPTO_REFUND_REVIEW_MS).toBe(24*60*60*1000);
+ expect(await processPurchaseRefund('refund','buyer')).toMatchObject({status:hours>=24?'REVIEW':'PROCESSING'});expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it('keeps an escalated refund in review until a terminal provider confirmation arrives',async()=>{
+ const pending={...refund(),reviewRequiredAt:new Date()};
+ db.purchaseRefund.findUnique.mockResolvedValue(pending);db.purchaseRefund.findUniqueOrThrow.mockResolvedValue(pending);
+ expect(await processPurchaseRefund('refund','buyer')).toMatchObject({status:'REVIEW'});expect(provider.read).toHaveBeenCalledOnce();expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it('restores an overdue reservation only after confirmed provider failure',async()=>{
+ const pending={...refund(),reviewRequiredAt:new Date(),createdAt:new Date(Date.now()-REFUND_REVIEW_MS)};
+ db.purchaseRefund.findUnique.mockResolvedValue(pending);db.purchaseRefund.findUniqueOrThrow.mockResolvedValue(pending);provider.result.mockReturnValue({id:'provider-refund',status:'FAILED'});
+ expect(await processPurchaseRefund('refund','buyer')).toMatchObject({status:'FAILED'});expect(db.wallet.update).toHaveBeenCalledTimes(1);
+});
+
+it('uses saved crypto payment metadata to escalate legacy refunds without a destination after 24 hours',async()=>{
+ const pending={...refund(),refundAddress:null,transaction:{metadata:{isCrypto:true}},createdAt:new Date(Date.now()-25*60*60*1000)};
+ db.purchaseRefund.findUnique.mockResolvedValue(pending);db.purchaseRefund.findUniqueOrThrow.mockResolvedValue(pending);
+ expect(await processPurchaseRefund('refund','buyer')).toMatchObject({status:'REVIEW'});expect(db.wallet.update).not.toHaveBeenCalled();
 });

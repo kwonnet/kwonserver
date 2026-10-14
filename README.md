@@ -1343,3 +1343,22 @@ Provider references:
 - https://developer.flutterwave.com/reference/transaction-refund
 - https://developer.flutterwave.com/reference/get-all-refunds
 - https://developer.flutterwave.com/docs/refunds
+
+### Refund review escalation
+
+Apply migrations `20261014010000_refund_processing_tracking` and
+`20261014020000_refund_review_escalation` before deploying. Existing pending
+purchase refunds use their original `createdAt`: known crypto refunds, identified by
+saved payment metadata or destination addresses, are flagged after 24 hours; other pending refunds
+are flagged after eight calendar days. Overdue records become `REVIEW`, retain
+their reserved coins and bonus, and persist `reviewRequiredAt` for support
+investigation. The worker continues checking provider status. Confirmed success
+completes the refund; confirmed failure/rejection restores coins once.
+Age and attempt count never cancel a refund or release its coins automatically.
+Old unsubmitted reservations require review before a new external submission.
+
+A ten-minute durable processing lease prevents overlapping user/worker runs
+and is released after processing; interrupted runs can resume when it expires.
+Processing attempts are diagnostic only. Existing attempt counts start at zero,
+but existing refund ages are preserved. Historic terminal `CANCELLED` records
+remain terminal to prevent restoring coins a second time.

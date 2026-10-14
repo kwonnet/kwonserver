@@ -7,7 +7,7 @@ vi.mock('@/services/v1/wallets/refund-provider',async importOriginal=>{
  return {...actual,getRefundProvider:(gateway:string)=>({...actual.getRefundProvider(gateway),verifyPayment:provider.verify,createRefund:provider.create,readRefund:provider.read,refundResult:provider.result})};
 });
 import db from '@/db';
-import {requestPurchaseRefund,processPurchaseRefund,getRefundQuote} from '@/services/v1/wallets/refunds';
+import {requestPurchaseRefund,processPurchaseRefund,getRefundQuote,REFUND_REVIEW_MS} from '@/services/v1/wallets/refunds';
 import {verifyBachsRefundPayment} from '@/services/v1/wallets/refund-bachs';
 const buyer='refund-fixture-buyer';let id:string;
 beforeAll(async()=>{
@@ -42,4 +42,24 @@ it('persists the confirmed crypto destination for later processing',async()=>{
  await requestPurchaseRefund(purchase.id,buyer,{coinsDebit:1,bonusDebit:0,refundAddress:address,confirmCryptoNetwork:true});
  expect((await db.purchaseRefund.findUniqueOrThrow({where:{transactionId:purchase.id}})).refundAddress).toBe(address);
  vi.unstubAllGlobals();
+});
+
+it('escalates an old refund without restoration and restores once after confirmed failure',async()=>{
+ provider.read.mockClear();provider.read.mockResolvedValue({});provider.result.mockReturnValue({id:'provider-stale-refund',status:'PROCESSING'});
+ const before=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});
+ const purchase=await db.transaction.create({data:{userId:buyer,txnRef:'stale-refund-fixture',exTxnRef:'chk_stale_refund',category:'COIN_PURCHASE',gateway:'BACHS',status:'COMPLETED',type:'CREDIT',currency:'COINS',source:'COINS_BONUS',amount:5,description:'Old purchase fixture'}});
+ const template=await db.purchaseRefund.findUniqueOrThrow({where:{transactionId:id}});
+ await db.purchaseRefund.create({data:{...template,id:'stale-refund-fixture',transactionId:purchase.id,paymentId:'pay_stale_refund',providerRefundId:'provider-stale-refund',status:'PROCESSING',coinsDebit:3,bonusDebit:2,createdAt:new Date(Date.now()-REFUND_REVIEW_MS-1000),completedAt:null,processingAttempts:20,processingUntil:null}});
+ await db.wallet.update({where:{userId:buyer},data:{coins:{decrement:3},bonus:{decrement:2}}});
+ await Promise.all(Array.from({length:8},()=>processPurchaseRefund('stale-refund-fixture',buyer)));
+ const after=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});
+ expect(after.coins.toString()).toBe(before.coins.sub(3).toString());expect(after.bonus.toString()).toBe(before.bonus.sub(2).toString());
+ expect((await db.purchaseRefund.findUniqueOrThrow({where:{id:'stale-refund-fixture'}})).status).toBe('REVIEW');
+ expect(await db.transaction.count({where:{userId:buyer,category:'COIN_REFUND',type:'CREDIT',exTxnRef:'stale-refund-fixture'}})).toBe(0);
+ expect(provider.read).toHaveBeenCalledTimes(1);
+ provider.result.mockReturnValue({id:'provider-stale-refund',status:'FAILED'});
+ await Promise.all(Array.from({length:8},()=>processPurchaseRefund('stale-refund-fixture',buyer)));
+ const restored=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});expect(restored.coins.toString()).toBe(before.coins.toString());expect(restored.bonus.toString()).toBe(before.bonus.toString());
+ expect(await db.transaction.count({where:{userId:buyer,category:'COIN_REFUND',type:'CREDIT',exTxnRef:'stale-refund-fixture'}})).toBe(1);
+ expect(provider.read).toHaveBeenCalledTimes(2);
 });
