@@ -1397,162 +1397,32 @@ export async function createPostMediaLog(args: {
   }
 }
 
-export async function createPostTip(
-  args: {
-    idempotencyKey?: string;
-    device: DetectResult;
-    meta: LookupResult | null;
-    referer?: string | null;
-    postId: string;
-    recipientId: string;
-    senderId: string;
-    tipId: string;
-    message?: string;
-    isAnon?: boolean;
-  },
-  user: SessionUser
-) {
+export async function createPostTip(args:{idempotencyKey?:string;device:DetectResult;meta:LookupResult|null;referer?:string|null;postId?:string;recipientId:string;senderId:string;tipId:string;message?:string;isAnon?:boolean},user:SessionUser) {
   try {
-    if (args.senderId !== user.id || args.senderId === args.recipientId) throw new WalletError('Invalid tip sender or recipient');
-    const result = await walletOperation(`tip:${user.id}`, requestKey(args.idempotencyKey),
-      { postId: args.postId, recipientId: args.recipientId, tipId: args.tipId }, [args.senderId, args.recipientId], async (tx) => {
-      const post = await tx.post.findUniqueOrThrow({ where: { id: args.postId } });
-      if (post.userId !== args.recipientId) throw new WalletError('Tip recipient must own the post');
-      const txnRef = generateUniqueRef();
-      // check recipient
-      const recipient = await tx.user.findUniqueOrThrow({
-        where: { id: args.recipientId },
-        select: { id: true, name: true, wallet: { select: { id: true } } },
-      });
-      if (!recipient.wallet) {
-        throw new AppError("Recipient's wallet not found.");
-      }
-      // check tip package
-      const tip = await tx.tipPackage.findUniqueOrThrow({
-        where: { id: args.tipId },
-      });
-      // checker sender wallet balance
-      const wallet = await tx.wallet.findUniqueOrThrow({
-        where: { userId: args.senderId },
-      });
-      if (!tip.isActive || (tip.endDate && tip.endDate < new Date())) throw new WalletError('Tip package unavailable');
-      cents(tip.price);
-      if (wallet.isLocked) throw new WalletError('Wallet is locked');
-      let info = { isCredit: false, amount: cents(tip.price) / 100 };
-      if (cents(wallet.coins, true) < cents(tip.price)) {
-        if (cents(wallet.credit, true) < Math.ceil(cents(tip.price) * 10 / 22)) {
-          throw new AppError("Insufficient balance, please purchase coins");
-        }
-        info = { amount: Math.ceil(cents(tip.price) * 10 / 22) / 100, isCredit: true };
-      }
-      if (info.isCredit && cents(wallet.credit, true) < cents(info.amount)) throw new WalletError('Insufficient balance');
-      // deduct sender wallet - package price(coins) from wallet amount(coins)
-      await tx.wallet.update({
-        where: { id: wallet.id },
-        data: {
-          ...(info.isCredit
-            ? { credit: { decrement: info.amount } }
-            : { coins: { decrement: info.amount } }),
-        },
-      });
-      // log sender transaction
-      await tx.transaction.create({
-        data: {
-          userId: args.senderId,
-          amount: info.amount,
-          currency: info.isCredit ? TxnCurrencyEnum.TZX : TxnCurrencyEnum.COINS,
-          type: TxnTypeEnum.DEBIT,
-          walletId: wallet.id,
-          tipPackageId: tip.id,
-          category: TxnCategoryEnum.POST_TIP,
-          postId: args.postId,
-          senderId: args.senderId,
-          recipientId: args.recipientId,
-          status: TxnStatusEnum.COMPLETED,
-          source: info.isCredit ? TxnSourceEnum.CREDIT : TxnSourceEnum.COINS,
-          gateway: TxnGatewayEnum.WALLET,
-          txnRef,
-          description: `Post tip sent to ${recipient.name}`,
-        },
-      });
-      // credit recipient wallet - package price(coins) from wallet amount(coins)
-      // we sell 2.2 coins for 1TZX but buy back at 3 coins --- tip.price is in coins
-      // The system takes 45% of all tips and the recipient takes 55%
-      const creditAmount = Math.round(cents(tip.price) * 55 / 300) / 100;
-      // log recipient transaction
-      const txn = await tx.transaction.create({
-        data: {
-          userId: args.recipientId,
-          amount: creditAmount,
-          currency: TxnCurrencyEnum.TZX,
-          type: TxnTypeEnum.CREDIT,
-          walletId: recipient.wallet.id,
-          tipPackageId: tip.id,
-          category: TxnCategoryEnum.POST_TIP,
-          postId: args.postId,
-          senderId: args.senderId,
-          recipientId: args.recipientId,
-          status: TxnStatusEnum.PENDING,
-          metadata: { settlementVersion: 1 },
-          source: TxnSourceEnum.CREDIT,
-          gateway: TxnGatewayEnum.WALLET,
-          txnRef,
-          description: `Tip reward from ${
-            args.isAnon ? "anonymous" : user.name
-          } on your post`,
-        },
-      });
-      // log post tip until available at
-      await tx.postTip.create({
-        data: {
-          postId: args.postId,
-          senderId: args.senderId,
-          recipientId: args.recipientId,
-          tipId: tip.id,
-          coinsAmount: tip.price,
-          message: args.message,
-          isAnon: args.isAnon,
-          device: args.device,
-          meta: args.meta,
-          referer: args.referer,
-          rewardTip: {
-            create: {
-              userId: recipient.id,
-              walletId: recipient.wallet.id,
-              amount: creditAmount,
-              source: TipSource.POST,
-              status: TipStatus.PENDING,
-              txnId: txn.id,
-              availableAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 days
-            },
-          },
-        },
-      });
-      // increment post tips
-      await tx.post.update({
-        where: { id: args.postId },
-        data: { totalTips: { increment: 1 } },
-      });
-
-      return {
-        data: {
-          id: args.postId,
-          userId: args.senderId,
-          isTip: true,
-        },
-        status: 200,
-      };
+    if(args.senderId!==user.id||args.senderId===args.recipientId)throw new WalletError('Invalid gift sender or recipient');
+    return await walletOperation(`tip:${user.id}`,requestKey(args.idempotencyKey),{postId:args.postId??null,recipientId:args.recipientId,tipId:args.tipId,message:args.message??null,isAnon:args.isAnon??false},[args.senderId,args.recipientId],async tx=>{
+      if(args.postId){const post=await tx.post.findUniqueOrThrow({where:{id:args.postId}});if(post.userId!==args.recipientId||post.deletedAt)throw new WalletError('Gift recipient must own an available post');}
+      const recipient=await tx.user.findUniqueOrThrow({where:{id:args.recipientId},select:{id:true,name:true,status:true,deletedAt:true,deactivatedAt:true}});
+      if(recipient.deletedAt||recipient.deactivatedAt||!['ACTIVE','PRIVATE'].includes(recipient.status))throw new WalletError('Recipient is unavailable',403);
+      if(await tx.blockUser.findFirst({where:{OR:[{blockerId:args.senderId,blockedId:args.recipientId},{blockerId:args.recipientId,blockedId:args.senderId}]}}))throw new WalletError('Gifting is unavailable between these accounts',403);
+      const tip=await tx.tipPackage.findUniqueOrThrow({where:{id:args.tipId}});
+      if(!tip.isActive||(tip.endDate&&tip.endDate<new Date())||!['ALL',args.postId?'POST':'ALL'].includes(tip.kind))throw new WalletError('Gift unavailable');
+      const price=cents(tip.price),received=Math.floor(price/2),platformFee=price-received;
+      if(!received)throw new WalletError('Gift price is too small');
+      const senderWallet=await tx.wallet.findUniqueOrThrow({where:{userId:args.senderId}}),receiverWallet=await tx.wallet.findUniqueOrThrow({where:{userId:args.recipientId}});
+      if(senderWallet.isLocked||receiverWallet.isLocked)throw new WalletError('Wallet is locked');
+      if(cents(senderWallet.coins,true)<price)throw new WalletError('Insufficient coins, please purchase coins');
+      await tx.wallet.update({where:{id:senderWallet.id},data:{coins:{decrement:price/100}}});
+      await tx.wallet.update({where:{id:receiverWallet.id},data:{coins:{increment:received/100}}});
+      const txnRef=generateUniqueRef(),metadata={giftId:tip.id,giftName:tip.name,giftThumbnail:tip.thumbnail,grossCoins:price/100,recipientCoins:received/100,platformFeeCoins:platformFee/100,settlementVersion:2};
+      const common={txnRef,tipPackageId:tip.id,postId:args.postId,senderId:args.senderId,recipientId:args.recipientId,currency:TxnCurrencyEnum.COINS,source:TxnSourceEnum.COINS,gateway:TxnGatewayEnum.WALLET,category:TxnCategoryEnum.POST_TIP,status:TxnStatusEnum.COMPLETED,metadata};
+      await tx.transaction.create({data:{...common,userId:args.senderId,walletId:senderWallet.id,amount:price/100,type:TxnTypeEnum.DEBIT,description:`Gift sent to ${recipient.name}`}});
+      const reward=await tx.transaction.create({data:{...common,senderId:args.isAnon?null:args.senderId,userId:args.recipientId,walletId:receiverWallet.id,amount:received/100,type:TxnTypeEnum.CREDIT,description:`Gift received from ${args.isAnon?'anonymous':user.name}`}});
+      const gift=await tx.postTip.create({data:{postId:args.postId,senderId:args.senderId,recipientId:args.recipientId,tipId:tip.id,giftName:tip.name,giftThumbnail:tip.thumbnail,giftCoinsSnapshot:tip.price,coinsAmount:price/100,message:args.message,isAnon:args.isAnon,device:args.device,meta:args.meta,referer:args.referer,rewardTip:{create:{userId:args.recipientId,walletId:receiverWallet.id,amount:received/100,source:args.postId?TipSource.POST:TipSource.PROFILE,status:TipStatus.SETTLED,settledAt:new Date(),availableAt:new Date(),txnId:reward.id}}}});
+      if(args.postId)await tx.post.update({where:{id:args.postId},data:{totalTips:{increment:1}}});
+      return {status:200,data:{id:args.postId??gift.id,userId:args.senderId,recipientId:args.recipientId,isTip:true,coins:price/100,receivedCoins:received/100}};
     });
-    return result;
-  } catch (error) {
-    logServiceError("v1/posts/index", "createPostTip", error);
-
-    if (error instanceof WalletError) return { data: error.message, status: error.status };
-    if (error instanceof AppError) {
-      return { data: error.message, status: error.statusCode };
-    }
-    return { data: "Sorry an error occurred to process request ", status: 500 };
-  }
+  }catch(error){logServiceError('v1/posts/index','createPostTip',error);if(error instanceof WalletError)return {status:error.status,data:error.message};if(error instanceof AppError)return {status:error.statusCode,data:error.message};return {status:500,data:'Unable to send gift. Retry the same request.'};}
 }
 
 export async function insertImpressionQueue(args: {
@@ -8290,15 +8160,15 @@ export async function getPostGifters(postId: string, viewerId: string, page = 1,
     const where = {postId, OR: [{rewardTip: null}, {rewardTip: {status: {in: ['PENDING', 'SETTLED'] as ('PENDING' | 'SETTLED')[]}}}]};
     const [tips, totalGifts, totals] = await Promise.all([
       tx.postTip.findMany({where, skip: (page - 1) * limit, take: limit, orderBy: [{createdAt: 'desc'}, {id: 'desc'}], select: {
-        id: true, createdAt: true, isAnon: true, message: true, coinsAmount: true,
+        id: true, createdAt: true, isAnon: true, message: true, coinsAmount: true, giftName:true, giftThumbnail:true, giftCoinsSnapshot:true,
         sender: {select: {id: true, name: true, username: true, avatar: true}},
         tip: {select: {name: true, price: true}}, rewardTip: {select: {status: true}},
       }}),
       tx.postTip.count({where}),
       tx.$queryRaw<{totalCoins: string; estimated: boolean}[]>`
-        SELECT COALESCE(SUM(COALESCE(t."coinsAmount", p.price)), 0)::text AS "totalCoins",
+        SELECT COALESCE(SUM(COALESCE(t."coinsAmount", t."giftCoinsSnapshot", p.price,0)), 0)::text AS "totalCoins",
           COALESCE(BOOL_OR(t."coinsAmount" IS NULL), false) AS estimated
-        FROM "PostTip" t JOIN "TipPackage" p ON p.id = t."tipId"
+        FROM "PostTip" t LEFT JOIN "TipPackage" p ON p.id = t."tipId"
         LEFT JOIN "RewardTip" r ON r."postTipId" = t.id
         WHERE t."postId" = ${postId} AND (r.id IS NULL OR r.status IN ('PENDING', 'SETTLED'))
       `,
@@ -8306,7 +8176,7 @@ export async function getPostGifters(postId: string, viewerId: string, page = 1,
     return {status: 200, data: {
       gifters: tips.map(tip => ({id: tip.id, createdAt: tip.createdAt, message: tip.message,
         sender: tip.isAnon ? null : tip.sender, anonymous: tip.isAnon,
-        coins: (tip.coinsAmount ?? tip.tip.price).toString(), gift: tip.tip.name,
+        coins: (tip.coinsAmount ?? tip.giftCoinsSnapshot ?? tip.tip?.price ?? new Prisma.Decimal(0)).toString(), gift: tip.giftName ?? tip.tip?.name ?? "Gift", thumbnail:tip.giftThumbnail,
         estimated: tip.coinsAmount === null, status: tip.rewardTip?.status ?? 'SETTLED'})),
       ownerId: viewerId, totalGifts, totalCoins: totals[0]?.totalCoins ?? '0', hasEstimatedAmounts: totals[0]?.estimated ?? false,
       page, hasMore: page * limit < totalGifts,

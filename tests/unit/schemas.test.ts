@@ -20,10 +20,10 @@ it('requires valid signup email and supports an optional referral', () => {
   expect(SignUpSchema.safeParse({ ...valid, email: 'not-email' }).success).toBe(false);
   for (const refId of [undefined, null, 'ref']) expect(SignUpSchema.parse({ ...valid, refId }).refId).toBe(refId);
 });
-it.each(['TZX', 'USDT', 'USD', 'NGN', 'FIAT', 'COINS'])('accepts supported currency %s', value => expect(paymentCurrencySchema.parse(value)).toBe(value));
+it.each(['USDT', 'USD', 'NGN', 'FIAT', 'COINS'])('accepts supported currency %s', value => expect(paymentCurrencySchema.parse(value)).toBe(value));
 it.each(['TON', 'XTR', 'usd', 'INVALID'])('rejects unsupported ledger currency %s', value => expect(paymentCurrencySchema.safeParse(value).success).toBe(false));
 it.each(['WALLET', 'FLUTTERWAVE', 'PAYSTACK', 'CRYPTO', 'VIRTUAL'])('accepts gateway %s', value => expect(paymentGatewaySchema.parse(value)).toBe(value));
-it.each(['COINS', 'BONUS', 'COINS_BONUS', 'CREDIT', 'FIAT', 'CRYPTO', 'VIRTUAL'])('accepts source %s', value => expect(paymentSourceSchema.parse(value)).toBe(value));
+it.each(['COINS', 'BONUS', 'COINS_BONUS', 'FIAT', 'CRYPTO', 'VIRTUAL'])('accepts source %s', value => expect(paymentSourceSchema.parse(value)).toBe(value));
 it('requires a complete supported payment method', () => {
   expect(paymentMethodSchema.safeParse({ currency: 'USD', gateway: 'FLUTTERWAVE' }).success).toBe(false);
   expect(paymentMethodSchema.safeParse({ currency: 'USD', gateway: 'FLUTTERWAVE', source: 'FIAT' }).success).toBe(true);

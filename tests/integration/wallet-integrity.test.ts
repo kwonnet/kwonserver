@@ -16,14 +16,14 @@ vi.mock('@/services/helper', () => ({ syncPrismaUserWalletToRedis: vi.fn().mockR
 const ids=['wallet-test-s','wallet-test-r','wallet-test-x'];
 let coinId:string,taskId:string;
 beforeAll(async()=>{
- for(const id of ids) await db.user.create({data:{emailVerifiedAt: new Date(), id,name:id,username:id,email:`${id}@example.test`,wallet:{create:{coins:300,bonus:0,credit:10}}}});
+ for(const id of ids) await db.user.create({data:{emailVerifiedAt: new Date(), id,name:id,username:id,email:`${id}@example.test`,wallet:{create:{coins:300,bonus:0,}}}});
  coinId=(await db.coinPackage.create({data:{name:'Test',amount:100,bonus:10,price:5,ngnPrice:5000,ngnBonus:15}})).id;
  taskId=(await db.task.create({data:{userId:ids[0],reward:5,rewardType:'BONUS',title:'Task',description:'Task',url:'https://example.test',code:'proof'}})).id;
 });
 beforeEach(async()=>{
  await db.walletOperation.deleteMany({});await db.transaction.deleteMany({where:{userId:{in:ids}}});
  await db.userTask.deleteMany({where:{userId:{in:ids}}});await db.userTaskSettings.deleteMany({where:{userId:{in:ids}}});
- await db.wallet.updateMany({where:{userId:{in:ids}},data:{coins:300,bonus:0,credit:10,isLocked:false}});
+ await db.wallet.updateMany({where:{userId:{in:ids}},data:{coins:300,bonus:0,isLocked:false}});
 });
 afterAll(async()=>{
  await db.walletOperation.deleteMany({});await db.user.deleteMany({where:{id:{in:ids}}});await db.coinPackage.delete({where:{id:coinId}});await db.$disconnect();
@@ -63,12 +63,10 @@ it('awards a task once under concurrent retries',async()=>{
  expect(results.every(r=>r.status===200)).toBe(true);expect(moneyJson((await balance()).bonus)).toBe(5);
  expect(await db.userTask.count({where:{userId:ids[0],taskId}})).toBe(1);
 });
-it('purchases coins using authoritative prices without a functioning Redis cache',async()=>{
- const arg={id:coinId,currency:'TZX' as const,idempotencyKey:'coin-purchase-1',meta:{price:0.01,amount:999999}};
- const user={id:ids[0]} as any;
- const results=await Promise.all(Array.from({length:8},()=>purchaseCoinsWithWallet(arg,user)));
- expect(results.every(r=>r.status===200)).toBe(true);expect(moneyJson(await balance())).toMatchObject({coins:400,bonus:10,credit:5});
- expect(await db.transaction.count({where:{userId:ids[0]}})).toBe(2);
+it('rejects retired wallet coin purchases without changing balances',async()=>{
+ const user={id:ids[0]} as any,initial=(await balance()).coins;
+ const results=await Promise.all(Array.from({length:8},()=>purchaseCoinsWithWallet({id:coinId,currency:'COINS',idempotencyKey:'retired-wallet-purchase'},user)));
+ expect(results.every(result=>result.status===400)).toBe(true);expect((await balance()).coins.eq(initial)).toBe(true);expect(await db.transaction.count({where:{userId:ids[0]}})).toBe(0);
 });
 it('settles repeated verified provider callbacks exactly once',async()=>{
  const item=markVerifiedPayment({userId:ids[0],id:coinId,currency:'USD',txnRef:'external-ref',meta:{txn:{amount:5}}},'provider-1') as any;
@@ -103,13 +101,14 @@ it('settles a pending tip once and updates its ledger atomically',async()=>{
  const {settleTip}=await import('@/services/walletLedger/tips');
  const wallet=await balance();
  const pkg=await db.tipPackage.create({data:{name:'test-tip',price:30}});
- const txn=await db.transaction.create({data:{userId:ids[0],walletId:wallet.id,amount:5.5,currency:'TZX',gateway:'WALLET',source:'CREDIT',type:'CREDIT',status:'PENDING',category:'POST_TIP',txnRef:'tip-test',description:'Pending tip',metadata:{settlementVersion:1}}});
+ const txn=await db.transaction.create({data:{userId:ids[0],walletId:wallet.id,amount:5.5,currency:'COINS',gateway:'WALLET',source:'COINS',type:'CREDIT',status:'PENDING',category:'POST_TIP',txnRef:'tip-test',description:'Pending tip',metadata:{settlementVersion:2}}});
  const postTip=await db.postTip.create({data:{senderId:ids[1],recipientId:ids[0],tipId:pkg.id}});
  const tip=await db.rewardTip.create({data:{userId:ids[0],walletId:wallet.id,postTipId:postTip.id,txnId:txn.id,amount:5.5,source:'POST',availableAt:new Date(Date.now()-1)}});
  try{
  await Promise.all(Array.from({length:8},()=>settleTip(tip.id,ids[0])));
- expect(moneyJson((await balance()).credit)).toBe(15.5);
- expect((await db.rewardTip.findUniqueOrThrow({where:{id:tip.id}})).status).toBe('SETTLED');
+
+ expect(moneyJson((await balance()).coins)).toBe(305.5);
+  expect((await db.rewardTip.findUniqueOrThrow({where:{id:tip.id}})).status).toBe('SETTLED');
  expect(moneyJson((await db.transaction.findUniqueOrThrow({where:{id:txn.id}})).status)).toBe('COMPLETED');
  }finally{await db.rewardTip.delete({where:{id:tip.id}});await db.postTip.delete({where:{id:postTip.id}});await db.tipPackage.delete({where:{id:pkg.id}});}
 });
@@ -118,14 +117,15 @@ it('concurrent subscription purchase retries charge once, and renewal repeats do
  const {purchaseAppSubscriptionWithWallet,renewAppSubscriptionWithWallet}=await import('@/services/v1/subscriptions');
  const plan=await db.subscriptionPlan.create({data:{name:'Test',price:2,ngnPrice:2000,discount:0,accountType:'PERSONAL'}});
  try{
- const item={planId:plan.id,amount:0.01,currency:'TZX' as const,planType:'MONTHLY' as const,isRecurring:true,idempotencyKey:'subscription-retry'};
+ const item={planId:plan.id,amount:0.01,currency:'COINS' as const,planType:'MONTHLY' as const,isRecurring:true,idempotencyKey:'subscription-retry'};
  const results=await Promise.all(Array.from({length:5},()=>purchaseAppSubscriptionWithWallet(item,ids[0])));
- expect(results.every(r=>r.status===200)).toBe(true);expect(moneyJson((await balance()).credit)).toBe(8);
+ expect(results.every(r=>r.status===200)).toBe(true);expect(moneyJson((await balance()).coins)).toBe(166.66);
  const sub=await db.subscription.findFirstOrThrow({where:{userId:ids[0],planId:plan.id}});
- await db.subscription.update({where:{id:sub.id},data:{endDate:new Date(Date.now()-1000)}});
+ await db.wallet.update({where:{userId:ids[0]},data:{coins:{increment:200}}});
+  await db.subscription.update({where:{id:sub.id},data:{endDate:new Date(Date.now()-1000)}});
  const renewals=await Promise.all(Array.from({length:5},()=>renewAppSubscriptionWithWallet(sub.id)));
- expect(renewals.every(r=>r.status===200)).toBe(true);expect(moneyJson((await balance()).credit)).toBe(6);
+ expect(renewals.every(r=>r.status===200)).toBe(true);expect(moneyJson((await balance()).coins)).toBe(233.32);
  expect(await db.transaction.count({where:{subscriptionId:sub.id}})).toBe(2);
- await renewAppSubscriptionWithWallet(sub.id);expect(moneyJson((await balance()).credit)).toBe(6);
+ await renewAppSubscriptionWithWallet(sub.id);expect(moneyJson((await balance()).coins)).toBe(233.32);
  }finally{await db.transaction.deleteMany({where:{subPlanId:plan.id}});await db.subscription.deleteMany({where:{planId:plan.id}});await db.subscriptionPlan.delete({where:{id:plan.id}});}
 });

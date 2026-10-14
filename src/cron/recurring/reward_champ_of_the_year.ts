@@ -64,14 +64,7 @@ const rewardPlayer = async (player: RewardGamePlayer) => {
       });
       // credit user wallet
       const updateData =
-        milestone.rewardType === "CREDIT"
-          ? {
-              credit: { increment: milestone.reward },
-            }
-          : milestone.rewardType === "COINS"
-          ? {
-              coins: { increment: milestone.reward },
-            }
+        milestone.rewardType === "COINS" ? {coins: {increment: milestone.reward}}
           : {
               bonus: { increment: milestone.reward },
             };
@@ -82,7 +75,7 @@ const rewardPlayer = async (player: RewardGamePlayer) => {
       // insert transaction
       const rewardType = milestone.rewardType;
       const currency =
-        rewardType === "CREDIT" ? TxnCurrencyEnum.TZX : TxnCurrencyEnum.COINS;
+        TxnCurrencyEnum.COINS;
       const txn = await tx.transaction.create({
         data: {
           amount: milestone.reward,
@@ -95,10 +88,7 @@ const rewardPlayer = async (player: RewardGamePlayer) => {
             .toLowerCase()} of ${player.gameName} in ${player.year}`,
           gateway: TxnGatewayEnum.WALLET,
           source:
-            rewardType === "CREDIT"
-              ? TxnSourceEnum.CREDIT
-              : rewardType === "COINS"
-              ? TxnSourceEnum.COINS
+            rewardType === "COINS" ? TxnSourceEnum.COINS
               : TxnSourceEnum.BONUS,
           type: TxnTypeEnum.CREDIT,
           status: TxnStatusEnum.COMPLETED,

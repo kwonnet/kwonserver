@@ -4,7 +4,7 @@ import {logServiceError} from '@/logger/events';
 
 export const getTipPackages = async () => {
   try {
-    const packages = await prisma.tipPackage.findMany();
+    const packages = await prisma.tipPackage.findMany({where:{isActive:true,OR:[{endDate:null},{endDate:{gt:new Date()}}]},orderBy:[{price:'asc'},{name:'asc'}]});
     return {
       data: packages,
       status: 200,

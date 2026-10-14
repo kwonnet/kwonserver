@@ -188,9 +188,9 @@ docker build -t kwonserver:release .
 docker run --rm --env-file .env kwonserver:release npm run db:deploy
 ```
 
-The GitHub Actions Compute Engine workflow performs that release command using the selected kwonserver image before replacing the API and worker. A failed migration or seed stops deployment. The `gcp-build` hook only builds; configure `npm run db:deploy` as the release step in other hosting pipelines as well. Application startup does not run migrations independently in every replica.
+The GitHub Actions Compute Engine workflow validates the selected kwonserver image and configuration, pauses the existing API and worker, then performs that release command before starting their replacements. A failed migration or seed stops deployment and leaves the writers paused for repair. The `gcp-build` hook only builds; configure `npm run db:deploy` as the release step in other hosting pipelines as well. Application startup does not run migrations independently in every replica.
 
-Reference seeding covers packages, milestones, games, subscription plans, and geography. It preserves existing data and only initializes empty reference tables. The reference phase is transactional and serialized with a database lock, so failures roll it back and exit unsuccessfully. Game category topics are an exception: each run adds missing seed topics to existing categories matched by game name and category name. Existing topics and empty topic definitions are preserved. Other partial seed data and existing pricing/catalog entries are not reconciled automatically. Demo data is opt-in and never part of `db:deploy`.
+Reference seeding covers packages, milestones, games, subscription plans, and geography. Most reference tables are initialized only when empty; the gift catalog is synchronized on every release, replacing old entries while preserving gift history. The reference phase is transactional and serialized with a database lock, so failures roll it back and exit unsuccessfully. Game category topics are an exception: each run adds missing seed topics to existing categories matched by game name and category name. Existing topics and empty topic definitions are preserved. Other partial seed data and existing non-gift pricing/catalog entries are not reconciled automatically. Demo data is opt-in and never part of `db:deploy`.
 
 To backfill topics after editing `prisma/seed.ts`, from `kwonserver` run:
 
@@ -432,7 +432,7 @@ It runs in the existing deployment migration process.
 post. `GET /api/v1/posts/:id/gifters?page=1&limit=21` independently enforces ownership,
 returns stable gift pagination and totals from a repeatable-read snapshot, redacts
 anonymous identities, and excludes refunded/expired gifts. Results use
-`private, no-store`. Amounts are gross tip values in coins, not net TZX settlement.
+`private, no-store`. Amounts are gross gift values in coins; recipients receive 50% in coins.
 Legacy tips have no historical coin snapshot; their current package price is used
 only as an explicitly flagged estimate. New tips capture the package price inside
 the existing wallet transaction. Reporting never changes balances or settlements.
@@ -690,7 +690,7 @@ The new authenticated `/tasks` web page shows live progress, the day's reward,
 eligibility, disabled state, and a countdown to the next claim. The check button
 **checks and claims** when eligible; incomplete checks explain how many qualifying
 actions remain. Rewards are random integers from **5 to 15 bonus coins per task per
-UTC day**. They are credited to `Wallet.bonus`, not cash/credit. A daily rotation does
+UTC day**. They are credited to `Wallet.bonus`, not cash. A daily rotation does
 not reset the user's claim cooldown: each task unlocks **24 hours after that user's
 successful claim**. The response's reward is authoritative if midnight occurs while
 the page is open. Bonuses may legitimately repeat across days by random chance.
@@ -1362,3 +1362,45 @@ and is released after processing; interrupted runs can resume when it expires.
 Processing attempts are diagnostic only. Existing attempt counts start at zero,
 but existing refund ages are preserved. Historic terminal `CANCELLED` records
 remain terminal to prevent restoring coins a second time.
+
+
+### Coin-only gifts and catalog deployment
+
+The 50 gifts in `prisma/seed.ts` correspond to the generated
+`kwonweb2/public/static/tips/catalog.json`. Prices are stable randomized coin
+amounts (5–12,000 coins) and thumbnails use `/static/tips/<slug>.webp`.
+Post and profile gifts debit the sender's coins once, immediately pay 50% to the
+recipient in coins, and retain the other 50% as platform revenue in ledger metadata.
+Bonus cannot fund gifts. Both wallets, gift snapshots, ledger entries and the
+idempotency receipt commit together. Profile gifting uses authenticated
+`POST /api/v1/users/:id/gifts`; `Idempotency-Key` is required on both gift routes.
+
+Migration `20261014150000_coin_only_gifts` discards wallet credit balances and
+expires pending legacy tip rewards without converting them into coins. Historical
+ledger amounts remain under a non-spendable `RETIRED` currency. Coin subscriptions
+use the current `ChargeRate.price`; legacy wallet renewals are disabled.
+Old catalog entries are deleted by the seed, while gift names, thumbnails and
+value snapshots preserve gift history.
+
+The existing GitHub Actions workflow deploys pushes to `main` after its test job
+passes. The Docker build compiles the seed without accessing the database. On the
+VM, deployment validates the new image/configuration, pauses the existing API and
+worker, and runs `npm run db:deploy` using the existing runtime secrets. That
+command applies Prisma migrations, seeds reference data (including replacement of
+the gift catalog), and prepares analytics before starting the new API and worker.
+No manual migration or gift seed command is required for the normal CI/CD release.
+A migration/seed failure fails the release and leaves the old processes paused;
+repair and rerun deployment rather than starting an old image against a changed
+schema. This release includes a maintenance interval while database changes run.
+
+`KWONSERVER_ENV` already supplies `DATABASE_URL`. A direct
+`DATABASE_MIGRATION_URL`, when configured, is preferred for the release; existing
+Neon pooler URLs are resolved to their direct endpoint by the release script.
+No local database connection or new GitHub secret is needed when these runtime
+settings are already configured. Deploy kwonweb2 with its generated gift assets as
+part of the frontend's existing pipeline as well.
+
+The catalog replacement preserves gift history and does not reset users or coin
+balances. Re-running the seed keeps the same IDs/prices. For a standalone repair
+outside CI/CD, `npm run db:seed:tips` replaces only the gift catalog using configured
+PostgreSQL credentials; the normal release runs the complete reference seed.

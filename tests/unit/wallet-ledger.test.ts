@@ -10,6 +10,10 @@ it('locks distinct wallets in deterministic order',async()=>{const tx={$queryRaw
 it.each([['2026-01-31T12:00:00Z','MONTHLY','2026-02-28T12:00:00.000Z'],['2024-02-29T12:00:00Z','YEARLY','2025-02-28T12:00:00.000Z']] as const)('clamps the %s billing boundary', (start,cycle,end)=>expect(nextBillingDate(new Date(start),cycle).toISOString()).toBe(end));
 it('prices tiers, annual discounts and currencies from the catalog',()=>{
  const plan={price:5,ngnPrice:5000,discount:0.1,tier:[{id:'tier',price:10,ngnPrice:10000}]};
- expect(subscriptionPrice(plan,'YEARLY','TZX','tier')).toBe(108);expect(subscriptionPrice(plan,'MONTHLY','NGN','tier')).toBe(10000);
- expect(()=>subscriptionPrice(plan,'MONTHLY','TZX','forged')).toThrow();
+ expect(subscriptionPrice(plan,'YEARLY','COINS','tier',new Prisma.Decimal(1))).toBe(108);expect(subscriptionPrice(plan,'MONTHLY','NGN','tier')).toBe(10000);
+ expect(()=>subscriptionPrice(plan,'MONTHLY','COINS','forged',new Prisma.Decimal(1))).toThrow();
+});
+it('quotes subscriptions in coins using configured rates and rounds upward to a whole cent',()=>{
+ const plan={price:2,ngnPrice:2000,discount:0,tier:[]};expect(subscriptionPrice(plan,'MONTHLY','COINS',undefined,new Prisma.Decimal('.015'))).toBe(133.34);
+ for(const rate of [undefined,new Prisma.Decimal(0),new Prisma.Decimal(Infinity)])expect(()=>subscriptionPrice(plan,'MONTHLY','COINS',undefined,rate)).toThrow('rate');
 });

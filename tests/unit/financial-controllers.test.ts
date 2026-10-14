@@ -61,20 +61,20 @@ it.each([{ controller: c.getCoinsController, fn: 'coins' }, { controller: s.getS
   services[fn as keyof typeof services].mockResolvedValue({ status: 404, data: 'Not found' }); const res = response();
   await controller(req(), res); expect(res.statusCode).toBe(404); expect(res.body).toBe('Not found');
 });
-it.each(['TZX', 'USD'])('routes %s coin purchases to the correct service', async currency => {
+it.each(['COINS', 'USD'])('routes %s coin purchases to the correct service', async currency => {
   const request = req({ packageId: 'pack', currency, meta: { amount: 5, currency, gateway: 'FLUTTERWAVE', source: 'FIAT' } });
   await c.purchaseCoinsController(request, response());
-  const service = currency === 'TZX' ? services.walletCoins : services.tokenCoins;
+  const service = currency === 'COINS' ? services.walletCoins : services.tokenCoins;
   expect(service).toHaveBeenCalledWith(expect.objectContaining({ id: 'pack', currency }), request.user);
-  expect(currency === 'TZX' ? services.tokenCoins : services.walletCoins).not.toHaveBeenCalled();
+  expect(currency === 'COINS' ? services.tokenCoins : services.walletCoins).not.toHaveBeenCalled();
 });
 it('rejects invalid coin purchase payloads', async () => {
   const res = response(); await c.purchaseCoinsController(req(), res); expect(res.statusCode).toBe(400); expect(services.tokenCoins).not.toHaveBeenCalled();
 });
 const sub = { planId: 'pro', planName: 'Pro', amount: 5, currency: 'USD', gateway: 'FLUTTERWAVE', source: 'FIAT', planType: 'MONTHLY', isRecurring: false };
-it.each(['TZX', 'USD'])('routes %s subscriptions for the authenticated owner', async currency => {
+it.each(['COINS', 'USD'])('routes %s subscriptions for the authenticated owner', async currency => {
   await s.subscriptionPremiumController(req({ ...sub, currency }), response());
-  expect(currency === 'TZX' ? services.walletSub : services.externalSub).toHaveBeenCalledWith({ ...sub, currency }, 'owner');
+  expect(currency === 'COINS' ? services.walletSub : services.externalSub).toHaveBeenCalledWith({ ...sub, currency }, 'owner');
 });
 it('rejects invalid subscription payloads', async () => {
   const res = response(); await s.subscriptionPremiumController(req(), res); expect(res.statusCode).toBe(400); expect(services.externalSub).not.toHaveBeenCalled();
@@ -93,7 +93,7 @@ it.each([
   { controller: w.getTxnHistoryController, fn: 'history', body: {} },
   { controller: w.claimDailyBonusController, fn: 'bonus', body: { amount: 5, type: 'BONUS', date: '2026-10-02' } },
   { controller: w.claimDailyTaskController, fn: 'task', body: { id: 't' } },
-  { controller: c.purchaseCoinsController, fn: 'walletCoins', body: { packageId: 'p', currency: 'TZX' } },
+  { controller: c.purchaseCoinsController, fn: 'walletCoins', body: { packageId: 'p', currency: 'COINS' } },
   { controller: s.getSubscriptionPlansController, fn: 'plans', body: {} },
   { controller: s.subscriptionPremiumController, fn: 'externalSub', body: sub },
   { controller: s.cancelSubscriptionController, fn: 'cancel', body: { id: 'sub' } },

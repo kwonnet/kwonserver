@@ -14,6 +14,12 @@ export async function syncRedisTxnsToPrisma(playerId: string) {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text`;
       for (const record of records) {
         const item = JSON.parse(record.value);
+        // Archive retired currency records without restoring the discontinued balance.
+        if (item.currency === 'TZX') {
+          item.currency = 'RETIRED';
+          if (item.status === 'PENDING') item.status = 'FAILED';
+        }
+        if (item.source === 'CREDIT') item.source = 'RETIRED';
         if (item.userId !== playerId || !item.txnRef || !Number.isFinite(new Date(item.createdAt).getTime())) throw new Error('Invalid legacy ledger record; retained for reconciliation');
         cents(item.amount, true);
         // Handles rows imported by the old worker as well as retries after Redis failures.

@@ -80,9 +80,10 @@ it('stores paid chat once and retains history for recovery after a missed broadc
  expect(await redis.lRange(`room:${roomId}:paid-messages`,0,-1)).toHaveLength(1);
 });
 it('stores fractional currency exactly across repeated changes',async()=>{
- await db.wallet.update({where:{userId},data:{credit:0}});
- for(let i=0;i<10;i++)await db.wallet.update({where:{userId},data:{credit:{increment:'0.10'}}});
- expect((await wallet()).credit.toFixed(2)).toBe('1.00');
+ await db.wallet.update({where:{userId},data:{coins:0}});
+ for(let i=0;i<10;i++)await db.wallet.update({where:{userId},data:{coins:{increment:'0.10'}}});
+ expect((await wallet()).coins.toFixed(2)).toBe('1.00');
+
 });
 it('moves a vote atomically and refunds a duplicate target without duplicating votes',async()=>{
  await redis.hSet(`room:${roomId}`,{status:'VOTE'});

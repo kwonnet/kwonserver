@@ -134,6 +134,6 @@ module.exports = { mode, enableExtensions, prepareAnalytics, backfill, releaseUr
 if (require.main === module) main().catch(error => {
   // PostgreSQL messages may contain URL/user data; expose only known safe setup errors.
   const safe = /^(TIMESCALEDB_MODE|Database host|DATABASE_URL|Analytics setup|Use extensions)/.test(error.message);
-  console.error(safe ? error.message : `Database analytics setup failed (${error.code || 'connection/query failure'}). Check extension privileges, shared_preload_libraries and a direct database connection. Existing API/worker containers have not been replaced.`);
+  console.error(safe ? error.message : `Database analytics setup failed (${error.code || 'connection/query failure'}). Check extension privileges, shared_preload_libraries and a direct database connection. The release has not completed; API/worker may be paused by deployment. Repair the release before restarting services.`);
   process.exitCode = 1;
 });

@@ -1155,8 +1155,11 @@ model PostTip {
   recipient       User         @relation("PostTipsReceived", fields: [recipientId], references: [id], onDelete: Cascade)
   postId          String?
   post            Post?        @relation(fields: [postId], references: [id], onDelete: Cascade)
-  tipId           String
-  tip             TipPackage   @relation(fields: [tipId], references: [id], onDelete: Cascade)
+  tipId           String?
+  tip             TipPackage?  @relation(fields: [tipId], references: [id], onDelete: SetNull)
+  giftName        String?
+  giftThumbnail   String?
+  giftCoinsSnapshot Decimal? @db.Decimal(20,2)
   rewardTip       RewardTip?   
   coinsAmount     Decimal? @db.Decimal(20, 2) // Immutable gross coin value; null for legacy tips
   message         String?
@@ -1216,7 +1219,6 @@ model CoinPackage {
 
 model Wallet {
   id           String        @id @default(cuid())
-  credit       Decimal @db.Decimal(20, 2)         @default(0) // Credit that can be withrawn by the user
   coins        Decimal @db.Decimal(20, 2)         @default(0) // Coins purchased by the user
   bonus        Decimal @db.Decimal(20, 2)         @default(0) // Interaction-based rewards
   userId       String        @unique @map("user_id")
@@ -1243,7 +1245,7 @@ model Transaction {
   recipient      User?             @relation("Recipient", fields: [recipientId], references: [id])
   type           TxnTypeEnum
   amount         Decimal @db.Decimal(20, 2) // The amount involved in the transaction (coins, credits, etc.)
-  source         TxnSourceEnum // Type of balance used (e.g., 'bonus', 'amount', 'credit', etc.)
+  source         TxnSourceEnum // Type of balance used (e.g., coins or bonus)
   description    String
   category       TxnCategoryEnum // The category of the transaction (e.g., 'game-deduction', 'purchase', 'gift', 'subscription')
   metadata       Json? // Any other data for specific transactions (e.g., game round ID, item ID, content ID, etc.)
@@ -1412,17 +1414,17 @@ model GameMonthRewardStat {
   totalParticipants        Float // Total participants under the game category
   rewardParticipants       Float // No of participants rewarded under the game category
   coinsRewardParticipants  Float // No of participants rewarded coins under the game category 
-  creditRewardParticipants Float // No of participants rewarded credit under the game category
+  topCoinsRewardParticipants Float // No of participants rewarded top-tier coins under the game category
   bonusRewardParticipants  Float // No of participants rewarded bonus under the game category
-  creditParticipantsScore  Float // Total score by the credit participants
+  topCoinsParticipantsScore  Float // Total score by the top-tier coin participants
   coinsParticipantsScore   Float // Total score by the coins participants
   bonusParticipantsScore   Float // Total score by the bonus participants
   numPlayed                Float // Number of times played
   coinsSpent               Decimal @db.Decimal(20, 2) // Amount of coins spent in the game
   bonusSpent               Decimal @db.Decimal(20, 2) // Amount of bonus spent in the game
-  creditShareAmount        Decimal @db.Decimal(20, 2) // Amount of credit shared to the credit reward participant
+  topCoinsShareAmount        Decimal @db.Decimal(20, 2) // Coins shared to top-tier reward participants
   coinsShareAmount         Decimal @db.Decimal(20, 2) // Amount of coins shared to the coins reward participant
-  bonusShareAmount         Decimal @db.Decimal(20, 2) // Amount of credit shared to the bonus reward participant
+  bonusShareAmount         Decimal @db.Decimal(20, 2) // Bonus shared to bonus reward participants
   rewardParticipantsScore  Float // Total score of rewarded participants
   totalScore               Float // Total score of the participants under the game category
   year                     Int // Year of the game category
@@ -1646,7 +1648,6 @@ enum RewardReasonEnum {
 enum RewardTypeEnum {
   COINS
   BONUS
-  CREDIT
 }
 
 enum MilestoneNameEnum {
@@ -1666,7 +1667,7 @@ enum RevenueSourceEnum {
 }
 
 enum TxnCurrencyEnum {
-  TZX
+  RETIRED // Historical wallet entries; never accepted for new payments.
   TON // Historical ledger value; rejected for new payments.
   XTR // Historical ledger value; rejected for new payments.
   USDT
@@ -1686,7 +1687,7 @@ enum TxnSourceEnum {
   BONUS
   COINS_BONUS
   STARS // Historical ledger value; rejected for new payments.
-  CREDIT
+  RETIRED // Historical wallet balance source.
   FIAT
   CRYPTO
   VIRTUAL
@@ -1887,6 +1888,7 @@ enum TipKindEnum {
 } 
 
 enum TipSource {
+  PROFILE
   POST
   SPARK
   LIVE

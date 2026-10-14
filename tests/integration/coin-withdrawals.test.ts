@@ -15,7 +15,7 @@ beforeAll(async()=>{
  vi.stubEnv('FLUTTERWAVE_SECK','FLWSECK_TEST_fixture');vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');vi.stubEnv('AUTH_EMAIL_TOKEN_SECRET','test-withdrawal-secret-at-least-32-characters');
  const continent=await db.continent.create({data:{id:'withdrawal-fixture-continent',code:'XW',name:'Withdrawal fixture continent'}});
  const country=await db.country.create({data:{id:'withdrawal-fixture-country',name:'Withdrawal fixture country',iso2:'XW',iso3:'XWW',emoji:'withdrawal-flag',continentId:continent.id}});
- for(const id of [buyer,other,admin])await db.user.create({data:{id,role:id===admin?'ADMIN':'USER',emailVerifiedAt:new Date(),name:'Withdrawal User',username:id,email:`${id}@example.test`,countryId:country.id,wallet:{create:{coins:10000,bonus:100,credit:200}}}});
+ for(const id of [buyer,other,admin])await db.user.create({data:{id,role:id===admin?'ADMIN':'USER',emailVerifiedAt:new Date(),name:'Withdrawal User',username:id,email:`${id}@example.test`,countryId:country.id,wallet:{create:{coins:10000,bonus:100,}}}});
  rate=await db.chargeRate.findUnique({where:{id:'default'}});
  await db.chargeRate.upsert({where:{id:'default'},create:{id:'default',price:.015,minWithdrawal:5,fee:.25,ngnPrice:18,minNgnWithdrawal:1000,ngnFee:.2},update:{price:.015,minWithdrawal:5,fee:.25,ngnPrice:18,minNgnWithdrawal:1000,ngnFee:.2}});
 });
@@ -24,7 +24,7 @@ beforeEach(async()=>{
  await db.user.update({where:{id:buyer},data:{email:`${buyer}@example.test`,emailVerifiedAt:new Date(),withdrawalRestricted:false}});
  await db.chargeRate.update({where:{id:'default'},data:{withdrawalsEnabled:true,maxWithdrawal:5000,maxNgnWithdrawal:5000000,reviewWithdrawal:2500,reviewNgnWithdrawal:2500000}});
  await db.coinWithdrawal.deleteMany({where:{userId:buyer}});await db.transaction.deleteMany({where:{userId:buyer}});await db.walletOperation.deleteMany({where:{scope:`withdrawal:${buyer}`}});
- await db.wallet.update({where:{userId:buyer},data:{coins:10000,bonus:100,credit:200,isLocked:false}});
+ await db.wallet.update({where:{userId:buyer},data:{coins:10000,bonus:100,isLocked:false}});
  provider.prepare.mockReset();provider.run.mockReset();
  provider.prepare.mockResolvedValue({receiveAmount:'56.25',receiveCurrency:'USDC',expiresAt:new Date(Date.now()+60000),data:{request:{account_number:destination.address,account_bank:'BASE',amount:57.75,currency:'USDC',debit_currency:'USD'},sourceRequired:'59.25'}});
  provider.run.mockImplementation(async(row,save)=>{await save({stage:'PAYOUT_ACCEPTED',providerId:`payout-${row.id}`});return {status:'PROCESSING'};});
@@ -42,7 +42,7 @@ it('concurrent confirmation reserves coins once and starts one payout',async()=>
  const before=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});expect(before.coins.toNumber()).toBe(10000);
  await Promise.all(Array.from({length:8},()=>confirmCoinWithdrawal(buyer,q.id,'withdraw-fixture-same-key')));
  const wallet=await db.wallet.findUniqueOrThrow({where:{userId:buyer}});
- expect(wallet.coins.toNumber()).toBe(5000);expect(wallet.bonus.toNumber()).toBe(100);expect(wallet.credit.toNumber()).toBe(200);
+ expect(wallet.coins.toNumber()).toBe(5000);expect(wallet.bonus.toNumber()).toBe(100)
  expect(await db.transaction.count({where:{userId:buyer,type:'DEBIT',category:'COIN_WITHDRAWAL'}})).toBe(1);expect(provider.run.mock.calls.filter(([row])=>row.stage==='PREPARED')).toHaveLength(1);
 });
 it('repeated confirmation with different keys still cannot debit the same quote twice',async()=>{
@@ -69,7 +69,7 @@ it('binds quotes, confirmation and status to the authenticated owner',async()=>{
  expect(await listCoinWithdrawals(other)).toEqual([]);expect(provider.run).not.toHaveBeenCalled();
 });
 it('rechecks wallet availability at confirmation, excluding bonus and credit',async()=>{
- const q=await quote();await db.wallet.update({where:{userId:buyer},data:{coins:4999,bonus:999999,credit:999999}});
+ const q=await quote();await db.wallet.update({where:{userId:buyer},data:{coins:4999,bonus:999999,}});
  await expect(confirmCoinWithdrawal(buyer,q.id,'withdraw-fixture-short-key')).rejects.toThrow('Insufficient coin balance');expect(provider.run).not.toHaveBeenCalled();
 });
 it('rejects stale rate and expired quotes without debiting coins or sending payouts',async()=>{

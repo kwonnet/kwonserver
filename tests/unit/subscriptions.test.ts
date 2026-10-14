@@ -1,8 +1,9 @@
+import {Prisma} from '@prisma/client';
 import { setupWalletTransaction } from './wallet-fixture';
 import { markVerifiedPayment } from '@/services/walletLedger/verifiedPayment';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { resetMocks } from './fixtures';
-const db = vi.hoisted(() => ({ user: { findFirst: vi.fn(), update: vi.fn() },
+const db = vi.hoisted(() => ({ chargeRate:{findUniqueOrThrow:vi.fn()}, user: { findFirst: vi.fn(), update: vi.fn() },
   subscriptionPlan: { findMany: vi.fn(), findUnique: vi.fn() }, wallet: { findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
   subscription: { findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), create: vi.fn() },
   transaction: { findFirst: vi.fn(), create: vi.fn() }, $transaction: vi.fn() }));
@@ -14,14 +15,14 @@ vi.mock('@/cron/utils', () => ({ addSubscriptionCronJob: jobs.add, removeSubscri
 import * as s from '@/services/v1/subscriptions';
 const plan = { id: 'pro', name: 'Pro', price: 5, ngnPrice: 5000, discount: 0, tier: [{ id: 'gold', name: 'Gold' }] };
 const user = { id: 'u', userType: 'PERSONAL', accountVerifiedAt: null };
-const wallet = { id: 'w', credit: 100, isLocked: false };
-const item: any = { idempotencyKey: 'purchase-test-1', planId: 'pro', amount: 5, currency: 'TZX', planType: 'MONTHLY', isRecurring: true,
-  gateway: 'WALLET', source: 'CREDIT', planName: 'Pro', meta: { tierId: 'gold', txnRef: 'external' } };
+const wallet = { id: 'w', coins: 100, isLocked: false };
+const item: any = { idempotencyKey: 'purchase-test-1', planId: 'pro', amount: 5, currency: 'COINS', planType: 'MONTHLY', isRecurring: true,
+  gateway: 'WALLET', source: 'COINS', planName: 'Pro', meta: { tierId: 'gold', txnRef: 'external' } };
 const existing = (overrides = {}): any => ({ id: 'sub', userId: 'u', planId: 'pro', billingCycle: 'MONTHLY', isRecurring: true,
   startDate: new Date('2026-09-01'), endDate: new Date('2026-10-01'), status: 'ACTIVE', isPrimary: true, meta: { tierId: 'gold' },
-  metadata: [{ previous: true }], user, plan, transactions: [{ amount: 5, currency: 'TZX', metadata: {} }], ...overrides });
+  metadata: [{ previous: true }], user, plan, transactions: [{ amount: 5, currency: 'COINS', metadata: {} }], ...overrides });
 beforeEach(() => {
-  resetMocks(db); resetMocks(jobs); vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-01T12:00:00Z'));
+  resetMocks(db); resetMocks(jobs); db.chargeRate.findUniqueOrThrow.mockResolvedValue({price:new Prisma.Decimal(1)}); vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-01T12:00:00Z'));
   db.user.findFirst.mockResolvedValue(user); db.subscriptionPlan.findUnique.mockResolvedValue(plan); db.wallet.findFirst.mockResolvedValue(wallet);
   db.subscription.findFirst.mockResolvedValue(null); db.subscription.findUnique.mockResolvedValue(existing());
   db.subscription.create.mockImplementation(async ({ data }) => ({ id: 'sub', ...data }));
@@ -48,7 +49,7 @@ it.each(buy)('$name requires a user and a plan', async ({ run }) => {
   db.user.findFirst.mockResolvedValueOnce(null); expect((await run()).status).toBe(400);
   db.subscriptionPlan.findUnique.mockResolvedValue(null); expect((await run()).status).toBe(400); expect(db.$transaction).not.toHaveBeenCalled();
 });
-it.each([{ value: { ...wallet, isLocked: true } }, { value: { ...wallet, credit: 4.99 } }])('rejects missing, locked or underfunded wallets', async ({ value }) => {
+it.each([{ value: { ...wallet, isLocked: true } }, { value: { ...wallet, coins: 4.99 } }])('rejects missing, locked or underfunded wallets', async ({ value }) => {
   db.wallet.findFirst.mockResolvedValue(value); expect((await s.purchaseAppSubscriptionWithWallet(item, 'u')).status).toBe(400); expect(db.wallet.update).not.toHaveBeenCalled();
 });
 for (const purchase of buy) {
@@ -86,13 +87,13 @@ it.each([{ sub: null }, { sub: existing({ transactions: [] }) }])('requires a su
   db.subscription.findUnique.mockResolvedValue(sub); expect((await s.renewAppSubscriptionWithWallet('sub')).status).toBe(404);
   expect(db.wallet.update).not.toHaveBeenCalled();
 });
-it.each([{ value: null, status: 404 }, { value: { ...wallet, credit: 4.99 }, status: 400 }])('checks renewal wallet availability and balance', async ({ value, status }) => {
+it.each([{ value: null, status: 404 }, { value: { ...wallet, coins: 4.99 }, status: 400 }])('checks renewal wallet availability and balance', async ({ value, status }) => {
   db.wallet.findFirst.mockResolvedValue(value); expect((await s.renewAppSubscriptionWithWallet('sub')).status).toBe(status); expect(db.$transaction).not.toHaveBeenCalled();
 });
 it.each(['MONTHLY', 'YEARLY'])('renews %s using the last settled amount and archives the previous period', async cycle => {
   db.subscription.findUnique.mockResolvedValue(existing({ billingCycle: cycle }));
   expect(await s.renewAppSubscriptionWithWallet('sub')).toMatchObject({ status: 200, isError: false });
-  expect(db.wallet.update).toHaveBeenCalledWith({ where: { userId: 'u' }, data: { isLocked: true, credit: { decrement: 5 } } });
+  expect(db.wallet.update).toHaveBeenCalledWith({ where: { userId: 'u' }, data: { isLocked: true, coins: { decrement: 5 } } });
   expect(db.wallet.update).toHaveBeenLastCalledWith({ where: { userId: 'u' }, data: { isLocked: false } });
   expect(db.subscription.update).toHaveBeenCalledWith({ where: { id: 'sub' }, data: expect.objectContaining({ billingCycle: cycle, isPrimary: true,
     endDate: new Date(cycle === 'MONTHLY' ? '2026-11-01T12:00:00Z' : '2027-10-01T12:00:00Z') }) });
@@ -150,7 +151,7 @@ it('allows catalog plans without a tier',async()=>{
  expect((await s.purchaseAppSubscriptionWithWallet({...item,meta:undefined},'u')).status).toBe(200);
  expect(db.transaction.create).toHaveBeenCalledWith({data:expect.objectContaining({amount:5})});
 });
-it.each([{isLocked:true},{credit:0}])('rechecks the renewal wallet inside the transaction %j',async override=>{
+it.each([{isLocked:true},{coins:0}])('rechecks the renewal wallet inside the transaction %j',async override=>{
  db.wallet.findUniqueOrThrow.mockResolvedValue({...wallet,...override});
  expect((await s.renewAppSubscriptionWithWallet('sub')).isError).toBe(true);expect(db.wallet.update).not.toHaveBeenCalled();
 });
@@ -176,3 +177,5 @@ it.each(['wallet','external','cancel'])('does not turn committed %s operations i
  const result=kind==='cancel'?await s.cancelAppSubscription({subId:'sub',status:'CANCELLED' as any}):await buy[kind==='wallet'?0:1].run({...item,isRecurring:false});
  expect(result.status).toBe(200);
 });
+
+it('refuses a queued recurring charge funded through a retired wallet currency',async()=>{db.subscription.findUnique.mockResolvedValue(existing({transactions:[{amount:5,currency:'RETIRED',metadata:{}}]}));expect((await s.renewAppSubscriptionWithWallet('sub')).status).toBe(400);expect(db.wallet.update).not.toHaveBeenCalled();});

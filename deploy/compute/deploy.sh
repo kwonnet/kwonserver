@@ -67,9 +67,22 @@ rm -f "$BUNDLE/registry-token"
 python3 "$BUNDLE/check-cloud-logging.py"
 docker pull "$IMAGE"
 docker pull caddy:2-alpine
-# Validation and migrations precede replacement of the running application.
+# Validate the release before pausing writers for schema changes.
 docker run --rm -v "$WORK/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
-docker run --rm --env-file "$WORK/app.env" "$IMAGE" sh -c 'if [ -n "$DATABASE_MIGRATION_URL" ]; then export DATABASE_URL="$DATABASE_MIGRATION_URL"; fi; exec npm run db:deploy'
+# Old processes must not access columns removed by this release's migrations.
+# Keep their containers for diagnostics, but never restart an old image after a
+# possibly committed schema change. A failed release remains paused for repair.
+for container in kwonserver kwonserver-worker; do
+  if docker container inspect "$container" >/dev/null 2>&1; then docker stop --time 30 "$container" >/dev/null; fi
+done
+echo 'Applying database migrations and reference seeds, including the gift catalog.'
+if docker run --rm --env-file "$WORK/app.env" "$IMAGE" sh -c 'if [ -n "$DATABASE_MIGRATION_URL" ]; then export DATABASE_URL="$DATABASE_MIGRATION_URL"; fi; exec npm run db:deploy'; then
+  echo 'Database release complete; starting the new API and worker.'
+else
+  release_status=$?
+  echo 'Database migration or seed failed. API and worker remain paused; repair the database release and rerun deployment. Do not restart an old image against the changed schema.' >&2
+  exit "$release_status"
+fi
 docker network inspect kwonserver-production >/dev/null 2>&1 || docker network create kwonserver-production >/dev/null
 if [[ -f "$ENV_FILE" ]]; then install -m 600 "$ENV_FILE" "$ROOT/history/$(date -u +%Y%m%dT%H%M%S)-runtime.env"; fi
 install -m 600 "$WORK/app.env" "$ENV_FILE"

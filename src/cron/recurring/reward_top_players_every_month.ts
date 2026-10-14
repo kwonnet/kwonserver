@@ -45,7 +45,7 @@ const getRewardParticipantCounts = (count: number) => {
 const calculateRewardAmounts = (coinsSpent: number) => {
   const shareCoinsAmount = Math.floor(coinsSpent * 0.1);
   return {
-    creditShareAmount: Math.floor((shareCoinsAmount * 0.2) / 2.2), // TZX (1 TZX = 2.2 coins)
+    topCoinsShareAmount: Math.floor(shareCoinsAmount * 0.2),
     coinsShareAmount: Math.floor(shareCoinsAmount * 0.3),
     bonusShareAmount: Math.floor(shareCoinsAmount * 0.5),
   };
@@ -110,10 +110,7 @@ const distributeReward = async ({
   const milestone = milestones.find((m) => m.milestone === player.rank);
   // Determine wallet field to update based on reward type
   const walletField =
-    rewardType === "CREDIT"
-      ? { credit: { increment: rewardAmount } }
-      : rewardType === "COINS"
-      ? { coins: { increment: rewardAmount } }
+    rewardType === "COINS" ? {coins: {increment: rewardAmount}}
       : { bonus: { increment: rewardAmount } };
   // sync redis user wallet to prisma
   await syncRedisUserWalletToPrisma(player.id);
@@ -155,7 +152,6 @@ const distributeReward = async ({
         amount: rewardAmount,
         gateway: TxnGatewayEnum.WALLET,
         source: rewardType === "COINS" ? TxnSourceEnum.COINS
-            : rewardType === "CREDIT" ? TxnSourceEnum.CREDIT 
             : TxnSourceEnum.BONUS,
         type: TxnTypeEnum.CREDIT,
         status: TxnStatusEnum.COMPLETED,
@@ -208,9 +204,9 @@ const rewardMonthlyPlayers = async (item: {
     const totalRewardParticipants = getRewardParticipantCounts(participantCount);
 
     logger.info(`Total Reward category participants: ${totalRewardParticipants}`)
-    // get number of participant to shared credit, coins and bonus
+    // get number of participant to share top-tier coins, other coins and bonus
     const rewardTiers = {
-      credit: Math.floor(0.2 * totalRewardParticipants),
+      topCoins: Math.floor(0.2 * totalRewardParticipants),
       coins: Math.floor(0.3 * totalRewardParticipants),
       bonus: Math.floor(0.5 * totalRewardParticipants),
     };
@@ -232,32 +228,32 @@ const rewardMonthlyPlayers = async (item: {
     // deduct total bonus spent form amount of real coins spent
     const totalCoinsSpent = Math.floor(spentAmount.coins - totalBonusSpent);
     logger.info({data: totalCoinsSpent}, `totalCoinsSpent after Bonus :`);
-    // get the credit, coins and bonus to spend
+    // get the top-tier coins, other coins and bonus to spend
     const rewardAmounts = calculateRewardAmounts(totalCoinsSpent);
     logger.info({data: rewardAmounts}, `rewardAmounts: `);
     // calculate reward rank range
     const rankRange = {
-      credit: rewardTiers.credit,
-      coins: rewardTiers.credit + rewardTiers.coins,
-      bonus: rewardTiers.credit + rewardTiers.coins + rewardTiers.bonus
+      topCoins: rewardTiers.topCoins,
+      coins: rewardTiers.topCoins + rewardTiers.coins,
+      bonus: rewardTiers.topCoins + rewardTiers.coins + rewardTiers.bonus
     }
     // get the reward for each tier
     const [
-      creditParticipantsScore,
+      topCoinsParticipantsScore,
       coinsParticipantsScore,
       bonusParticipantsScore,
     ] = await Promise.all([
-      sumParticipantScores(keys.rewardMonth,0, rewardTiers.credit),
-      sumParticipantScores(keys.rewardMonth, rankRange.credit, rewardTiers.coins),
+      sumParticipantScores(keys.rewardMonth,0, rewardTiers.topCoins),
+      sumParticipantScores(keys.rewardMonth, rankRange.topCoins, rewardTiers.coins),
       sumParticipantScores(keys.rewardMonth, rankRange.coins, rewardTiers.bonus)
     ])
-    if ((rewardTiers.credit && !creditParticipantsScore) || (rewardTiers.coins && !coinsParticipantsScore) || (rewardTiers.bonus && !bonusParticipantsScore)) return;
+    if ((rewardTiers.topCoins && !topCoinsParticipantsScore) || (rewardTiers.coins && !coinsParticipantsScore) || (rewardTiers.bonus && !bonusParticipantsScore)) return;
     logger.info({
-      creditParticipantsScore,
+      topCoinsParticipantsScore,
       coinsParticipantsScore,
       bonusParticipantsScore,
     }, `Reward participants total score: `);
-    // 
+    //
     const batchSize = 200;
     let page = 1;
     let totalFetched = 0
@@ -283,22 +279,22 @@ const rewardMonthlyPlayers = async (item: {
           const rank = player.rank;
           // get reward amount of each participant based on their rank's tier
           const rewardAmount =
-            rank <= rankRange.credit
-              ? (player.score / creditParticipantsScore) * rewardAmounts.creditShareAmount
+            rank <= rankRange.topCoins
+              ? (player.score / topCoinsParticipantsScore) * rewardAmounts.topCoinsShareAmount
               : rank <= rankRange.coins
               ? (player.score / coinsParticipantsScore) * rewardAmounts.coinsShareAmount
               : (player.score / bonusParticipantsScore) * rewardAmounts.bonusShareAmount;
           // get reward type
           const rewardType =
-            rank <= rankRange.credit
-              ? "CREDIT"
+            rank <= rankRange.topCoins
+              ? "COINS"
               : rank <= rankRange.coins
               ? "COINS"
               : "BONUS";
           // get reward currency
           const rewardCurrency =
-            player.rank <= rankRange.credit
-              ? TxnCurrencyEnum.TZX
+            player.rank <= rankRange.topCoins
+              ? TxnCurrencyEnum.COINS
               : TxnCurrencyEnum.COINS;
           // logger.info(`${player.name }'s rank is ${rank} and score is ${player.score} with reward ${rewardAmount} ${rewardType} - ${rewardCurrency}`);
           // distribute reward to the participants
@@ -327,15 +323,15 @@ const rewardMonthlyPlayers = async (item: {
         totalParticipants: participantCount,
         bonusSpent: spentAmount.bonus,
         coinsSpent: spentAmount.coins,
-        rewardParticipantsScore: (creditParticipantsScore +
+        rewardParticipantsScore: (topCoinsParticipantsScore +
         coinsParticipantsScore + bonusParticipantsScore),
-        creditParticipantsScore,
+        topCoinsParticipantsScore,
         coinsParticipantsScore,
         bonusParticipantsScore,
         rewardParticipants: totalRewardParticipants,
         coinsRewardParticipants: rewardTiers.coins,
         bonusRewardParticipants: rewardTiers.bonus,
-        creditRewardParticipants: rewardTiers.credit,
+        topCoinsRewardParticipants: rewardTiers.topCoins,
         numPlayed: monthStat?.numPlayed ?? 0,
         totalScore: monthStat?.score ?? 0,
         month: keys.dateInfo.month,

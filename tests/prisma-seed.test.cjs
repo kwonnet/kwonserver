@@ -22,6 +22,7 @@ function load({ demo = false, failure = false, topicsOnly = false } = {}) {
     tx[name] = { count: async () => { if (failure) throw new Error('Database failure'); return 1; } };
   }
   tx.gameCategory = { findMany: async () => [], update: async () => { throw new Error("Unexpected update"); } };
+  tx.tipPackage.upsert=async()=>({});tx.tipPackage.deleteMany=async()=>({count:0});
   const prisma = { $transaction: async callback => { transactions++; return await callback(tx); } };
   const exports = {};
   const requireMock = name => {
@@ -84,4 +85,10 @@ test('topic sync propagates write errors so the seed transaction rolls back', as
     findMany: async () => [{ id: 'c', name: 'Category', game: { name: 'Game' }, topics: [] }],
     update: async () => { throw new Error('Write failed'); },
   } }, [{ name: 'Game', categories: [{ name: 'Category', topics: ['Topic'] }] }]), /Write failed/);
+});
+test('generated gift catalog uses stable IDs, thumbnails and affordable coin prices',()=>{
+ const exports={};const requireMock=name=>name==='@prisma/adapter-pg'?{PrismaPg:class{}}:name==='@prisma/client'?{...generated,PrismaClient:class{}}:name==='@faker-js/faker'?{faker:{}}:require(name);
+ vm.runInNewContext(output,{exports,module:{exports},require:requireMock,process:{env:{},argv:[]},console});
+ const gifts=JSON.parse(JSON.stringify(exports.tipPackages));assert.equal(gifts.length,50);assert.equal(new Set(gifts.map(g=>g.id)).size,50);
+ for(const gift of gifts){assert.equal(gift.thumbnail,`/static/tips/${gift.id}.webp`);assert.ok(Number.isInteger(gift.price)&&gift.price>=5&&gift.price<=12500);assert.ok(gift.name);}
 });

@@ -10978,3 +10978,8 @@ export async function getUserInteractionHistory(userId: string) {
 export async function getPublicProfileMetadata(identifier: string) {
   return prisma.user.findFirst({where: {username: {equals: identifier.replace(/^@/, ''), mode: 'insensitive'}, status: 'ACTIVE', isPrivate: false, deletedAt: null, deactivatedAt: null}, select: {name: true, username: true, bio: true, avatar: true}});
 }
+
+import {createPostTip} from '@/services/v1/posts';
+export async function createUserGift(args:Omit<Parameters<typeof createPostTip>[0],'postId'>,user:SessionUser){
+  return await createPostTip(args,user);
+}

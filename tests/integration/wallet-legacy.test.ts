@@ -32,3 +32,10 @@ it('imports every transaction key in Redis scan batches',async()=>{
   }
  } finally {await redis.del(`user:${second}:transactions`);await db.user.delete({where:{id:second}});}
 });
+
+it('archives retired pending currency records without restoring coins or bonus',async()=>{
+ await redis.zAdd(key,[{score:3000,value:JSON.stringify({userId,txnRef:'retired-queued-tip',amount:12,type:'CREDIT',status:'PENDING',gateway:'WALLET',source:'CREDIT',currency:'TZX',category:'POST_TIP',description:'Old tip',createdAt:'2026-10-01T00:00:00Z',metadata:{}})}]);
+ await syncRedisTxnsToPrisma(userId);
+ expect(await db.transaction.findFirst({where:{userId,txnRef:'retired-queued-tip'}})).toMatchObject({currency:'RETIRED',source:'RETIRED',status:'FAILED'});
+ expect(moneyJson((await db.wallet.findUniqueOrThrow({where:{userId}})).coins)).toBe(50);expect(await redis.zCard(key)).toBe(0);
+});

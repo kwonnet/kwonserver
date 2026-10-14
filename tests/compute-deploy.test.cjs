@@ -23,7 +23,7 @@ args=sys.argv[1:]
 with open(os.environ['CALL_LOG'],'a') as log: log.write(json.dumps(args)+'\n')
 if args[:2]==['image','prune'] and os.environ.get('FAIL_PRUNE'): sys.exit(23)
 if args[0]=='login': sys.stdin.read()
-if args[:2]==['container','inspect']: sys.exit(1)
+if args[:2]==['container','inspect']: sys.exit(0 if os.environ.get('EXISTING_CONTAINERS') else 1)
 if args[0]=='logs': print('Startup error: missing configuration; '+os.environ.get('LOG_SECRET',''))
 if args[0]=='inspect' and os.environ.get('FAIL_HEALTH'):
     print('unhealthy'); sys.exit(0)
@@ -117,4 +117,20 @@ test('post-release cleanup failure warns without failing a healthy deployment', 
   const f=fixture(t), r=f.run({FAIL_PRUNE:'1'}); assert.equal(r.status,0,r.stderr);
   assert.match(r.stderr,/release succeeded, but unused image cleanup failed/);
   assert.equal(fs.readFileSync(path.join(f.root,'runtime/image'),'utf8'),image+'\n');
+});
+
+
+test('pauses existing API and worker before migrating and seeding, then starts the tested image',t=>{
+  const f=fixture(t),r=f.run({EXISTING_CONTAINERS:'1'});assert.equal(r.status,0,r.stderr);
+  const calls=f.calls(),release=calls.findIndex(args=>args.some(value=>value.includes('exec npm run db:deploy')));
+  for(const name of ['kwonserver','kwonserver-worker']) {
+    assert.ok(calls.findIndex(args=>args[0]==='stop'&&args.includes(name))<release);
+    assert.ok(calls.findIndex(args=>args[0]==='run'&&args.includes('--name')&&args.includes(name))>release);
+  }
+});
+test('failed database release leaves old writers paused without restarting or deleting them',t=>{
+  const f=fixture(t),r=f.run({EXISTING_CONTAINERS:'1',FAIL_MIGRATION:'1'});assert.equal(r.status,42);
+  const calls=f.calls();assert.equal(calls.filter(args=>args[0]==='stop').length,2);
+  assert.ok(!calls.some(args=>args[0]==='start'||args[0]==='rm'||args.includes('--name')));
+  assert.match(r.stderr,/remain paused/);assert.equal(fs.existsSync(path.join(f.root,'runtime/image')),false);
 });

@@ -31,9 +31,11 @@ export const getPlans = async () => {
         include: { features: true },
       });
 
+      const coinRate=(await prisma.chargeRate.findUniqueOrThrow({where:{id:'default'}})).price.toString();
+      const priced=data.map(plan=>({...plan,coinRate}));
       const isFound = data.length > 0;
 
-      return { data: isFound ? data : "Not found", status: isFound ? 200 : 404 };
+      return { data: isFound ? priced : "Not found", status: isFound ? 200 : 404 };
     } catch (error) {
     logServiceError("v1/subscriptions/index", "getPlans", error);
 
@@ -55,7 +57,7 @@ export const purchaseAppSubscriptionWithWallet = async (
   userId: string
 ) => {
   try {
-    if (item.currency !== 'TZX') throw new WalletError('Wallet subscriptions require TZX');
+    if (item.currency !== 'COINS') throw new WalletError('Wallet subscriptions require coins');
     // get user
     const user = await prisma.user.findFirst({ where: { id: userId } });
     if (!user) return { data: "User not found", status: 400 };
@@ -65,20 +67,21 @@ export const purchaseAppSubscriptionWithWallet = async (
     });
 
     if (!plan) return { data: "Error: Invalid subscription plan", status: 400 };
-    item = { ...item, amount: subscriptionPrice(plan, item.planType, 'TZX', item.meta?.tierId) };
+    const rate=await prisma.chargeRate.findUniqueOrThrow({where:{id:'default'}});
+    item = { ...item, amount: subscriptionPrice(plan, item.planType, 'COINS', item.meta?.tierId,rate.price) };
 
-    // debit user wallet credit and credit user wallet amount and save transaction records
+    // debit user wallet coins and credit user wallet amount and save transaction records
     const txnRef = generateUniqueRef();
 
     const result = await walletOperation(`subscription:${user.id}`, requestKey(item.idempotencyKey), { planId: item.planId, cycle: item.planType, tierId: item.meta?.tierId ?? null, isRecurring: item.isRecurring }, [user.id], async (tx) => {
       const fresh = await tx.wallet.findUniqueOrThrow({ where: { userId: user.id } });
-      if (fresh.isLocked || cents(fresh.credit, true) < cents(item.amount)) throw new WalletError('Wallet locked or insufficient balance');
-      // debit user wallet credit
+      if (fresh.isLocked || cents(fresh.coins, true) < cents(item.amount)) throw new WalletError('Wallet locked or insufficient balance');
+      // debit user wallet coins
       const userWallet = await tx.wallet.update({
         where: { userId: user.id },
         data: {
           isLocked: true,
-          credit: { decrement: item.amount },
+          coins: { decrement: item.amount },
         },
       });
       // disable current active subscription
@@ -158,9 +161,9 @@ export const purchaseAppSubscriptionWithWallet = async (
           subPlanId: item.planId,
           subscriptionId: subscription?.id,
           category: TxnCategoryEnum.APP_SUBSCRIPTION,
-          description: `Charged ${item.amount} ${item.currency} from your wallet credit for ${item.planType} ${plan.name} subscription plan.`,
+          description: `Charged ${item.amount} ${item.currency} from your wallet coins for ${item.planType} ${plan.name} subscription plan.`,
           gateway: TxnGatewayEnum.WALLET,
-          source: TxnSourceEnum.CREDIT,
+          source: TxnSourceEnum.COINS,
           type: TxnTypeEnum.DEBIT,
           status: TxnStatusEnum.COMPLETED,
           txnRef,
@@ -186,7 +189,7 @@ export const purchaseAppSubscriptionWithWallet = async (
           },
         },
       });
-      // unlock user wallet credit
+      // unlock user wallet coins
       await tx.wallet.update({
         where: { userId: user.id },
         data: { isLocked: false },
@@ -235,7 +238,7 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
           where: {
             subscriptionId: subId,
             category: TxnCategoryEnum.APP_SUBSCRIPTION,
-            currency: TxnCurrencyEnum.TZX,
+            currency: TxnCurrencyEnum.COINS,
             gateway: TxnGatewayEnum.WALLET, status: TxnStatusEnum.COMPLETED,
           },
           orderBy: [{ createdAt: "desc" }],
@@ -281,26 +284,27 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
       };
     }
 
-    if (cents(wallet.credit, true) < cents(subTxn.amount))
+    if (subTxn.currency !== 'COINS') return { isError: true, status: 400, message: 'Legacy wallet subscription has been retired' };
+    if (cents(wallet.coins, true) < cents(subTxn.amount))
       return {
         message: "App subscription renewal error, insufficient balance!",
         status: 400,
         isError: true,
       };
-    // debit user wallet credit and credit user wallet amount and save transaction records
+    // debit user wallet coins and credit user wallet amount and save transaction records
     const txnRef = generateUniqueRef();
 
     const result = await walletOperation(`renewal:${subId}`, currentSub.endDate.toISOString(), { subId }, [user.id], async (tx) => {
       const fresh = await tx.wallet.findUniqueOrThrow({ where: { userId: user.id } });
-      if (fresh.isLocked || cents(fresh.credit, true) < cents(subTxn.amount)) throw new WalletError('Wallet locked or insufficient balance');
+      if (fresh.isLocked || cents(fresh.coins, true) < cents(subTxn.amount)) throw new WalletError('Wallet locked or insufficient balance');
       const due = await tx.subscription.findUniqueOrThrow({ where: { id: subId } });
       if (!due.isRecurring || !due.isPrimary || !['ACTIVE', 'PAYMENT_ERROR'].includes(due.status) || due.endDate.getTime() !== currentSub.endDate.getTime()) throw new WalletError('Subscription changed during renewal');
-      // debit user wallet credit
+      // debit user wallet coins
       const userWallet = await tx.wallet.update({
         where: { userId: user.id },
         data: {
           isLocked: true,
-          credit: { decrement: subTxn.amount },
+          coins: { decrement: subTxn.amount },
         },
       });
       // disable current active subscription
@@ -360,7 +364,7 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
           category: TxnCategoryEnum.APP_SUBSCRIPTION,
           description: `Renewed ${currentSub.billingCycle} ${planName} subscription plan for ${subTxn.amount} ${subTxn.currency}.`,
           gateway: TxnGatewayEnum.WALLET,
-          source: TxnSourceEnum.CREDIT,
+          source: TxnSourceEnum.COINS,
           type: TxnTypeEnum.DEBIT,
           status: TxnStatusEnum.COMPLETED,
           txnRef,
@@ -386,7 +390,7 @@ export const renewAppSubscriptionWithWallet = async (subId: string) => {
           },
         },
       });
-      // unlock user wallet credit
+      // unlock user wallet coins
       await tx.wallet.update({
         where: { userId: user.id },
         data: { isLocked: false },
@@ -442,7 +446,7 @@ export const purchaseAppSubscription = async (
     });
 
     if (!plan) return { data: "Error: Invalid subscription plan", status: 400 };
-    // debit user wallet credit and credit user wallet amount and save transaction records
+    // debit user wallet coins and credit user wallet amount and save transaction records
     const txnRef = generateUniqueRef();
     const result = await walletOperation('flutterwave', providerId, { userId, planId: item.planId }, [user.id], async (tx) => {
       const previous = await tx.transaction.findFirst({ where: { exTxnRef: item.meta?.txnRef, gateway: TxnGatewayEnum.FLUTTERWAVE } });

@@ -103,13 +103,13 @@ export const rewardDailyTask = async ({ id: taskId, code, userId }: { id: string
       if (task.performedBy.length) throw new WalletError('You have already performed this task', 422);
       if (task.code && task.code !== code) throw new WalletError('Invalid code provided', 422);
       const reward = cents(task.reward);
-      const field = task.rewardType === RewardTypeEnum.CREDIT ? 'credit' : task.rewardType === RewardTypeEnum.COINS ? 'coins' : 'bonus';
+      const field = task.rewardType === RewardTypeEnum.COINS ? 'coins' : 'bonus';
       const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId } });
       if (wallet.isLocked) throw new WalletError('Wallet is locked');
       await tx.wallet.update({ where: { id: wallet.id }, data: { [field]: { increment: reward / 100 } } });
       await tx.transaction.create({ data: { ...creditRecord(userId, reward / 100, TxnCategoryEnum.APP_TASK), walletId: wallet.id,
-        source: field === 'credit' ? TxnSourceEnum.CREDIT : field === 'coins' ? TxnSourceEnum.COINS : TxnSourceEnum.BONUS,
-        currency: field === 'credit' ? TxnCurrencyEnum.TZX : TxnCurrencyEnum.COINS, taskId, metadata: { rewardType: task.rewardType } } });
+        source: field === 'coins' ? TxnSourceEnum.COINS : TxnSourceEnum.BONUS,
+        currency: TxnCurrencyEnum.COINS, taskId, metadata: { rewardType: task.rewardType } } });
       await tx.userTask.create({ data: { userId, taskId, status: TaskStatus.COMPLETED } });
       return { status: 200, data: 'Success' };
     });
@@ -409,7 +409,7 @@ export async function getWithdrawalAdminDetails(actorId:string,id:string,page=1)
     prisma.transaction.groupBy({by:['category','type','source'],where:{userId:row.userId,currency:'COINS',status:'COMPLETED'},_sum:{amount:true}}),
     prisma.withdrawalAdminEvent.findMany({where:{OR:[{withdrawalId:id},{userId:row.userId}]},orderBy:{createdAt:'desc'},take:50}),
   ]);
-  return {...withdrawalView(row),destination:row.destination,providerId:row.providerId,stage:row.stage,user:{...row.user,wallet:row.user.wallet?{coins:row.user.wallet.coins.toNumber(),bonus:row.user.wallet.bonus.toNumber(),credit:row.user.wallet.credit.toNumber(),isLocked:row.user.wallet.isLocked}:null},canDecide:row.stage==='PREPARED'&&!row.providerId&&(!row.processingUntil||row.processingUntil<=new Date())&&['AWAITING_APPROVAL','BLOCKED'].includes(row.status),history:history.slice(0,50).map(txn=>({...txn,amount:txn.amount.toNumber()})),nextHistoryPage:history.length>50?page+1:null,earnings:earnings.map(group=>({...group,_sum:{amount:group._sum.amount?.toNumber()??0}})),audit};
+  return {...withdrawalView(row),destination:row.destination,providerId:row.providerId,stage:row.stage,user:{...row.user,wallet:row.user.wallet?{coins:row.user.wallet.coins.toNumber(),bonus:row.user.wallet.bonus.toNumber(),isLocked:row.user.wallet.isLocked}:null},canDecide:row.stage==='PREPARED'&&!row.providerId&&(!row.processingUntil||row.processingUntil<=new Date())&&['AWAITING_APPROVAL','BLOCKED'].includes(row.status),history:history.slice(0,50).map(txn=>({...txn,amount:txn.amount.toNumber()})),nextHistoryPage:history.length>50?page+1:null,earnings:earnings.map(group=>({...group,_sum:{amount:group._sum.amount?.toNumber()??0}})),audit};
 }
 export async function decideWithdrawal(actorId:string,id:string,decision:'APPROVE'|'REJECT',note:string,key:string) {
   await requireWithdrawalAdmin(actorId);if(note.trim().length<3||note.length>500) throw new WalletError('Record a reason for the withdrawal decision');

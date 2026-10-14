@@ -91,3 +91,24 @@ test('release uses the same Neon database directly while preserving application 
   assert.equal(releaseUrl({ DATABASE_URL: source, DATABASE_MIGRATION_URL: 'postgresql://test:password@localhost/other' }), 'postgresql://test:password@localhost/other');
   assert.equal(releaseUrl({ DATABASE_URL: 'postgresql://test:password@custom-pooler.example/db' }), 'postgresql://test:password@custom-pooler.example/db');
 });
+
+test('automatic database release migrates then seeds with the direct runtime connection and fails closed on seed errors',async()=>{
+  const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+  for(const failSeed of [false,true]) {
+    const commands=[],queries=[];let ended=false;
+    const url='postgresql://test:password@direct.example/db';
+    class Client {
+      async connect(){} async end(){ended=true;}
+      async query(sql){queries.push(sql);return {rows:sql.includes('pg_available_extensions')?[{name:'vector'}]:sql.includes('SELECT relkind')?[{relkind:'v'}]:sql.includes('SELECT cursor')?[{completedAt:new Date()}]:[]};}
+    }
+    const module={exports:{}},nativeRequire=require;
+    const fakeRequire=name=>name==='pg'?{Client}:name==='dotenv'?{config(){}}:name==='node:child_process'?{spawnSync:(binary,args,options)=>{commands.push({args,options});return {status:failSeed&&args.includes('seed')?1:0};}}:nativeRequire(name);
+    fakeRequire.resolve=()=>'/prisma-cli';
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../scripts/database-analytics.cjs'),'utf8'),{require:fakeRequire,module,exports:module.exports,__dirname:path.join(__dirname,'../scripts'),process:{execPath:process.execPath,argv:[],env:{DATABASE_URL:'postgresql://test:password@pool.example/db',DATABASE_MIGRATION_URL:url}},URL,console:{info(){},warn(){}}});
+    if(failSeed)await assert.rejects(module.exports.main('deploy'),/migration\/seed failed/);else await module.exports.main('deploy');
+    assert.deepEqual(commands.map(command=>Array.from(command.args).slice(1)),[['migrate','deploy'],['db','seed']]);
+    assert.ok(commands.every(command=>command.options.env.DATABASE_URL===url&&command.options.env.DATABASE_MIGRATION_URL===url));
+    assert.equal(ended,true);
+    assert.equal(queries.some(sql=>sql.includes('SELECT extname')),!failSeed,'analytics and new services must wait for successful seeding');
+  }
+});

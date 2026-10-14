@@ -873,3 +873,15 @@ export const publicProfileMetadataController = async (req: Request, res: Respons
   try {const profile = await getPublicProfileMetadata(req.params.id); return profile ? res.json(profile) : res.status(404).json({error: 'Profile unavailable'});}
   catch {return res.status(503).json({error: 'Metadata unavailable'});}
 };
+
+import {createUserGift} from '@/services/v1/users';
+export async function createUserGiftController(req:Request,res:Response){
+  const parsed=z.object({tipId:z.string().min(1),isAnon:z.boolean().optional().default(false),message:z.string().trim().max(500).optional()}).strict().safeParse(req.body);
+  if(!parsed.success)return res.status(400).send('Invalid gift request');
+  try{
+    const user=req.user as SessionUser,info=await getReqInfo(req);
+    if(info.isBot)return res.status(400).send('Unable to send gift');
+    const result=await createUserGift({...parsed.data,recipientId:req.params.id,senderId:user.id,idempotencyKey:req.get('Idempotency-Key'),device:info.device,meta:info.ipInfo,referer:req.headers.referer},user);
+    return res.status(result.status).send(result.data);
+  }catch{return res.status(500).send('Unable to send gift. Retry the same request.');}
+}

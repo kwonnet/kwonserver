@@ -43,7 +43,8 @@
     "db:analytics": "node scripts/database-analytics.cjs setup",
     "auth:cleanup": "node scripts/auth-retention.cjs",
     "topics:evaluate": "node scripts/evaluate-post-topics.cjs",
-    "test:messaging:load": "node scripts/test-infrastructure.cjs --messaging-load"
+    "test:messaging:load": "node scripts/test-infrastructure.cjs --messaging-load",
+    "db:seed:tips": "npm run build:seed && prisma db seed -- --tips"
   },
   "keywords": [],
   "author": "",

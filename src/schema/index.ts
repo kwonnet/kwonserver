@@ -425,7 +425,7 @@ export const CreatePostTipSchema = z.object({
   tipId: z.string({ message: "Tip ID must string" }),
   recipientId: z.string({ message: "Recipient ID must be string" }),
   isAnon: z.boolean().optional().default(false),
-  message: z.string({ message: "Message must string" }).optional(),
+  message: z.string({ message: "Message must string" }).trim().max(500).optional(),
   // timestamp: z.string({message: "Timestamp must be a date string"}),
 });
 

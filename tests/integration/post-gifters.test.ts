@@ -16,7 +16,7 @@ beforeAll(async () => {
     createdAt, coinsAmount: index === 0 ? null : '2.50', isAnon: index === 23,
   }))});
   const wallet = await db.wallet.create({data: {userId: owner}});
-  const txn = await db.transaction.create({data: {userId: owner, walletId: wallet.id, amount: 1, currency: 'TZX', source: 'CREDIT', gateway: 'WALLET', type: 'CREDIT', status: 'COMPLETED', category: 'POST_TIP', description: 'Refunded gift fixture', txnRef: prefix + 'refunded'}});
+  const txn = await db.transaction.create({data: {userId: owner, walletId: wallet.id, amount: 1, currency: 'COINS', source: 'COINS', gateway: 'WALLET', type: 'CREDIT', status: 'COMPLETED', category: 'POST_TIP', description: 'Refunded gift fixture', txnRef: prefix + 'refunded'}});
   await db.postTip.create({data: {id: prefix + 'refunded', postId: post, senderId: sender, recipientId: owner, tipId: gift, coinsAmount: '100',
     rewardTip: {create: {userId: owner, walletId: wallet.id, txnId: txn.id, amount: 1, source: 'POST', status: 'REFUNDED', availableAt: new Date()}}}});
 });

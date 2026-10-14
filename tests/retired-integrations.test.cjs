@@ -36,12 +36,12 @@ test('new payments reject retired currencies, gateways and sources', () => {
   }
   assert.equal(payment.paymentMethodSchema.safeParse({ ...allowed, source: 'STARS' }).success, false);
   assert.equal(payment.paymentMethodSchema.safeParse(allowed).success, true);
-  assert.equal(payment.paymentMethodSchema.safeParse({ currency: 'TZX', gateway: 'WALLET', source: 'CREDIT' }).success, true);
+  assert.equal(payment.paymentMethodSchema.safeParse({ currency: 'COINS', gateway: 'WALLET', source: 'COINS' }).success, true);
 });
 
 test('coin and subscription request schemas enforce retirement', () => {
   assert.equal(schemas.purchaseCoinsZodSchema.safeParse({ packageId: 'p', currency: 'TON' }).success, false);
-  assert.equal(schemas.purchaseCoinsZodSchema.safeParse({ packageId: 'p', currency: 'TZX' }).success, true);
+  assert.equal(schemas.purchaseCoinsZodSchema.safeParse({ packageId: 'p', currency: 'COINS' }).success, true);
   assert.equal(schemas.purchaseCoinsZodSchema.safeParse({ packageId: 'p', currency: 'USD',
     meta: { ...allowed, amount: 10, gateway: 'STARS' } }).success, false);
   const subscription = { planId: 'p', planName: 'Premium', planType: 'MONTHLY', amount: 10,

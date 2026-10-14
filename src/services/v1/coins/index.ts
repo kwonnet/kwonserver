@@ -57,37 +57,10 @@ user: User) => {
   }
 };
 
-export const purchaseCoinsWithWallet = async (
-  item: { id: string; currency: TxnCurrencyEnum; meta?: { [key: string]: any }; idempotencyKey?: string }, user: User
-) => {
-  try {
-    if (item.currency !== TxnCurrencyEnum.TZX) throw new WalletError('Unsupported wallet currency');
-    return await walletOperation(`coin-purchase:${user.id}`, requestKey(item.idempotencyKey),
-      { packageId: item.id }, [user.id], async tx => {
-        const coin = await tx.coinPackage.findUnique({ where: { id: item.id } });
-        if (!coin || !coin.isActive || (coin.endDate && coin.endDate < new Date())) throw new WalletError('Coin package unavailable');
-        const price = cents(coin.price), amount = cents(coin.amount), bonus = cents(coin.bonus, true);
-        const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: user.id } });
-        if (wallet.isLocked) throw new WalletError('Wallet is locked');
-        if (cents(wallet.credit, true) < price) throw new WalletError('Insufficient balance');
-        const updated = await tx.wallet.update({ where: { id: wallet.id }, data: {
-          credit: (cents(wallet.credit, true) - price) / 100,
-          coins: { increment: amount / 100 }, bonus: { increment: bonus / 100 },
-        } });
-        const txnRef = generateUniqueRef();
-        const common = { userId: user.id, walletId: wallet.id, coinPackageId: coin.id, txnRef,
-          category: TxnCategoryEnum.COIN_PURCHASE, gateway: TxnGatewayEnum.WALLET,
-          source: TxnSourceEnum.CREDIT, status: TxnStatusEnum.COMPLETED, metadata: { coins: amount / 100, bonus: bonus / 100 } };
-        await tx.transaction.create({ data: { ...common, amount: price / 100, currency: TxnCurrencyEnum.TZX,
-          type: TxnTypeEnum.DEBIT, description: 'Coin package purchase' } });
-        await tx.transaction.create({ data: { ...common, amount: (amount + bonus) / 100, currency: TxnCurrencyEnum.COINS,
-          source: bonus ? TxnSourceEnum.COINS_BONUS : TxnSourceEnum.COINS, type: TxnTypeEnum.CREDIT, description: 'Coin package and bonus credited' } });
-        return { status: 200, data: updated };
-      });
-  } catch (error) {
-    logServiceError("v1/coins/index", "purchaseCoinsWithWallet", error);
- return walletFailure(error); }
+export const purchaseCoinsWithWallet = async (_item:unknown,_user:unknown) => {
+  return {status:400,data:'Coin packages require an external payment',message:'Coin packages require an external payment'};
 };
+
 
 // A gateway/source enum and client-supplied transaction reference are not proof of payment.
 export const purchaseCoinsWithToken = async (_item: any, _user: User) => ({

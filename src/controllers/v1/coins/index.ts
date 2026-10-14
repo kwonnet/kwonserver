@@ -32,7 +32,7 @@ export const purchaseCoinsController = async (
 
     const user = req.user as AuthUser;
 
-    if (payload.currency === TxnCurrencyEnum.TZX) {
+    if (payload.meta?.gateway === TxnGatewayEnum.WALLET || payload.currency === TxnCurrencyEnum.COINS) {
       const result = await purchaseCoinsWithWallet(
         {
           id: payload.packageId,

@@ -1,13 +1,16 @@
 import { BillingCycleEnum, Prisma } from '@prisma/client';
 import { cents, WalletError } from './index';
-export function subscriptionPrice(plan: { price: number | Prisma.Decimal; ngnPrice: number | Prisma.Decimal; discount: number; tier: any[] }, cycle: string, currency: string, tierId?: string) {
+export function subscriptionPrice(plan: { price: number | Prisma.Decimal; ngnPrice: number | Prisma.Decimal; discount: number; tier: any[] }, cycle: string, currency: string, tierId?: string, coinRate?: Prisma.Decimal) {
   if (![BillingCycleEnum.MONTHLY, BillingCycleEnum.YEARLY].includes(cycle as BillingCycleEnum)) throw new WalletError('Invalid billing cycle');
-  if (!['USD', 'NGN', 'TZX'].includes(currency)) throw new WalletError('Unsupported currency');
+  if (!['USD', 'NGN', 'COINS'].includes(currency)) throw new WalletError('Unsupported currency');
   const tier = tierId ? plan.tier.find(t => t.id === tierId) : undefined;
   if ((tierId && !tier) || (plan.tier.length && !tier)) throw new WalletError('Select a valid plan tier');
   const base = cents(currency === 'NGN' ? (tier?.ngnPrice ?? plan.ngnPrice) : (tier?.price ?? plan.price));
   if (!Number.isFinite(plan.discount) || plan.discount < 0 || plan.discount >= 1) throw new WalletError('Invalid plan discount');
-  return (cycle === BillingCycleEnum.YEARLY ? Math.round(base * 12 * (1 - plan.discount)) : base) / 100;
+  const amount=(cycle === BillingCycleEnum.YEARLY ? Math.round(base * 12 * (1 - plan.discount)) : base) / 100;
+  if(currency!=='COINS')return amount;
+  if(!coinRate?.isFinite()||!coinRate.gt(0))throw new WalletError('Coin exchange rate unavailable',503);
+  return new Prisma.Decimal(amount).div(coinRate).toDecimalPlaces(2,Prisma.Decimal.ROUND_UP).toNumber();
 }
 
 // Calendar billing uses UTC and clamps month-end/leap-day overflow.

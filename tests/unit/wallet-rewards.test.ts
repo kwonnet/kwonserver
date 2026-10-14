@@ -69,7 +69,7 @@ it.each([['missing', null, 404], ['completed', { ...task(), performedBy: [{ id: 
   db.task.findUnique.mockResolvedValue(row); expect((await rewardDailyTask({ id: 't', userId: 'u', code: 'wrong' })).status).toBe(status);
   expect(sync.from).not.toHaveBeenCalled(); expect(db.wallet.update).not.toHaveBeenCalled();
 });
-it.each([['CREDIT', 'credit', 'TZX'], ['COINS', 'coins', 'COINS'], ['BONUS', 'bonus', 'COINS']])('credits %s rewards to the correct wallet field', async (type, field, currency) => {
+it.each([['COINS', 'coins', 'COINS'], ['BONUS', 'bonus', 'COINS']])('credits %s rewards to the correct wallet field', async (type, field, currency) => {
   db.task.findUnique.mockResolvedValue({ ...task(), rewardType: type });
   expect((await rewardDailyTask({ id: 't', userId: 'u', code: 'secret-code' })).status).toBe(200);
   expect(db.wallet.update).toHaveBeenCalledWith({ where: { id: 'w' }, data: { [field]: { increment: 10 } } });

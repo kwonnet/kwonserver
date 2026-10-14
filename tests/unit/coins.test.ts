@@ -40,17 +40,13 @@ it.each(['token','flutterwave'])('rejects unverified %s payment JSON before cred
  expect(result.status).toBe(400);expect(db.wallet.update).not.toHaveBeenCalled();
 });
 it.each([null,{...coin,isActive:false},{...coin,endDate:new Date('2000-01-01')}])('rejects unavailable wallet packages',async value=>{
- db.coinPackage.findUnique.mockResolvedValue(value);expect((await c.purchaseCoinsWithWallet({...item,currency:'TZX'},viewer)).status).toBe(400);expect(db.wallet.update).not.toHaveBeenCalled();
+ db.coinPackage.findUnique.mockResolvedValue(value);expect((await c.purchaseCoinsWithWallet({...item,currency:'COINS'},viewer)).status).toBe(400);expect(db.wallet.update).not.toHaveBeenCalled();
 });
 it.each([{credit:4.99},{isLocked:true}])('rejects insufficient or locked wallets %j',async override=>{
- db.wallet.findUniqueOrThrow.mockResolvedValue({...wallet,...override});expect((await c.purchaseCoinsWithWallet({...item,currency:'TZX'},viewer)).status).toBe(400);
+ db.wallet.findUniqueOrThrow.mockResolvedValue({...wallet,...override});expect((await c.purchaseCoinsWithWallet({...item,currency:'COINS'},viewer)).status).toBe(400);
 });
-it('atomically debits catalog price and records the full coin and bonus credit',async()=>{
- expect((await c.purchaseCoinsWithWallet({...item,currency:'TZX',amount:0.01},viewer)).status).toBe(200);
- expect(db.wallet.update).toHaveBeenCalledWith({where:{id:'wallet'},data:{credit:0,coins:{increment:100},bonus:{increment:10}}});
- const entries=db.transaction.create.mock.calls.map(([q])=>q.data);
- expect(entries).toEqual([expect.objectContaining({amount:5,type:'DEBIT'}),expect.objectContaining({amount:110,type:'CREDIT',metadata:{coins:100,bonus:10}})]);
- expect(entries[0].txnRef).toBe(entries[1].txnRef);
+it('rejects retired wallet purchases without changing balances: atomically debits catalog price and records the full coin and bonus credit',async()=>{
+ expect((await c.purchaseCoinsWithWallet({...item,currency:'COINS'},viewer)).status).toBe(400);expect(db.wallet.update).not.toHaveBeenCalled();expect(db.transaction.create).not.toHaveBeenCalled();
 });
 it('credits server-verified Flutterwave payments with a stable provider ID',async()=>{
  expect((await c.purchaseCoinsWithFlutterwave(markVerifiedPayment(item,'provider-1'))).status).toBe(200);
@@ -62,17 +58,15 @@ it('recognizes historical provider references without paying twice',async()=>{
 it.each(['TON','XTR','USD'])('rejects %s for internal wallet purchases',async currency=>{
  expect((await c.purchaseCoinsWithWallet({...item,currency},viewer)).status).toBe(400);expect(db.wallet.update).not.toHaveBeenCalled();
 });
-it('does not use Redis availability as a condition for a committed purchase',async()=>{
- sync.from.mockRejectedValue(new Error('redis'));expect((await c.purchaseCoinsWithWallet({...item,currency:'TZX'},viewer)).status).toBe(200);expect(sync.from).not.toHaveBeenCalled();
+it('rejects retired wallet purchases without changing balances: does not use Redis availability as a condition for a committed purchase',async()=>{
+ expect((await c.purchaseCoinsWithWallet({...item,currency:'COINS'},viewer)).status).toBe(400);expect(db.wallet.update).not.toHaveBeenCalled();expect(db.transaction.create).not.toHaveBeenCalled();
 });
-it('leaves lock ownership to the transaction on failure',async()=>{
- db.$transaction.mockRejectedValue(new Error('private'));expect((await c.purchaseCoinsWithWallet({...item,currency:'TZX'},viewer)).status).toBe(500);expect(db.wallet.update).not.toHaveBeenCalled();
+it('rejects retired wallet purchases without changing balances: leaves lock ownership to the transaction on failure',async()=>{
+ expect((await c.purchaseCoinsWithWallet({...item,currency:'COINS'},viewer)).status).toBe(400);expect(db.wallet.update).not.toHaveBeenCalled();expect(db.transaction.create).not.toHaveBeenCalled();
 });
 
-it('records coins-only purchases without a bonus component', async () => {
- db.coinPackage.findUnique.mockResolvedValue({...coin, bonus:0});
- expect((await c.purchaseCoinsWithWallet({...item,currency:'TZX'},viewer)).status).toBe(200);
- expect(db.transaction.create.mock.calls[1][0].data).toMatchObject({amount:100,source:'COINS'});
+it('rejects wallet coin purchases even if the package has no bonus',async()=>{
+ db.coinPackage.findUnique.mockResolvedValue({...coin,bonus:0});expect((await c.purchaseCoinsWithWallet({...item,currency:'COINS'},viewer)).status).toBe(400);expect(db.wallet.update).not.toHaveBeenCalled();expect(db.transaction.create).not.toHaveBeenCalled();
 });
 it.each(['NGN','USD'])('settles verified %s using the catalog bonus',async currency=>{
  db.coinPackage.findUniqueOrThrow.mockResolvedValue({...coin,bonus:0});

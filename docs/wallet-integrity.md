@@ -32,9 +32,9 @@ cannot authorize, reverse, or overwrite a payment.
   Billing-period queue IDs avoid removing an active job; upcoming/overdue wallet
   subscriptions are reconciled from PostgreSQL if Redis scheduling was lost.
 - Tips verify the authenticated sender and post owner; debit/credit records share a
-  reference and identify their owners. New pending tips settle after their existing
-  three-day hold, atomically with the ledger, once only. Historical pending tips are
-  excluded from automation until reviewed (`settlementVersion: 1` marks new tips).
+  reference and identify their owners. New gifts immediately credit 50% in coins to the recipient,
+  atomically with the ledger, once only. The credit retirement migration expires
+  historical pending legacy tips without converting their value.
 - Legacy Redis transaction import uses deterministic IDs, recognizes previously
   imported references, and removes only exact committed members. Equal timestamps
   no longer cause unprocessed records to be deleted.
@@ -142,12 +142,12 @@ certification. No production balances were inspected or repaired by this change.
 
 - Historical opening balances and old unrecorded rewards mean a naive sum of all
   transactions is not a reconciliation.
-- Legacy pending tips, historical duplicate payouts and balance differences need
-  human reconciliation. They are not silently credited or deleted by migration.
+- Historical duplicate payouts and balance differences need human reconciliation.
+  Retired pending tip rewards are discarded by the authorized credit migration.
 - Ad-view and external task completion proof is not provided by this repository;
   cooldown/code checks do not prove a user watched an ad or completed an external
   action. A provider-signed completion webhook is needed for that policy.
-- Existing economics are preserved: 50% coin-transfer fee; tip conversion/45% fee;
+- Current economics: 50% coin-transfer fee; 50% gift platform share;
   randomized game charges and monthly reward allocation. Confirm these deliberately.
 - Provider verification compares the current catalog. A changed/deleted package
   between checkout and callback needs support review; durable checkout price snapshots

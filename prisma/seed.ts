@@ -13,7 +13,9 @@ import {
 import { faker } from "@faker-js/faker";
 import { v4 as uuidv4 } from "uuid";
 
-const prisma = new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});
+const seedDatabaseUrl = process.env.DATABASE_MIGRATION_URL || process.env.DATABASE_URL;
+const seedSchema = seedDatabaseUrl ? new URL(seedDatabaseUrl).searchParams.get("schema") || "public" : "public";
+const prisma = new PrismaClient({adapter: new PrismaPg({connectionString: seedDatabaseUrl, max: 10, connectionTimeoutMillis: 5000}, {schema: seedSchema})});
 
 export function generateUniqueRef(size: number = 16): string {
   const uuid = uuidv4().replace(/-/g, ""); // Remove dashes
@@ -652,24 +654,310 @@ const coinPackages = [
 //   { name: "Infinity Pack", amount: 700_500, price: 300_000, bonus: 150_000 },
 // ];
 
-const tipPackages = [
-  { name: "Spark Drop", price: 5 },
-  { name: "Pulse Stone", price: 10 },
-  { name: "Bronze Ember", price: 25 },
-  { name: "Silver Blaze", price: 50 },
-  { name: "Golden Flame", price: 1_636 },
-  { name: "Crystal Crown", price: 3_788 },
-  { name: "Nova Charge", price: 5_372 },
-  { name: "Starlight Burst", price: 10_397 },
-  { name: "Radiant Surge", price: 15_489 },
-  { name: "Mystic Vault", price: 19_735 },
-  { name: "Echo Halo", price: 22_592 },
-  { name: "Titan Beam", price: 27_876 },
-  { name: "Giant Gleam", price: 30_320 },
-  { name: "Colossal Blaze", price: 32_000 },
-  { name: "Zenith Flash", price: 38_600 },
-  { name: "Infinity Pulse", price: 45_500 },
+// Stable randomized prices: small gifts, celebrations, luxury gifts and premium landmarks.
+export const tipPackages = [
+  {
+    "id": "party-prism",
+    "name": "Party Prism",
+    "price": 150,
+    "thumbnail": "/static/tips/party-prism.webp"
+  },
+  {
+    "id": "golden-fizz",
+    "name": "Golden Fizz",
+    "price": 300,
+    "thumbnail": "/static/tips/golden-fizz.webp"
+  },
+  {
+    "id": "petal-elixir",
+    "name": "Petal Elixir",
+    "price": 475,
+    "thumbnail": "/static/tips/petal-elixir.webp"
+  },
+  {
+    "id": "coral-smooch",
+    "name": "Coral Smooch",
+    "price": 10,
+    "thumbnail": "/static/tips/coral-smooch.webp"
+  },
+  {
+    "id": "cupid-comet",
+    "name": "Cupid Comet",
+    "price": 525,
+    "thumbnail": "/static/tips/cupid-comet.webp"
+  },
+  {
+    "id": "secret-ember",
+    "name": "Secret Ember",
+    "price": 200,
+    "thumbnail": "/static/tips/secret-ember.webp"
+  },
+  {
+    "id": "heart-snapshot",
+    "name": "Heart Snapshot",
+    "price": 475,
+    "thumbnail": "/static/tips/heart-snapshot.webp"
+  },
+  {
+    "id": "moonpetal-pearls",
+    "name": "Moonpetal Pearls",
+    "price": 3350,
+    "thumbnail": "/static/tips/moonpetal-pearls.webp"
+  },
+  {
+    "id": "blush-cruiser",
+    "name": "Blush Cruiser",
+    "price": 3400,
+    "thumbnail": "/static/tips/blush-cruiser.webp"
+  },
+  {
+    "id": "solar-parade",
+    "name": "Solar Parade",
+    "price": 12000,
+    "thumbnail": "/static/tips/solar-parade.webp"
+  },
+  {
+    "id": "reef-reverie",
+    "name": "Reef Reverie",
+    "price": 625,
+    "thumbnail": "/static/tips/reef-reverie.webp"
+  },
+  {
+    "id": "peel-pop",
+    "name": "Peel Pop",
+    "price": 35,
+    "thumbnail": "/static/tips/peel-pop.webp"
+  },
+  {
+    "id": "bloom-breeze",
+    "name": "Bloom Breeze",
+    "price": 125,
+    "thumbnail": "/static/tips/bloom-breeze.webp"
+  },
+  {
+    "id": "velvet-bloom",
+    "name": "Velvet Bloom",
+    "price": 35,
+    "thumbnail": "/static/tips/velvet-bloom.webp"
+  },
+  {
+    "id": "starlace",
+    "name": "Starlace",
+    "price": 1950,
+    "thumbnail": "/static/tips/starlace.webp"
+  },
+  {
+    "id": "indigo-devotion",
+    "name": "Indigo Devotion",
+    "price": 2600,
+    "thumbnail": "/static/tips/indigo-devotion.webp"
+  },
+  {
+    "id": "spark-fiesta",
+    "name": "Spark Fiesta",
+    "price": 325,
+    "thumbnail": "/static/tips/spark-fiesta.webp"
+  },
+  {
+    "id": "cuddle-duo",
+    "name": "Cuddle Duo",
+    "price": 25,
+    "thumbnail": "/static/tips/cuddle-duo.webp"
+  },
+  {
+    "id": "amber-citadel",
+    "name": "Amber Citadel",
+    "price": 11750,
+    "thumbnail": "/static/tips/amber-citadel.webp"
+  },
+  {
+    "id": "sky-bonbon",
+    "name": "Sky Bonbon",
+    "price": 600,
+    "thumbnail": "/static/tips/sky-bonbon.webp"
+  },
+  {
+    "id": "violet-keep",
+    "name": "Violet Keep",
+    "price": 11250,
+    "thumbnail": "/static/tips/violet-keep.webp"
+  },
+  {
+    "id": "kindred-light",
+    "name": "Kindred Light",
+    "price": 175,
+    "thumbnail": "/static/tips/kindred-light.webp"
+  },
+  {
+    "id": "cloud-pavilion",
+    "name": "Cloud Pavilion",
+    "price": 11750,
+    "thumbnail": "/static/tips/cloud-pavilion.webp"
+  },
+  {
+    "id": "halo-heart",
+    "name": "Halo Heart",
+    "price": 550,
+    "thumbnail": "/static/tips/halo-heart.webp"
+  },
+  {
+    "id": "crimson-wishes",
+    "name": "Crimson Wishes",
+    "price": 200,
+    "thumbnail": "/static/tips/crimson-wishes.webp"
+  },
+  {
+    "id": "confetti-curl",
+    "name": "Confetti Curl",
+    "price": 10,
+    "thumbnail": "/static/tips/confetti-curl.webp"
+  },
+  {
+    "id": "cocoa-charm",
+    "name": "Cocoa Charm",
+    "price": 50,
+    "thumbnail": "/static/tips/cocoa-charm.webp"
+  },
+  {
+    "id": "boba-bliss",
+    "name": "Boba Bliss",
+    "price": 10,
+    "thumbnail": "/static/tips/boba-bliss.webp"
+  },
+  {
+    "id": "ruby-harvest",
+    "name": "Ruby Harvest",
+    "price": 35,
+    "thumbnail": "/static/tips/ruby-harvest.webp"
+  },
+  {
+    "id": "morning-muse",
+    "name": "Morning Muse",
+    "price": 40,
+    "thumbnail": "/static/tips/morning-muse.webp"
+  },
+  {
+    "id": "cloudstep",
+    "name": "Cloudstep",
+    "price": 5,
+    "thumbnail": "/static/tips/cloudstep.webp"
+  },
+  {
+    "id": "sunset-stroll",
+    "name": "Sunset Stroll",
+    "price": 55,
+    "thumbnail": "/static/tips/sunset-stroll.webp"
+  },
+  {
+    "id": "gilded-orbit",
+    "name": "Gilded Orbit",
+    "price": 2700,
+    "thumbnail": "/static/tips/gilded-orbit.webp"
+  },
+  {
+    "id": "aurora-crest",
+    "name": "Aurora Crest",
+    "price": 2700,
+    "thumbnail": "/static/tips/aurora-crest.webp"
+  },
+  {
+    "id": "forever-fountain",
+    "name": "Forever Fountain",
+    "price": 6250,
+    "thumbnail": "/static/tips/forever-fountain.webp"
+  },
+  {
+    "id": "aqua-ace",
+    "name": "Aqua Ace",
+    "price": 700,
+    "thumbnail": "/static/tips/aqua-ace.webp"
+  },
+  {
+    "id": "prism-pony",
+    "name": "Prism Pony",
+    "price": 1400,
+    "thumbnail": "/static/tips/prism-pony.webp"
+  },
+  {
+    "id": "twirl-fair",
+    "name": "Twirl Fair",
+    "price": 1500,
+    "thumbnail": "/static/tips/twirl-fair.webp"
+  },
+  {
+    "id": "silk-sonata",
+    "name": "Silk Sonata",
+    "price": 1350,
+    "thumbnail": "/static/tips/silk-sonata.webp"
+  },
+  {
+    "id": "rosette-promise",
+    "name": "Rosette Promise",
+    "price": 2200,
+    "thumbnail": "/static/tips/rosette-promise.webp"
+  },
+  {
+    "id": "swirl-joy",
+    "name": "Swirl Joy",
+    "price": 20,
+    "thumbnail": "/static/tips/swirl-joy.webp"
+  },
+  {
+    "id": "fin-affection",
+    "name": "Fin Affection",
+    "price": 200,
+    "thumbnail": "/static/tips/fin-affection.webp"
+  },
+  {
+    "id": "wonder-vault",
+    "name": "Wonder Vault",
+    "price": 650,
+    "thumbnail": "/static/tips/wonder-vault.webp"
+  },
+  {
+    "id": "net-glory",
+    "name": "Net Glory",
+    "price": 700,
+    "thumbnail": "/static/tips/net-glory.webp"
+  },
+  {
+    "id": "frothy-cheer",
+    "name": "Frothy Cheer",
+    "price": 700,
+    "thumbnail": "/static/tips/frothy-cheer.webp"
+  },
+  {
+    "id": "victory-muse",
+    "name": "Victory Muse",
+    "price": 175,
+    "thumbnail": "/static/tips/victory-muse.webp"
+  },
+  {
+    "id": "champion-haven",
+    "name": "Champion Haven",
+    "price": 10750,
+    "thumbnail": "/static/tips/champion-haven.webp"
+  },
+  {
+    "id": "heart-overflow",
+    "name": "Heart Overflow",
+    "price": 600,
+    "thumbnail": "/static/tips/heart-overflow.webp"
+  },
+  {
+    "id": "love-aloft",
+    "name": "Love Aloft",
+    "price": 575,
+    "thumbnail": "/static/tips/love-aloft.webp"
+  },
+  {
+    "id": "ever-after-arch",
+    "name": "Ever After Arch",
+    "price": 5250,
+    "thumbnail": "/static/tips/ever-after-arch.webp"
+  }
 ];
+
 
 const gameMilestones = [
   // room winning streak
@@ -25232,14 +25520,7 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
       console.log("Seeding complete .... coin packages  already exists");
     }
 
-    // seed tip packages
-    const totalTipPackages = await prisma.tipPackage.count();
-    if (totalTipPackages === 0) {
-      await prisma.tipPackage.createMany({ data: tipPackages });
-      console.log("seeding complete.... tip packages created successfully");
-    } else {
-      console.log("Seeding complete .... tip packages  already exists");
-    }
+    await seedTipPackages(prisma);
 
     // seed game milestones
     const totalMilestones = await prisma.gameMilestone.count();
@@ -25317,6 +25598,7 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
 }
 
 export async function main() {
+  if (process.argv.includes("--tips")) {await seedTipPackages();return;}
   const demo = process.argv.includes("--demo");
   const topicsOnly = process.argv.includes("--game-topics");
   if (demo && topicsOnly) throw new Error("Choose either --demo or --game-topics");
@@ -25387,15 +25669,19 @@ export async function main() {
     }
 }
 
+export async function seedTipPackages(client?:Prisma.TransactionClient) {
+  const sync=async(tx:Prisma.TransactionClient)=>{
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(73190241)`;
+    // Snapshot old gift names/assets before deleting their catalog entries.
+    await tx.$executeRaw`UPDATE "PostTip" t SET "giftName"=COALESCE(t."giftName",p.name), "giftThumbnail"=COALESCE(t."giftThumbnail",p.thumbnail), "giftCoinsSnapshot"=COALESCE(t."giftCoinsSnapshot",p.price) FROM "TipPackage" p WHERE t."tipId"=p.id`;
+    for(const gift of tipPackages) await tx.tipPackage.upsert({where:{id:gift.id},create:gift,update:{...gift,isActive:true,endDate:null}});
+    await tx.tipPackage.deleteMany({where:{id:{notIn:tipPackages.map(gift=>gift.id)}}});
+  };
+  if(client)await sync(client);else await prisma.$transaction(sync,{timeout:300000,maxWait:10000});
+  console.log(`Gift catalog synchronized: ${tipPackages.length} gifts`);
+}
+
 if (require.main === module) {
-
-main()
-  .catch((error: any) => {
-    console.error("Error seeding data", error?.message);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
-
+  async function runSeed(){try{await main();}catch(error:any){console.error("Error seeding data",error?.message);process.exitCode=1;}finally{await prisma.$disconnect();}}
+  runSeed();
 }

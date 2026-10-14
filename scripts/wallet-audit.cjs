@@ -24,8 +24,8 @@ async function main() {
       for (const wallet of rows) {
         const cached = await redis.hGetAll(`user:${wallet.userId}:wallet`);
         const hasCache = Object.keys(cached).length > 0;
-        const current = { coins: Number(wallet.coins), bonus: Number(wallet.bonus), credit: Number(wallet.credit) };
-        const old = { coins: Number(cached.amount ?? cached.coins), bonus: Number(cached.bonus), credit: Number(cached.credit) };
+        const current = { coins: Number(wallet.coins), bonus: Number(wallet.bonus) };
+        const old = { coins: Number(cached.amount ?? cached.coins), bonus: Number(cached.bonus) };
         const invalid = Object.values(current).some(value => !Number.isFinite(value) || value < 0 || Math.abs(value * 100 - Math.round(value * 100)) > 0.00001);
         const differs = hasCache && Object.keys(current).some(key => !Number.isFinite(old[key]) || Math.abs(current[key] - old[key]) > 0.000001);
         const pending = await redis.zCard(`user:${wallet.userId}:transactions`);
