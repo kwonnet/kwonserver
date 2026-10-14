@@ -43,7 +43,7 @@ test('workflow creates private staging first and uploads files directly into the
   assert.ok(calls.every(args => args.includes('--tunnel-through-iap')));
   for (const name of ['deploy.sh', 'app.env', 'registry-token', 'diagnostics.py']) assert.ok(fs.existsSync(path.join(f.remote, name)));
   assert.equal(fs.existsSync(path.join(f.remote, 'compute')), false);
-  assert.match(step('Install and deploy API and worker'), /\$REMOTE_DEPLOY_DIR\/deploy\.sh/);
+  assert.match(step('Migrate, seed gift catalog, and deploy API and worker'), /\$REMOTE_DEPLOY_DIR\/deploy\.sh/);
   assert.match(step('Remove remote staging files'), /rm -rf '\$REMOTE_DEPLOY_DIR'/);
   assert.match(workflow, /REMOTE_DEPLOY_DIR: \/tmp\/kwonserver-deploy-\$\{\{ github.run_id \}\}-\$\{\{ github.run_attempt \}\}/);
 });
