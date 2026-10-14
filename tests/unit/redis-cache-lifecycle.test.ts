@@ -1,7 +1,8 @@
 import { expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
-    disconnect: vi.fn(), createCache: vi.fn(), createKeyv: vi.fn(), on: vi.fn(),
+    tipRead: vi.fn(), disconnect: vi.fn(), createCache: vi.fn(), createKeyv: vi.fn(), on: vi.fn(),
 }));
+vi.mock('@/db', () => ({default: {tipPackage: {findMany: mocks.tipRead}}}));
 vi.mock('cache-manager', () => ({ createCache: mocks.createCache }));
 vi.mock('@keyv/redis', () => ({ createKeyv: mocks.createKeyv }));
 import cacheMemoryStore, { closeCacheStore } from '@/store';
@@ -52,5 +53,22 @@ it('falls back to the database when cache reads reject or stall', async () => {
     expect(await cachedCatalogRead('stalled', 60_000, read)).toEqual({status: 200, data: 'fresh'});
     expect(read).toHaveBeenCalledTimes(2);
     expect(cache.set).not.toHaveBeenCalled();
+    await closeCacheStore();
+});
+
+
+it('serves concurrent gift catalog requests from one database read and then shared cache', async () => {
+    const entries = new Map();
+    const cache = {disconnect: vi.fn(),get: vi.fn(async (key: string) => entries.get(key)),set: vi.fn(async (key: string, value: unknown) => {entries.set(key, value);})};
+    mocks.createCache.mockReturnValue(cache);
+    mocks.createKeyv.mockReturnValue({on: mocks.on});
+    mocks.tipRead.mockResolvedValue([{id: 'rose', name: 'Rose', price: 25, thumbnail: '/static/tips/rose.webp'}]);
+    const {getTipPackages} = await import('@/services/v1/tips');
+    const results = await Promise.all(Array.from({length: 20}, () => getTipPackages()));
+    expect(results.every(result => result.status === 200)).toBe(true);
+    await getTipPackages();
+    expect(mocks.tipRead).toHaveBeenCalledOnce();
+    expect(cache.set).toHaveBeenCalledWith('catalog:v1:gift-packages', results[0], 60_000);
+    expect(mocks.tipRead).toHaveBeenCalledWith(expect.objectContaining({where: expect.objectContaining({isActive: true}),orderBy: [{price: 'asc'}, {name: 'asc'}]}));
     await closeCacheStore();
 });
