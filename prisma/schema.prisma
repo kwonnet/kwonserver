@@ -1170,6 +1170,7 @@ model PostTip {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   @@index([postId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([recipientId, createdAt(sort: Desc), id(sort: Desc)])
 }
 
 model RewardTip {

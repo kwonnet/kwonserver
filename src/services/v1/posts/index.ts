@@ -1402,7 +1402,7 @@ export async function createPostTip(args:{idempotencyKey?:string;device:DetectRe
     if(args.senderId!==user.id||args.senderId===args.recipientId)throw new WalletError('Invalid gift sender or recipient');
     return await walletOperation(`tip:${user.id}`,requestKey(args.idempotencyKey),{postId:args.postId??null,recipientId:args.recipientId,tipId:args.tipId,message:args.message??null,isAnon:args.isAnon??false},[args.senderId,args.recipientId],async tx=>{
       if(args.postId){const post=await tx.post.findUniqueOrThrow({where:{id:args.postId}});if(post.userId!==args.recipientId||post.deletedAt)throw new WalletError('Gift recipient must own an available post');}
-      const recipient=await tx.user.findUniqueOrThrow({where:{id:args.recipientId},select:{id:true,name:true,status:true,deletedAt:true,deactivatedAt:true}});
+      const recipient=await tx.user.findUniqueOrThrow({where:{id:args.recipientId},select:{id:true,name:true,username:true,status:true,deletedAt:true,deactivatedAt:true}});
       if(recipient.deletedAt||recipient.deactivatedAt||!['ACTIVE','PRIVATE'].includes(recipient.status))throw new WalletError('Recipient is unavailable',403);
       if(await tx.blockUser.findFirst({where:{OR:[{blockerId:args.senderId,blockedId:args.recipientId},{blockerId:args.recipientId,blockedId:args.senderId}]}}))throw new WalletError('Gifting is unavailable between these accounts',403);
       const tip=await tx.tipPackage.findUniqueOrThrow({where:{id:args.tipId}});
@@ -1419,6 +1419,13 @@ export async function createPostTip(args:{idempotencyKey?:string;device:DetectRe
       await tx.transaction.create({data:{...common,userId:args.senderId,walletId:senderWallet.id,amount:price/100,type:TxnTypeEnum.DEBIT,description:`Gift sent to ${recipient.name}`}});
       const reward=await tx.transaction.create({data:{...common,senderId:args.isAnon?null:args.senderId,userId:args.recipientId,walletId:receiverWallet.id,amount:received/100,type:TxnTypeEnum.CREDIT,description:`Gift received from ${args.isAnon?'anonymous':user.name}`}});
       const gift=await tx.postTip.create({data:{postId:args.postId,senderId:args.senderId,recipientId:args.recipientId,tipId:tip.id,giftName:tip.name,giftThumbnail:tip.thumbnail,giftCoinsSnapshot:tip.price,coinsAmount:price/100,message:args.message,isAnon:args.isAnon,device:args.device,meta:args.meta,referer:args.referer,rewardTip:{create:{userId:args.recipientId,walletId:receiverWallet.id,amount:received/100,source:args.postId?TipSource.POST:TipSource.PROFILE,status:TipStatus.SETTLED,settledAt:new Date(),availableAt:new Date(),txnId:reward.id}}}});
+      await tx.notification.create({data:{
+        sourceKey: `gift-received:${gift.id}`, recipientId: args.recipientId,
+        senderId: args.isAnon ? null : args.senderId,
+        type: NotifTypeEnum.USER, action: NotifAction.NONE, title: 'Gift received',
+        message: `${args.isAnon ? 'An anonymous gifter' : user.name} sent you ${tip.name}`,
+        meta: {kind: 'gift', giftId: gift.id, giftName: tip.name, isAnon: args.isAnon ?? false, recipientUsername: recipient.username},
+      }});
       if(args.postId)await tx.post.update({where:{id:args.postId},data:{totalTips:{increment:1}}});
       return {status:200,data:{id:args.postId??gift.id,userId:args.senderId,recipientId:args.recipientId,isTip:true,coins:price/100,receivedCoins:received/100}};
     });

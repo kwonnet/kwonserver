@@ -1375,6 +1375,21 @@ Bonus cannot fund gifts. Both wallets, gift snapshots, ledger entries and the
 idempotency receipt commit together. Profile gifting uses authenticated
 `POST /api/v1/users/:id/gifts`; `Idempotency-Key` is required on both gift routes.
 
+Gift receipt notifications commit with both wallets and the gift, and are deduplicated
+by gift ID. Anonymous notifications omit the sender relation and sender details;
+global post-tip hints omit the sender's ID. The existing authenticated SSE stream
+reports inbox changes through `notifications_updated` (within its five-second poll),
+and the existing push worker delivers gift notifications with the recipient's Gifts
+tab as destination. `GET /api/v1/users/:id/gifts?page=1&limit=21` lists settled gifts
+with stable ordering and pagination. It enforces profile privacy and blocks, redacts
+anonymous senders for every viewer, and exposes messages only to the recipient.
+Results use `private, no-store`. Migration `20261014223000_received_gifts` adds the
+recipient/date index through the normal CI/CD migration step. The frontend preloads
+the active Gifts tab on the server and refreshes the owner's list on inbox SSE updates.
+Closed gift dialogs render no grids or wallet hooks; post dialogs load with the page
+rather than downloading code after the gift button is clicked.
+
+
 Migration `20261014150000_coin_only_gifts` discards wallet credit balances and
 expires pending legacy tip rewards without converting them into coins. Historical
 ledger amounts remain under a non-spendable `RETIRED` currency. Coin subscriptions

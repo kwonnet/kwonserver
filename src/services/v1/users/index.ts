@@ -10983,3 +10983,29 @@ import {createPostTip} from '@/services/v1/posts';
 export async function createUserGift(args:Omit<Parameters<typeof createPostTip>[0],'postId'>,user:SessionUser){
   return await createPostTip(args,user);
 }
+
+
+export async function getUserReceivedGifts(identifier: string, viewerId: string, page = 1, limit = 21) {
+  try {
+    const target = await prisma.user.findFirst({where:{OR:[{id:identifier},{username:{equals:identifier.replace(/^@/, ''),mode:'insensitive'}}]},select:{id:true,isPrivate:true,status:true,deletedAt:true,deactivatedAt:true}});
+    if (!target || target.deletedAt || target.deactivatedAt || !['ACTIVE','PRIVATE'].includes(target.status)) return {status:404,data:'Profile unavailable'};
+    const owner = target.id === viewerId;
+    if (!owner) {
+      if (await prisma.blockUser.findFirst({where:{OR:[{blockerId:target.id,blockedId:viewerId},{blockerId:viewerId,blockedId:target.id}]}})) return {status:403,data:'Profile unavailable'};
+      if ((target.isPrivate || target.status === 'PRIVATE') && !await prisma.follow.findFirst({where:{followingId:target.id,followerId:viewerId,status:'ACCEPTED'}})) return {status:403,data:'This profile is private'};
+    }
+    const rows = await prisma.postTip.findMany({
+      where:{recipientId:target.id,rewardTip:{is:{status:'SETTLED'}}},skip:(page-1)*limit,take:limit+1,
+      orderBy:[{createdAt:'desc'},{id:'desc'}],
+      select:{id:true,createdAt:true,isAnon:true,giftName:true,giftThumbnail:true,message:true,
+        tip:{select:{name:true,thumbnail:true}},sender:{select:{id:true,name:true,username:true,avatar:true}}},
+    });
+    const base = (process.env.CLOUDFLARE_PUBLIC_MEDIA_URL || 'https://media.kwonnet.com').replace(/\/+$/, '');
+    return {status:200,data:{items:rows.slice(0,limit).map(row=>{
+      const thumbnail=row.giftThumbnail ?? row.tip?.thumbnail ?? null;
+      return {id:row.id,name:row.giftName ?? row.tip?.name ?? 'Gift',thumbnail:thumbnail?.startsWith('/static/tips/')?`${base}${thumbnail}`:thumbnail,
+        createdAt:row.createdAt.toISOString(),anonymous:row.isAnon,sender:row.isAnon?null:row.sender,
+        ...(owner && row.message ? {message:row.message}:{}),};
+    }),hasMore:rows.length>limit,page}};
+  } catch(error) {logServiceError('v1/users/index','getUserReceivedGifts',error);return {status:500,data:'Unable to load received gifts'};}
+}

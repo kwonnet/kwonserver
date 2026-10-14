@@ -946,7 +946,7 @@ export const createPostTipController = async (
     // emit sse event
     const data = result.data;
     if (typeof data !== "string") {
-      sseEmitter.send(result.data, `post_tip`);
+      sseEmitter.send({id: postId, recipientId: payload.recipientId, isTip: true}, `post_tip`);
     }
     return res.status(result.status).send(result.data);
   } catch (error: any) {

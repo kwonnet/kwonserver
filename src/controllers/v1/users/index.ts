@@ -874,7 +874,7 @@ export const publicProfileMetadataController = async (req: Request, res: Respons
   catch {return res.status(503).json({error: 'Metadata unavailable'});}
 };
 
-import {createUserGift} from '@/services/v1/users';
+import {createUserGift, getUserReceivedGifts} from '@/services/v1/users';
 export async function createUserGiftController(req:Request,res:Response){
   const parsed=z.object({tipId:z.string().min(1),isAnon:z.boolean().optional().default(false),message:z.string().trim().max(500).optional()}).strict().safeParse(req.body);
   if(!parsed.success)return res.status(400).send('Invalid gift request');
@@ -884,4 +884,13 @@ export async function createUserGiftController(req:Request,res:Response){
     const result=await createUserGift({...parsed.data,recipientId:req.params.id,senderId:user.id,idempotencyKey:req.get('Idempotency-Key'),device:info.device,meta:info.ipInfo,referer:req.headers.referer},user);
     return res.status(result.status).send(result.data);
   }catch{return res.status(500).send('Unable to send gift. Retry the same request.');}
+}
+
+
+export async function getUserReceivedGiftsController(req:Request,res:Response) {
+  res.setHeader('Cache-Control','private, no-store');
+  const query=z.object({page:z.coerce.number().int().min(1).max(10000).default(1),limit:z.coerce.number().int().min(1).max(50).default(21)}).safeParse(req.query);
+  if(!query.success)return res.status(400).send('Invalid gift pagination');
+  const result=await getUserReceivedGifts(req.params.id,req.user!.id,query.data.page,query.data.limit);
+  return res.status(result.status).send(result.data);
 }

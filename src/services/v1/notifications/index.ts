@@ -9,6 +9,7 @@ import {logServiceError} from '@/logger/events';
 export function publicationNotificationVisibility(userId: string): Prisma.NotificationWhereInput {
   return { OR: [
     { sourceKey: null },
+    { sourceKey: { startsWith: 'gift-received:' } },
     { sourceKey: { startsWith: 'post-published:' },
       sender: { postNotificationSubscribers: { some: { subscriberId: userId } } },
       AND: [{sender: {followers: {some: {followerId: userId, status: 'ACCEPTED'}}}}],
@@ -125,6 +126,8 @@ export async function deliverPendingPushNotifications(postId?: string) {
     const claim = await prisma.notification.updateMany({where: {id: notification.id, pushSentAt: null, nextPushAttemptAt: {lte: now}}, data: {pushAttempts: {increment: 1}, nextPushAttemptAt: new Date(Date.now() + 300_000)}});
     if (!claim.count) return;
     let target = '/notifications';
+    const giftMeta = notification.meta as {kind?:string;recipientUsername?:string} | null;
+    if (giftMeta?.kind === 'gift' && giftMeta.recipientUsername) target = `/@${encodeURIComponent(giftMeta.recipientUsername)}/gifts`;
     if (notification.sourceKey?.startsWith('post-published:')) {
       const current = await prisma.notification.findFirst({where: {id: notification.id,
         recipient: {status: {in: ['ACTIVE', 'PRIVATE']}, deletedAt: null, deactivatedAt: null},

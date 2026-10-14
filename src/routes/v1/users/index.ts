@@ -1,4 +1,4 @@
-import {createUserGiftController} from '@/controllers/v1/users';
+import {createUserGiftController, getUserReceivedGiftsController} from '@/controllers/v1/users';
 
 import express from "express";
 import { authMiddleware, detectBotMiddleware } from "@/middleware";
@@ -8,6 +8,7 @@ import { editableProfileController } from "@/controllers/v1/profile";
 
 const router = express.Router();
 router.post("/:id/gifts",authMiddleware(),createUserGiftController);
+router.get("/:id/gifts",authMiddleware(),getUserReceivedGiftsController);
 router.get("/:id/metadata", publicProfileMetadataController);
 router.get("/me/profile", authMiddleware(), editableProfileController);
 router.patch("/me/profile", authMiddleware(), editableProfileController);
