@@ -15,8 +15,8 @@ it('loads continents with their countries', async () => {
 it('returns 404 when no locations exist', async () => {
   db.continent.findMany.mockResolvedValue([]); expect((await getContinentsAndCountries()).status).toBe(404);
 });
-it.each([{ packages: [] }, { packages: [{ id: 'tip-1' }] }])('returns tip packages including an empty catalog', async ({ packages }) => {
-  db.tipPackage.findMany.mockResolvedValue(packages); expect(await getTipPackages()).toEqual({ status: 200, data: packages });
+it.each([{ packages: [], expected: [] }, { packages: [{ id: 'tip-1', thumbnail: '/static/tips/velvet-bloom.webp' }], expected: [{id: 'tip-1', thumbnail: 'https://media.kwonnet.com/static/tips/velvet-bloom.webp'}] }])('returns tip packages including an empty catalog', async ({ packages, expected }) => {
+  db.tipPackage.findMany.mockResolvedValue(packages); expect(await getTipPackages()).toEqual({ status: 200, data: expected });
 });
 it('binds push subscriptions to the authenticated user', async () => {
   db.pushNotification.upsert.mockResolvedValue({ id: 'sub' });

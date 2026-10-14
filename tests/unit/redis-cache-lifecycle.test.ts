@@ -68,7 +68,7 @@ it('serves concurrent gift catalog requests from one database read and then shar
     expect(results.every(result => result.status === 200)).toBe(true);
     await getTipPackages();
     expect(mocks.tipRead).toHaveBeenCalledOnce();
-    expect(cache.set).toHaveBeenCalledWith('catalog:v1:gift-packages', results[0], 60_000);
+    expect(cache.set).toHaveBeenCalledWith('catalog:v1:gift-packages:media-v1:https://media.kwonnet.com', results[0], 60_000);
     expect(mocks.tipRead).toHaveBeenCalledWith(expect.objectContaining({where: expect.objectContaining({isActive: true}),orderBy: [{price: 'asc'}, {name: 'asc'}]}));
     await closeCacheStore();
 });
