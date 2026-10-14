@@ -162,3 +162,42 @@ export async function refundStatusController(req:Request,res:Response) {
   try {return res.json(await processPurchaseRefund(req.params.id,String(req.user?.id)));} catch(error) {return refundError(res,error);}
 }
 
+
+import {withdrawalSettings,quoteCoinWithdrawal,confirmCoinWithdrawal,listCoinWithdrawals,processCoinWithdrawal} from '@/services/v1/wallets';
+import {withdrawalBanks,resolveWithdrawalBank} from '@/services/v1/wallets/withdrawal-provider';
+const withdrawalGatewaySchema=z.enum(['FLUTTERWAVE','BACHS']);
+const withdrawalDestinationSchema=z.discriminatedUnion('type',[
+  z.object({type:z.literal('bank'),bankCode:z.string().min(1).max(32),accountNumber:z.string().length(10)}).strict(),
+  z.object({type:z.literal('crypto'),asset:z.string().min(1).max(32),address:z.string().min(20).max(255),confirmed:z.literal(true)}).strict(),
+]);
+function withdrawalError(res:Response,error:unknown) {
+  return res.status(error instanceof WalletError?error.status:503).json({message:error instanceof WalletError?error.message:'Unable to process withdrawal. Retry the same request.'});
+}
+export async function withdrawalSettingsController(req:Request,res:Response) {
+  try {return res.json(await withdrawalSettings(String(req.user?.id)));}catch(error){return withdrawalError(res,error);}
+}
+export async function withdrawalBanksController(req:Request,res:Response) {
+  const parsed=withdrawalGatewaySchema.safeParse(req.query.gateway);
+  if(!parsed.success) return res.status(400).json({message:'Choose a payout provider'});
+  try {const settings=await withdrawalSettings(String(req.user?.id));if(!settings.nigerian) throw new WalletError('Bank withdrawals are available to Nigerian users');return res.json(await withdrawalBanks(parsed.data));}catch(error){return withdrawalError(res,error);}
+}
+export async function resolveWithdrawalBankController(req:Request,res:Response) {
+  const parsed=z.object({gateway:withdrawalGatewaySchema,bankCode:z.string().min(1).max(32),accountNumber:z.string().length(10)}).strict().safeParse(req.body);
+  if(!parsed.success) return res.status(400).json({message:'Invalid bank account'});
+  try {const settings=await withdrawalSettings(String(req.user?.id));if(!settings.nigerian) throw new WalletError('Bank withdrawals are available to Nigerian users');return res.json(await resolveWithdrawalBank(parsed.data.gateway,parsed.data.bankCode,parsed.data.accountNumber));}catch(error){return withdrawalError(res,error);}
+}
+export async function quoteCoinWithdrawalController(req:Request,res:Response) {
+  const parsed=z.object({coins:z.number().finite().positive(),gateway:withdrawalGatewaySchema,destination:withdrawalDestinationSchema}).strict().safeParse(req.body);
+  if(!parsed.success) return res.status(400).json({message:'Invalid withdrawal request'});
+  try{return res.json(await quoteCoinWithdrawal(String(req.user?.id),parsed.data));}catch(error){return withdrawalError(res,error);}
+}
+export async function confirmCoinWithdrawalController(req:Request,res:Response) {
+  if(!z.object({}).strict().safeParse(req.body).success) return res.status(400).json({message:'Invalid withdrawal confirmation'});
+  try{return res.json(await confirmCoinWithdrawal(String(req.user?.id),req.params.id,req.get('Idempotency-Key')!));}catch(error){return withdrawalError(res,error);}
+}
+export async function listCoinWithdrawalsController(req:Request,res:Response) {
+  try{return res.json(await listCoinWithdrawals(String(req.user?.id)));}catch(error){return withdrawalError(res,error);}
+}
+export async function withdrawalStatusController(req:Request,res:Response) {
+  try{return res.json(await processCoinWithdrawal(req.params.id,String(req.user?.id)));}catch(error){return withdrawalError(res,error);}
+}

@@ -20,6 +20,8 @@ datasource db {
 }
 
 model User {
+  coinWithdrawals CoinWithdrawal[]
+  withdrawalRecipients WithdrawalRecipient[]
   bachsCheckouts BachsCheckout[]
   e2Devices E2Device[]
   e2Memberships E2Member[]
@@ -2347,4 +2349,49 @@ model PurchaseRefund {
   @@unique([gateway,environment,paymentId])
   @@index([status,updatedAt])
   @@index([userId,createdAt])
+}
+
+// Coins are reserved only on confirmation. Unknown provider outcomes never release them.
+model CoinWithdrawal {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  gateway TxnGatewayEnum
+  environment String
+  country String
+  coins Decimal @db.Decimal(20,2)
+  rate Decimal @db.Decimal(20,6)
+  fee Decimal @db.Decimal(20,6)
+  minimum Decimal @db.Decimal(20,2)
+  amount Decimal @db.Decimal(20,2)
+  currency String
+  destination Json
+  providerData Json
+  receiveAmount String
+  receiveCurrency String
+  expiresAt DateTime
+  status String @default("QUOTED")
+  stage String @default("PREPARED")
+  providerId String?
+  processingUntil DateTime?
+  processingAttempts Int @default(0)
+  reviewRequiredAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, createdAt])
+  @@index([status, updatedAt])
+  @@unique([gateway, environment, providerId])
+}
+
+model WithdrawalRecipient {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  environment String
+  providerId String?
+  profile Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([userId, environment])
 }
