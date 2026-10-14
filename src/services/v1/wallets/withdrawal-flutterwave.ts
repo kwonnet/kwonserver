@@ -54,7 +54,7 @@ export function flutterwaveWithdrawalOutcome(row:CoinWithdrawal,data:any):Withdr
   const status=String(data.status).toUpperCase();
   return {id:providerId(data.id),status:status==='SUCCESSFUL'?'SUCCEEDED':status==='FAILED'?'FAILED':'PROCESSING'};
 }
-export async function runFlutterwaveWithdrawal(row:CoinWithdrawal,save:SaveWithdrawal):Promise<WithdrawalOutcome> {
+export async function runFlutterwaveWithdrawal(row:CoinWithdrawal,save:SaveWithdrawal,guard?:()=>Promise<void>):Promise<WithdrawalOutcome> {
   const plan=row.providerData as any;
   let response:any;
   if(row.providerId) response=await payoutRequest('FLUTTERWAVE',`/transfers/${encodeURIComponent(row.providerId)}`);
@@ -75,6 +75,7 @@ export async function runFlutterwaveWithdrawal(row:CoinWithdrawal,save:SaveWithd
       const extra=fee.fee_type==='percentage'?decimal(plan.request.amount).mul(decimal(fee.fee,true)).div(100):decimal(fee.fee,true);
       await requireProviderBalance('FLUTTERWAVE','NGN',decimal(plan.request.amount).add(extra));
     }
+    if(guard) await guard();
     row=await save({stage:'PAYOUT_SUBMITTING'});
     response=await payoutRequest('FLUTTERWAVE','/transfers',{...plan.request,reference:row.id},row.id);
   } else {

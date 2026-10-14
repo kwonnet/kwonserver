@@ -6,7 +6,7 @@ import path from 'node:path';
 import logger from '@/logger';
 import {safeError} from '@/logger/sanitize';
 import {logServiceError} from '@/logger/events';
-import {decryptEmailToken} from '@/utils/auth-security';
+import {decryptEmailToken,hashEmailToken} from '@/utils/auth-security';
 let transport: Transporter | undefined;
 let template: Promise<string> | undefined;
 function appLogoUrl() {
@@ -82,6 +82,18 @@ export async function deliverEmailMessage(id:string) {
   const sender=mailTransport(); const appUrl=process.env.WEB_APP_URL||'https://kwonnet.com';
   let content, subject = 'Welcome to Kwonnet — your ideas belong here';
   if (!message.kind || message.kind === 'WELCOME') content = await renderWelcomeEmail(message.user.name,appUrl);
+  else if(message.kind==='WITHDRAWAL_OTP') {
+    const action=message.actionTokenId&&await prisma.authEmailToken.findUnique({where:{id:message.actionTokenId}});
+    const withdrawal=message.withdrawalId&&await prisma.coinWithdrawal.findUnique({where:{id:message.withdrawalId}});
+    if(!action||!withdrawal||action.usedAt||action.expiresAt<=new Date()||action.userId!==message.userId||action.subjectId!==withdrawal.id||action.purpose!=='WITHDRAWAL_OTP'||action.id!==withdrawal.otpChallengeId||action.recipientHash!==hashEmailToken(message.user.email)||withdrawal.status!=='QUOTED') {
+      await prisma.emailMessage.update({where:{id},data:{status:'CANCELLED',leaseUntil:null}});return;
+    }
+    const destination=withdrawal.destination as any;
+    const target=destination.type==='bank'?`Bank account ending ${destination.accountNumber.slice(-4)} (${destination.accountName??''})`:`${destination.asset}: ${destination.address}`;
+    const code=decryptEmailToken(action.encryptedToken);
+    const text=`Your Kwonnet withdrawal code is ${code}. It expires in 10 minutes.\n\nProvider: ${withdrawal.gateway}\nCoins: ${withdrawal.coins.toString()}\nWithdrawal value: ${withdrawal.currency} ${withdrawal.amount.toFixed(2)}\nDestination: ${target}\n\nDo not share this code. If you did not request this withdrawal, do not enter it and secure your account.`;
+    content={text,html:`<p>${escapeHtml(text).replace(/\n/g,'<br/>')}</p>`};subject='Authorize your Kwonnet withdrawal';
+  }
   else {
     let actionUrl = new URL('/auth/signin', appUrl).href;
     if (message.kind !== 'PASSWORD_CHANGED') {

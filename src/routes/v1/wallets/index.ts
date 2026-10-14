@@ -1,3 +1,4 @@
+import {withdrawalOtpController,withdrawalAdminPolicyController,updateWithdrawalAdminPolicyController,restrictWithdrawalUserController,withdrawalAdminQueueController,withdrawalAdminDetailsController,withdrawalAdminDecisionController} from '@/controllers/v1/wallets';
 import {withdrawalSettingsController,withdrawalBanksController,resolveWithdrawalBankController,quoteCoinWithdrawalController,confirmCoinWithdrawalController,listCoinWithdrawalsController,withdrawalStatusController} from '@/controllers/v1/wallets';
 
 import {getPurchasesController,getRefundQuoteController,requestRefundController,refundStatusController} from "@/controllers/v1/wallets";
@@ -31,6 +32,13 @@ router.post('/withdrawals/quote',authMiddleware(),quoteCoinWithdrawalController)
 router.post('/withdrawals/:id/confirm',authMiddleware(),confirmCoinWithdrawalController);
 router.get('/withdrawals',authMiddleware(),listCoinWithdrawalsController);
 router.post('/withdrawals/:id/verify',authMiddleware(),withdrawalStatusController);
+router.post('/withdrawals/:id/otp',authMiddleware(),withdrawalOtpController);
+router.get('/withdrawals/admin/settings',authMiddleware(),withdrawalAdminPolicyController);
+router.post('/withdrawals/admin/settings',authMiddleware(),updateWithdrawalAdminPolicyController);
+router.post('/withdrawals/admin/users/:id/restriction',authMiddleware(),restrictWithdrawalUserController);
+router.get('/withdrawals/admin/queue',authMiddleware(),withdrawalAdminQueueController);
+router.get('/withdrawals/admin/requests/:id',authMiddleware(),withdrawalAdminDetailsController);
+router.post('/withdrawals/admin/requests/:id/decision',authMiddleware(),withdrawalAdminDecisionController);
 const walletRoutes = router
 
 export default walletRoutes

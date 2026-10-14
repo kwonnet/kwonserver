@@ -5,11 +5,14 @@ function emailTokenKey() {
   return createHash('sha256').update(secret).digest();
 }
 export const hashEmailToken = (token: string) => createHash('sha256').update(token).digest('hex');
-export function createEmailToken() {
-  const token = randomBytes(32).toString('base64url'), iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', emailTokenKey(), iv);
+export function encryptEmailToken(token: string) {
+  const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', emailTokenKey(), iv);
   const encrypted = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
-  return {tokenHash: hashEmailToken(token), encryptedToken: [iv, cipher.getAuthTag(), encrypted].map(value => value.toString('base64url')).join('.')};
+  return [iv, cipher.getAuthTag(), encrypted].map(value => value.toString('base64url')).join('.');
+}
+export function createEmailToken() {
+  const token = randomBytes(32).toString('base64url');
+  return {tokenHash: hashEmailToken(token), encryptedToken: encryptEmailToken(token)};
 }
 export function decryptEmailToken(value: string) {
   const [iv, tag, encrypted] = value.split('.').map(part => Buffer.from(part, 'base64url'));

@@ -116,3 +116,8 @@ it('quotes and submits the exact NGN net payout after resolving the bank account
  const state={...flwRow(),stage:'PREPARED',providerData:plan.data,receiveAmount:plan.receiveAmount},save=async(data:any)=>Object.assign(state,data);
  expect(await runFlutterwaveWithdrawal(state,save)).toEqual({id:'42',status:'SUCCEEDED'});expect(submitted).toBe(1);
 });
+it('blocks a Flutterwave submission when authorization is revoked after the funding preflight',async()=>{
+ vi.mocked(fetch).mockImplementation(async(url:any)=>Response.json({status:'success',data:String(url).endsWith('/balances')?[{currency:'NGN',available_balance:1000}]:[{currency:'NGN',fee_type:'value',fee:0}]}));
+ const guard=vi.fn().mockRejectedValue(new Error('User restricted')),save=vi.fn();
+ await expect(runFlutterwaveWithdrawal({...flwRow(),stage:'PREPARED',expiresAt:new Date(Date.now()+60000),providerData:{request:{currency:'NGN',debit_currency:'NGN',amount:'56.25'},sourceRequired:'60'}},save,guard)).rejects.toThrow('restricted');expect(guard).toHaveBeenCalledOnce();expect(save).not.toHaveBeenCalled();expect(vi.mocked(fetch).mock.calls.every(([,options])=>options!.method==='GET')).toBe(true);
+});

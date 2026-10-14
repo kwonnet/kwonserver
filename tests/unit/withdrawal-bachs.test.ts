@@ -86,3 +86,9 @@ it('uses NGN recipient onboarding and bank payouts without a conversion quote',a
  expect(await runBachsWithdrawal(state,saver(state))).toEqual({id:'payout-ngn',status:'SUCCEEDED'});
  expect(requests.find(r=>r.key==='wd-ngn-recover')!.body.amount).toBe('17900.00');expect(requests.some(r=>r.path.endsWith('/quotes'))).toBe(false);
 });
+it('rechecks restrictions immediately before funding and again before the recipient payout',async()=>{
+ const state=row(),guard=vi.fn().mockRejectedValueOnce(new Error('Withdrawals paused'));
+ await expect(runBachsWithdrawal(state,saver(state),guard)).rejects.toThrow('paused');expect(requests.some(r=>r.path==='/v1/transfers'||r.path==='/v1/payouts')).toBe(false);expect(state.stage).toBe('PREPARED');
+ requests.length=0;guard.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('User restricted'));
+ await expect(runBachsWithdrawal(state,saver(state),guard)).rejects.toThrow('restricted');expect(requests.some(r=>r.key==='wd-1-fund')).toBe(true);expect(requests.some(r=>r.path==='/v1/payouts')).toBe(false);expect(state.stage).toBe('FUNDED');
+});

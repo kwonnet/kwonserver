@@ -192,12 +192,43 @@ export async function quoteCoinWithdrawalController(req:Request,res:Response) {
   try{return res.json(await quoteCoinWithdrawal(String(req.user?.id),parsed.data));}catch(error){return withdrawalError(res,error);}
 }
 export async function confirmCoinWithdrawalController(req:Request,res:Response) {
-  if(!z.object({}).strict().safeParse(req.body).success) return res.status(400).json({message:'Invalid withdrawal confirmation'});
-  try{return res.json(await confirmCoinWithdrawal(String(req.user?.id),req.params.id,req.get('Idempotency-Key')!));}catch(error){return withdrawalError(res,error);}
+  const parsed=z.object({challengeId:z.string().uuid(),code:z.string().regex(/^\d{6}$/)}).strict().safeParse(req.body);
+  if(!parsed.success) return res.status(400).json({message:'Enter the six-digit withdrawal code'});
+  try{return res.json(await confirmCoinWithdrawal(String(req.user?.id),req.params.id,req.get('Idempotency-Key')!,parsed.data));}catch(error){return withdrawalError(res,error);}
 }
 export async function listCoinWithdrawalsController(req:Request,res:Response) {
-  try{return res.json(await listCoinWithdrawals(String(req.user?.id)));}catch(error){return withdrawalError(res,error);}
+  try{return res.json(await listCoinWithdrawals(String(req.user?.id),req.query.page!=null?Number(req.query.page):undefined));}catch(error){return withdrawalError(res,error);}
 }
 export async function withdrawalStatusController(req:Request,res:Response) {
   try{return res.json(await processCoinWithdrawal(req.params.id,String(req.user?.id)));}catch(error){return withdrawalError(res,error);}
+}
+
+import {requestWithdrawalOtp,getWithdrawalAdminPolicy,updateWithdrawalAdminPolicy,restrictUserWithdrawal,listWithdrawalAdminQueue,getWithdrawalAdminDetails,decideWithdrawal} from '@/services/v1/wallets';
+export async function withdrawalOtpController(req:Request,res:Response) {
+  if(!z.object({}).strict().safeParse(req.body).success) return res.status(400).json({message:'Invalid code request'});
+  try{return res.json(await requestWithdrawalOtp(String(req.user?.id),req.params.id));}catch(error){return withdrawalError(res,error);}
+}
+export async function withdrawalAdminPolicyController(req:Request,res:Response) {
+  try{return res.json(await getWithdrawalAdminPolicy(String(req.user?.id)));}catch(error){return withdrawalError(res,error);}
+}
+export async function updateWithdrawalAdminPolicyController(req:Request,res:Response) {
+  const parsed=z.object({withdrawalsEnabled:z.boolean(),maxWithdrawal:z.number().finite().positive(),maxNgnWithdrawal:z.number().finite().positive(),reviewWithdrawal:z.number().finite().positive(),reviewNgnWithdrawal:z.number().finite().positive()}).strict().safeParse(req.body);
+  if(!parsed.success)return res.status(400).json({message:'Invalid withdrawal settings'});
+  try{return res.json(await updateWithdrawalAdminPolicy(String(req.user?.id),parsed.data));}catch(error){return withdrawalError(res,error);}
+}
+export async function restrictWithdrawalUserController(req:Request,res:Response) {
+  const parsed=z.object({restricted:z.boolean(),reason:z.string().trim().min(3).max(500)}).strict().safeParse(req.body);
+  if(!parsed.success)return res.status(400).json({message:'Provide a restriction reason'});
+  try{return res.json(await restrictUserWithdrawal(String(req.user?.id),req.params.id,parsed.data.restricted,parsed.data.reason));}catch(error){return withdrawalError(res,error);}
+}
+export async function withdrawalAdminQueueController(req:Request,res:Response) {
+  try{return res.json(await listWithdrawalAdminQueue(String(req.user?.id),Number(req.query.page??1),String(req.query.status??'AWAITING_APPROVAL')));}catch(error){return withdrawalError(res,error);}
+}
+export async function withdrawalAdminDetailsController(req:Request,res:Response) {
+  try{return res.json(await getWithdrawalAdminDetails(String(req.user?.id),req.params.id,Number(req.query.page??1)));}catch(error){return withdrawalError(res,error);}
+}
+export async function withdrawalAdminDecisionController(req:Request,res:Response) {
+  const parsed=z.object({decision:z.enum(['APPROVE','REJECT']),note:z.string().trim().min(3).max(500)}).strict().safeParse(req.body);
+  if(!parsed.success)return res.status(400).json({message:'Record an approval or rejection reason'});
+  try{return res.json(await decideWithdrawal(String(req.user?.id),req.params.id,parsed.data.decision,parsed.data.note,req.get('Idempotency-Key')!));}catch(error){return withdrawalError(res,error);}
 }

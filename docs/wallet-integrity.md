@@ -155,3 +155,37 @@ certification. No production balances were inspected or repaired by this change.
 - A VM/database outage can still make requests unavailable. PostgreSQL backups,
   restore drills, alerts on failed jobs and provider-to-ledger reconciliation remain
   operational requirements. Do not delete failed jobs or operation receipts to retry.
+
+## Withdrawal authorization and review
+
+Apply migration `20261014040000_withdrawal_security` before deploying the new API
+and worker. The existing `AUTH_EMAIL_TOKEN_SECRET` must contain at least 32
+characters; SMTP and the durable email worker must be configured. No email OTP is
+returned by the API or stored in plaintext. Authorization codes expire after ten
+minutes, permit five guesses, and are limited to one send per minute and five per
+hour per user. The code is bound to the user, registered email and immutable
+withdrawal quote. A changed email or password invalidates authorization.
+
+`ChargeRate` defaults to a USD 5,000 / NGN 5,000,000 maximum **net payout per
+transaction**, with inclusive approval thresholds of USD 2,500 / NGN 2,500,000.
+Verified email, active account, unlocked wallet, sufficient coins and withdrawal
+restrictions are checked on the server. Admins can pause payouts platform-wide or
+restrict a user, with reasons retained in `WithdrawalAdminEvent`. Before financial
+writes, adapters check authorization again as well as available provider funding.
+Already submitted transfers continue reconciliation during a pause.
+
+The `/dashboard/withdrawal-requests` screen is restricted to current ADMIN/SUPER users.
+It shows the destination, wallet balances, paginated ledger history, earnings by
+source and decision audit. Review requests reserve coins without sending funds.
+A reviewer cannot decide their own withdrawal. Approval allows the worker to
+proceed; rejection atomically restores the reservation once. Only unsubmitted
+`PREPARED` requests can be rejected, including expired worker leases. Processing
+attempt fencing prevents an expired worker from overwriting that decision. Never
+restore coins merely because a provider response is missing or a payout is old.
+
+The user authorizes a fixed net fiat payout and destination. The authorization
+intent lasts fifteen minutes; provider conversion quotes may expire sooner and
+are refreshed before dispatch, including after admin approval. Crypto receive
+amounts shown before dispatch are estimates; the fiat amount stays fixed and
+Kwonnet covers provider fees. The Wallet Withdrawals tab lists approval, blocked,
+processing, review, completed and restored requests with timestamps.

@@ -1,5 +1,5 @@
 import {beforeEach,afterEach,expect,it,vi} from 'vitest';
-const deps=vi.hoisted(()=>({db:{emailMessage:{updateMany:vi.fn(),findUniqueOrThrow:vi.fn(),update:vi.fn(),findMany:vi.fn()}},send:vi.fn(),close:vi.fn(),create:vi.fn(),queue:{getJob:vi.fn(),add:vi.fn()}}));
+const deps=vi.hoisted(()=>({db:{authEmailToken:{findUnique:vi.fn()},coinWithdrawal:{findUnique:vi.fn()},emailMessage:{updateMany:vi.fn(),findUniqueOrThrow:vi.fn(),update:vi.fn(),findMany:vi.fn()}},send:vi.fn(),close:vi.fn(),create:vi.fn(),queue:{getJob:vi.fn(),add:vi.fn()}}));
 vi.mock('@/db',()=>({default:deps.db}));
 vi.mock('nodemailer',()=>({default:{createTransport:deps.create}}));
 vi.mock('@/cron/jobs/queue',()=>({emailQueue:deps.queue}));
@@ -46,4 +46,15 @@ it('welcome uses APP_LOGO as an external image and rejects missing or embedded l
  const welcome=await renderWelcomeEmail('Creator','https://kwonnet.test');
  expect(welcome.html).toContain('src="https://images.test.invalid/custom-brand.png"');expect(welcome.html).not.toContain('data:image');expect(welcome.html).not.toContain('cid:');
  for(const value of ['', 'data:image/png;base64,AAAA', 'http://images.test.invalid/logo.png']){vi.stubEnv('APP_LOGO',value);await expect(renderWelcomeEmail('Creator','https://kwonnet.test')).rejects.toMatchObject({code:'CONFIG',settings:['APP_LOGO']});}
+});
+it('sends encrypted withdrawal OTPs with intent details and cancels superseded authorization',async()=>{
+ vi.stubEnv('AUTH_EMAIL_TOKEN_SECRET','test-withdrawal-secret-at-least-32-characters');const {encryptEmailToken,hashEmailToken}=await import('@/utils/auth-security');
+ const message={id:'event',userId:'user',kind:'WITHDRAWAL_OTP',withdrawalId:'withdrawal',actionTokenId:'challenge',attempts:1,user:{name:'Creator',email:'recipient@test.invalid',status:'ACTIVE'}};
+ const action={id:'challenge',userId:'user',purpose:'WITHDRAWAL_OTP',subjectId:'withdrawal',recipientHash:hashEmailToken(message.user.email),encryptedToken:encryptEmailToken('012345'),usedAt:null,expiresAt:new Date(Date.now()+60000)};
+ const withdrawal={id:'withdrawal',otpChallengeId:'challenge',status:'QUOTED',gateway:'BACHS',coins:{toString:()=> '5000'},currency:'USD',amount:{toFixed:()=> '56.25'},destination:{type:'crypto',asset:'USDC_BASE',address:'0x123'}};
+ deps.db.emailMessage.findUniqueOrThrow.mockResolvedValue(message);deps.db.authEmailToken.findUnique.mockResolvedValue(action);deps.db.coinWithdrawal.findUnique.mockResolvedValue(withdrawal);
+ await deliverEmailMessage('event');expect(deps.send).toHaveBeenLastCalledWith(expect.objectContaining({subject:'Authorize your Kwonnet withdrawal',text:expect.stringContaining('012345')}));expect(deps.send.mock.calls.at(-1)![0].text).toContain('USDC_BASE: 0x123');
+ deps.db.coinWithdrawal.findUnique.mockResolvedValue({...withdrawal,destination:{type:'bank',accountNumber:'0123456789'}});await deliverEmailMessage('event');expect(deps.send.mock.calls.at(-1)![0].text).toContain('ending 6789');
+ for(const override of [null,{usedAt:new Date()},{expiresAt:new Date(0)},{userId:'other'},{subjectId:'other'},{purpose:'VERIFY_EMAIL'},{id:'old'},{recipientHash:'old'}]){deps.db.authEmailToken.findUnique.mockResolvedValue(override===null?null:{...action,...override});deps.send.mockClear();await deliverEmailMessage('event');expect(deps.send).not.toHaveBeenCalled();}
+ deps.db.authEmailToken.findUnique.mockResolvedValue(action);deps.db.coinWithdrawal.findUnique.mockResolvedValueOnce(null);await deliverEmailMessage('event');expect(deps.send).not.toHaveBeenCalled();deps.db.coinWithdrawal.findUnique.mockResolvedValue({...withdrawal,status:'RESERVED'});await deliverEmailMessage('event');expect(deps.send).not.toHaveBeenCalled();
 });

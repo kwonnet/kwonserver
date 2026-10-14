@@ -93,13 +93,14 @@ async function recover(row:CoinWithdrawal,save:SaveWithdrawal,proposed:Prisma.De
   if(!transferMatches(response,row,amount,true)) throw new WalletError('Withdrawal funding recovery is pending',503);
   await save({providerData:{...plan,recovered:true}});
 }
-export async function runBachsWithdrawal(row:CoinWithdrawal,save:SaveWithdrawal):Promise<WithdrawalOutcome> {
+export async function runBachsWithdrawal(row:CoinWithdrawal,save:SaveWithdrawal,guard?:()=>Promise<void>):Promise<WithdrawalOutcome> {
   let plan=row.providerData as any;
   if(row.stage==='PREPARED' || row.stage==='FUNDING') {
     if(row.stage==='PREPARED' && row.expiresAt.getTime()<=Date.now()) return {status:'FAILED'};
     if(row.stage==='FUNDING' && Date.now()-row.createdAt.getTime()>23*3600000) throw new WalletError('Uncertain funding requires review',503);
     if(row.stage==='PREPARED') {
       await requireProviderBalance('BACHS',row.currency,decimal(plan.fundingAmount));
+      if(guard) await guard();
       row=await save({stage:'FUNDING'});
     }
     const funding=await payoutRequest('BACHS','/transfers',{destination:plan.accountId,amount:plan.fundingAmount,currency:row.currency,transfer_group:row.id,description:'Kwonnet withdrawal funding'},`${row.id}-fund`);
@@ -111,6 +112,7 @@ export async function runBachsWithdrawal(row:CoinWithdrawal,save:SaveWithdrawal)
       await recover(row,save,decimal(plan.fundingAmount));return {status:'FAILED'};
     }
     await requireProviderBalance('BACHS',row.currency,decimal(plan.fundingAmount),plan.accountId);
+    if(guard) await guard();
     row=await save({stage:'PAYOUT_SUBMITTING'});
     let response:any;
     try {response=await payoutRequest('BACHS','/payouts',plan.request,row.id,plan.accountId);}

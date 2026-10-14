@@ -59,6 +59,8 @@ model User {
   userType              UserTypeEnum       @default(PERSONAL)
   accountVerifiedAt     DateTime?
   identityVerifiedAt    DateTime?
+  withdrawalRestricted Boolean @default(false)
+  withdrawalRestrictionReason String?
   emailVerifiedAt       DateTime?
   /// [UserMeta]
   meta                  Json?              @default("{\"type\": \"LEGACY\", \"status\": \"INACTIVE\", \"color\": \"blue\"}")
@@ -2079,6 +2081,7 @@ model EmailMessage {
   eventKey String @unique
   userId String
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  withdrawalId String?
   actionTokenId String?
   kind String @default("WELCOME")
   status String @default("PENDING")
@@ -2092,6 +2095,9 @@ model EmailMessage {
 }
 
 model AuthEmailToken {
+  subjectId String?
+  recipientHash String?
+  attempts Int @default(0)
   id String @id
   userId String
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -2309,6 +2315,11 @@ model ChargeRate {
   id String @id @default("default")
   price Decimal @default(0.015) @db.Decimal(20,6)
   maxPrice Decimal @default(0.017) @db.Decimal(20,6)
+  withdrawalsEnabled Boolean @default(true)
+  maxWithdrawal Decimal @default(5000) @db.Decimal(20,2)
+  maxNgnWithdrawal Decimal @default(5000000) @db.Decimal(20,2)
+  reviewWithdrawal Decimal @default(2500) @db.Decimal(20,2)
+  reviewNgnWithdrawal Decimal @default(2500000) @db.Decimal(20,2)
   minWithdrawal Decimal @default(5) @db.Decimal(20,2)
   fee Decimal @default(0.25) @db.Decimal(10,6)
   ngnPrice Decimal @default(18) @db.Decimal(20,6)
@@ -2353,6 +2364,12 @@ model PurchaseRefund {
 
 // Coins are reserved only on confirmation. Unknown provider outcomes never release them.
 model CoinWithdrawal {
+  otpChallengeId String?
+  otpVerifiedAt DateTime?
+  approvalRequired Boolean @default(false)
+  approvedAt DateTime?
+  reviewedBy String?
+  reviewNote String?
   id String @id
   userId String
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -2394,4 +2411,17 @@ model WithdrawalRecipient {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([userId, environment])
+}
+
+// Immutable records of withdrawal policy changes and admin decisions.
+model WithdrawalAdminEvent {
+  id String @id @default(cuid())
+  actorId String
+  action String
+  userId String?
+  withdrawalId String?
+  details Json
+  createdAt DateTime @default(now())
+  @@index([withdrawalId, createdAt])
+  @@index([userId, createdAt])
 }
