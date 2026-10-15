@@ -104,3 +104,14 @@ it('uses accepted follows, mutual follows and fresh visibility rather than recom
   await db.follow.updateMany({ where: { followerId: viewer, followingId: 'tab-private' }, data: { status: 'PENDING' } });
   expect((await read('following')).some(p => p.id === 'tab-post-private')).toBe(false);
 });
+
+it('hydrates published paid quizzes and polls in every authenticated feed without revealing paid answers',async()=>{
+ await db.post.update({where:{id:ids[3]},data:{type:'POLL'}});
+ await db.post.update({where:{id:ids[4]},data:{type:'QUIZ'}});
+ await db.quiz.update({where:{postId:ids[4]},data:{isPaid:true}});
+ await db.follow.upsert({where:{followerId_followingId:{followerId:author,followingId:viewer}},create:{followerId:author,followingId:viewer,status:'ACCEPTED'},update:{status:'ACCEPTED'}});
+ for(const feed of ['foryou','latest','following','friends','trending']){
+  const response=await getNewsfeed([ids[3],ids[4]],reader,{feed,limit:100});expect(response.status,feed).toBe(200);
+  const quiz=(response.data as any[]).find(post=>post.id===ids[4]);expect(quiz,feed).toBeDefined();expect(quiz.type).toBe('QUIZ');expect(quiz.quiz.options).toHaveLength(2);expect(quiz.quiz.options.every((option:any)=>!option.isCorrect)).toBe(true);
+ }
+});

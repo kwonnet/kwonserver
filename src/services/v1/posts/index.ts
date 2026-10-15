@@ -6931,7 +6931,8 @@ export function publicPreviewQuery(now = new Date(), older = false, take = PUBLI
     take,
     relationLoadStrategy: "join",
     where: {
-      status: "PUBLISHED", scope: "ANYONE", kind: "ROOT", type: "CONTENT",
+      status: "PUBLISHED", scope: "ANYONE", kind: "ROOT", type: {in:["CONTENT","QUIZ"]},
+      AND:[{OR:[{type:"CONTENT"},{quiz:{isNot:null}}]}],
       deletedAt: null, isHidden: false, parentId: null, rootId: null,
       createdAt: older ? { lt: cutoff } : { gte: cutoff, lte: now },
       OR: [{ scheduleAt: null }, { scheduleAt: { lte: now } }],
@@ -6941,7 +6942,8 @@ export function publicPreviewQuery(now = new Date(), older = false, take = PUBLI
       ? [{ createdAt: "desc" }, { id: "desc" }]
       : [{ totalLikes: "desc" }, { totalReplies: "desc" }, { totalReposts: "desc" }, { totalShares: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     select: {
-      id: true, content: true, createdAt: true, userId: true,
+      id: true, type:true, content: true, createdAt: true, userId: true,
+      quiz:{select:{id:true,isPaid:true,rewardAmount:true,maxWinners:true,expireAt:true,scope:true,options:{orderBy:[{createdAt:"asc"},{id:"asc"}],select:{id:true,text:true,votes:true}}}},
       totalLikes: true, totalReplies: true, totalReposts: true, totalQuotes: true,
       totalShares: true, totalBookmarks: true, totalImpressions: true, totalTips: true, totalViews: true,
       user: { select: { id: true, name: true, username: true, avatar: true } },
