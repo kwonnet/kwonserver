@@ -34,7 +34,7 @@ it('delete-for-me, request rejection and expiry reconcile counters',async()=>{
 it('uploads ciphertext directly to private storage and keeps only metadata in PostgreSQL',async()=>{
  const c=await chat.createMessagingConversation(users[0],users[1]);const blobId=randomUUID(),bytes=Buffer.alloc(128,5);const input={blobId,ciphertextBytes:bytes.length,ciphertextSha256:createHash('sha256').update(bytes).digest('base64')};
  const grant=await chat.reserveMessagingBlob(users[0],'s',a,c.id,input);expect('url' in grant).toBe(true);
- const upload=await fetch((grant as any).url,{method:'PUT',headers:(grant as any).headers,body:bytes});expect(upload.status).toBe(200);
+ const upload=await fetch((grant as any).url,{method:'PUT',headers:(grant as any).headers,body:bytes});expect(upload.status, await upload.text()).toBe(200);
  expect((await fetch((grant as any).url,{method:'PUT',headers:(grant as any).headers,body:bytes})).status).toBe(412);
  await chat.finalizeMessagingBlob(users[0],'s',a,c.id,blobId);
  const row=await db.e2Blob.findUniqueOrThrow({where:{id:blobId}});expect(row.ciphertext).toBeNull();expect(row.finalizedAt).not.toBeNull();

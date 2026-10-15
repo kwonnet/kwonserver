@@ -16,6 +16,7 @@ try {
   run('docker', ['info', '--format', '{{.ServerVersion}}']);
   started = true;
   run('docker', [...compose, 'up', '-d', '--wait', '--wait-timeout', '120']);
+  run(process.execPath, ['scripts/test-object-storage.cjs']);
   // Exercise the actual deployment migration history against a fresh database.
   run(process.execPath, ['scripts/database-analytics.cjs', 'extensions']);
   run(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy']);
@@ -24,6 +25,7 @@ try {
   run(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', '--config', load?'vitest.messaging-load.config.mts':'vitest.integration.config.mts', ...args]);
 } catch (error) {
   console.error(error.message);
+  if (started) spawnSync('docker', [...compose, 'logs', '--no-color', '--tail', '150', 'objects'], { cwd: root, env, stdio: 'inherit' });
   process.exitCode = 1;
 } finally {
   if (started) {
