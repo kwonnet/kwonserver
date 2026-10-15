@@ -95,7 +95,7 @@ test('generated gift catalog uses stable IDs, thumbnails and affordable coin pri
 
 test('country flag seed uses the configured media domain and updates category rooms idempotently',async()=>{
  const seed=load({mediaBase:'https://media.example.test/'});
- assert.equal(seed.flagUrl('United Kingdom'),'https://media.example.test/assets/flags/united-kingdom.webp');
+ assert.equal(seed.flagUrl('United Kingdom'),'https://media.example.test/static/flags/united-kingdom.webp');
  const rows=[{id:'nigeria',name:'Nigeria',thumbnail:null},{id:'new-zealand',name:'New Zealand',thumbnail:'old.webp'}];
  const rooms=[{catId:'nigeria',thumbnail:null},{catId:'nigeria',thumbnail:'old.webp'},{catId:'new-zealand',thumbnail:null}];
  seed.tx.gameCategory.findMany=async args=>{assert.equal(args.where.game.name,'Country Mania');return rows;};
@@ -105,8 +105,8 @@ test('country flag seed uses the configured media domain and updates category ro
   changed.forEach(room=>Object.assign(room,data));return {count:changed.length};
  }};
  assert.deepEqual(JSON.parse(JSON.stringify(await seed.flags(seed.tx))),{categoriesUpdated:2,roomsUpdated:3});
- assert.equal(rows[0].thumbnail,'https://media.example.test/assets/flags/nigeria.webp');
- assert.equal(rooms[2].thumbnail,'https://media.example.test/assets/flags/new-zealand.webp');
+ assert.equal(rows[0].thumbnail,'https://media.example.test/static/flags/nigeria.webp');
+ assert.equal(rooms[2].thumbnail,'https://media.example.test/static/flags/new-zealand.webp');
  assert.deepEqual(JSON.parse(JSON.stringify(await seed.flags(seed.tx))),{categoriesUpdated:0,roomsUpdated:0});
- assert.equal(load().flagUrl('Nigeria'),'https://media.kwonnet.com/assets/flags/nigeria.webp');
+ assert.equal(load().flagUrl('Nigeria'),'https://media.kwonnet.com/static/flags/nigeria.webp');
 });

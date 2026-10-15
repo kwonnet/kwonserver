@@ -25514,7 +25514,7 @@ export function countryGameThumbnail(countryName: string) {
   const filename = countryName.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const base = (process.env.CLOUDFLARE_PUBLIC_MEDIA_URL || "https://media.kwonnet.com").replace(/\/+$/, "");
-  return `${base}/assets/flags/${filename}.webp`;
+  return `${base}/static/flags/${filename}.webp`;
 }
 
 /** Backfill thumbnails without recreating countries, rooms or game history. */

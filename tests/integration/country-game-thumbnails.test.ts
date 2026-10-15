@@ -9,7 +9,7 @@ it('backfills Cloudflare country thumbnails and room flags without recreating ga
    await syncCountryGameThumbnails(tx);
    for(const category of game.categories){
     const expected=countryGameThumbnail(category.name);
-    expect(expected).toContain('/assets/flags/');expect(expected).toMatch(/^https:\/\//);
+    expect(expected).toContain('/static/flags/');expect(expected).toMatch(/^https:\/\//);
     expect(await tx.gameCategory.findUniqueOrThrow({where:{id:category.id}})).toMatchObject({name:category.name,description:category.description,thumbnail:expected,topics:category.topics});
     for(const room of category.rooms)expect(await tx.gameRoom.findUniqueOrThrow({where:{id:room.id}})).toMatchObject({name:room.name,capacity:room.capacity,thumbnail:expected});
    }
