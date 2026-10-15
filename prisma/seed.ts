@@ -25509,6 +25509,52 @@ export async function syncGameCategoryTopics(
   return { updated, added, missingCategories };
 }
 
+const gameBannerFiles: Record<string, string> = {
+  "Trivia & Quiz": "trivia-and-quiz.webp",
+  "Acronym Arcade": "acronym-arcade.webp",
+  "Academia Adventure": "academia-adventure.webp",
+  "Sports & Games": "sports-and-games.webp",
+  "MindMash": "mindmash.webp",
+  "Country Mania": "country-mania.webp",
+};
+
+export function gameBannerThumbnail(gameName: string) {
+  const filename = gameBannerFiles[gameName];
+  if (!filename) return undefined;
+  const base = (process.env.CLOUDFLARE_PUBLIC_MEDIA_URL || "https://media.kwonnet.com").replace(/\/+$/, "");
+  return `${base}/static/games/${filename}`;
+}
+
+/** Refresh existing artwork without recreating games or changing room history. */
+export async function syncGameBannerThumbnails(tx: Prisma.TransactionClient) {
+  const rows = await tx.game.findMany({
+    where: {name: {in: Object.keys(gameBannerFiles)}},
+    select: {id: true, name: true, thumbnail: true},
+  });
+  let gamesUpdated = 0, categoriesUpdated = 0, roomsUpdated = 0;
+  for (const game of rows) {
+    const thumbnail = gameBannerThumbnail(game.name);
+    if (!thumbnail) continue;
+    if (game.thumbnail !== thumbnail) {
+      await tx.game.update({where: {id: game.id}, data: {thumbnail}});
+      gamesUpdated++;
+    }
+    // Country categories and their rooms use individual flags instead of the banner.
+    if (game.name === "Country Mania") continue;
+    const stale = {OR: [{thumbnail: null}, {thumbnail: {not: thumbnail}}]};
+    const categories = await tx.gameCategory.updateMany({
+      where: {gameId: game.id, ...stale}, data: {thumbnail},
+    });
+    const rooms = await tx.gameRoom.updateMany({
+      where: {category: {gameId: game.id}, ...stale}, data: {thumbnail},
+    });
+    categoriesUpdated += categories.count;
+    roomsUpdated += rooms.count;
+  }
+  console.log(`Game banners: updated ${gamesUpdated} games, ${categoriesUpdated} categories and ${roomsUpdated} rooms.`);
+  return {gamesUpdated, categoriesUpdated, roomsUpdated};
+}
+
 /** Country assets match kwonweb2/public/flags; no sibling checkout is needed at deploy time. */
 export function countryGameThumbnail(countryName: string) {
   const filename = countryName.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -25570,6 +25616,7 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
         await prisma.game.create({
           data: {
             name: el.name,
+            thumbnail: gameBannerThumbnail(el.name),
             description: el.description,
             modes: isAcronym
               ? [GameMode.MULTI]
@@ -25579,9 +25626,9 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
                 name: item.name,
                 description: item.description,
                 topics: item.topics,
-                ...(el.name === "Country Mania" ? {thumbnail: countryGameThumbnail(item.name)} : {}),
+                thumbnail: el.name === "Country Mania" ? countryGameThumbnail(item.name) : gameBannerThumbnail(el.name),
                 rooms: { create: item.rooms.map(room => ({...room,
-                  ...(el.name === "Country Mania" ? {thumbnail: countryGameThumbnail(item.name)} : {}),
+                  thumbnail: el.name === "Country Mania" ? countryGameThumbnail(item.name) : gameBannerThumbnail(el.name),
                 })) },
               })),
             },
@@ -25593,6 +25640,7 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
       console.log("Seeding complete.... games  already exists");
     }
     await syncGameCategoryTopics(prisma);
+    await syncGameBannerThumbnails(prisma);
     await syncCountryGameThumbnails(prisma);
     // seed app subscriptions
     const plans = await prisma.subscriptionPlan.count();

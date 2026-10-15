@@ -21,6 +21,7 @@ function load({ demo = false, failure = false, topicsOnly = false, mediaBase } =
   for (const name of ['coinPackage', 'tipPackage', 'gameMilestone', 'game', 'subscriptionPlan', 'country', 'continent']) {
     tx[name] = { count: async () => { if (failure) throw new Error('Database failure'); return 1; } };
   }
+  tx.game.findMany = async () => [];
   tx.gameCategory = { findMany: async () => [], update: async () => { throw new Error("Unexpected update"); } };
   tx.tipPackage.upsert=async()=>({});tx.tipPackage.deleteMany=async()=>({count:0});
   const prisma = { $transaction: async callback => { transactions++; return await callback(tx); } };
@@ -35,7 +36,7 @@ function load({ demo = false, failure = false, topicsOnly = false, mediaBase } =
   vm.runInNewContext(output, { exports, module: { exports }, require: requireMock,
     console: { log() {}, error() {} }, process: { argv: demo ? ['node', 'seed', '--demo'] : topicsOnly ? ['node', 'seed', '--game-topics'] : [], env: { NODE_ENV: 'production', CLOUDFLARE_PUBLIC_MEDIA_URL: mediaBase } },
   });
-  return { main: exports.main, flags: exports.syncCountryGameThumbnails, flagUrl: exports.countryGameThumbnail, sync: exports.syncGameCategoryTopics, tx, chargeRateWrites, transactions: () => transactions };
+  return { banners: exports.syncGameBannerThumbnails, bannerUrl: exports.gameBannerThumbnail, main: exports.main, flags: exports.syncCountryGameThumbnails, flagUrl: exports.countryGameThumbnail, sync: exports.syncGameCategoryTopics, tx, chargeRateWrites, transactions: () => transactions };
 }
 test('production seed only accesses reference tables and runs transactionally', async () => {
   const seed = load(); await seed.main(); assert.equal(seed.transactions(), 1);
@@ -109,4 +110,13 @@ test('country flag seed uses the configured media domain and updates category ro
  assert.equal(rooms[2].thumbnail,'https://media.example.test/static/flags/new-zealand.webp');
  assert.deepEqual(JSON.parse(JSON.stringify(await seed.flags(seed.tx))),{categoriesUpdated:0,roomsUpdated:0});
  assert.equal(load().flagUrl('Nigeria'),'https://media.kwonnet.com/static/flags/nigeria.webp');
+});
+
+test('all six game banners use the configured Cloudflare media domain',()=>{
+ const seed=load({mediaBase:'https://media.example.test/'});
+ for(const [name,file] of Object.entries({'Trivia & Quiz':'trivia-and-quiz','Acronym Arcade':'acronym-arcade','Academia Adventure':'academia-adventure','Sports & Games':'sports-and-games','MindMash':'mindmash','Country Mania':'country-mania'})){
+  assert.equal(seed.bannerUrl(name),`https://media.example.test/static/games/${file}.webp`);
+ }
+ assert.equal(seed.bannerUrl('Unknown game'),undefined);
+ assert.equal(load().bannerUrl('Country Mania'),'https://media.kwonnet.com/static/games/country-mania.webp');
 });
