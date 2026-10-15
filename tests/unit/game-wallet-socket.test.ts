@@ -108,3 +108,9 @@ it('cancels a join when the page leaves before the room lookup completes',async(
  resolveLookup({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
  await pending;expect(games.addGameRoomPlayer).not.toHaveBeenCalled();expect(ack).toHaveBeenCalledWith(expect.objectContaining({code:'JOIN_CANCELLED'}));
 });
+
+it('never replays prior room messages to clients requesting chat history', async () => {
+ await handlers[GameEventEnum.GAME_ROOM_CHAT]();
+ expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_CHAT, []);
+ expect(games.deductGameCoins).not.toHaveBeenCalled();
+});

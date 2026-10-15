@@ -304,14 +304,10 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         } finally { if (socket.data.gameJoinIntent === intent) socket.data.pendingGameRoom = undefined; release(); }
       }
     );
-    // Paid messages are stored durably and replayed from Redis; IDs deduplicate retries.
-    socket.on(GameEventEnum.GAME_ROOM_CHAT, async () => {
-      const room: SocketGameRoom = socket.data.room;
-      if (!room) return;
-      try {
-        const messages = await redisClient.lRange(`room:${room.id}:paid-messages`, -100, -1);
-        socket.emit(GameEventEnum.GAME_ROOM_CHAT, messages.map(message => JSON.parse(message)));
-      } catch { /* A later poll recovers delivery. */ }
+    // Chat is live-only. Older clients may still request history after rejoining.
+    // Keep financial delivery records internal; never replay prior room messages.
+    socket.on(GameEventEnum.GAME_ROOM_CHAT, () => {
+      socket.emit(GameEventEnum.GAME_ROOM_CHAT, []);
     });
     socket.on(GameEventEnum.MESSAGE, async (arg, ack?: Function) => {
       try {
@@ -324,7 +320,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         ack?.({isError:result.isError,message:result.message});
         if (result.data) socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE,result.data);
         if (result.isError || !result.data) { socket.emit(GameEventEnum.GAME_ERROR_NOTIFY,result.message); return; }
-        // Clients poll the durable history too, covering a crash before this broadcast.
+        // Broadcast accepted messages only to players currently in the room.
         if (!('pending' in result.data)) io.in(room.id).emit(GameEventEnum.MESSAGE,payload);
         await updatePlayerSession({playerId:user.id,catId:room.catId,mode:room.mode});
       } catch { socket.emit(GameEventEnum.GAME_ERROR_NOTIFY,'Unable to accept this message'); }
