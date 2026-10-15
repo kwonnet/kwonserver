@@ -36,7 +36,7 @@ function load({ demo = false, failure = false, topicsOnly = false, mediaBase } =
   vm.runInNewContext(output, { exports, module: { exports }, require: requireMock,
     console: { log() {}, error() {} }, process: { argv: demo ? ['node', 'seed', '--demo'] : topicsOnly ? ['node', 'seed', '--game-topics'] : [], env: { NODE_ENV: 'production', CLOUDFLARE_PUBLIC_MEDIA_URL: mediaBase } },
   });
-  return { banners: exports.syncGameBannerThumbnails, bannerUrl: exports.gameBannerThumbnail, main: exports.main, flags: exports.syncCountryGameThumbnails, flagUrl: exports.countryGameThumbnail, sync: exports.syncGameCategoryTopics, tx, chargeRateWrites, transactions: () => transactions };
+  return { genericRooms: exports.genericGameRooms, banners: exports.syncGameBannerThumbnails, bannerUrl: exports.gameBannerThumbnail, main: exports.main, flags: exports.syncCountryGameThumbnails, flagUrl: exports.countryGameThumbnail, sync: exports.syncGameCategoryTopics, tx, chargeRateWrites, transactions: () => transactions };
 }
 test('production seed only accesses reference tables and runs transactionally', async () => {
   const seed = load(); await seed.main(); assert.equal(seed.transactions(), 1);
@@ -119,4 +119,31 @@ test('all six game banners use the configured Cloudflare media domain',()=>{
  }
  assert.equal(seed.bannerUrl('Unknown game'),undefined);
  assert.equal(load().bannerUrl('Country Mania'),'https://media.kwonnet.com/static/games/country-mania.webp');
+});
+
+test('fresh seed gives every non-country room a generic label without changing its category topics or room counts',async()=>{
+ const seed=load();const created=[];
+ seed.tx.game.count=async()=>0;
+ seed.tx.game.create=async({data})=>{created.push(data);return data;};
+ await seed.main();
+ let categories=0,rooms=0;
+ for(const game of created){
+  if(game.name==='Country Mania'){
+   const nigeria=game.categories.create.find(category=>category.name==='Nigeria');
+   assert.ok(nigeria);assert.ok(nigeria.rooms.create.some(room=>room.name==='Abia Braves'));
+   continue;
+  }
+  for(const category of game.categories.create){
+   categories++;rooms+=category.rooms.create.length;
+   assert.match(category.description,/Every room/);
+   assert.ok(Array.isArray(category.topics));
+   category.rooms.create.forEach((room,index)=>{
+    assert.equal(room.name,`${category.name} Room ${String(index+1).padStart(2,'0')}`);
+    assert.match(room.description,game.name==='MindMash'?/same category content and rules/:/full .* question pool/);
+   });
+  }
+ }
+ assert.equal(categories,90);assert.equal(rooms,2690);
+ const football=created.find(game=>game.name==='Sports & Games').categories.create.find(category=>category.name==='Football');
+ assert.ok(football.topics.includes('National Teams'));
 });

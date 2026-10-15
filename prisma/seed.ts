@@ -1123,6 +1123,16 @@ type Game = {
   }[];
 };
 
+/** Room labels identify spaces to play; they never narrow the category content. */
+export function genericGameRooms(categoryName: string, count: number, activity = false) {
+  return Array.from({length: count}, (_, index) => ({
+    name: `${categoryName} Room ${String(index + 1).padStart(2, "0")}`,
+    description: activity
+      ? `Play ${categoryName} with others. All rooms use the same category content and rules.`
+      : `Play with others using the full ${categoryName} question pool. All rooms cover the same category topics.`,
+  }));
+}
+
 const games: Game[] = [
   {
     name: "Trivia & Quiz",
@@ -1131,7 +1141,7 @@ const games: Game[] = [
     categories: [
       {
         name: "Themed Quest",
-        description: "Embark on a journey through themed challenges",
+        description: "Embark on a journey through themed challenges Every room draws questions from the full category pool.",
         topics: [
           "Olympic Games",
           "Famous Athletes",
@@ -1142,150 +1152,12 @@ const games: Game[] = [
           "Cricket & Baseball",
           "Extreme Sports",
         ],
-        rooms: [
-          {
-            name: "Mystery Mansion",
-            description: "Solve the riddles to escape the haunted house.",
-          },
-          {
-            name: "Space Expedition",
-            description: "Explore the galaxy and uncover hidden treasures.",
-          },
-          {
-            name: "Pirate's Cove",
-            description: "Search for lost pirate treasure in the open seas.",
-          },
-          {
-            name: "Ancient Egypt",
-            description: "Uncover secrets from the pyramids and the Pharaohs.",
-          },
-          {
-            name: "Underwater Adventure",
-            description: "Dive deep to discover mysterious underwater cities.",
-          },
-          {
-            name: "Lost in Time",
-            description: "Travel through time and change history.",
-          },
-          {
-            name: "Wild West Showdown",
-            description: "Outlaw duels and treasure hunts in the Wild West.",
-          },
-          {
-            name: "The Dragon's Lair",
-            description: "Battle dragons and find the enchanted artifacts.",
-          },
-          {
-            name: "Space Station Zeta",
-            description:
-              "Survive a malfunction on a space station in deep space.",
-          },
-          {
-            name: "Secret Agent Mission",
-            description:
-              "Complete covert missions for the intelligence agency.",
-          },
-          {
-            name: "The Jungle Hunt",
-            description:
-              "Navigate the dense jungle to find rare and hidden gems.",
-          },
-          {
-            name: "The Viking Quest",
-            description:
-              "Embark on a raid to discover treasures of the Norse gods.",
-          },
-          {
-            name: "Mythical Creatures",
-            description:
-              "Track down and tame mythical beasts from ancient legends.",
-          },
-          {
-            name: "Mysterious Island",
-            description:
-              "Stranded on an island, uncover its secrets to escape.",
-          },
-          {
-            name: "The Alien Invasion",
-            description: "Defend Earth from a wave of alien invaders.",
-          },
-          {
-            name: "The Arctic Expedition",
-            description:
-              "Survive the frozen wilderness and uncover hidden treasures.",
-          },
-          {
-            name: "Treasure Hunt",
-            description:
-              "Follow clues to unearth ancient treasure hidden around the world.",
-          },
-          {
-            name: "Superhero Academy",
-            description:
-              "Train to become the next superhero and save the city.",
-          },
-          {
-            name: "Secret Jungle Temple",
-            description:
-              "Find the ancient temple deep in the jungle and unlock its secrets.",
-          },
-          {
-            name: "The Time Machine",
-            description:
-              "Hop through different eras and complete historical challenges.",
-          },
-          {
-            name: "Haunted Forest",
-            description: "Brave a haunted forest full of eerie creatures.",
-          },
-          {
-            name: "The Sorcerer's Tower",
-            description:
-              "Climb the wizard's tower and face magical challenges.",
-          },
-          {
-            name: "Steampunk City",
-            description:
-              "Explore a city powered by steam and mechanical wonders.",
-          },
-          {
-            name: "Cliffside Escape",
-            description: "Escape from a crumbling cliffside fortress.",
-          },
-          {
-            name: "The Pharaoh's Curse",
-            description:
-              "Escape the deadly traps of the ancient Pharaoh's tomb.",
-          },
-          {
-            name: "Mayan Mystery",
-            description: "Unveil the mysteries hidden in ancient Mayan ruins.",
-          },
-          {
-            name: "The Robot Uprising",
-            description:
-              "Fight back against a world taken over by rogue robots.",
-          },
-          {
-            name: "Nautical Adventure",
-            description:
-              "Sail across the seas to explore new lands and treasures.",
-          },
-          {
-            name: "Dungeon Crawl",
-            description:
-              "Fight through dangerous dungeons to retrieve ancient relics.",
-          },
-          {
-            name: "Monster Hunter",
-            description: "Hunt down mythical monsters lurking in the dark.",
-          },
-        ],
+        rooms: genericGameRooms("Themed Quest", 30, false),
       },
       {
         name: "Science & Technology",
         description:
-          "Dive into the wonders of science and technological advancements.",
+          "Dive into the wonders of science and technological advancements. Every room draws questions from the full category pool.",
         topics: [
           "Space Exploration",
           "Scientific Discoveries",
@@ -1299,141 +1171,11 @@ const games: Game[] = [
           "Physics in Everyday Life",
           "Human Evolution",
         ],
-        rooms: [
-          {
-            name: "Physics Pioneers",
-            description: "Explore the wonders of motion, energy, and matter.",
-          },
-          {
-            name: "Chemistry Lab",
-            description:
-              "Dive into the world of atoms, elements, and reactions.",
-          },
-          {
-            name: "Biology Explorers",
-            description: "Uncover the mysteries of life and living organisms.",
-          },
-          {
-            name: "Space Odyssey",
-            description: "Journey through the cosmos and explore the universe.",
-          },
-          {
-            name: "Earth Science Hub",
-            description:
-              "Learn about the planet's structure, climate, and history.",
-          },
-          {
-            name: "Genetics Lab",
-            description: "Discover the secrets of DNA and the code of life.",
-          },
-          {
-            name: "Tech Wizards",
-            description:
-              "Innovate with cutting-edge technology and inventions.",
-          },
-          {
-            name: "Environmental Quest",
-            description:
-              "Understand ecosystems and the importance of sustainability.",
-          },
-          {
-            name: "Quantum Realm",
-            description: "Enter the mind-bending world of quantum physics.",
-          },
-          {
-            name: "Astronomy Club",
-            description: "Gaze at the stars and uncover celestial secrets.",
-          },
-          {
-            name: "Robotics Arena",
-            description: "Build and program the machines of the future.",
-          },
-          {
-            name: "Medical Marvels",
-            description: "Learn about breakthroughs in health and medicine.",
-          },
-          {
-            name: "Geology Rocks",
-            description:
-              "Study the Earth's rocks, minerals, and natural phenomena.",
-          },
-          {
-            name: "AI Frontiers",
-            description:
-              "Explore artificial intelligence and machine learning.",
-          },
-          {
-            name: "Science Trivia",
-            description:
-              "Test your knowledge with fun and challenging science facts.",
-          },
-          {
-            name: "Innovation Station",
-            description: "Discover inventions that changed the world.",
-          },
-          {
-            name: "Microscope World",
-            description:
-              "Zoom into the microscopic universe of cells and bacteria.",
-          },
-          {
-            name: "Weather Watchers",
-            description: "Track storms, climate, and atmospheric science.",
-          },
-          {
-            name: "Future Tech Talks",
-            description: "Discuss the latest trends in futuristic technology.",
-          },
-          {
-            name: "Engineering Minds",
-            description:
-              "Tackle real-world problems with creative engineering.",
-          },
-          {
-            name: "Science Fair Lab",
-            description: "Showcase your science projects and experiments.",
-          },
-          {
-            name: "Nuclear Nexus",
-            description: "Learn about nuclear energy and atomic science.",
-          },
-          {
-            name: "Ocean Depths",
-            description: "Explore marine biology and underwater ecosystems.",
-          },
-          {
-            name: "Mathematical Wonders",
-            description: "Unlock the magic of numbers and mathematical theory.",
-          },
-          {
-            name: "Cybersecurity Central",
-            description: "Dive into data protection and ethical hacking.",
-          },
-          {
-            name: "3D Printing Zone",
-            description: "Design and print amazing 3D models and prototypes.",
-          },
-          {
-            name: "Tech Ethics Forum",
-            description: "Discuss the ethics and implications of modern tech.",
-          },
-          {
-            name: "Renewable Energy Lab",
-            description: "Explore solar, wind, and sustainable power sources.",
-          },
-          {
-            name: "Nanotech Nucleus",
-            description: "Enter the tiny world of nanotechnology.",
-          },
-          {
-            name: "Data Science Den",
-            description: "Extract insights and make predictions with data.",
-          },
-        ],
+        rooms: genericGameRooms("Science & Technology", 30, false),
       },
       {
         name: "History & Geography",
-        description: "Learn about historical events and geographic wonders.",
+        description: "Learn about historical events and geographic wonders. Every room draws questions from the full category pool.",
         topics: [
           "Ancient Civilizations",
           "World Wars",
@@ -1444,158 +1186,12 @@ const games: Game[] = [
           "Revolutions in History",
           "Famous Explorers",
         ],
-        rooms: [
-          {
-            name: "Ancient Empires",
-            description:
-              "Test your knowledge of early global civilizations like Rome, Egypt, and Mesopotamia.",
-          },
-          {
-            name: "World at War",
-            description:
-              "Dive into the major battles, events, and leaders of World War I and II.",
-          },
-          {
-            name: "Lost Cities",
-            description:
-              "Guess the names and facts about mythical and ancient lost cities around the world.",
-          },
-          {
-            name: "Great Explorers",
-            description:
-              "Match explorers to their journeys and discoveries across the globe.",
-          },
-          {
-            name: "Country Capitals",
-            description:
-              "Challenge yourself to name the capital cities of countries worldwide.",
-          },
-          {
-            name: "Historical Leaders",
-            description:
-              "Identify iconic leaders and their roles in shaping history.",
-          },
-          {
-            name: "Invention Timeline",
-            description:
-              "Put major inventions in chronological order and guess their inventors.",
-          },
-          {
-            name: "Map Challenge",
-            description:
-              "Guess the country or city based on a silhouette or map snippet.",
-          },
-          {
-            name: "Revolutions",
-            description:
-              "Explore famous revolutions and the events that sparked them.",
-          },
-          {
-            name: "Historical Quotes",
-            description:
-              "Match powerful quotes to historical figures who said them.",
-          },
-          {
-            name: "World Wonders",
-            description:
-              "Test your knowledge of the ancient and modern wonders of the world.",
-          },
-          {
-            name: "Colonial History",
-            description:
-              "Identify colonies, empires, and independence movements.",
-          },
-          {
-            name: "Flags & Facts",
-            description: "Guess the country based on its flag and a hint.",
-          },
-          {
-            name: "Famous Battles",
-            description:
-              "Guess the location and significance of famous historical battles.",
-          },
-          {
-            name: "Cultural Heritage",
-            description:
-              "Match cultural landmarks to their countries or origins.",
-          },
-          {
-            name: "Political Maps",
-            description:
-              "Analyze historical political boundaries and changes over time.",
-          },
-          {
-            name: "Historical Timelines",
-            description: "Arrange events in the correct chronological order.",
-          },
-          {
-            name: "Voyages & Routes",
-            description: "Track famous sea and land explorations.",
-          },
-          {
-            name: "Cold War Quiz",
-            description:
-              "Explore the politics, spies, and stand-offs of the Cold War era.",
-          },
-          {
-            name: "Geography Trivia",
-            description:
-              "Answer geography-based questions from all over the world.",
-          },
-          {
-            name: "City Origins",
-            description:
-              "Identify cities from their founding stories and namesakes.",
-          },
-          {
-            name: "Historic Monuments",
-            description: "Match famous monuments to their countries and eras.",
-          },
-          {
-            name: "Global Empires",
-            description:
-              "Explore how different empires expanded and collapsed over time.",
-          },
-          {
-            name: "Historic Inventions",
-            description:
-              "Guess revolutionary inventions and the people behind them.",
-          },
-          {
-            name: "Landmarks by Continent",
-            description: "Name the continent from its iconic landmarks.",
-          },
-          {
-            name: "Timeline Blitz",
-            description:
-              "Fast-paced event-sequencing challenge across centuries.",
-          },
-          {
-            name: "War Strategy",
-            description:
-              "Dive into strategies and turning points of historic wars.",
-          },
-          {
-            name: "Geo Facts",
-            description:
-              "Quick-fire geographical facts and trivia from all regions.",
-          },
-          {
-            name: "Rise & Fall",
-            description:
-              "Trace the rise and decline of civilizations and kingdoms.",
-          },
-          {
-            name: "Historic Myths",
-            description:
-              "Uncover the truth behind famous historical myths and legends.",
-          },
-        ],
+        rooms: genericGameRooms("History & Geography", 30, false),
       },
       {
         name: "Pop Culture",
         description:
-          "Test your knowledge of movies, TV, music, and celebrities.",
+          "Test your knowledge of movies, TV, music, and celebrities. Every room draws questions from the full category pool.",
         topics: [
           "Movies & TV",
           "Famous Books",
@@ -1606,249 +1202,12 @@ const games: Game[] = [
           "Animation & Cartoons",
           "Streaming Platforms",
         ],
-        rooms: [
-          {
-            name: "Hollywood Hits",
-            description:
-              "Guess acronyms inspired by blockbuster movies and famous Hollywood dialogues.",
-          },
-          {
-            name: "TV Time",
-            description:
-              "Decode acronyms based on popular TV shows and their iconic moments.",
-          },
-          {
-            name: "Chart-Topping Tunes",
-            description:
-              "Uncover acronyms from hit songs, artists, and music genres.",
-          },
-          {
-            name: "Internet Memes",
-            description:
-              "Crack acronyms from viral memes and internet sensations.",
-          },
-          {
-            name: "Slang Savvy",
-            description:
-              "Test your knowledge of trendy texting and social media slang.",
-          },
-          {
-            name: "Streaming Stars",
-            description:
-              "Guess acronyms from famous series and characters on streaming platforms.",
-          },
-          {
-            name: "Pop Icons",
-            description:
-              "Identify acronyms related to legendary pop culture figures and celebrities.",
-          },
-          {
-            name: "Award Season",
-            description:
-              "Explore acronyms tied to award-winning movies, shows, and performances.",
-          },
-          {
-            name: "Fandom Frenzy",
-            description:
-              "Guess acronyms from famous fan bases and their beloved franchises.",
-          },
-          {
-            name: "Classic Cinema",
-            description:
-              "Decode acronyms from timeless movies and classic Hollywood.",
-          },
-          {
-            name: "Social Media Buzz",
-            description:
-              "Uncover acronyms from trending hashtags and viral challenges.",
-          },
-          {
-            name: "Gaming Glory",
-            description:
-              "Identify acronyms from iconic video games and esports legends.",
-          },
-          {
-            name: "Retro Vibes",
-            description: "Guess acronyms inspired by 80s and 90s pop culture.",
-          },
-          {
-            name: "Blockbuster Bonanza",
-            description:
-              "Decode acronyms from the biggest box office hits of all time.",
-          },
-          {
-            name: "Lyrics Labyrinth",
-            description: "Unravel acronyms hidden in famous song lyrics.",
-          },
-          {
-            name: "Animated Adventures",
-            description:
-              "Guess acronyms from beloved animated movies and series.",
-          },
-          {
-            name: "Comedy Gold",
-            description:
-              "Identify acronyms from iconic comedians and hilarious sitcoms.",
-          },
-          {
-            name: "Drama Queens",
-            description:
-              "Decode acronyms tied to emotional TV dramas and soap operas.",
-          },
-          {
-            name: "Fashion Faves",
-            description:
-              "Uncover acronyms related to iconic fashion moments and designers.",
-          },
-          {
-            name: "Romantic Classics",
-            description:
-              "Guess acronyms from beloved romantic movies and songs.",
-          },
-          {
-            name: "Streaming Craze",
-            description:
-              "Decode acronyms from trending shows and movies on streaming platforms.",
-          },
-          {
-            name: "Sci-Fi Spectacles",
-            description:
-              "Identify acronyms from legendary sci-fi movies and franchises.",
-          },
-          {
-            name: "Fantasy Fandom",
-            description:
-              "Unravel acronyms from magical worlds and fantasy sagas.",
-          },
-          {
-            name: "Superhero Spotlight",
-            description:
-              "Guess acronyms tied to superheroes and their epic adventures.",
-          },
-          {
-            name: "Reality TV Drama",
-            description:
-              "Decode acronyms from famous reality shows and their stars.",
-          },
-          {
-            name: "Villain Vault",
-            description:
-              "Identify acronyms from iconic villains and their evil plans.",
-          },
-          {
-            name: "Musical Legends",
-            description:
-              "Guess acronyms from legendary bands and solo artists.",
-          },
-          {
-            name: "Teen Trends",
-            description:
-              "Decode acronyms from shows, movies, and slang popular among teens.",
-          },
-          {
-            name: "Horror Haven",
-            description:
-              "Identify acronyms from spine-chilling horror movies and stories.",
-          },
-          {
-            name: "Adventure Awaits",
-            description:
-              "Unravel acronyms tied to epic adventure movies and characters.",
-          },
-          {
-            name: "Action Packed",
-            description:
-              "Guess acronyms from thrilling action movies and series.",
-          },
-          {
-            name: "K-Pop Craze",
-            description: "Decode acronyms from famous K-Pop groups and songs.",
-          },
-          {
-            name: "Bollywood Beats",
-            description:
-              "Identify acronyms from iconic Bollywood movies and stars.",
-          },
-          {
-            name: "Slang Central",
-            description:
-              "Guess acronyms from global slang and internet culture.",
-          },
-          {
-            name: "Dance Floor Anthems",
-            description: "Decode acronyms from famous party and dance songs.",
-          },
-          {
-            name: "Award Show Icons",
-            description:
-              "Identify acronyms from unforgettable award show moments.",
-          },
-          {
-            name: "Cult Classics",
-            description:
-              "Unravel acronyms from movies and shows with a cult following.",
-          },
-          {
-            name: "Fantasy TV Tales",
-            description:
-              "Guess acronyms from magical TV shows and their characters.",
-          },
-          {
-            name: "Sitcom Spotlight",
-            description:
-              "Decode acronyms from beloved sitcoms and their hilarious casts.",
-          },
-          {
-            name: "True Crime Stories",
-            description:
-              "Identify acronyms from gripping true crime series and podcasts.",
-          },
-          {
-            name: "Digital Influencers",
-            description:
-              "Guess acronyms from famous YouTubers and TikTok stars.",
-          },
-          {
-            name: "Streaming Binge",
-            description:
-              "Decode acronyms tied to binge-worthy shows and series.",
-          },
-          {
-            name: "Texting Trends",
-            description:
-              "Unravel acronyms from modern texting habits and emojis.",
-          },
-          {
-            name: "Inspirational Icons",
-            description:
-              "Guess acronyms from motivational figures in pop culture.",
-          },
-          {
-            name: "Gamer's Galaxy",
-            description:
-              "Decode acronyms from iconic games and online communities.",
-          },
-          {
-            name: "Epic Sagas",
-            description:
-              "Identify acronyms from long-running TV and movie franchises.",
-          },
-          {
-            name: "Music Madness",
-            description:
-              "Guess acronyms from top-charting songs and album titles.",
-          },
-          {
-            name: "Virtual Celebrities",
-            description:
-              "Decode acronyms tied to avatars and virtual influencers.",
-          },
-        ],
+        rooms: genericGameRooms("Pop Culture", 48, false),
       },
       {
         name: "Culture & Lifestyle",
         description:
-          "Discover cultural traditions and lifestyle trends around the world.",
+          "Discover cultural traditions and lifestyle trends around the world. Every room draws questions from the full category pool.",
         topics: [
           "Famous Foods & Drinks",
           "World Festivals",
@@ -1858,139 +1217,11 @@ const games: Game[] = [
           "Indigenous Tribes",
           "Traditional Dances",
         ],
-        rooms: [
-          {
-            name: "Global Bites",
-            description:
-              "Explore iconic dishes and drinks from different cultures.",
-          },
-          {
-            name: "Festival Fever",
-            description:
-              "Dive into colorful festivals and global celebrations.",
-          },
-          {
-            name: "Style Timeline",
-            description: "Trace fashion trends from ancient to modern times.",
-          },
-          {
-            name: "Art Epochs",
-            description: "Journey through the great art movements in history.",
-          },
-          {
-            name: "Legendary Lore",
-            description: "Uncover the myths, gods, and folklore of the world.",
-          },
-          {
-            name: "Tribal Echoes",
-            description: "Learn about the traditions of indigenous tribes.",
-          },
-          {
-            name: "Rhythm Roots",
-            description:
-              "Celebrate traditional dances and their cultural meanings.",
-          },
-          {
-            name: "Cultural Cocktails",
-            description: "Discover the origins of famous cultural drinks.",
-          },
-          {
-            name: "Rituals & Rites",
-            description: "Examine unique coming-of-age rituals and ceremonies.",
-          },
-          {
-            name: "Dress Code",
-            description: "See how cultural identity is reflected in clothing.",
-          },
-          {
-            name: "Artisan Crafts",
-            description:
-              "Explore handmade crafts and their cultural significance.",
-          },
-          {
-            name: "Sacred Stories",
-            description: "Delve into spiritual tales and legendary figures.",
-          },
-          {
-            name: "Modern Lifestyles",
-            description:
-              "Compare contemporary ways of living across countries.",
-          },
-          {
-            name: "Cultural Icons",
-            description: "Meet key figures who shaped global culture.",
-          },
-          {
-            name: "Taste Trails",
-            description: "Follow food origins through regions and traditions.",
-          },
-          {
-            name: "Historic Fashion",
-            description: "Look at what people wore in different time periods.",
-          },
-          {
-            name: "Street Style",
-            description: "Explore how culture influences urban fashion trends.",
-          },
-          {
-            name: "Cultural Etiquette",
-            description: "Understand do's and don'ts across cultures.",
-          },
-          {
-            name: "Nomadic Lives",
-            description: "Discover how nomadic groups live and move.",
-          },
-          {
-            name: "Sacred Symbols",
-            description: "Interpret the meanings behind cultural symbols.",
-          },
-          {
-            name: "Urban Art",
-            description: "Experience culture through murals and graffiti.",
-          },
-          {
-            name: "Dance the World",
-            description: "Learn how dance expresses identity and community.",
-          },
-          {
-            name: "Myths of Nature",
-            description: "Stories that explain natural phenomena through myth.",
-          },
-          {
-            name: "Celebration Styles",
-            description:
-              "How weddings, birthdays, and holidays are celebrated globally.",
-          },
-          {
-            name: "Cultural Flavors",
-            description: "Fusion food and its cultural connections.",
-          },
-          {
-            name: "Traditional Wear",
-            description: "National dress and what it signifies.",
-          },
-          {
-            name: "Legend Hunters",
-            description:
-              "Explore tales of creatures, heroes, and haunted places.",
-          },
-          {
-            name: "Village Life",
-            description: "The traditions and simplicity of rural lifestyles.",
-          },
-          {
-            name: "Food Rituals",
-            description: "How food is tied to religion and ceremony.",
-          },
-          {
-            name: "Museums of the World",
-            description: "Virtual tours of culture-packed museums.",
-          },
-        ],
+        rooms: genericGameRooms("Culture & Lifestyle", 30, false),
       },
       {
         name: "Literature & Language",
-        description: "Celebrate the beauty of words, literature, and language.",
+        description: "Celebrate the beauty of words, literature, and language. Every room draws questions from the full category pool.",
         topics: [
           "Famous Quotes",
           "Word Origins",
@@ -2001,115 +1232,12 @@ const games: Game[] = [
           "Famous Authors",
           "Word Play and Riddles",
         ],
-        rooms: [
-          {
-            name: "Poetry Corner",
-            description: "Where rhymes go to feel important.",
-          },
-          {
-            name: "Quote Vault",
-            description: "Stealing wisdom one quote at a time.",
-          },
-          {
-            name: "Word Origins",
-            description: "Because etymology is just history for nerds.",
-          },
-          {
-            name: "Grammar Gurus",
-            description: "Where the commas matter... a lot.",
-          },
-          { name: "Book Club", description: "We read, we judge, we sip tea." },
-          { name: "Short Stories", description: "Tiny tales with big drama." },
-          {
-            name: "Language Lovers",
-            description: "Fluent in sarcasm and three other languages.",
-          },
-          {
-            name: "Punctuation Pros",
-            description: "Saving lives, one comma at a time.",
-          },
-          {
-            name: "Author Spotlight",
-            description: "We stalk famous writers (respectfully).",
-          },
-          {
-            name: "Literary Genres",
-            description: "Pick your flavor: mystery or misery?",
-          },
-          { name: "Riddle Room", description: "Where confusion is the goal." },
-          { name: "Poets' Society", description: "We cry in metaphors here." },
-          {
-            name: "Word of the Day",
-            description: "Flex your vocab. Confuse your friends.",
-          },
-          {
-            name: "Literary Debates",
-            description: "Civil wars over favorite characters.",
-          },
-          {
-            name: "Spelling Bee",
-            description: "Bee-lieve in yourself. Or not.",
-          },
-          {
-            name: "Writing Prompts",
-            description: "Fuel for the next unfinished novel.",
-          },
-          {
-            name: "World Literature",
-            description: "Books from places you can't pronounce.",
-          },
-          {
-            name: "Children's Tales",
-            description: "Stories that raised us... and scarred us.",
-          },
-          { name: "Epic Tales", description: "Big swords. Bigger drama." },
-          {
-            name: "Scriptwriting 101",
-            description: "Lights, camera... rewrite.",
-          },
-          { name: "Fan Fiction Zone", description: "Where canon goes to die." },
-          {
-            name: "Haiku Haven",
-            description: "So few syllables. So much angst.",
-          },
-          {
-            name: "Publishing Talk",
-            description: "The dream: book deal. The reality: coffee.",
-          },
-          {
-            name: "Flash Fiction",
-            description: "Stories that end before your snack does.",
-          },
-          {
-            name: "Language Games",
-            description: "Fun with words (and occasional brain cramps).",
-          },
-          {
-            name: "Translation Tips",
-            description: "Lost in translation? We all are.",
-          },
-          {
-            name: "Book Recommendations",
-            description: "Read this or regret it forever.",
-          },
-          {
-            name: "Dialogue Writers",
-            description: "Talking to yourself, professionally.",
-          },
-          {
-            name: "Etymology Lab",
-            description: "Where words spill their ancient secrets.",
-          },
-          {
-            name: "Poetic Devices",
-            description: "It's all similes and games.",
-          },
-        ],
+        rooms: genericGameRooms("Literature & Language", 30, false),
       },
       {
         name: "Entertainment & Media",
         description:
-          "From Hollywood to the internet, dive into entertainment trivia.",
+          "From Hollywood to the internet, dive into entertainment trivia. Every room draws questions from the full category pool.",
         topics: [
           "Hollywood Trivia",
           "Iconic TV Shows",
@@ -2120,123 +1248,11 @@ const games: Game[] = [
           "Movie Quotes",
           "Video Games Evolution",
         ],
-        rooms: [
-          {
-            name: "Box Office Buzz",
-            description: "Test your knowledge of blockbuster hits.",
-          },
-          {
-            name: "Sitcom Central",
-            description: "Trivia from classic and modern TV comedies.",
-          },
-          {
-            name: "Award Show Time",
-            description: "Think you know your Oscars and Emmys?",
-          },
-          {
-            name: "Director's Cut",
-            description: "Explore the world of famous filmmakers.",
-          },
-          {
-            name: "Trending Now",
-            description: "Pop culture moments and viral content.",
-          },
-          {
-            name: "Viral Vault",
-            description: "Guess the video from its internet fame.",
-          },
-          {
-            name: "Quote This!",
-            description: "Name the movie from its iconic line.",
-          },
-          {
-            name: "Game On!",
-            description: "Explore the evolution of video games.",
-          },
-          {
-            name: "TV Throwback",
-            description: "Nostalgic trivia from TV's golden days.",
-          },
-          {
-            name: "Streaming Stars",
-            description: "Netflix, Hulu, and beyond.",
-          },
-          {
-            name: "Movie Soundtracks",
-            description: "Match the tune to the film.",
-          },
-          {
-            name: "Animated Legends",
-            description: "From Pixar to anime icons.",
-          },
-          {
-            name: "Internet Icons",
-            description: "Memes, creators, and digital legends.",
-          },
-          { name: "Reality Check", description: "Reality TV trivia showdown." },
-          {
-            name: "Red Carpet Ready",
-            description: "Famous fashion moments & events.",
-          },
-          {
-            name: "Cult Classics",
-            description: "Obscure gems and fan favorites.",
-          },
-          {
-            name: "TV Drama Club",
-            description: "Think you know your thrillers and soaps?",
-          },
-          {
-            name: "Hollywood History",
-            description: "Golden Age to modern marvels.",
-          },
-          { name: "YouTube Years", description: "Milestones in online video." },
-          {
-            name: "Gaming Nostalgia",
-            description: "Classic consoles and 8-bit memories.",
-          },
-          {
-            name: "Voice Actors",
-            description: "Guess who voiced your favorite character.",
-          },
-          {
-            name: "Late Night Laughs",
-            description: "Talk shows, skits, and viral bits.",
-          },
-          {
-            name: "Superhero Central",
-            description: "Marvel, DC, and cinematic universes.",
-          },
-          {
-            name: "Rom-Coms & Tears",
-            description: "Love stories and emotional arcs.",
-          },
-          { name: "Film Flops", description: "Legendary box office bombs." },
-          {
-            name: "Trivia Royale",
-            description: "A mix of all things entertainment!",
-          },
-          {
-            name: "Indie Vibes",
-            description: "Offbeat and underrated cinema.",
-          },
-          {
-            name: "Behind the Scenes",
-            description: "Movie magic and making-of trivia.",
-          },
-          {
-            name: "TV Show Quotes",
-            description: "Match the quote to the show.",
-          },
-          {
-            name: "Fan Fandom",
-            description: "Dive into fan theories and lore.",
-          },
-        ],
+        rooms: genericGameRooms("Entertainment & Media", 30, false),
       },
       {
         name: "Nature & Environment",
-        description: "Explore the beauty and challenges of the natural world.",
+        description: "Explore the beauty and challenges of the natural world. Every room draws questions from the full category pool.",
         topics: [
           "Endangered Species",
           "National Parks",
@@ -2247,133 +1263,12 @@ const games: Game[] = [
           "Global Wildlife",
           "Conservation Heroes",
         ],
-        rooms: [
-          {
-            name: "Wildlife Wonders",
-            description: "Discover fascinating creatures across the globe.",
-          },
-          {
-            name: "Park Patrol",
-            description: "Test your knowledge on famous national parks.",
-          },
-          {
-            name: "Eco Warriors",
-            description: "Explore green heroes and their missions.",
-          },
-          {
-            name: "Ocean Deep",
-            description: "Dive into the mysteries of the sea.",
-          },
-          {
-            name: "Forest Talk",
-            description: "Learn about the world's most vital trees and plants.",
-          },
-          {
-            name: "Endangered Echoes",
-            description: "Spotlight on species fighting for survival.",
-          },
-          {
-            name: "Nature's Fury",
-            description: "Quiz on natural disasters and their impact.",
-          },
-          {
-            name: "Planet Protectors",
-            description: "Topics around climate action and sustainability.",
-          },
-          {
-            name: "Rainforest Realm",
-            description: "Explore the biodiversity of rainforests.",
-          },
-          {
-            name: "Eco Innovations",
-            description: "How technology helps save the planet.",
-          },
-          {
-            name: "Polar Pulse",
-            description: "All about the Arctic, Antarctic, and melting ice.",
-          },
-          {
-            name: "Desert Diaries",
-            description: "Life and survival in Earth's driest regions.",
-          },
-          {
-            name: "Green Legends",
-            description: "Famous environmentalists and activists.",
-          },
-          {
-            name: "Wild Tracks",
-            description: "Animal migrations and their patterns.",
-          },
-          {
-            name: "Nature's Architects",
-            description: "Marvel at creatures that build and shape.",
-          },
-          {
-            name: "Treetop Trails",
-            description: "A look at canopy ecosystems and species.",
-          },
-          {
-            name: "Savanna Stories",
-            description: "Quiz on life in grassy plains and open woodlands.",
-          },
-          {
-            name: "Coral Kingdoms",
-            description: "Discover colorful reefs and marine diversity.",
-          },
-          {
-            name: "Rewilding Earth",
-            description: "Restoration of wild habitats and species.",
-          },
-          {
-            name: "Climate Clues",
-            description: "Track signs of global warming and change.",
-          },
-          {
-            name: "Planet Earth 101",
-            description: "General nature knowledge for beginners.",
-          },
-          {
-            name: "Eco Footprint",
-            description: "How our actions impact the planet.",
-          },
-          {
-            name: "River Riddles",
-            description: "Facts and mysteries about Earth's rivers.",
-          },
-          {
-            name: "Volcano Vault",
-            description: "Explore volcanic eruptions and their legacy.",
-          },
-          {
-            name: "Sky Safari",
-            description: "Birds, clouds, and weather systems above.",
-          },
-          {
-            name: "Jungle Jigsaw",
-            description: "Match species and facts from tropical jungles.",
-          },
-          {
-            name: "Nature in Crisis",
-            description: "Real-time threats and urgent conservation.",
-          },
-          {
-            name: "Backyard Biomes",
-            description: "Discover ecosystems closer than you think.",
-          },
-          {
-            name: "Frozen Frontiers",
-            description: "Quiz on glacial life and icy terrains.",
-          },
-          {
-            name: "Planet Quizzer",
-            description: "A mixed-bag challenge for nature lovers.",
-          },
-        ],
+        rooms: genericGameRooms("Nature & Environment", 30, false),
       },
       {
         name: "Technology Trends",
         description:
-          "Keep up with the latest trends in technology and innovation.",
+          "Keep up with the latest trends in technology and innovation. Every room draws questions from the full category pool.",
         topics: [
           "Innovations of the 21st Century",
           "Famous Tech Companies",
@@ -2384,129 +1279,11 @@ const games: Game[] = [
           "Virtual Reality",
           "Robotics",
         ],
-        rooms: [
-          {
-            name: "AI Buzz",
-            description: "Talk about the latest in artificial intelligence.",
-          },
-          {
-            name: "Tech Titans",
-            description: "Discuss major tech companies and their impact.",
-          },
-          {
-            name: "Gadget Geek",
-            description: "Explore cutting-edge devices and cool gadgets.",
-          },
-          {
-            name: "Smart Futures",
-            description: "Predict how tech will change our lives.",
-          },
-          {
-            name: "Next-Gen Energy",
-            description: "Dive into solar, wind, and green energy trends.",
-          },
-          {
-            name: "Coding Era",
-            description: "Chat about software, programming, and apps.",
-          },
-          {
-            name: "Robo World",
-            description: "Explore how robots are reshaping industries.",
-          },
-          {
-            name: "Quantum Realm",
-            description: "Discuss quantum computing and its future.",
-          },
-          {
-            name: "Digital Past",
-            description: "Learn about the evolution of computers.",
-          },
-          {
-            name: "Tech & Society",
-            description: "Explore tech's impact on our daily lives.",
-          },
-          {
-            name: "Mobile Mania",
-            description: "Stay updated on the latest smartphones.",
-          },
-          {
-            name: "AR/VR Lab",
-            description: "Explore augmented and virtual reality spaces.",
-          },
-          {
-            name: "Startup Scene",
-            description: "Talk about rising tech startups and innovation.",
-          },
-          {
-            name: "Crypto Chat",
-            description: "Discuss cryptocurrency and blockchain trends.",
-          },
-          {
-            name: "Wearables",
-            description: "Smartwatches, fitness bands, and more.",
-          },
-          {
-            name: "Home Smart",
-            description: "Talk about smart homes and automation.",
-          },
-          {
-            name: "Tech Ethics",
-            description: "Debate the moral side of innovation.",
-          },
-          {
-            name: "Space Tech",
-            description: "Explore rockets, satellites, and beyond.",
-          },
-          {
-            name: "BioTech Buzz",
-            description: "Where biology meets high-tech solutions.",
-          },
-          { name: "EdTech", description: "Technology transforming education." },
-          {
-            name: "Health Tech",
-            description: "Gadgets and apps improving healthcare.",
-          },
-          {
-            name: "Tech Events",
-            description: "Share insights from tech conferences.",
-          },
-          {
-            name: "5G Talk",
-            description: "What 5G means for devices and speed.",
-          },
-          {
-            name: "Future Jobs",
-            description: "Tech roles shaping tomorrow's workforce.",
-          },
-          {
-            name: "E-Waste Watch",
-            description: "How to manage tech waste and recycling.",
-          },
-          {
-            name: "Game Tech",
-            description: "Discuss gaming hardware and software.",
-          },
-          {
-            name: "Drones & Beyond",
-            description: "From aerial footage to deliveries.",
-          },
-          {
-            name: "AI & Art",
-            description: "Explore how AI is revolutionizing creativity.",
-          },
-          {
-            name: "Green Tech",
-            description: "Innovations tackling climate change.",
-          },
-          {
-            name: "Tech Throwbacks",
-            description: "Nostalgia and retro technology.",
-          },
-        ],
+        rooms: genericGameRooms("Technology Trends", 30, false),
       },
       {
         name: "World Cultures",
-        description: "Learn about global cultures, religions, and traditions.",
+        description: "Learn about global cultures, religions, and traditions. Every room draws questions from the full category pool.",
         topics: [
           "Global Religions",
           "Exotic Customs",
@@ -2517,133 +1294,11 @@ const games: Game[] = [
           "Legendary Kings and Queens",
           "Languages of the World",
         ],
-        rooms: [
-          {
-            name: "Cultural Currents",
-            description: "Explore evolving customs across continents.",
-          },
-          {
-            name: "Sacred Spaces",
-            description: "Dive into world religions and sacred practices.",
-          },
-          {
-            name: "Royal Realms",
-            description: "Meet the legendary monarchs of history.",
-          },
-          {
-            name: "Festivals & Feasts",
-            description:
-              "Uncover the stories behind vibrant global celebrations.",
-          },
-          {
-            name: "Food & Flavor",
-            description: "Taste the traditions through international cuisine.",
-          },
-          {
-            name: "Dress & Identity",
-            description: "Explore how attire reflects cultural heritage.",
-          },
-          {
-            name: "Lingua Terra",
-            description: "Discover the rich languages spoken across the globe.",
-          },
-          {
-            name: "Cultural Taboos",
-            description: "Understand what's forbidden and why.",
-          },
-          {
-            name: "Art & Artifacts",
-            description: "Examine objects that shaped civilizations.",
-          },
-          {
-            name: "Indigenous Insight",
-            description: "Learn from native traditions and beliefs.",
-          },
-          {
-            name: "Migration Tales",
-            description: "Follow cultural changes across diasporas.",
-          },
-          {
-            name: "Music & Meaning",
-            description: "Feel the rhythm of world traditions.",
-          },
-          {
-            name: "Ceremonies & Rites",
-            description: "See how humanity marks life's milestones.",
-          },
-          {
-            name: "Spiritual Pathways",
-            description: "Journey through diverse belief systems.",
-          },
-          {
-            name: "Cultural Conflicts",
-            description: "Analyze clashes and fusions of traditions.",
-          },
-          {
-            name: "Traditional Tech",
-            description: "Old tools, new understanding.",
-          },
-          {
-            name: "Oral Histories",
-            description: "Listen to cultures passed down through stories.",
-          },
-          {
-            name: "Global Etiquette",
-            description: "Master manners from every continent.",
-          },
-          {
-            name: "Cultural Symbols",
-            description: "Decode the meanings of iconic emblems.",
-          },
-          {
-            name: "World Myths",
-            description: "Enter the realm of gods, heroes, and monsters.",
-          },
-          {
-            name: "Sacred Texts",
-            description: "Examine writings that shaped spiritual beliefs.",
-          },
-          {
-            name: "Tribal Traditions",
-            description: "Step into ancient social structures.",
-          },
-          {
-            name: "Architecture & Identity",
-            description: "Study how buildings reflect culture.",
-          },
-          {
-            name: "Colonial Echoes",
-            description: "Understand post-colonial cultural shifts.",
-          },
-          {
-            name: "Nomadic Ways",
-            description: "Trace the footsteps of roaming cultures.",
-          },
-          {
-            name: "Festival Origins",
-            description: "Learn how famous festivals began.",
-          },
-          {
-            name: "Cultural Pioneers",
-            description: "Celebrate individuals who shaped heritage.",
-          },
-          {
-            name: "Cuisine & Culture",
-            description: "Explore how food defines community.",
-          },
-          {
-            name: "Ritual Objects",
-            description: "See the tools of tradition in context.",
-          },
-          {
-            name: "Modern Traditions",
-            description: "How old customs adapt in today's world.",
-          },
-        ],
+        rooms: genericGameRooms("World Cultures", 30, false),
       },
       {
         name: "Fun & Riddles",
-        description: "Enjoy brain-teasing puzzles and entertaining trivia.",
+        description: "Enjoy brain-teasing puzzles and entertaining trivia. Every room draws questions from the full category pool.",
         topics: [
           "Brain Teasers",
           "Logical Puzzles",
@@ -2651,111 +1306,11 @@ const games: Game[] = [
           "Word Scrambles",
           "General Fun Facts",
         ],
-        rooms: [
-          {
-            name: "Tease Me",
-            description: "Quick brain teasers to test your wits.",
-          },
-          {
-            name: "Puzzle Panic",
-            description: "Logic puzzles under pressure.",
-          },
-          {
-            name: "Twist It",
-            description: "Tongue twisters that'll trip you up!",
-          },
-          {
-            name: "Word Warp",
-            description: "Unscramble words in record time.",
-          },
-          {
-            name: "Fun Facts 101",
-            description: "Did-you-know facts and trivia.",
-          },
-          {
-            name: "Riddle Me This",
-            description: "Classic and new riddles to solve.",
-          },
-          { name: "Brain Blitz", description: "Fast-paced brain games." },
-          { name: "Logic Lab", description: "Tough logic challenges await." },
-          { name: "Twister Time", description: "Rapid-fire tongue twisters." },
-          {
-            name: "Word Jumble",
-            description: "Mix, match, and make sense of words.",
-          },
-          {
-            name: "Trivia Tunnel",
-            description: "Escape with the right trivia answers.",
-          },
-          {
-            name: "Mind Maze",
-            description: "Navigate your way through tricky puzzles.",
-          },
-          { name: "Scramble Zone", description: "All things word scrambles." },
-          { name: "Witty Quips", description: "Test your wit and speed." },
-          {
-            name: "Logic Loop",
-            description: "Puzzles that go round and round.",
-          },
-          {
-            name: "Twister Duel",
-            description: "Compete with others in verbal gymnastics.",
-          },
-          {
-            name: "Fact Factory",
-            description: "Endless streams of fun facts.",
-          },
-          {
-            name: "Riddle Royale",
-            description: "One riddle champion to rule them all.",
-          },
-          {
-            name: "Smart Shots",
-            description: "Mini trivia shots for quick play.",
-          },
-          { name: "Puzzle Party", description: "Group up and solve together." },
-          { name: "Word Dash", description: "Race to find the right words." },
-          {
-            name: "Funhouse Facts",
-            description: "Bizarre and funny trivia facts.",
-          },
-          {
-            name: "Think Tank",
-            description: "Stretch your thinking with riddles.",
-          },
-          {
-            name: "Twist & Talk",
-            description: "Can you say it ten times fast?",
-          },
-          {
-            name: "Jumbled Minds",
-            description: "Challenge your brain with word messes.",
-          },
-          {
-            name: "Teaser Tower",
-            description: "Stack your scores solving teasers.",
-          },
-          {
-            name: "Quick Quirks",
-            description: "Speed rounds of strange facts.",
-          },
-          {
-            name: "Brain Buffet",
-            description: "A bit of everything to test your brain.",
-          },
-          {
-            name: "Logic Lockdown",
-            description: "Escape logic traps before time's up.",
-          },
-          {
-            name: "Fact Sprint",
-            description: "Who knows the most in 60 seconds?",
-          },
-        ],
+        rooms: genericGameRooms("Fun & Riddles", 30, false),
       },
       {
         name: "Travel & Destinations",
-        description: "Discover iconic landmarks and hidden travel gems.",
+        description: "Discover iconic landmarks and hidden travel gems. Every room draws questions from the full category pool.",
         topics: [
           "Famous Landmarks",
           "Exotic Beaches",
@@ -2766,133 +1321,12 @@ const games: Game[] = [
           "Adventure Destinations",
           "Iconic Mountains",
         ],
-        rooms: [
-          {
-            name: "Paris Wonders",
-            description: "Explore the charm of the City of Light.",
-          },
-          {
-            name: "Beach Bliss",
-            description: "Uncover the world's most exotic beaches.",
-          },
-          {
-            name: "Secret Getaways",
-            description: "Discuss off-the-radar travel spots.",
-          },
-          {
-            name: "Budget Backpacking",
-            description: "Tips for traveling the world on a budget.",
-          },
-          {
-            name: "City Skylines",
-            description: "Admire the views from iconic global cities.",
-          },
-          {
-            name: "UNESCO Sites",
-            description: "Talk about cultural and natural heritage locations.",
-          },
-          {
-            name: "Mountain Escapes",
-            description: "From Everest to the Alps, find your next peak.",
-          },
-          {
-            name: "Local Cuisines",
-            description: "Taste the world through travel stories.",
-          },
-          {
-            name: "Airbnb Gems",
-            description: "Share and find unique places to stay.",
-          },
-          {
-            name: "Desert Dreams",
-            description: "Adventure across vast sandscapes.",
-          },
-          {
-            name: "Island Hopping",
-            description: "Tips for tropical island adventures.",
-          },
-          {
-            name: "Solo Travels",
-            description: "Advice and stories from solo explorers.",
-          },
-          {
-            name: "Train Routes",
-            description: "Scenic train journeys across continents.",
-          },
-          {
-            name: "Hidden Europe",
-            description: "Underrated travel spots in Europe.",
-          },
-          {
-            name: "Asia Treks",
-            description: "Explore ancient temples and bustling cities.",
-          },
-          {
-            name: "Americas Unseen",
-            description: "Travel beyond the typical U.S. sights.",
-          },
-          {
-            name: "African Adventures",
-            description: "Safari dreams and cultural insights.",
-          },
-          {
-            name: "Oceania Vibes",
-            description: "Discover New Zealand, Australia, and the Pacific.",
-          },
-          {
-            name: "Historic Roads",
-            description: "Follow the paths of history around the globe.",
-          },
-          {
-            name: "Festival Trails",
-            description: "Plan trips around the world's biggest festivals.",
-          },
-          {
-            name: "Airport Hacks",
-            description: "Best tips for flying smarter.",
-          },
-          {
-            name: "Travel with Kids",
-            description: "Family-friendly destinations and hacks.",
-          },
-          {
-            name: "Cruise Routes",
-            description: "Discuss sea-bound adventures.",
-          },
-          {
-            name: "Travel Horror",
-            description: "Share funny or scary travel experiences.",
-          },
-          {
-            name: "Work & Travel",
-            description: "For digital nomads and remote workers.",
-          },
-          {
-            name: "Travel Photography",
-            description: "Capture the journey with the perfect shot.",
-          },
-          {
-            name: "Luxury Escapes",
-            description: "Dream destinations and 5-star indulgence.",
-          },
-          {
-            name: "Language & Culture",
-            description: "Learn through travel and cultural exchange.",
-          },
-          {
-            name: "Visa Talk",
-            description: "Ask questions and share tips on travel visas.",
-          },
-          {
-            name: "Travel Planning",
-            description: "Help others build their perfect itinerary.",
-          },
-        ],
+        rooms: genericGameRooms("Travel & Destinations", 30, false),
       },
       {
         name: "Myths & Legends",
         description:
-          "Uncover myths, legends, and folklore from around the world.",
+          "Uncover myths, legends, and folklore from around the world. Every room draws questions from the full category pool.",
         topics: [
           "Greek Mythology",
           "Folklore Tales",
@@ -2903,146 +1337,12 @@ const games: Game[] = [
           "Asian Legends",
           "Ancient Deities",
         ],
-        rooms: [
-          {
-            name: "Greek Myths",
-            description:
-              "Dive into tales of gods, heroes, and monsters of ancient Greece.",
-          },
-          {
-            name: "Folklore",
-            description:
-              "Explore traditional stories passed down through generations worldwide.",
-          },
-          {
-            name: "Urban Legends",
-            description: "Discuss modern-day myths and spooky urban tales.",
-          },
-          {
-            name: "Legendary Heroes",
-            description:
-              "Celebrate the greatest heroes from legends across cultures.",
-          },
-          {
-            name: "Mythical Beasts",
-            description:
-              "Discover dragons, griffins, and other legendary creatures.",
-          },
-          {
-            name: "Norse Sagas",
-            description: "Unravel the myths and gods of Norse tradition.",
-          },
-          {
-            name: "Asian Myths",
-            description: "Explore legends and deities from Asian cultures.",
-          },
-          {
-            name: "Ancient Gods",
-            description: "Learn about gods worshiped in ancient civilizations.",
-          },
-          {
-            name: "Celtic Legends",
-            description: "Explore myths from Celtic culture and folklore.",
-          },
-          {
-            name: "Egyptian Myths",
-            description:
-              "Discuss stories of pharaohs, gods, and the afterlife.",
-          },
-          {
-            name: "Native Legends",
-            description:
-              "Share folklore and legends of Native American tribes.",
-          },
-          {
-            name: "Mythical Places",
-            description: "Explore fabled lands like Atlantis and El Dorado.",
-          },
-          {
-            name: "Heroic Quests",
-            description: "Talk about epic journeys and heroic adventures.",
-          },
-          {
-            name: "Demigods",
-            description: "Delve into stories of gods mixed with mortals.",
-          },
-          {
-            name: "Mythical Artifacts",
-            description: "Discover legendary objects and their powers.",
-          },
-          {
-            name: "Japanese Legends",
-            description:
-              "Explore yokai, samurai tales, and ancient Japanese myths.",
-          },
-          {
-            name: "African Myths",
-            description: "Uncover folklore and gods from African cultures.",
-          },
-          {
-            name: "Greek Heroes",
-            description:
-              "Focus on the legendary Greek heroes and their exploits.",
-          },
-          {
-            name: "Mythical Creatures",
-            description:
-              "Discuss a variety of legendary beasts from around the world.",
-          },
-          {
-            name: "Roman Myths",
-            description: "Explore myths of Rome and its gods and heroes.",
-          },
-          {
-            name: "Mythology in Art",
-            description: "Examine how myths influenced art across time.",
-          },
-          {
-            name: "Legendary Women",
-            description: "Highlight female figures from myth and legend.",
-          },
-          {
-            name: "Mythology in Literature",
-            description: "Discuss books and poems inspired by myths.",
-          },
-          {
-            name: "Mythological Symbols",
-            description: "Explore the meaning behind myth-related symbols.",
-          },
-          {
-            name: "Folklore Festivals",
-            description: "Learn about cultural festivals inspired by folklore.",
-          },
-          {
-            name: "Myth & Religion",
-            description:
-              "Explore the connection between myths and religious beliefs.",
-          },
-          {
-            name: "Mythology Today",
-            description: "Discuss modern retellings and adaptations of myths.",
-          },
-          {
-            name: "Epic Poems",
-            description:
-              "Talk about legendary epic poetry like the Iliad and Mahabharata.",
-          },
-          {
-            name: "Mythical Landscapes",
-            description:
-              "Explore legendary mountains, rivers, and forests from myths.",
-          },
-          {
-            name: "Trickster Tales",
-            description:
-              "Share stories about cunning and clever mythic characters.",
-          },
-        ],
+        rooms: genericGameRooms("Myths & Legends", 30, false),
       },
       {
         name: "Health & Wellness",
         description:
-          "Trivia about health, wellness, and medical breakthroughs.",
+          "Trivia about health, wellness, and medical breakthroughs. Every room draws questions from the full category pool.",
         topics: [
           "Famous Medical Discoveries",
           "Fitness Trends",
@@ -3053,121 +1353,11 @@ const games: Game[] = [
           "Famous Doctors",
           "History of Medicine",
         ],
-        rooms: [
-          {
-            name: "Medical Discoveries",
-            description: "Where science meets surprise needles.",
-          },
-          {
-            name: "Fitness Trends",
-            description: "Running in circles—sometimes literally.",
-          },
-          {
-            name: "Nutrition and Diet",
-            description: "Kale may be watching. Proceed cautiously.",
-          },
-          {
-            name: "Alternative Medicine",
-            description: "Crystals, herbs, and questionable teas welcome.",
-          },
-          {
-            name: "Mental Health",
-            description: "Because overthinking is an extreme sport.",
-          },
-          {
-            name: "Herbal Remedies",
-            description: "Leaves, roots, and a sprinkle of mystery.",
-          },
-          { name: "Famous Doctors", description: "Paging trivia. Dr. Who?" },
-          {
-            name: "History of Medicine",
-            description: "From leeches to lasers—what a journey.",
-          },
-          {
-            name: "Yoga and Wellness",
-            description: "Flex your mind, not just your hamstrings.",
-          },
-          {
-            name: "Better Sleep",
-            description: "Yawn your way to the leaderboard.",
-          },
-          {
-            name: "Stress Relief",
-            description: "The only pressure here is the timer.",
-          },
-          {
-            name: "First Aid Basics",
-            description: "For boo-boos and brain benders alike.",
-          },
-          {
-            name: "Vitamins and Supplements",
-            description: "No actual gummies included. Sorry.",
-          },
-          {
-            name: "Mental Fitness",
-            description: "Brain squats. No dumbbells required.",
-          },
-          {
-            name: "Fitness Technology",
-            description: "Where sweat meets silicon.",
-          },
-          {
-            name: "Healthy Aging",
-            description: "Because trivia never gets old.",
-          },
-          { name: "Skin Care", description: "Glow up your trivia game." },
-          {
-            name: "Heart Health",
-            description: "Pump up the knowledge, not just iron.",
-          },
-          {
-            name: "Boost Immunity",
-            description: "A trivia shot of mental vitamin C.",
-          },
-          { name: "Gut Health", description: "Trust your gut… or Google." },
-          {
-            name: "Fitness Myths",
-            description: "No, muscle doesn't turn into fat.",
-          },
-          {
-            name: "Detox Facts",
-            description: "Cleansing the nonsense one fact at a time.",
-          },
-          {
-            name: "Medical Technology",
-            description: "Lasers, robots, and other doctor sidekicks.",
-          },
-          { name: "Self Care", description: "A bubble bath for your brain." },
-          {
-            name: "Nutrition Science",
-            description: "Where calories get calculated and mocked.",
-          },
-          {
-            name: "Mental Disorders",
-            description: "Serious brains, silly questions.",
-          },
-          {
-            name: "Fitness Gear",
-            description: "Spandex not required, but admired.",
-          },
-          {
-            name: "Wellness Tips",
-            description:
-              "Trick your body into thinking you've got it together.",
-          },
-          {
-            name: "Public Health",
-            description: "All aboard the sanitation nation.",
-          },
-          {
-            name: "Nutrition Plans",
-            description: "Meal-prep your answers here.",
-          },
-        ],
+        rooms: genericGameRooms("Health & Wellness", 30, false),
       },
       {
         name: "Fashion & Trends",
-        description: "Explore the world of fashion, designers, and trends.",
+        description: "Explore the world of fashion, designers, and trends. Every room draws questions from the full category pool.",
         topics: [
           "Runway Hits",
           "Famous Designers",
@@ -3178,60 +1368,11 @@ const games: Game[] = [
           "Haute Couture",
           "Iconic Fashion Moments",
         ],
-        rooms: [
-          { name: "Runway", description: "Join this room to chat and play." },
-          { name: "Designers", description: "A place for fun and games." },
-          { name: "Decades", description: "Casual chat and challenges here." },
-          {
-            name: "Accessories",
-            description: "Meet others and enjoy the game.",
-          },
-          { name: "Sustain", description: "Play and chat with friends." },
-          {
-            name: "Street",
-            description: "Casual room for chatting and gaming.",
-          },
-          { name: "Haute", description: "Join in for fun and social play." },
-          { name: "Icons", description: "Friendly chats and games here." },
-          {
-            name: "Fabric",
-            description: "Casual room for chatting and gaming.",
-          },
-          { name: "Colors", description: "Meet up and play games here." },
-          {
-            name: "Vintage",
-            description: "Relax and enjoy chatting or playing.",
-          },
-          { name: "Footwear", description: "Social room for fun and games." },
-          { name: "Tech", description: "Join for casual fun and chat." },
-          { name: "DIY", description: "Casual chats and games welcome." },
-          { name: "Menswear", description: "Friendly game and chat room." },
-          { name: "Womenswear", description: "Join in for fun and games." },
-          { name: "Kids", description: "Casual room for fun and chatting." },
-          { name: "Brands", description: "Relax and join for games and chat." },
-          { name: "Stars", description: "Chat and game with others here." },
-          { name: "SustainTech", description: "Casual fun and chatting." },
-          {
-            name: "Patterns",
-            description: "Join for friendly games and chat.",
-          },
-          { name: "Events", description: "Socialize and play games here." },
-          { name: "Hair", description: "Casual chat and fun games." },
-          { name: "Makeup", description: "Join to chat and enjoy games." },
-          { name: "Eco", description: "Friendly room for games and chat." },
-          { name: "Tips", description: "Chat, relax, and play games." },
-          { name: "Streetwear", description: "Casual room for fun and chat." },
-          { name: "Luxury", description: "Meet and play games here." },
-          {
-            name: "Business",
-            description: "Join for friendly chat and games.",
-          },
-          { name: "Upcycle", description: "Casual game and chat room." },
-        ],
+        rooms: genericGameRooms("Fashion & Trends", 30, false),
       },
       {
         name: "Technology Innovations",
-        description: "Discover how technology shapes our world.",
+        description: "Discover how technology shapes our world. Every room draws questions from the full category pool.",
         topics: [
           "Space Technologies",
           "Breakthrough Gadgets",
@@ -3242,61 +1383,12 @@ const games: Game[] = [
           "Smart Cities",
           "AI and Ethics",
         ],
-        rooms: [
-          { name: "Orbit Lab", description: "A place to connect and compete." },
-          { name: "Gadget Hub", description: "Where ideas and players meet." },
-          { name: "Net Nexus", description: "Challenge yourself with peers." },
-          { name: "Crypto Vault", description: "Join the fast-paced action." },
-          { name: "Future Forge", description: "Engage in exciting gameplay." },
-          { name: "Auto Drive", description: "Test your skills here." },
-          {
-            name: "City Grid",
-            description: "Compete in dynamic environments.",
-          },
-          {
-            name: "Rocket Deck",
-            description: "Fast and fun challenges await.",
-          },
-          { name: "Tech Pulse", description: "A vibrant place for players." },
-          { name: "Code Stream", description: "Enter and enjoy the game." },
-          { name: "Block Chain", description: "Compete and have fun." },
-          {
-            name: "Smart Zone",
-            description: "Where strategy meets excitement.",
-          },
-          { name: "AI Arena", description: "Challenge minds and reflexes." },
-          { name: "Gizmo Room", description: "Test your wit with others." },
-          {
-            name: "Data Vault",
-            description: "For players who love challenge.",
-          },
-          { name: "Future Path", description: "Join the excitement here." },
-          { name: "Drive Lane", description: "Experience the thrill." },
-          {
-            name: "City Lights",
-            description: "Compete with players worldwide.",
-          },
-          {
-            name: "Ethos Hall",
-            description: "Where players gather and compete.",
-          },
-          { name: "Star Deck", description: "Engage in fast-paced rounds." },
-          { name: "Tech Hive", description: "A buzzing place for gamers." },
-          { name: "Net Loft", description: "Connect and play together." },
-          { name: "Chain Link", description: "A space for sharp minds." },
-          { name: "Smart Hub", description: "Test your strategies here." },
-          { name: "AI Nexus", description: "Competitive and fun gameplay." },
-          { name: "Gadget Den", description: "Where challenges come alive." },
-          { name: "Data Stream", description: "Join the fast-paced fun." },
-          { name: "Future Base", description: "A spot for energetic play." },
-          { name: "Auto Track", description: "Test your gaming skills." },
-          { name: "City Beat", description: "Challenge players globally." },
-        ],
+        rooms: genericGameRooms("Technology Innovations", 30, false),
       },
       {
         name: "Business & Economy",
         description:
-          "Test your knowledge of global business and economic facts.",
+          "Test your knowledge of global business and economic facts. Every room draws questions from the full category pool.",
         topics: [
           "Stock Market Facts",
           "Global Trade",
@@ -3307,132 +1399,11 @@ const games: Game[] = [
           "Economic Theories",
           "Business Scandals",
         ],
-        rooms: [
-          {
-            name: "Market Pulse",
-            description: "Join this room to engage in exciting challenges.",
-          },
-          {
-            name: "Trade Winds",
-            description: "A place for sharp minds and quick moves.",
-          },
-          {
-            name: "Startup Hub",
-            description: "Gather here to test your skills in a lively setting.",
-          },
-          {
-            name: "Money Maze",
-            description: "Compete with others in this vibrant space.",
-          },
-          {
-            name: "Economy Edge",
-            description: "A room designed for dynamic gameplay.",
-          },
-          {
-            name: "Global Grid",
-            description: "An arena for competitive and fun sessions.",
-          },
-          {
-            name: "Biz Blitz",
-            description: "Fast-paced action awaits in this room.",
-          },
-          {
-            name: "Profit Path",
-            description: "Challenge yourself in this engaging environment.",
-          },
-          {
-            name: "Capital Quest",
-            description: "A space for focused and fun contests.",
-          },
-          {
-            name: "Trade Track",
-            description: "Where strategy and knowledge meet.",
-          },
-          {
-            name: "Market Matrix",
-            description: "Step into this vibrant game zone.",
-          },
-          {
-            name: "Startup Sprint",
-            description: "A lively spot for sharp contenders.",
-          },
-          {
-            name: "Fiscal Field",
-            description: "Join others in this active gaming room.",
-          },
-          {
-            name: "Revenue Rally",
-            description: "Engage in challenging yet fun gameplay.",
-          },
-          {
-            name: "Commerce Core",
-            description: "A hub for competitive spirits.",
-          },
-          {
-            name: "Stock Stream",
-            description: "Where players meet for exciting rounds.",
-          },
-          {
-            name: "Money Market",
-            description: "An energetic space for game lovers.",
-          },
-          {
-            name: "Profit Play",
-            description: "Challenge yourself in this friendly room.",
-          },
-          {
-            name: "Capital Club",
-            description: "Meet and compete with others here.",
-          },
-          {
-            name: "Trade Tower",
-            description: "A dynamic zone for smart moves.",
-          },
-          {
-            name: "Biz Base",
-            description: "Test your wits in this gaming area.",
-          },
-          {
-            name: "Growth Grid",
-            description: "Engage in fun, competitive sessions.",
-          },
-          {
-            name: "Money Mile",
-            description: "A place for quick and sharp games.",
-          },
-          {
-            name: "Economy Expo",
-            description: "Gather here for lively challenges.",
-          },
-          {
-            name: "Fiscal Flow",
-            description: "A room designed for active players.",
-          },
-          {
-            name: "Profit Peak",
-            description: "Join the action and test your skills.",
-          },
-          {
-            name: "Startup Stage",
-            description: "Where players meet to compete and have fun.",
-          },
-          {
-            name: "Market Mile",
-            description: "A space for dynamic game rounds.",
-          },
-          {
-            name: "Trade Track",
-            description: "Test your strategy in this gaming room.",
-          },
-          {
-            name: "Capital Corner",
-            description: "An engaging room for competitive play.",
-          },
-        ],
+        rooms: genericGameRooms("Business & Economy", 30, false),
       },
       {
         name: "Music & Arts",
-        description: "Trivia about music, arts, and cultural expression.",
+        description: "Trivia about music, arts, and cultural expression. Every room draws questions from the full category pool.",
         topics: [
           "Famous Composers",
           "Afrobeat",
@@ -3448,133 +1419,11 @@ const games: Game[] = [
           "The History of Opera",
           "Evolution of Dance",
         ],
-        rooms: [
-          {
-            name: "Classical Legends",
-            description: "A space filled with timeless melodies and heritage.",
-          },
-          {
-            name: "Afrobeat Vibes",
-            description: "A vibrant room pulsating with energetic rhythms.",
-          },
-          {
-            name: "Hip Hop Beats",
-            description: "A dynamic environment rich with urban culture.",
-          },
-          {
-            name: "Rnb Grooves",
-            description: "A smooth and soulful atmosphere to enjoy.",
-          },
-          {
-            name: "Country Roads",
-            description: "A cozy spot with a rustic musical spirit.",
-          },
-          {
-            name: "Pop Hits",
-            description: "A lively setting that celebrates chart toppers.",
-          },
-          {
-            name: "Famous Canvases",
-            description: "An inspiring area dedicated to visual masterpieces.",
-          },
-          {
-            name: "Global Instruments",
-            description:
-              "A diverse collection of sounds from around the world.",
-          },
-          {
-            name: "Street Art",
-            description: "An edgy room showcasing modern urban creativity.",
-          },
-          {
-            name: "Award Night",
-            description: "A glamorous space with a touch of fame and prestige.",
-          },
-          {
-            name: "Album Art",
-            description: "A creative hub highlighting iconic visuals.",
-          },
-          {
-            name: "Opera Tales",
-            description: "A dramatic and elegant setting for classic stories.",
-          },
-          {
-            name: "Dance Evolution",
-            description: "A rhythmic space moving through time and styles.",
-          },
-          {
-            name: "Composer Spotlight",
-            description: "A refined corner for musical geniuses.",
-          },
-          {
-            name: "Afrobeat Legends",
-            description: "A powerful room filled with rhythmic energy.",
-          },
-          {
-            name: "Hip Hop Culture",
-            description: "A spirited venue rich with lyrical expression.",
-          },
-          {
-            name: "Soulful Rnb",
-            description: "A mellow place to embrace smooth sounds.",
-          },
-          {
-            name: "Country Classics",
-            description: "A nostalgic setting with heartfelt tunes.",
-          },
-          {
-            name: "Pop Icons",
-            description: "A colorful room with memorable hits.",
-          },
-          {
-            name: "Painting Gallery",
-            description: "A tranquil space filled with artistic wonders.",
-          },
-          {
-            name: "World Music",
-            description: "A multicultural corner with varied harmonies.",
-          },
-          {
-            name: "Graffiti Zone",
-            description: "An urban playground of vibrant expression.",
-          },
-          {
-            name: "Music Honors",
-            description: "A prestigious room celebrating excellence.",
-          },
-          {
-            name: "Cover Art",
-            description: "A stylish place highlighting album visuals.",
-          },
-          {
-            name: "Opera House",
-            description: "An elegant hall echoing timeless performances.",
-          },
-          {
-            name: "Dance Floor",
-            description: "A lively place for movement and rhythm.",
-          },
-          {
-            name: "Composer Room",
-            description: "A focused space for musical creativity.",
-          },
-          {
-            name: "Afrobeat Pulse",
-            description: "A vibrant setting filled with rhythmic beats.",
-          },
-          {
-            name: "Hip Hop Jam",
-            description: "An energetic room buzzing with urban vibes.",
-          },
-          {
-            name: "RnB Lounge",
-            description: "A chill environment with smooth melodies.",
-          },
-        ],
+        rooms: genericGameRooms("Music & Arts", 30, false),
       },
       {
         name: "Geography Facts",
-        description: "Expand your knowledge about Earth's geography.",
+        description: "Expand your knowledge about Earth's geography. Every room draws questions from the full category pool.",
         topics: [
           "Mountains & Peaks",
           "Deserts of the World",
@@ -3585,102 +1434,11 @@ const games: Game[] = [
           "Island Nations",
           "Famous World Borders",
         ],
-        rooms: [
-          {
-            name: "Mountain Range",
-            description: "A room for exploring geographic wonders.",
-          },
-          {
-            name: "Desert Plains",
-            description: "Discover diverse and intriguing places.",
-          },
-          {
-            name: "Ocean Depths",
-            description: "Connect with a global community.",
-          },
-          {
-            name: "Island Life",
-            description: "Join others in this engaging space.",
-          },
-          {
-            name: "Border Lines",
-            description: "An environment to enjoy and share.",
-          },
-          {
-            name: "Climate Zone",
-            description: "A gathering spot for enthusiasts.",
-          },
-          {
-            name: "River Paths",
-            description: "Where interesting facts come alive.",
-          },
-          {
-            name: "Country Focus",
-            description: "A shared space for curious minds.",
-          },
-          {
-            name: "Peak Points",
-            description: "Explore and engage with others.",
-          },
-          {
-            name: "World Deserts",
-            description: "A room filled with intrigue.",
-          },
-          { name: "Geopolitics", description: "A place to connect and learn." },
-          {
-            name: "Island Nations",
-            description: "A space for diverse perspectives.",
-          },
-          {
-            name: "Famous Borders",
-            description: "Gather and explore together.",
-          },
-          {
-            name: "Climatic Zones",
-            description: "Where exploration meets community.",
-          },
-          {
-            name: "Mountain Tops",
-            description: "Engage in a vibrant environment.",
-          },
-          {
-            name: "Desert Trails",
-            description: "A space designed for curiosity.",
-          },
-          { name: "Ocean Waves", description: "Join a dynamic group here." },
-          { name: "Island Chains", description: "Connect with others easily." },
-          { name: "Border Views", description: "A place to gather and share." },
-          {
-            name: "Climate Types",
-            description: "Discover new things together.",
-          },
-          { name: "River Banks", description: "Engage in this active room." },
-          {
-            name: "Country Insights",
-            description: "A hub for shared interests.",
-          },
-          { name: "Peak Views", description: "Join a focused gathering." },
-          {
-            name: "Desert Sands",
-            description: "An inviting place to connect.",
-          },
-          { name: "Geo Trivia", description: "Meet like-minded explorers." },
-          { name: "Island Life", description: "A room for discovery and fun." },
-          {
-            name: "Border Stories",
-            description: "Exchange ideas freely here.",
-          },
-          {
-            name: "Climate Facts",
-            description: "A friendly environment to join.",
-          },
-          { name: "River Flows", description: "Connect and enjoy the space." },
-          { name: "Country Maps", description: "A room to share interests." },
-        ],
+        rooms: genericGameRooms("Geography Facts", 30, false),
       },
       {
         name: "Space Mysteries",
-        description: "Explore the mysteries of outer space.",
+        description: "Explore the mysteries of outer space. Every room draws questions from the full category pool.",
         topics: [
           "Black Holes",
           "The Milky Way",
@@ -3691,133 +1449,12 @@ const games: Game[] = [
           "Theories of the Universe",
           "Space-Time Concepts",
         ],
-        rooms: [
-          {
-            name: "Galactic Core",
-            description: "Centered on cosmic themes and stellar puzzles.",
-          },
-          {
-            name: "Crater Zone",
-            description: "Explore rocky topics with challenging clues.",
-          },
-          {
-            name: "Nebula Drift",
-            description: "A slow swirl of trivia through the stars.",
-          },
-          {
-            name: "Dark Matter",
-            description: "Tackle the unknown in a mysterious setting.",
-          },
-          {
-            name: "Lunar Vault",
-            description: "Moon-themed challenges and celestial facts.",
-          },
-          {
-            name: "Comet Trail",
-            description: "Speed through quick-fire cosmic rounds.",
-          },
-          {
-            name: "Red Planet",
-            description: "Mars-focused content with universal appeal.",
-          },
-          {
-            name: "Cosmic Echo",
-            description: "Bounce between deep questions and clues.",
-          },
-          {
-            name: "Astral Field",
-            description: "A broad expanse of stellar topics.",
-          },
-          {
-            name: "Starlink",
-            description: "Connect ideas across light-years of trivia.",
-          },
-          {
-            name: "Gravity Zone",
-            description: "Feel the pull of challenging space clues.",
-          },
-          {
-            name: "Orbit Station",
-            description: "Stay in orbit while navigating space questions.",
-          },
-          {
-            name: "Photon Burst",
-            description: "Quick-paced bursts of high-energy rounds.",
-          },
-          {
-            name: "Rocket Lab",
-            description: "Launch your thinking into trivia space.",
-          },
-          {
-            name: "Solar Winds",
-            description: "Drift through a wide array of topics.",
-          },
-          {
-            name: "Astro Deck",
-            description: "Step onto a deck of stargazing puzzles.",
-          },
-          {
-            name: "Time Warp",
-            description: "Travel through trivia at light-speed.",
-          },
-          {
-            name: "Alien Archive",
-            description: "Speculative fun with factual foundations.",
-          },
-          {
-            name: "Spacewalk",
-            description: "A gentle stroll across intergalactic ideas.",
-          },
-          {
-            name: "Plasma Zone",
-            description: "Where science and surprises collide.",
-          },
-          {
-            name: "Meteor Belt",
-            description: "Navigate scattered knowledge in motion.",
-          },
-          {
-            name: "Wormhole",
-            description: "Jump between topics with cosmic shortcuts.",
-          },
-          {
-            name: "Apollo Bay",
-            description: "Mission-inspired challenges for all players.",
-          },
-          {
-            name: "Asteroid Field",
-            description: "Quick thinking required in this dense cluster.",
-          },
-          {
-            name: "Zenith Point",
-            description: "Aim high with top-tier trivia.",
-          },
-          {
-            name: "Supernova",
-            description: "Explosive challenges with dazzling variety.",
-          },
-          {
-            name: "Pulsar Station",
-            description: "Regular rhythms of rotating questions.",
-          },
-          {
-            name: "Kepler Zone",
-            description: "Explore the boundaries of discovery.",
-          },
-          {
-            name: "Event Horizon",
-            description: "Push to the edge of what's known.",
-          },
-          {
-            name: "Quasar Gate",
-            description: "Bright bursts of themed space challenges.",
-          },
-        ],
+        rooms: genericGameRooms("Space Mysteries", 30, false),
       },
       {
         name: "Historical Eras",
         description:
-          "Learn about key historical periods and their significance.",
+          "Learn about key historical periods and their significance. Every room draws questions from the full category pool.",
         topics: [
           "The Renaissance",
           "The Industrial Revolution",
@@ -3828,78 +1465,11 @@ const games: Game[] = [
           "Colonial Histories",
           "The Age of Exploration",
         ],
-        rooms: [
-          {
-            name: "Black Holes",
-            description: "A room filled with cosmic wonders.",
-          },
-          {
-            name: "Milky Way",
-            description: "Connect with the vastness beyond.",
-          },
-          {
-            name: "Mars Base",
-            description: "Join others in a stellar setting.",
-          },
-          { name: "Exoplanets", description: "A space for shared curiosity." },
-          {
-            name: "Spacecraft",
-            description: "Engage in this cosmic environment.",
-          },
-          {
-            name: "Astro Events",
-            description: "A room for space enthusiasts.",
-          },
-          {
-            name: "Universe Theories",
-            description: "Where ideas float in space.",
-          },
-          {
-            name: "Space-Time",
-            description: "An area for cosmic connections.",
-          },
-          {
-            name: "Orbit Paths",
-            description: "Explore the celestial paths here.",
-          },
-          {
-            name: "Galaxy Clusters",
-            description: "A place for starry discussions.",
-          },
-          { name: "Red Planet", description: "A room with cosmic ambiance." },
-          { name: "Deep Space", description: "Engage with a cosmic vibe." },
-          { name: "Solar Winds", description: "A hub of space-related chats." },
-          { name: "Nebula Clouds", description: "Join a stellar gathering." },
-          {
-            name: "Rocket Launch",
-            description: "A cosmic-themed environment.",
-          },
-          { name: "Asteroid Belt", description: "A space for star seekers." },
-          { name: "Pulsar Beats", description: "A vibrant cosmic room." },
-          { name: "Cosmic Rays", description: "Where space ideas converge." },
-          { name: "Quasar Glow", description: "A room filled with mystery." },
-          { name: "Dark Matter", description: "An area for cosmic minds." },
-          { name: "Solar Flares", description: "Engage in stellar ambiance." },
-          { name: "Comet Trail", description: "A space for cosmic journeys." },
-          { name: "Space Probes", description: "Connect in an astral space." },
-          { name: "Event Horizon", description: "A room with cosmic energy." },
-          {
-            name: "Lunar Orbit",
-            description: "An environment for star talks.",
-          },
-          { name: "Gamma Rays", description: "A vibrant cosmic hub." },
-          { name: "Space Dust", description: "A room for stellar minds." },
-          { name: "Astro Maps", description: "Join an astral community." },
-          { name: "Orbital Station", description: "A cosmic-themed space." },
-          {
-            name: "Celestial Sphere",
-            description: "Where stars come together.",
-          },
-        ],
+        rooms: genericGameRooms("Historical Eras", 30, false),
       },
       {
         name: "Food & Drinks",
-        description: "Discover trivia about culinary delights and beverages.",
+        description: "Discover trivia about culinary delights and beverages. Every room draws questions from the full category pool.",
         topics: [
           "Culinary Styles",
           "Famous Cocktails",
@@ -3910,129 +1480,11 @@ const games: Game[] = [
           "Dessert Specialties",
           "Drinks Around the World",
         ],
-        rooms: [
-          {
-            name: "Spice Bar",
-            description: "Join this room to explore flavorful themes.",
-          },
-          {
-            name: "Brew Haven",
-            description: "A relaxed space for beverage-based fun.",
-          },
-          {
-            name: "Sweet Spot",
-            description: "A cozy room with sugar-coated topics.",
-          },
-          {
-            name: "Grill House",
-            description: "Heated rounds await in this sizzling room.",
-          },
-          {
-            name: "Fresh Market",
-            description: "Naturally fun vibes with every round.",
-          },
-          {
-            name: "Flavor Town",
-            description: "Bold themes and flavorful fun here.",
-          },
-          {
-            name: "Toast Club",
-            description: "Light and warm rounds served daily.",
-          },
-          {
-            name: "Midnight Snack",
-            description: "Where cravings and curiosity meet.",
-          },
-          {
-            name: "Rolling Pin",
-            description: "A smooth place to mix up your skills.",
-          },
-          {
-            name: "Sizzle Room",
-            description: "Lively themes always on high heat.",
-          },
-          {
-            name: "Citrus Cove",
-            description: "Bright and zesty moments await.",
-          },
-          {
-            name: "Tapas Table",
-            description: "Bite-sized fun, full of variety.",
-          },
-          {
-            name: "Daily Roast",
-            description: "A warm setting with rich themes.",
-          },
-          {
-            name: "Snack Shack",
-            description: "Quick, light, and full of flavor.",
-          },
-          {
-            name: "Cocoa Cabin",
-            description: "A cozy place for smooth rounds.",
-          },
-          {
-            name: "Sour Patch",
-            description: "Tangy twists and unexpected turns.",
-          },
-          {
-            name: "Veggie Vault",
-            description: "Greens and games all in one room.",
-          },
-          {
-            name: "The Pantry",
-            description: "A stocked space for trivia lovers.",
-          },
-          {
-            name: "Spill the Tea",
-            description: "Pour into rounds full of surprise.",
-          },
-          {
-            name: "The Fryer",
-            description: "Crispy themes and golden questions.",
-          },
-          {
-            name: "Bistro Lane",
-            description: "A charming stop for curious minds.",
-          },
-          {
-            name: "The Juicery",
-            description: "Pure fun squeezed into every round.",
-          },
-          {
-            name: "Taco Stand",
-            description: "Quick bites and fun topics await.",
-          },
-          {
-            name: "Bottle Cap",
-            description: "Pop into flavorful trivia rounds.",
-          },
-          {
-            name: "The Oven",
-            description: "Hot and ready rounds on the menu.",
-          },
-          { name: "Creamery", description: "Cool vibes with smooth themes." },
-          {
-            name: "Chop Station",
-            description: "Sharpen your wits and dig in.",
-          },
-          {
-            name: "Dough Room",
-            description: "Rise through rounds in this space.",
-          },
-          {
-            name: "Mint Room",
-            description: "Fresh themes served with coolness.",
-          },
-          {
-            name: "The Kettle",
-            description: "A bubbling space of lively questions.",
-          },
-        ],
+        rooms: genericGameRooms("Food & Drinks", 30, false),
       },
       {
         name: "Famous People",
-        description: "Trivia about influential figures throughout history.",
+        description: "Trivia about influential figures throughout history. Every room draws questions from the full category pool.",
         topics: [
           "World Leaders",
           "Influential Women",
@@ -4043,75 +1495,11 @@ const games: Game[] = [
           "Scientists and Mathematicians",
           "Philosophers and Theologians",
         ],
-        rooms: [
-          {
-            name: "Einstein",
-            description: "A place inspired by curious minds.",
-          },
-          {
-            name: "Cleopatra",
-            description: "Elegant and powerful historical aura.",
-          },
-          {
-            name: "Mandela",
-            description: "Quiet strength and resilience echo here.",
-          },
-          { name: "Tesla", description: "A room charged with innovation." },
-          {
-            name: "Curie",
-            description: "A brilliant space with timeless impact.",
-          },
-          { name: "Lincoln", description: "A calm space with historic depth." },
-          { name: "Joan", description: "Bold energy with fearless vibes." },
-          {
-            name: "Socrates",
-            description: "Reflective and thoughtful atmosphere.",
-          },
-          {
-            name: "Columbus",
-            description: "For those drawn to unknown paths.",
-          },
-          {
-            name: "Ada",
-            description: "Sharp, structured, and quietly iconic.",
-          },
-          {
-            name: "Bowie",
-            description: "Eclectic and unexpected inspiration.",
-          },
-          {
-            name: "Malala",
-            description: "Youthful energy with global spirit.",
-          },
-          { name: "Da Vinci", description: "A space of diverse curiosity." },
-          { name: "Gandhi", description: "Peaceful and deliberate ambiance." },
-          { name: "Mozart", description: "Melodic and gracefully vibrant." },
-          { name: "Newton", description: "Precise and grounded atmosphere." },
-          { name: "Oprah", description: "Warmth and influence come together." },
-          {
-            name: "Shakespeare",
-            description: "Layered and timeless elegance.",
-          },
-          { name: "Tubman", description: "Steadfast and quietly powerful." },
-          { name: "Churchill", description: "Bold and strategic energy here." },
-          { name: "Hypatia", description: "Ancient intellect meets clarity." },
-          { name: "Freud", description: "A space with subtle complexity." },
-          { name: "Hawking", description: "Cosmic calm and quiet brilliance." },
-          { name: "Darwin", description: "Rooted and ever-evolving tone." },
-          { name: "Mandela", description: "Echoes of dignity and courage." },
-          { name: "Aristotle", description: "Structured with quiet depth." },
-          { name: "Tesla", description: "Where sparks of thought gather." },
-          { name: "Rosa", description: "Grace with unshaken resolve." },
-          { name: "Jobs", description: "Polished and forward-focused." },
-          {
-            name: "Nightingale",
-            description: "Gentle focus with resilient grace.",
-          },
-        ],
+        rooms: genericGameRooms("Famous People", 30, false),
       },
       {
         name: "Festivals & Celebrations",
-        description: "Trivia about global festivals and iconic celebrations.",
+        description: "Trivia about global festivals and iconic celebrations. Every room draws questions from the full category pool.",
         topics: [
           "Carnival Traditions",
           "Winter Festivals",
@@ -4122,137 +1510,11 @@ const games: Game[] = [
           "Iconic Global Events",
           "Local Parades",
         ],
-        rooms: [
-          {
-            name: "Carnival",
-            description:
-              "Join this room to dive into festive vibes and global joy.",
-          },
-          {
-            name: "Solstice",
-            description: "A space where seasonal traditions take center stage.",
-          },
-          {
-            name: "Harmony",
-            description:
-              "Experience the unity of celebrations across cultures.",
-          },
-          {
-            name: "Bloom",
-            description:
-              "Celebrate vibrant traditions in a room full of color and life.",
-          },
-          {
-            name: "Radiance",
-            description: "Feel the warmth of festivities under bright lights.",
-          },
-          {
-            name: "Harvest",
-            description: "Enter a world where traditions bloom with gratitude.",
-          },
-          {
-            name: "Serenade",
-            description: "Where music and joy echo through every celebration.",
-          },
-          {
-            name: "Jubilee",
-            description: "A cheerful space filled with festive energy.",
-          },
-          {
-            name: "Echo",
-            description:
-              "Listen to traditions passed down through generations.",
-          },
-          {
-            name: "Pulse",
-            description: "Catch the rhythm of worldwide festive beats.",
-          },
-          {
-            name: "Aurora",
-            description: "Light up your journey through magical celebrations.",
-          },
-          {
-            name: "Cascade",
-            description: "Dive into layers of cultural and seasonal cheer.",
-          },
-          {
-            name: "Lantern",
-            description: "A soft glow guiding you through joyful events.",
-          },
-          {
-            name: "Timbre",
-            description: "Tune in to the sounds of celebration and unity.",
-          },
-          {
-            name: "Parade",
-            description: "Follow the footsteps of lively global traditions.",
-          },
-          {
-            name: "Twilight",
-            description: "Explore the evening wonders of worldwide holidays.",
-          },
-          {
-            name: "Crescent",
-            description: "A room reflecting moonlit cultural events.",
-          },
-          {
-            name: "Flare",
-            description: "Where every moment bursts with celebration.",
-          },
-          {
-            name: "Oasis",
-            description: "Find peace and festivity in a vibrant atmosphere.",
-          },
-          {
-            name: "Gleam",
-            description: "Step into a shining space of joy and tradition.",
-          },
-          {
-            name: "Reverie",
-            description: "Dreamy vibes inspired by cherished events.",
-          },
-          {
-            name: "Chorus",
-            description: "Voices rise in harmony, echoing festive spirits.",
-          },
-          {
-            name: "Melody",
-            description: "A room in tune with the world's happiest moments.",
-          },
-          {
-            name: "Lumen",
-            description: "Brighten your time with cultural festivities.",
-          },
-          {
-            name: "Crimson",
-            description: "Rich traditions in a warm and welcoming setting.",
-          },
-          {
-            name: "Whirl",
-            description: "Spin through the colorful world of celebrations.",
-          },
-          {
-            name: "Feather",
-            description: "Lighthearted fun and gentle tradition in one place.",
-          },
-          {
-            name: "Grove",
-            description:
-              "A natural space for peaceful and lively events alike.",
-          },
-          {
-            name: "Bell",
-            description: "Let the sounds of celebration ring through the air.",
-          },
-          {
-            name: "Vista",
-            description: "A panoramic view of the world's cultural joy.",
-          },
-        ],
+        rooms: genericGameRooms("Festivals & Celebrations", 30, false),
       },
       {
         name: "Quirky & Bizarre",
-        description: "Weird and quirky trivia to surprise and amaze.",
+        description: "Weird and quirky trivia to surprise and amaze. Every room draws questions from the full category pool.",
         topics: [
           "Odd Jobs",
           "Strange Laws",
@@ -4263,78 +1525,11 @@ const games: Game[] = [
           "Crazy Rituals",
           "Outlandish Events",
         ],
-        rooms: [
-          {
-            name: "Wobble",
-            description: "A place where things don't quite line up.",
-          },
-          {
-            name: "Zonko",
-            description: "Expect the unexpected and the unexplained.",
-          },
-          {
-            name: "Fizzbit",
-            description: "Where oddities bubble to the surface.",
-          },
-          {
-            name: "Snuzzle",
-            description: "Full of peculiar and fuzzy curiosities.",
-          },
-          {
-            name: "Quonk",
-            description: "Everything feels just a bit off, in a fun way.",
-          },
-          {
-            name: "Glimmer",
-            description: "A strange shine in a world of odd.",
-          },
-          { name: "Plink", description: "The sound of weird ideas landing." },
-          {
-            name: "Boof",
-            description: "Fluffy chaos meets strange brilliance.",
-          },
-          { name: "Gribble", description: "Slightly absurd, gently wild." },
-          { name: "Snork", description: "Uncommon air for uncommon minds." },
-          { name: "Zindle", description: "Odd turns and curious corners." },
-          {
-            name: "Crabble",
-            description: "Little weird things crawling through.",
-          },
-          {
-            name: "Mizzle",
-            description: "Softly strange with a twist of weird.",
-          },
-          { name: "Thwip", description: "Quick and quirky, never dull." },
-          { name: "Flibber", description: "Oddness dances lightly here." },
-          { name: "Dazzle", description: "Bright lights and stranger things." },
-          {
-            name: "Jumble",
-            description: "Tangled and bizarre in the best ways.",
-          },
-          { name: "Squib", description: "Tiny room, big weirdness." },
-          {
-            name: "Clonk",
-            description: "Sounds off and so does everything else.",
-          },
-          { name: "Zorp", description: "No one really knows why it exists." },
-          {
-            name: "Snizzle",
-            description: "A foggy playground of curiosities.",
-          },
-          { name: "Twerple", description: "A twist of color, a dash of odd." },
-          { name: "Boingle", description: "Bounces with absurdity." },
-          { name: "Florp", description: "Everything here defies logic." },
-          { name: "Crizzle", description: "Cracked but charming." },
-          { name: "Wizzle", description: "Swirls with nonsense and fun." },
-          { name: "Glunk", description: "Heavy with mystery and madness." },
-          { name: "Borp", description: "Simple name, strange vibes." },
-          { name: "Murk", description: "Darkly odd, deeply strange." },
-          { name: "Waddle", description: "Slow, silly, and very odd." },
-        ],
+        rooms: genericGameRooms("Quirky & Bizarre", 30, false),
       },
       {
         name: "Urban Life",
-        description: "Trivia about cities, urban development, and cultures.",
+        description: "Trivia about cities, urban development, and cultures. Every room draws questions from the full category pool.",
         topics: [
           "City Skylines",
           "Megacities",
@@ -4345,126 +1540,11 @@ const games: Game[] = [
           "Urban Legends",
           "Historical Cities",
         ],
-        rooms: [
-          {
-            name: "Metro",
-            description: "A fast-paced room for players who enjoy city vibes.",
-          },
-          {
-            name: "Downtown",
-            description: "Hang out in this central hub of action and fun.",
-          },
-          {
-            name: "Skyline",
-            description: "Soar to the top with every round you play.",
-          },
-          {
-            name: "Crosswalk",
-            description: "Where different minds intersect for a good game.",
-          },
-          {
-            name: "Subway",
-            description: "Underground energy and fast turns await you.",
-          },
-          {
-            name: "Uptown",
-            description: "Take a trip to the upscale side of play.",
-          },
-          {
-            name: "Gridlock",
-            description: "Traffic isn't a problem here, just challenge.",
-          },
-          {
-            name: "Avenue",
-            description: "Stroll into fun and meet fellow city explorers.",
-          },
-          {
-            name: "Plaza",
-            description: "A lively place full of games and conversations.",
-          },
-          {
-            name: "Boulevard",
-            description: "Where every move feels wide and open.",
-          },
-          {
-            name: "Block",
-            description: "Step into the neighborhood and get started.",
-          },
-          {
-            name: "Transit",
-            description: "A mobile room that never stops moving.",
-          },
-          {
-            name: "Overpass",
-            description: "Take the high road in your game journey.",
-          },
-          {
-            name: "Parkway",
-            description: "Smooth games and relaxed vibes all around.",
-          },
-          {
-            name: "Corner",
-            description: "Catch your turn at this city junction.",
-          },
-          {
-            name: "District",
-            description: "Enter a place with its own competitive culture.",
-          },
-          {
-            name: "Loft",
-            description: "A chill high-rise spot for trivia lovers.",
-          },
-          {
-            name: "Station",
-            description: "Your next stop for consistent challenges.",
-          },
-          {
-            name: "Alley",
-            description: "Tight corners and sharp minds gather here.",
-          },
-          {
-            name: "Bridge",
-            description: "Connecting players from all walks of life.",
-          },
-          {
-            name: "Tower",
-            description: "Rise through the ranks floor by floor.",
-          },
-          {
-            name: "Harbor",
-            description: "Drop anchor and enjoy steady gameplay.",
-          },
-          {
-            name: "Canal",
-            description: "Flow through a stream of entertaining questions.",
-          },
-          { name: "Circle", description: "Round and round with endless fun." },
-          {
-            name: "Lane",
-            description: "A narrow path to quick thinking and wins.",
-          },
-          {
-            name: "Market",
-            description: "Bustling with activity and player spirit.",
-          },
-          {
-            name: "Forum",
-            description: "Where ideas and games come together.",
-          },
-          {
-            name: "Arcade",
-            description: "Classic fun with a modern urban twist.",
-          },
-          { name: "Track", description: "Stay on course and race ahead." },
-          {
-            name: "Wharf",
-            description: "Dock in for a session full of surprises.",
-          },
-        ],
+        rooms: genericGameRooms("Urban Life", 30, false),
       },
       {
         name: "Internet & Technology",
-        description: "Trivia about the internet and digital culture.",
+        description: "Trivia about the internet and digital culture. Every room draws questions from the full category pool.",
         topics: [
           "Evolution of Social Media",
           "Online Security Tips",
@@ -4475,111 +1555,11 @@ const games: Game[] = [
           "Online Trends",
           "Digital Influencers",
         ],
-        rooms: [
-          {
-            name: "ByteHub",
-            description: "A lively space to test your digital knowledge.",
-          },
-          {
-            name: "PixelCore",
-            description: "Where tech enthusiasts gather for fun.",
-          },
-          {
-            name: "CodeNest",
-            description: "A place for those fluent in the language of the web.",
-          },
-          {
-            name: "StreamZone",
-            description: "Join fellow players in a flowing game of trivia.",
-          },
-          {
-            name: "CyberCircle",
-            description: "Hang out in a loop of digital excitement.",
-          },
-          {
-            name: "ClickHouse",
-            description: "Clicks and questions go hand in hand here.",
-          },
-          {
-            name: "The Grid",
-            description: "Stay wired in this tech-centric room.",
-          },
-          {
-            name: "PingPod",
-            description: "Bounce your brain power in real time.",
-          },
-          {
-            name: "ScrollBase",
-            description: "Keep scrolling, keep answering.",
-          },
-          { name: "404 Room", description: "The fun is never not found here." },
-          { name: "TechLounge", description: "Where digital minds unwind." },
-          {
-            name: "LinkDock",
-            description: "A dock for connected quiz lovers.",
-          },
-          { name: "NerdZone", description: "Only the nerdiest survive." },
-          {
-            name: "BitBunker",
-            description: "A secure space for trivia buffs.",
-          },
-          { name: "HashNode", description: "Where ideas and questions trend." },
-          { name: "MetaSpace", description: "It's bigger than the internet." },
-          {
-            name: "AppCave",
-            description: "Find your people in this digital den.",
-          },
-          {
-            name: "TabLab",
-            description: "Keep your tabs open and your mind sharper.",
-          },
-          {
-            name: "CacheRoom",
-            description: "Where knowledge is never flushed.",
-          },
-          {
-            name: "ScriptHive",
-            description: "Buzzing with quick questions and answers.",
-          },
-          {
-            name: "AltWorld",
-            description: "An alternative zone of trivia energy.",
-          },
-          { name: "ZeroDay", description: "Always fresh, always challenging." },
-          {
-            name: "UploadBay",
-            description: "Bring your thoughts to the surface.",
-          },
-          {
-            name: "SignalNest",
-            description: "Tuned in for real-time brain games.",
-          },
-          {
-            name: "DigitalDen",
-            description: "All things internet, all in one place.",
-          },
-          {
-            name: "NodeRealm",
-            description: "A connected room for every techie.",
-          },
-          {
-            name: "CloudCore",
-            description: "Soar high with fast-paced trivia.",
-          },
-          { name: "PingZone", description: "Low latency, high fun." },
-          {
-            name: "EchoLab",
-            description: "Your thoughts bounce back with energy.",
-          },
-          {
-            name: "KeyBoard",
-            description: "Where every stroke sparks a question.",
-          },
-        ],
+        rooms: genericGameRooms("Internet & Technology", 30, false),
       },
       {
         name: "Time & Space",
-        description: "Learn about the mysteries of time and space.",
+        description: "Learn about the mysteries of time and space. Every room draws questions from the full category pool.",
         topics: [
           "Ancient Calendars",
           "Timekeeping Devices",
@@ -4590,54 +1570,11 @@ const games: Game[] = [
           "Time Travel in Fiction",
           "Cosmic Timelines",
         ],
-        rooms: [
-          {
-            name: "Nebula",
-            description: "A quiet place with deep cosmic vibes.",
-          },
-          { name: "Epoch", description: "Where eras meet and moments linger." },
-          { name: "Singularity", description: "A dense space full of ideas." },
-          { name: "Continuum", description: "Where time flows freely." },
-          { name: "Orbit", description: "Constant motion in a circular path." },
-          {
-            name: "Lightyear",
-            description: "A stretch of space with quiet echoes.",
-          },
-          { name: "Pulse", description: "A steady beat in the void." },
-          {
-            name: "Chronos",
-            description: "Timeless space with classic rhythm.",
-          },
-          { name: "Eventide", description: "A gentle dusk of curious minds." },
-          { name: "Zenith", description: "The peak of cosmic stillness." },
-          { name: "Twilight", description: "A space for dimming thoughts." },
-          {
-            name: "Quasar",
-            description: "Bright and bursting with potential.",
-          },
-          { name: "Drift", description: "Slow shifts and endless movement." },
-          { name: "Equinox", description: "Perfectly balanced and neutral." },
-          { name: "Ripple", description: "Subtle changes spreading outward." },
-          { name: "Nova", description: "A fresh burst of stellar calm." },
-          { name: "Aeon", description: "Timeless and vast in scope." },
-          { name: "Loop", description: "Repetition wrapped in comfort." },
-          { name: "Beacon", description: "A guiding light in vastness." },
-          { name: "Wormhole", description: "A shortcut to curious realms." },
-          { name: "Axis", description: "The pivot around which things turn." },
-          { name: "Momentum", description: "Everything in motion here." },
-          { name: "Glide", description: "Smooth and steady atmosphere." },
-          { name: "Phase", description: "A shift waiting to happen." },
-          { name: "Halo", description: "A soft ring of presence." },
-          { name: "Tide", description: "Waves of thought and flow." },
-          { name: "Realm", description: "A zone between now and beyond." },
-          { name: "Echo", description: "Sounds and thoughts reverberate." },
-          { name: "Shadow", description: "Quiet and slightly mysterious." },
-          { name: "Vector", description: "Directional space full of intent." },
-        ],
+        rooms: genericGameRooms("Time & Space", 30, false),
       },
       {
         name: "War & Conflict",
-        description: "Trivia about wars, battles, and historical conflicts.",
+        description: "Trivia about wars, battles, and historical conflicts. Every room draws questions from the full category pool.",
         topics: [
           "Revolutionary Wars",
           "Military Tactics",
@@ -4648,133 +1585,12 @@ const games: Game[] = [
           "Modern Conflicts",
           "Peace Treaties",
         ],
-        rooms: [
-          {
-            name: "Battlefront",
-            description: "Join the action and test your knowledge here.",
-          },
-          {
-            name: "Warzone",
-            description: "Enter and experience the thrill of conflict.",
-          },
-          {
-            name: "The Armory",
-            description: "A place for strategy, history, and challenge.",
-          },
-          {
-            name: "Command Post",
-            description: "Where trivia meets tactical precision.",
-          },
-          {
-            name: "Under Siege",
-            description: "Engage in non-stop war-themed challenges.",
-          },
-          {
-            name: "Front Lines",
-            description: "Step into the heart of historical tension.",
-          },
-          {
-            name: "Victory Lane",
-            description: "Where battles are won with knowledge.",
-          },
-          {
-            name: "Peacekeepers",
-            description: "Balance the chaos with calm insight.",
-          },
-          {
-            name: "No Man's Land",
-            description: "A neutral zone of fierce competition.",
-          },
-          {
-            name: "Red Alert",
-            description: "High intensity and high stakes await.",
-          },
-          {
-            name: "Iron Curtain",
-            description: "Cross into Cold War-inspired games.",
-          },
-          {
-            name: "Silent Guns",
-            description: "Quiet battles with loud outcomes.",
-          },
-          {
-            name: "Trenches",
-            description: "Dig deep into conflict-themed trivia.",
-          },
-          {
-            name: "Firestorm",
-            description: "Fast-paced and full of explosive fun.",
-          },
-          {
-            name: "Checkmate",
-            description: "Where war and tactics go head to head.",
-          },
-          {
-            name: "The Citadel",
-            description: "Fortified fun for every player.",
-          },
-          {
-            name: "Watchtower",
-            description: "Stay sharp and on guard in every round.",
-          },
-          {
-            name: "Overwatch",
-            description: "Oversee the battlefield of trivia.",
-          },
-          {
-            name: "Black Ops",
-            description: "Shadowy skirmishes of knowledge.",
-          },
-          {
-            name: "Tactical Zone",
-            description: "Challenge yourself in high-risk rooms.",
-          },
-          {
-            name: "Echo Base",
-            description: "A hidden outpost of strategic trivia.",
-          },
-          {
-            name: "Dust Storm",
-            description: "Swirl into action with battlefield flair.",
-          },
-          {
-            name: "Dark Horizon",
-            description: "Where conflict looms over every choice.",
-          },
-          {
-            name: "Strike Team",
-            description: "Join others on high-impact missions.",
-          },
-          {
-            name: "Stronghold",
-            description: "Defend your lead through every question.",
-          },
-          {
-            name: "Crossfire",
-            description: "Don't get caught between clever minds.",
-          },
-          {
-            name: "Blast Radius",
-            description: "Explosive rounds and tricky trivia.",
-          },
-          {
-            name: "Spearhead",
-            description: "Lead the charge in competitive rooms.",
-          },
-          {
-            name: "Deadlock",
-            description: "Where battles end in brains, not brawn.",
-          },
-          {
-            name: "Shadow Line",
-            description: "Play on the edges of knowledge and conflict.",
-          },
-        ],
+        rooms: genericGameRooms("War & Conflict", 30, false),
       },
       {
         name: "Psychology & Philosophy",
         description:
-          "Explore the depths of the mind and profound philosophical ideas.",
+          "Explore the depths of the mind and profound philosophical ideas. Every room draws questions from the full category pool.",
         topics: [
           "Famous Philosophers",
           "Cognitive Biases",
@@ -4785,67 +1601,12 @@ const games: Game[] = [
           "Behavioral Science",
           "Personality Types",
         ],
-        rooms: [
-          {
-            name: "Socrates",
-            description: "A place for thoughtful and curious minds.",
-          },
-          {
-            name: "Freud",
-            description: "Where deep insights meet the subconscious.",
-          },
-          {
-            name: "Karma",
-            description: "An arena of reflective and inward thinkers.",
-          },
-          {
-            name: "Zenith",
-            description: "Serene space for philosophical immersion.",
-          },
-          { name: "Echo", description: "Where thoughts reverberate and grow." },
-          { name: "Agora", description: "A common ground for mind explorers." },
-          {
-            name: "Nexus",
-            description: "Connect with deep and abstract ideas.",
-          },
-          { name: "Muse", description: "A haven for inspiration and thought." },
-          { name: "Mirror", description: "Where minds reflect and discover." },
-          { name: "Plato", description: "Ideal for exploring timeless ideas." },
-          {
-            name: "Bloom",
-            description: "For those who love growth of thought.",
-          },
-          { name: "Drift", description: "Let your mind wander freely." },
-          { name: "Logos", description: "A logical space for seekers." },
-          { name: "Pulse", description: "Where ideas flow with energy." },
-          { name: "Vibe", description: "A calm zone for shared insight." },
-          { name: "Ripple", description: "Every idea starts a wave here." },
-          { name: "Mythos", description: "For stories that shape thinking." },
-          { name: "Hume", description: "A tribute to empirical minds." },
-          { name: "Aura", description: "Ideas and presence merge here." },
-          { name: "Verve", description: "Lively minds meet and mingle." },
-          {
-            name: "Quest",
-            description: "A path for inner and outer discovery.",
-          },
-          { name: "Tao", description: "Balance and wisdom flow here." },
-          { name: "Thrive", description: "Grow your mind with others." },
-          { name: "Chime", description: "Harmonize your thoughts together." },
-          { name: "Spark", description: "Where ideas ignite and inspire." },
-          { name: "Atlas", description: "Hold big thoughts with ease." },
-          { name: "Ink", description: "A canvas for expressive minds." },
-          { name: "Orbit", description: "Thoughts revolve and evolve here." },
-          { name: "Pathos", description: "Feel and think in equal measure." },
-          {
-            name: "Noesis",
-            description: "A pure space for intellectual play.",
-          },
-        ],
+        rooms: genericGameRooms("Psychology & Philosophy", 30, false),
       },
       {
         name: "Mythology Around the World",
         description:
-          "Delve into myths, legends, and deities from different cultures worldwide.",
+          "Delve into myths, legends, and deities from different cultures worldwide. Every room draws questions from the full category pool.",
         topics: [
           "Celtic Myths",
           "African Folklore",
@@ -4856,97 +1617,12 @@ const games: Game[] = [
           "Australian Dreamtime",
           "Slavic Folklore",
         ],
-        rooms: [
-          {
-            name: "Valhalla",
-            description: "A realm of ancient tales and timeless lore.",
-          },
-          {
-            name: "Olympus",
-            description: "Where old legends echo across the ages.",
-          },
-          {
-            name: "Asgard",
-            description: "A gateway to mythic realms and heroic sagas.",
-          },
-          {
-            name: "Elysium",
-            description: "Tranquil ground for mythic wanderers.",
-          },
-          {
-            name: "Underworld",
-            description: "Whispers of forgotten stories dwell here.",
-          },
-          {
-            name: "Avalon",
-            description: "A place steeped in legendary whispers.",
-          },
-          {
-            name: "Zion",
-            description: "Legacies of gods and spirits converge.",
-          },
-          {
-            name: "Babylon",
-            description: "Mystical echoes from ancient lands.",
-          },
-          {
-            name: "Atlantis",
-            description: "A mythical hub of endless intrigue.",
-          },
-          {
-            name: "Shambhala",
-            description: "Hidden depths of sacred mythologies.",
-          },
-          { name: "Erebus", description: "Shadows of myths long passed." },
-          { name: "Yomi", description: "Echoes from ancient eastern stories." },
-          {
-            name: "Ragnarok",
-            description: "A meeting point for epic legends.",
-          },
-          { name: "Du'at", description: "Where divine tales unfold slowly." },
-          {
-            name: "Tír na nÓg",
-            description: "Boundless realms of mythical wonder.",
-          },
-          {
-            name: "Helheim",
-            description: "Where frostbitten myths find voice.",
-          },
-          {
-            name: "Purgatory",
-            description: "Timeless zone for mythical musings.",
-          },
-          {
-            name: "Mount Meru",
-            description: "A sacred peak of mythical origins.",
-          },
-          { name: "Niflheim", description: "Cold winds of old stories swirl." },
-          {
-            name: "Nine Realms",
-            description: "All corners of myth gathered here.",
-          },
-          { name: "Aztlan", description: "A place of legend and mystery." },
-          { name: "Annwn", description: "Where Celtic tales come alive." },
-          {
-            name: "Hyperborea",
-            description: "Distant echoes of ancient lore.",
-          },
-          { name: "Mictlan", description: "Steps through a mythic journey." },
-          {
-            name: "Kumari Kandam",
-            description: "Vanished worlds with rich tales.",
-          },
-          { name: "Tartarus", description: "Deep within mythical narratives." },
-          { name: "Sumer", description: "Where gods once walked." },
-          { name: "Xibalba", description: "Myths emerge from sacred trials." },
-          { name: "Leng", description: "Obscure paths of legendary tales." },
-          { name: "Arcadia", description: "Where stories drift with time." },
-        ],
+        rooms: genericGameRooms("Mythology Around the World", 30, false),
       },
       {
         name: "Inventions & Discoveries",
         description:
-          "Trivia about human ingenuity and scientific breakthroughs.",
+          "Trivia about human ingenuity and scientific breakthroughs. Every room draws questions from the full category pool.",
         topics: [
           "Famous Inventors",
           "Groundbreaking Patents",
@@ -4957,53 +1633,7 @@ const games: Game[] = [
           "Everyday Inventions",
           "Technological Marvels",
         ],
-        rooms: [
-          {
-            name: "Torazon",
-            description: "A room where ideas spark and flow.",
-          },
-          {
-            name: "Edison",
-            description: "A space to explore bright concepts.",
-          },
-          { name: "Curie", description: "Where innovation meets curiosity." },
-          { name: "Wright", description: "A place for new perspectives." },
-          { name: "Bell", description: "Room buzzing with creativity." },
-          {
-            name: "DaVinci",
-            description: "An environment of timeless inspiration.",
-          },
-          { name: "Newton", description: "Room filled with dynamic thinking." },
-          { name: "Archimedes", description: "Where knowledge moves forward." },
-          { name: "Galileo", description: "A hub of discovery and insight." },
-          { name: "Marconi", description: "Room charged with new ideas." },
-          { name: "Franklin", description: "A space for bright minds." },
-          { name: "Pasteur", description: "Where ideas evolve and grow." },
-          { name: "Faraday", description: "Room alive with innovation." },
-          { name: "Bell Labs", description: "A place for future pioneers." },
-          { name: "Sputnik", description: "Room orbiting fresh concepts." },
-          { name: "Curiosity", description: "A zone of endless exploration." },
-          { name: "Jetsons", description: "Where imagination takes flight." },
-          { name: "Tesla Coil", description: "Room buzzing with energy." },
-          { name: "Hubble", description: "A space to see far and beyond." },
-          { name: "Kepler", description: "Where ideas revolve." },
-          { name: "Eureka", description: "Room for sudden insights." },
-          { name: "Voyager", description: "A hub for bold journeys." },
-          {
-            name: "Rutherford",
-            description: "Room filled with atomic thoughts.",
-          },
-          { name: "Bell Tower", description: "A place of clear signals." },
-          { name: "Pharos", description: "Guiding light for ideas." },
-          {
-            name: "Atlas",
-            description: "Room bearing the weight of knowledge.",
-          },
-          { name: "Lab", description: "Where sparks ignite progress." },
-          { name: "Pioneer", description: "Room for new frontiers." },
-          { name: "Ada", description: "A space inspired by early computing." },
-          { name: "Fermi", description: "Room charged with nuclear ideas." },
-        ],
+        rooms: genericGameRooms("Inventions & Discoveries", 30, false),
       },
     ],
   },
@@ -5015,7 +1645,7 @@ const games: Game[] = [
       {
         name: "Pop Culture & Slang",
         description:
-          "Acronyms derived from movies, TV shows, music, internet trends, and common texting slang.",
+          "Acronyms derived from movies, TV shows, music, internet trends, and common texting slang. Every room draws questions from the full category pool.",
         topics: [
           "Movies",
           "TV Shows",
@@ -5023,97 +1653,12 @@ const games: Game[] = [
           "Internet Memes",
           "Texting Slang",
         ],
-        rooms: [
-          {
-            name: "Blockbusters",
-            description: "Join this room for exciting challenges.",
-          },
-          { name: "Sitcoms", description: "A fun space to test your skills." },
-          {
-            name: "Pop Hits",
-            description: "Engage in lively guessing games here.",
-          },
-          { name: "Viral Memes", description: "A room for fast-paced fun." },
-          {
-            name: "Chat Slang",
-            description: "Try your luck with modern slang acronyms.",
-          },
-          {
-            name: "Classic Films",
-            description: "Sharpen your mind with classic content.",
-          },
-          { name: "Reality TV", description: "A room full of surprises." },
-          {
-            name: "Rock & Roll",
-            description: "Challenge yourself with music themes.",
-          },
-          {
-            name: "Internet Buzz",
-            description: "Test your knowledge of trends.",
-          },
-          { name: "Text Talk", description: "Quick guesses are the key here." },
-          {
-            name: "Animated Shows",
-            description: "A playful room for everyone.",
-          },
-          { name: "Hip Hop", description: "Get ready for some rhythmic fun." },
-          {
-            name: "Celebrity",
-            description: "Guess acronyms related to famous faces.",
-          },
-          {
-            name: "Streaming Hits",
-            description: "Dive into popular online shows.",
-          },
-          { name: "Indie Music", description: "A room for unique sounds." },
-          {
-            name: "Social Media",
-            description: "Stay current with trending topics.",
-          },
-          {
-            name: "Teen Drama",
-            description: "Relive your favorite storylines.",
-          },
-          { name: "Comedy Central", description: "Laugh while you play." },
-          {
-            name: "Dance Beats",
-            description: "Move to the rhythm of the game.",
-          },
-          { name: "Tech Slang", description: "Decode tech-related acronyms." },
-          {
-            name: "Cult Classics",
-            description: "Test your knowledge of niche favorites.",
-          },
-          {
-            name: "Pop Icons",
-            description: "Guess acronyms linked to legends.",
-          },
-          { name: "Late Night", description: "A room for night owls." },
-          {
-            name: "Fantasy Shows",
-            description: "Step into worlds of imagination.",
-          },
-          {
-            name: "Music Festivals",
-            description: "Experience the vibe through words.",
-          },
-          {
-            name: "Web Series",
-            description: "Focus on bite-sized entertainment.",
-          },
-          { name: "Emoji Talk", description: "Guess acronyms with a twist." },
-          {
-            name: "Urban Legends",
-            description: "Explore modern myths in the game.",
-          },
-          { name: "Pop Art", description: "Colors and culture collide here." },
-          { name: "Gaming Slang", description: "Level up your guessing game." },
-        ],
+        rooms: genericGameRooms("Pop Culture & Slang", 30, false),
       },
       {
         name: "Business & Corporate",
         description:
-          "Acronyms used in industries, corporate communication, and professional terminology.",
+          "Acronyms used in industries, corporate communication, and professional terminology. Every room draws questions from the full category pool.",
         topics: [
           "Corporate Titles",
           "Startup Terms",
@@ -5121,134 +1666,13 @@ const games: Game[] = [
           "Finance Terms",
           "Project Management",
         ],
-        rooms: [
-          {
-            name: "Boardroom",
-            description: "Tackle executive-level topics and terms.",
-          },
-          {
-            name: "Startup Garage",
-            description: "Explore early-stage business language.",
-          },
-          {
-            name: "Pitch Deck",
-            description: "Navigate startup lingo and investor speak.",
-          },
-          {
-            name: "Finance Hub",
-            description: "Focused on numbers, margins, and returns.",
-          },
-          {
-            name: "The Briefcase",
-            description: "Quick-hit corporate concepts and buzzwords.",
-          },
-          {
-            name: "Strategy Room",
-            description: "Solve structured, big-picture challenges.",
-          },
-          {
-            name: "Agile Circle",
-            description: "Lean, iterative rounds with flexible content.",
-          },
-          {
-            name: "Sales Floor",
-            description: "Buzzing with commercial and client terms.",
-          },
-          {
-            name: "Marketing Suite",
-            description: "Unpack jargon from the branding world.",
-          },
-          {
-            name: "Venture Vault",
-            description: "Unlock ideas from the startup ecosystem.",
-          },
-          {
-            name: "Executive Track",
-            description: "Navigate the top-tier titles and roles.",
-          },
-          {
-            name: "Growth Lane",
-            description: "Focus on scaling terms and expansion.",
-          },
-          {
-            name: "Project Pad",
-            description: "PM-heavy content in organized rounds.",
-          },
-          {
-            name: "Innovation Lab",
-            description: "Explore terminology from modern business ideas.",
-          },
-          {
-            name: "Balance Sheet",
-            description: "Drill into finance basics and reporting terms.",
-          },
-          {
-            name: "Compliance Zone",
-            description: "Step through rules, policies, and regulations.",
-          },
-          {
-            name: "Workplace Wire",
-            description: "Relatable acronyms from the 9-to-5 grind.",
-          },
-          {
-            name: "Consulting Bay",
-            description: "Tackle terms from client-focused sectors.",
-          },
-          {
-            name: "E-Comm Corner",
-            description: "Where business meets tech and shopping.",
-          },
-          {
-            name: "Investor Den",
-            description: "Explore capital, equity, and returns.",
-          },
-          {
-            name: "Product Suite",
-            description: "Centered on product, teams, and delivery.",
-          },
-          {
-            name: "Team Huddle",
-            description: "Group-based phrases and coordination terms.",
-          },
-          {
-            name: "Remote Ops",
-            description: "All about virtual workflows and tools.",
-          },
-          {
-            name: "Budget Desk",
-            description: "Break down numbers, costs, and forecasts.",
-          },
-          {
-            name: "Outreach Bay",
-            description: "Dive into PR, CRM, and lead generation.",
-          },
-          {
-            name: "KPI Lounge",
-            description: "Set your sights on goals and performance.",
-          },
-          {
-            name: "Brand Studio",
-            description: "Explore the language of identity and image.",
-          },
-          {
-            name: "Pitch Room",
-            description: "Step into the world of persuasive comms.",
-          },
-          {
-            name: "C-Suite",
-            description: "Home to acronyms at the executive level.",
-          },
-          {
-            name: "Org Chart",
-            description: "From intern to CEO, all roles covered.",
-          },
-        ],
+        rooms: genericGameRooms("Business & Corporate", 30, false),
       },
 
       {
         name: "Science & Technology",
         description:
-          "Acronyms related to scientific discoveries, innovations, and technological concepts.",
+          "Acronyms related to scientific discoveries, innovations, and technological concepts. Every room draws questions from the full category pool.",
         topics: [
           "Physics",
           "Biology",
@@ -5256,135 +1680,13 @@ const games: Game[] = [
           "Space Exploration",
           "Artificial Intelligence",
         ],
-        rooms: [
-          {
-            name: "Quantum Lab",
-            description: "Explore the building blocks of the universe.",
-          },
-          {
-            name: "Bio Dome",
-            description: "Dive into life sciences and living systems.",
-          },
-          {
-            name: "Code Cell",
-            description: "Navigate acronyms from the world of software.",
-          },
-          {
-            name: "AI Core",
-            description:
-              "Discover terms from machine learning and intelligence.",
-          },
-          {
-            name: "Rocket Bay",
-            description: "Launch into topics about space and beyond.",
-          },
-          {
-            name: "Nano Zone",
-            description: "Focus on small particles and big discoveries.",
-          },
-          {
-            name: "Lab Bench",
-            description: "A mix of hands-on science and technical trivia.",
-          },
-          {
-            name: "Data Stream",
-            description: "Travel through logic, info, and binary buzz.",
-          },
-          {
-            name: "Orbit Base",
-            description: "Explore space missions, satellites, and systems.",
-          },
-          {
-            name: "Neural Net",
-            description: "A mind map of brainy AI acronyms.",
-          },
-          {
-            name: "Fusion Point",
-            description: "Where energy, physics, and technology collide.",
-          },
-          {
-            name: "Genetics Hub",
-            description: "Crack the code of biology and heredity.",
-          },
-          {
-            name: "Hack Lab",
-            description: "Touch on cyber, code, and clever solutions.",
-          },
-          {
-            name: "Cosmic Deck",
-            description: "Browse stellar knowledge from the universe.",
-          },
-          {
-            name: "Server Rack",
-            description: "Explore backend tech, data, and hardware terms.",
-          },
-          {
-            name: "Turing Room",
-            description: "Where computing history meets modern tech.",
-          },
-          {
-            name: "Tech Frontier",
-            description: "Step into the edge of innovation.",
-          },
-          {
-            name: "Bot Bay",
-            description: "Automation, robotics, and future tech await.",
-          },
-          {
-            name: "Field Test",
-            description: "Put your applied science knowledge to work.",
-          },
-          {
-            name: "Cloud Space",
-            description: "Buzzwords from hosting, scaling, and storage.",
-          },
-          {
-            name: "Research Wing",
-            description: "Study-focused terminology in science and tech.",
-          },
-          {
-            name: "Logic Gate",
-            description: "Digital circuits and binary challenges.",
-          },
-          {
-            name: "Deep Space",
-            description: "Go far out with distant and theoretical ideas.",
-          },
-          {
-            name: "Bio Lab",
-            description: "Microscopes, molecules, and mystery facts.",
-          },
-          {
-            name: "AI Lab",
-            description: "Neurons, algorithms, and learning machines.",
-          },
-          {
-            name: "Digital Circuit",
-            description: "Electric energy flows through these clues.",
-          },
-          {
-            name: "Black Box",
-            description: "Mysterious tech and opaque systems revealed.",
-          },
-          {
-            name: "Innovation Pod",
-            description: "Home of breakthroughs and fresh ideas.",
-          },
-          {
-            name: "The Observatory",
-            description: "Watch the stars, and decode the science.",
-          },
-          {
-            name: "Tech Terminal",
-            description: "A launchpad for gadgetry and software terms.",
-          },
-        ],
+        rooms: genericGameRooms("Science & Technology", 30, false),
       },
 
       {
         name: "Government, Politics & Law",
         description:
-          "Acronyms tied to government agencies, political terms, and legal systems.",
+          "Acronyms tied to government agencies, political terms, and legal systems. Every room draws questions from the full category pool.",
         topics: [
           "Government Agencies",
           "Political Parties",
@@ -5392,134 +1694,13 @@ const games: Game[] = [
           "Military Organizations",
           "Legal Terms",
         ],
-        rooms: [
-          {
-            name: "Capitol Hall",
-            description: "Where national systems and structures meet.",
-          },
-          {
-            name: "Justice Bench",
-            description: "Legal minds and courtroom clues converge here.",
-          },
-          {
-            name: "Policy Chamber",
-            description: "Unpack the layers of governance and law.",
-          },
-          {
-            name: "The Constitution",
-            description: "Terms rooted in foundational governance.",
-          },
-          {
-            name: "Defense Wing",
-            description: "Military and strategic acronyms take the floor.",
-          },
-          {
-            name: "Civic Forum",
-            description: "Public services, structures, and civil terms.",
-          },
-          {
-            name: "Party Lines",
-            description: "Navigate through acronyms of political ideologies.",
-          },
-          {
-            name: "The Senate",
-            description: "Step into a room of structured debates and codes.",
-          },
-          {
-            name: "Legal Pad",
-            description: "Sift through clauses, briefs, and rulings.",
-          },
-          {
-            name: "Military Base",
-            description: "Acronyms from combat zones to command centers.",
-          },
-          {
-            name: "Bill Draft",
-            description: "Where policies, procedures, and reforms emerge.",
-          },
-          {
-            name: "Civic Desk",
-            description: "Terms from the public service and government roles.",
-          },
-          {
-            name: "Federal Hub",
-            description: "National organizations and central agencies unite.",
-          },
-          {
-            name: "The Lobby",
-            description: "Acronyms that move the needle behind the scenes.",
-          },
-          {
-            name: "Command Post",
-            description: "Decode chain-of-command and agency terms.",
-          },
-          {
-            name: "Courtroom Floor",
-            description: "Trials, precedents, and judicial lingo live here.",
-          },
-          {
-            name: "Parliament Place",
-            description: "Parliamentary concepts from global systems.",
-          },
-          {
-            name: "Treaty Table",
-            description: "Explore international agreements and legal lingo.",
-          },
-          {
-            name: "Constitution Row",
-            description: "Deep dive into the structures that shape law.",
-          },
-          {
-            name: "Homeland Deck",
-            description: "Domestic policies and internal security terms.",
-          },
-          {
-            name: "Law Library",
-            description: "A place for terminology from the books.",
-          },
-          {
-            name: "Security Briefing",
-            description: "Classified acronyms meet open questions.",
-          },
-          {
-            name: "Policy Lab",
-            description: "Experiment with government-related themes.",
-          },
-          {
-            name: "Election Bay",
-            description: "Navigate acronyms from the campaign trail.",
-          },
-          {
-            name: "The Agency",
-            description: "A safehouse for acronym-heavy departments.",
-          },
-          {
-            name: "Bill Room",
-            description: "Track the journey from proposal to policy.",
-          },
-          {
-            name: "Case Docket",
-            description: "Legal processes, filings, and courtroom terms.",
-          },
-          {
-            name: "Public Chamber",
-            description: "Governance, regulation, and civil discussion.",
-          },
-          {
-            name: "Statute Hall",
-            description: "Where rules, acts, and codes line the walls.",
-          },
-          {
-            name: "Diplomatic Deck",
-            description: "Embassies, treaties, and international affairs.",
-          },
-        ],
+        rooms: genericGameRooms("Government, Politics & Law", 30, false),
       },
 
       {
         name: "Sports & Gaming",
         description:
-          "Acronyms from sports leagues, teams, gaming culture, and esports.",
+          "Acronyms from sports leagues, teams, gaming culture, and esports. Every room draws questions from the full category pool.",
         topics: [
           "Football Leagues",
           "Video Games",
@@ -5527,133 +1708,12 @@ const games: Game[] = [
           "Sports Teams",
           "Gaming Strategies",
         ],
-        rooms: [
-          {
-            name: "Stadium Zone",
-            description: "Big plays, big names, and bigger noise.",
-          },
-          {
-            name: "Esports Arena",
-            description: "Digital battles and tactical titles await.",
-          },
-          {
-            name: "The Locker Room",
-            description: "Sports talk and sweaty strategies collide.",
-          },
-          {
-            name: "Controller Chaos",
-            description: "Fast fingers meet faster reflexes.",
-          },
-          {
-            name: "The Dugout",
-            description: "Home base for teams, scores, and stats.",
-          },
-          {
-            name: "Gaming Grid",
-            description: "A digital playground of acronyms and power-ups.",
-          },
-          {
-            name: "The Pitch",
-            description: "Where leagues, goals, and football terms thrive.",
-          },
-          {
-            name: "Board Game Base",
-            description: "Roll the dice, and test your brain.",
-          },
-          {
-            name: "Tactics Room",
-            description: "Strategies, counters, and coaching codes.",
-          },
-          {
-            name: "Arcade Alley",
-            description: "Retro buzz meets modern pixels.",
-          },
-          {
-            name: "Match Point",
-            description: "Serving up sports terms with style.",
-          },
-          {
-            name: "PvP Lobby",
-            description: "1v1 terms and online showdown slang.",
-          },
-          {
-            name: "Fantasy Draft",
-            description: "Pick your team, learn the lingo.",
-          },
-          {
-            name: "Speed Run",
-            description: "Race through fast-paced gaming references.",
-          },
-          {
-            name: "Team Chat",
-            description: "Squad lingo and multiplayer madness.",
-          },
-          {
-            name: "Overtime",
-            description: "Because the game's never really over.",
-          },
-          {
-            name: "Guild Hall",
-            description: "Where alliances, raids, and roles reign.",
-          },
-          {
-            name: "Penalty Box",
-            description: "Rules, fouls, and a touch of mischief.",
-          },
-          {
-            name: "XP Farm",
-            description: "Grind your way through gaming jargon.",
-          },
-          {
-            name: "Coach's Corner",
-            description: "Training terms and winning talk.",
-          },
-          {
-            name: "Final Boss",
-            description: "Endgame acronyms with high-stakes energy.",
-          },
-          {
-            name: "Highlight Reel",
-            description: "Top plays and iconic sports slang.",
-          },
-          {
-            name: "Midfield",
-            description: "A central mix of leagues and lingo.",
-          },
-          {
-            name: "Minigame Zone",
-            description: "Short bursts of acronym-packed play.",
-          },
-          {
-            name: "The Arena",
-            description: "Classic battles, iconic venues, sharp minds.",
-          },
-          {
-            name: "Clan Wars",
-            description: "Competitive terms from team-based titles.",
-          },
-          {
-            name: "Sub Bench",
-            description: "Where backups get their time to shine.",
-          },
-          {
-            name: "Ref's Whistle",
-            description: "Rules, reviews, and regulatory talk.",
-          },
-          {
-            name: "Power Play",
-            description: "Amped-up rounds full of energy and edge.",
-          },
-          {
-            name: "Game Lobby",
-            description: "The wait before the storm of acronym action.",
-          },
-        ],
+        rooms: genericGameRooms("Sports & Gaming", 30, false),
       },
       {
         name: "Health & Wellness",
         description:
-          "Acronyms related to fitness, nutrition, medical terms, and wellness practices.",
+          "Acronyms related to fitness, nutrition, medical terms, and wellness practices. Every room draws questions from the full category pool.",
         topics: [
           "Fitness Techniques",
           "Nutrition Plans",
@@ -5661,128 +1721,13 @@ const games: Game[] = [
           "Mental Health",
           "Healthcare Professions",
         ],
-        rooms: [
-          {
-            name: "Wellness Hub",
-            description: "Where good vibes and better terms live.",
-          },
-          {
-            name: "Fit Zone",
-            description: "Packed with reps, routines, and rare acronyms.",
-          },
-          {
-            name: "Mental Gym",
-            description: "Flex your brain cells and mindful memory.",
-          },
-          {
-            name: "The Clinic",
-            description: "A clean space for clinical curiosities.",
-          },
-          {
-            name: "Detox Bay",
-            description: "Light and breezy wellness-focused terms.",
-          },
-          {
-            name: "Nutrition Lab",
-            description: "Serving alphabet soup with a healthy twist.",
-          },
-          {
-            name: "Yoga Mat",
-            description: "Stretch out the acronyms and good posture.",
-          },
-          {
-            name: "Heart Room",
-            description: "Pump through cardio terms and caring concepts.",
-          },
-          {
-            name: "Brain Boost",
-            description: "Mental health meets acronym mystery.",
-          },
-          {
-            name: "The Pharmacy",
-            description: "Prescriptions, pills, and plenty of puns.",
-          },
-          {
-            name: "First Aid Tent",
-            description: "Quick care terms—bandage not included.",
-          },
-          {
-            name: "Self-Care Suite",
-            description: "Relax, recharge, and recognize acronyms.",
-          },
-          {
-            name: "Doctor's Desk",
-            description: "Paging trivia professionals to decode terms.",
-          },
-          {
-            name: "Stretch Station",
-            description: "Light moves and lighter meanings.",
-          },
-          {
-            name: "Mind Spa",
-            description: "A relaxing soak in acronyms of clarity.",
-          },
-          {
-            name: "Cardio Corner",
-            description: "Quick, intense, and acronym-heavy.",
-          },
-          {
-            name: "Sleep Lab",
-            description: "Rest easy, but don't snooze on the clues.",
-          },
-          { name: "Muscle Mode", description: "Lift heavy... vocabulary." },
-          {
-            name: "Hydration Point",
-            description: "Quench your thirst for terminology.",
-          },
-          {
-            name: "The Waiting Room",
-            description: "Patience is a virtue—so is acronym knowledge.",
-          },
-          {
-            name: "Wellbeing Wing",
-            description: "A gentle stroll through healthy lingo.",
-          },
-          {
-            name: "Herbal Room",
-            description: "Natural terms with slightly spicy meanings.",
-          },
-          {
-            name: "Therapy Couch",
-            description: "Sit back and solve some feel-good terms.",
-          },
-          {
-            name: "Fit Tracker",
-            description: "Steps, stats, and fitness talk all around.",
-          },
-          { name: "Body Scan", description: "Zoom into anatomical acronyms." },
-          {
-            name: "Recovery Room",
-            description: "Slow-paced, healing-themed fun.",
-          },
-          {
-            name: "Medical Maze",
-            description: "Navigate a twisty corridor of clinical terms.",
-          },
-          {
-            name: "The Syringe",
-            description: "Sharp clues with precision points.",
-          },
-          {
-            name: "Vital Signs",
-            description: "Stable trivia for unstable answers.",
-          },
-          {
-            name: "The Pulse",
-            description: "Always on beat with the latest health lingo.",
-          },
-        ],
+        rooms: genericGameRooms("Health & Wellness", 30, false),
       },
 
       {
         name: "Education & Academics",
         description:
-          "Acronyms from schools, universities, and academic research.",
+          "Acronyms from schools, universities, and academic research. Every room draws questions from the full category pool.",
         topics: [
           "Educational Degrees",
           "School Subjects",
@@ -5790,12 +1735,12 @@ const games: Game[] = [
           "Academic Institutions",
           "Standardized Tests",
         ],
-        rooms: [],
+        rooms: genericGameRooms("Education & Academics", 0, false),
       },
       {
         name: "Travel & Geography",
         description:
-          "Acronyms associated with travel, locations, and geographical landmarks.",
+          "Acronyms associated with travel, locations, and geographical landmarks. Every room draws questions from the full category pool.",
         topics: [
           "Airports",
           "Country Codes",
@@ -5803,134 +1748,12 @@ const games: Game[] = [
           "Travel Agencies",
           "Transportation Modes",
         ],
-        rooms: [
-          {
-            name: "Globe Trotters",
-            description: "Wander the world, one acronym at a time.",
-          },
-          {
-            name: "Air Control",
-            description: "Where runways and codes go full throttle.",
-          },
-          {
-            name: "Checkpoint",
-            description: "Stop here for a border-crossing brain workout.",
-          },
-          {
-            name: "Travel Desk",
-            description: "Your one-stop trivia agency for global lingo.",
-          },
-          {
-            name: "Jetstream",
-            description: "Catch high-altitude terms on the fly.",
-          },
-          {
-            name: "Island Hopper",
-            description: "Jump between destinations—no passport needed.",
-          },
-          {
-            name: "Map Room",
-            description: "Get lost in coordinates, codes, and clues.",
-          },
-          {
-            name: "Baggage Claim",
-            description: "Pick up scattered trivia from all over.",
-          },
-          {
-            name: "Terminal Gate",
-            description: "Your departure point for acronym adventures.",
-          },
-          {
-            name: "Continental Drift",
-            description: "Move between landmasses and layered lingo.",
-          },
-          {
-            name: "Border Patrol",
-            description: "Scan through codes and customs trivia.",
-          },
-          {
-            name: "Mountainside",
-            description: "High-altitude landmarks and steep clues.",
-          },
-          {
-            name: "City Central",
-            description: "Where urban names and codes converge.",
-          },
-          {
-            name: "Runway Lane",
-            description: "Takeoff with airport acronyms and sky-high facts.",
-          },
-          {
-            name: "The Compass",
-            description:
-              "North, South, East, West—your brain goes all directions.",
-          },
-          {
-            name: "Ticket Booth",
-            description: "Pick a trivia destination and punch your card.",
-          },
-          {
-            name: "Harbor View",
-            description: "Sail through ports, coasts, and coastal codes.",
-          },
-          {
-            name: "Passport Zone",
-            description: "International trivia with a stamped flair.",
-          },
-          {
-            name: "The Outpost",
-            description: "Remote trivia locations with distant charm.",
-          },
-          {
-            name: "Subway Line",
-            description: "Underground clues with fast tracks to answers.",
-          },
-          {
-            name: "Travel Guide",
-            description: "Navigate through terms like a seasoned tourist.",
-          },
-          {
-            name: "Wayfinder",
-            description: "Direction-based clues with global vibes.",
-          },
-          {
-            name: "Tour Bus",
-            description: "Hop on for trivia stops across the globe.",
-          },
-          {
-            name: "Global Station",
-            description: "Where all routes and questions connect.",
-          },
-          {
-            name: "Cruise Deck",
-            description: "Set sail with smooth-sounding acronyms.",
-          },
-          {
-            name: "Desert Trail",
-            description: "Dry humor and sandy trivia await.",
-          },
-          {
-            name: "Rail Stop",
-            description: "Trackside terms for trivia travelers.",
-          },
-          {
-            name: "Sky Tower",
-            description: "Tall on trivia, high on travel facts.",
-          },
-          {
-            name: "Lagoon Lounge",
-            description: "Chill trivia with an island twist.",
-          },
-          {
-            name: "Time Zone",
-            description: "No jet lag here—just round-the-world riddles.",
-          },
-        ],
+        rooms: genericGameRooms("Travel & Geography", 30, false),
       },
       {
         name: "Historical & Cultural",
         description:
-          "Acronyms tied to historical events, cultural movements, and traditions.",
+          "Acronyms tied to historical events, cultural movements, and traditions. Every room draws questions from the full category pool.",
         topics: [
           "Historical Events",
           "Cultural Organizations",
@@ -5938,130 +1761,12 @@ const games: Game[] = [
           "Historical Figures",
           "Cultural Movements",
         ],
-        rooms: [
-          {
-            name: "Time Capsule",
-            description: "Where old terms are sealed with curiosity.",
-          },
-          {
-            name: "The Archive",
-            description: "A quiet corner filled with loud legacies.",
-          },
-          {
-            name: "Tradition Trail",
-            description: "Follow customs, rituals, and coded clues.",
-          },
-          {
-            name: "Rewind Room",
-            description: "Back in time, forward with trivia.",
-          },
-          {
-            name: "Legends Lounge",
-            description: "Pull up a chair beside historical greatness.",
-          },
-          {
-            name: "Festival Field",
-            description: "Where global celebrations throw trivia confetti.",
-          },
-          {
-            name: "Hall of Names",
-            description: "Famous figures, unforgettable acronyms.",
-          },
-          {
-            name: "Monument Mile",
-            description: "Stone cold clues with historical charm.",
-          },
-          {
-            name: "The Citadel",
-            description: "Strongholds of tradition and acronym strength.",
-          },
-          {
-            name: "Era Room",
-            description: "Walk through timelines without the time travel.",
-          },
-          {
-            name: "Culture Club",
-            description: "Pop in for a dose of global flair.",
-          },
-          {
-            name: "Dynasty Den",
-            description: "Royal trivia with regal relevance.",
-          },
-          {
-            name: "Scroll Chamber",
-            description: "Unroll history's most cryptic abbreviations.",
-          },
-          {
-            name: "Past & Present",
-            description: "Where yesterday's terms meet today's trivia.",
-          },
-          {
-            name: "Torch Bearers",
-            description: "Guided by leaders, lit with legacy.",
-          },
-          {
-            name: "Tradition Hall",
-            description: "No dress code required—just classic knowledge.",
-          },
-          {
-            name: "Historic Crossroads",
-            description: "Decisions, dates, and documented turns.",
-          },
-          {
-            name: "Cultural Circuit",
-            description: "Loop around the globe without leaving your seat.",
-          },
-          { name: "Legacy Room", description: "A chamber of timeless trivia." },
-          {
-            name: "Folk Hall",
-            description: "Tune into traditions and timeless talk.",
-          },
-          {
-            name: "Heritage Square",
-            description: "Foundations laid in acronym-shaped bricks.",
-          },
-          {
-            name: "War Room",
-            description: "Tactics, treaties, and tough terms.",
-          },
-          {
-            name: "Festival Tent",
-            description: "A party of clues from every culture.",
-          },
-          {
-            name: "The Archives",
-            description: "Deep dives into dusty details.",
-          },
-          {
-            name: "Pioneer Path",
-            description: "Trailblazers and trendsetters trivia.",
-          },
-          {
-            name: "The Vault",
-            description: "Locked away stories waiting to be solved.",
-          },
-          {
-            name: "March of Time",
-            description: "Step-by-step through milestones and mystery.",
-          },
-          {
-            name: "Hero's Hall",
-            description: "Salute the acronyms of courage and change.",
-          },
-          {
-            name: "The Timeline",
-            description: "From ancient to modern, all in one scroll.",
-          },
-          {
-            name: "Civic Circle",
-            description: "Public movements and historic acronyms unite.",
-          },
-        ],
+        rooms: genericGameRooms("Historical & Cultural", 30, false),
       },
       {
         name: "Entertainment & Media",
         description:
-          "Acronyms from the entertainment industry, including awards and productions.",
+          "Acronyms from the entertainment industry, including awards and productions. Every room draws questions from the full category pool.",
         topics: [
           "Award Shows",
           "Streaming Platforms",
@@ -6069,131 +1774,13 @@ const games: Game[] = [
           "Movie Franchises",
           "TV Networks",
         ],
-        rooms: [
-          {
-            name: "Red Carpet",
-            description: "Shiny trivia moments, no dress code required.",
-          },
-          {
-            name: "Streaming Room",
-            description: "Binge-worthy acronyms on demand.",
-          },
-          {
-            name: "Studio A",
-            description: "Lights, camera, clue-solving action.",
-          },
-          {
-            name: "Popcorn Booth",
-            description: "Hot trivia served with extra butter.",
-          },
-          {
-            name: "Channel Surf",
-            description: "Flip through trivia faster than TV ads.",
-          },
-          {
-            name: "Award Shelf",
-            description: "Trophies, titles, and terms in gold.",
-          },
-          {
-            name: "Hollywood Lane",
-            description: "Big lights, bigger abbreviations.",
-          },
-          {
-            name: "Script Room",
-            description: "Plot twists and punchlines in acronym form.",
-          },
-          {
-            name: "Cinema Club",
-            description: "Where every clue deserves a sequel.",
-          },
-          {
-            name: "The Binge Zone",
-            description: "One clue per episode... or thirty.",
-          },
-          {
-            name: "Network Hub",
-            description: "Televised trivia from the acronym universe.",
-          },
-          {
-            name: "Fandom Lounge",
-            description: "Obsess responsibly over media-laced clues.",
-          },
-          {
-            name: "Behind the Scenes",
-            description: "Trivia from the cutting room floor.",
-          },
-          {
-            name: "Media Vault",
-            description: "Locked-in legends and catchy codes.",
-          },
-          { name: "Showtime", description: "Roll the trivia reel!" },
-          {
-            name: "The Premiere",
-            description: "Opening night for brain-bending trivia.",
-          },
-          {
-            name: "TV Guide",
-            description: "Every clue's got a scheduled appearance.",
-          },
-          {
-            name: "Casting Call",
-            description: "Try your luck on trivia's main stage.",
-          },
-          {
-            name: "The Credits",
-            description: "Everyone gets mentioned—including acronyms.",
-          },
-          {
-            name: "Director's Cut",
-            description: "Extra scenes, extended clues.",
-          },
-          {
-            name: "Sitcom Set",
-            description: "Laugh tracks not included—but clues are.",
-          },
-          {
-            name: "The Trailer",
-            description: "Preview some wild acronym action.",
-          },
-          {
-            name: "Blockbuster Bay",
-            description: "Big hits, big clues, big popcorn.",
-          },
-          {
-            name: "Animation Station",
-            description: "Drawn-out clues with animated fun.",
-          },
-          {
-            name: "Spoiler Zone",
-            description: "Warning: Trivia may reveal plot twists.",
-          },
-          {
-            name: "Broadcast Booth",
-            description: "Loud, clear, and trivia-ready.",
-          },
-          {
-            name: "Playlist Room",
-            description: "Streamlined challenges in audio-visual form.",
-          },
-          {
-            name: "Series Central",
-            description: "Keep up with episodic acronyms.",
-          },
-          {
-            name: "The Reboot",
-            description: "Same old category, brand new clues.",
-          },
-          {
-            name: "Laugh Track",
-            description: "Comedy and clues go hand in hand.",
-          },
-        ],
+        rooms: genericGameRooms("Entertainment & Media", 30, false),
       },
 
       {
         name: "Finance & Economics",
         description:
-          "Acronyms used in banking, investments, and economic discussions.",
+          "Acronyms used in banking, investments, and economic discussions. Every room draws questions from the full category pool.",
         topics: [
           "Banking Terms",
           "Stock Market",
@@ -6201,131 +1788,13 @@ const games: Game[] = [
           "Economic Theories",
           "Investment Strategies",
         ],
-        rooms: [
-          {
-            name: "Bull Market",
-            description: "Things are up... except your clue-solving speed.",
-          },
-          {
-            name: "The Vault",
-            description: "Secure your knowledge before the market closes.",
-          },
-          {
-            name: "Crypto Cave",
-            description: "Mined clues and digital mysteries await.",
-          },
-          {
-            name: "Dividend Den",
-            description: "Paying out clues at regular intervals.",
-          },
-          {
-            name: "Fiscal Floor",
-            description: "Where budget terms meet big trivia.",
-          },
-          {
-            name: "Investment Club",
-            description: "Speculate wildly on acronym returns.",
-          },
-          {
-            name: "The Exchange",
-            description: "Trade clues like stocks—carefully and quickly.",
-          },
-          {
-            name: "Risk Zone",
-            description: "High risk, high reward... or high confusion.",
-          },
-          {
-            name: "The Ledger",
-            description: "Where clues are always balanced (we hope).",
-          },
-          {
-            name: "Cash Flow",
-            description: "Clues coming in fast, like liquid assets.",
-          },
-          {
-            name: "Piggy Bank",
-            description: "Small terms, big savings on brainpower.",
-          },
-          {
-            name: "Inflation Station",
-            description: "Expect clues to grow and burst.",
-          },
-          {
-            name: "Stock Ticker",
-            description: "Clues scroll fast—don't miss your entry point.",
-          },
-          {
-            name: "Budget Booth",
-            description: "Clues allocated line by line.",
-          },
-          {
-            name: "The Treasury",
-            description: "Packed with valuable, golden terms.",
-          },
-          {
-            name: "Credit Line",
-            description: "Solve now, think later—just like a loan.",
-          },
-          {
-            name: "Capital Gains",
-            description: "Where smart moves earn bragging rights.",
-          },
-          {
-            name: "Debt Desk",
-            description: "Pay your dues in answers and guesses.",
-          },
-          {
-            name: "Bear Market",
-            description: "Clues are tough, and the trend is downward.",
-          },
-          {
-            name: "Rate Watch",
-            description: "Time your answers like interest spikes.",
-          },
-          {
-            name: "Bonds Room",
-            description: "Strong connections between questions.",
-          },
-          {
-            name: "Economic Engine",
-            description: "Fueled by theories and jargon.",
-          },
-          {
-            name: "Safe Deposit",
-            description: "Your best guesses go here for safekeeping.",
-          },
-          {
-            name: "IPO Zone",
-            description: "New questions hit the market hot!",
-          },
-          {
-            name: "Commodities Corner",
-            description: "Where trivia is the real gold.",
-          },
-          { name: "Audit Trail", description: "Every clue has a paper trail." },
-          {
-            name: "Monetary Maze",
-            description: "Find your way through fiscal confusion.",
-          },
-          {
-            name: "Portfolio Place",
-            description: "Diversify your clues for optimal returns.",
-          },
-          {
-            name: "Gold Standard",
-            description: "Only premium trivia here, naturally.",
-          },
-          {
-            name: "Wall Street Wing",
-            description: "Busy buzzwords and boardroom-ready trivia.",
-          },
-        ],
+        rooms: genericGameRooms("Finance & Economics", 30, false),
       },
 
       {
         name: "Environment & Conservation",
         description:
-          "Acronyms about sustainability, environmental organizations, and conservation efforts.",
+          "Acronyms about sustainability, environmental organizations, and conservation efforts. Every room draws questions from the full category pool.",
         topics: [
           "Climate Change",
           "Sustainability Programs",
@@ -6333,127 +1802,12 @@ const games: Game[] = [
           "Recycling Initiatives",
           "Environmental Laws",
         ],
-        rooms: [
-          {
-            name: "Green Zone",
-            description: "Fresh air, fresh clues — keep it clean.",
-          },
-          {
-            name: "Eco Chamber",
-            description: "Where ideas (and trivia) echo green values.",
-          },
-          {
-            name: "Recycle Bin",
-            description: "No wrong answers go to waste here.",
-          },
-          {
-            name: "Carbon Cave",
-            description: "Trace the emissions of mysterious acronyms.",
-          },
-          {
-            name: "The Canopy",
-            description: "Leafy trivia from the top of the green world.",
-          },
-          {
-            name: "Solar Station",
-            description: "Powered by light... and obscure knowledge.",
-          },
-          {
-            name: "Wind Tunnel",
-            description: "Clues that blow your mind, sustainably.",
-          },
-          {
-            name: "Trash Talk",
-            description: "Sort through the mess and find the facts.",
-          },
-          {
-            name: "Greenhouse",
-            description: "Grow ideas and occasionally sweat a little.",
-          },
-          {
-            name: "Ocean Watch",
-            description: "Waves of trivia, no plastic in sight.",
-          },
-          {
-            name: "The Compost",
-            description: "Old clues break down into fresh insights.",
-          },
-          {
-            name: "Rainforest Room",
-            description: "Thick with terms, dense with drama.",
-          },
-          {
-            name: "The Glacier",
-            description: "Cool clues that melt your brain.",
-          },
-          {
-            name: "Sustainable Street",
-            description: "Built with eco-friendly facts and recycled jokes.",
-          },
-          {
-            name: "Wildlife Walk",
-            description: "Tiptoe through nature-themed challenges.",
-          },
-          {
-            name: "The Carbon Market",
-            description: "Offset your confusion with better guesses.",
-          },
-          {
-            name: "Nature Nook",
-            description: "A cozy green space for leafy questions.",
-          },
-          {
-            name: "Pollution Patrol",
-            description: "Smoggy terms with a clear solution.",
-          },
-          {
-            name: "The Reserve",
-            description: "Protecting rare acronyms from extinction.",
-          },
-          { name: "Eco Alert", description: "Flash trivia warnings ahead!" },
-          {
-            name: "Sustainability Circle",
-            description: "A loop of renewable clues.",
-          },
-          {
-            name: "The Deforested Desk",
-            description: "Paperless puzzles with environmental edge.",
-          },
-          {
-            name: "Plastic Free Zone",
-            description: "No wrappers, just raw questions.",
-          },
-          {
-            name: "The Water Table",
-            description: "Dive deep, avoid the trivia drought.",
-          },
-          {
-            name: "Zero Waste Room",
-            description: "Nothing thrown out—especially bad guesses.",
-          },
-          {
-            name: "Climate Watch",
-            description: "Forecast calls for cloudy with a chance of trivia.",
-          },
-          {
-            name: "BioDome",
-            description: "A self-contained ecosystem of puzzling clues.",
-          },
-          {
-            name: "The Habitat",
-            description: "Safe space for wild terms and conservation chaos.",
-          },
-          {
-            name: "Green Bill",
-            description: "Policy-packed puzzles with legislative flair.",
-          },
-          { name: "The Earth Deck", description: "One planet, many puzzles." },
-        ],
+        rooms: genericGameRooms("Environment & Conservation", 30, false),
       },
       {
         name: "Fashion & Lifestyle",
         description:
-          "Acronyms from fashion trends, lifestyle habits, and popular brands.",
+          "Acronyms from fashion trends, lifestyle habits, and popular brands. Every room draws questions from the full category pool.",
         topics: [
           "Fashion Trends",
           "Beauty Brands",
@@ -6461,121 +1815,12 @@ const games: Game[] = [
           "Fitness Trends",
           "Clothing Lines",
         ],
-        rooms: [
-          {
-            name: "Style Studio",
-            description: "Where clues always dress to impress.",
-          },
-          {
-            name: "The Runway",
-            description: "Strut your smarts like it's fashion week.",
-          },
-          {
-            name: "Wardrobe Box",
-            description: "Packed with chic and confusing terms.",
-          },
-          {
-            name: "Beauty Bar",
-            description: "Glossy trivia with a matte finish.",
-          },
-          {
-            name: "Trend Spot",
-            description: "Only the latest looks in clue couture.",
-          },
-          {
-            name: "Glam Lounge",
-            description: "Sparkly vibes and glam-packed puzzles.",
-          },
-          {
-            name: "Sneaker Room",
-            description: "Fresh kicks and fresher trivia.",
-          },
-          {
-            name: "The Lookbook",
-            description: "Flip through some stylish brain teasers.",
-          },
-          {
-            name: "Vibe Check",
-            description: "Your answers better match the aesthetic.",
-          },
-          {
-            name: "The Catwalk",
-            description: "Elegant terms with tricky turns.",
-          },
-          {
-            name: "Closet Chaos",
-            description: "Clues hidden between coats and chaos.",
-          },
-          {
-            name: "Trendsetters",
-            description: "Lead the game in high-style guessing.",
-          },
-          {
-            name: "Fit Check",
-            description: "Is your brain dressed for success?",
-          },
-          {
-            name: "Glow Up",
-            description: "From zero to style hero, clue by clue.",
-          },
-          {
-            name: "Lifestyle Lab",
-            description: "Mix and match ideas like outfits.",
-          },
-          {
-            name: "The Mirror Room",
-            description: "Look sharp—trivia's watching you.",
-          },
-          {
-            name: "Brand Box",
-            description: "Where popular names hide in plain sight.",
-          },
-          {
-            name: "Style Council",
-            description: "Vote on trends, slay the questions.",
-          },
-          {
-            name: "The Hanger",
-            description: "Where we hang clues... and maybe coats.",
-          },
-          {
-            name: "Minimal Mood",
-            description: "Sleek puzzles. Simple answers. Maximum vibes.",
-          },
-          {
-            name: "Glitz Grid",
-            description: "A matrix of glam and glossy challenges.",
-          },
-          {
-            name: "The Mannequin",
-            description: "Still puzzles with high-fashion form.",
-          },
-          { name: "Haute Spot", description: "High-end clues, low-key chaos." },
-          {
-            name: "Yoga Mat",
-            description: "Stretch your thoughts, flex your trivia.",
-          },
-          { name: "Chic Circle", description: "Only stylish minds allowed." },
-          {
-            name: "The Label Room",
-            description: "Decode what's behind the brand tags.",
-          },
-          {
-            name: "Fitspiration",
-            description: "Work out your brain with aesthetic clues.",
-          },
-          { name: "Look Good", description: "Feel good. Guess better." },
-          { name: "The Lounge", description: "Soft pillows, strong answers." },
-          {
-            name: "Polish Pad",
-            description: "Everything here is sleek—except the clues.",
-          },
-        ],
+        rooms: genericGameRooms("Fashion & Lifestyle", 30, false),
       },
       {
         name: "Military & Defense",
         description:
-          "Acronyms related to military operations, strategies, and equipment.",
+          "Acronyms related to military operations, strategies, and equipment. Every room draws questions from the full category pool.",
         topics: [
           "Military Ranks",
           "Defense Strategies",
@@ -6583,112 +1828,12 @@ const games: Game[] = [
           "Peacekeeping Missions",
           "Military Bases",
         ],
-        rooms: [
-          {
-            name: "Command Post",
-            description: "Where orders fly and answers deploy.",
-          },
-          { name: "The Barracks", description: "Get your facts in formation." },
-          {
-            name: "Recon Room",
-            description: "Scout the area for hidden clues.",
-          },
-          {
-            name: "Alpha Base",
-            description: "Ground zero for tactical trivia.",
-          },
-          {
-            name: "Mission Brief",
-            description: "Get briefed and baffled all at once.",
-          },
-          {
-            name: "The Hangar",
-            description: "Park your doubts, launch your logic.",
-          },
-          {
-            name: "Tactical Zone",
-            description: "Engage targets with precision and guesses.",
-          },
-          {
-            name: "Delta Ops",
-            description: "Special forces-level clue cracking.",
-          },
-          {
-            name: "The Arsenal",
-            description: "Loaded with powerful terminology.",
-          },
-          { name: "Echo Squad", description: "Repeat after me: ‘I got this.'" },
-          {
-            name: "Supply Chain",
-            description: "Delivering clues with military efficiency.",
-          },
-          {
-            name: "Secure Perimeter",
-            description: "Nothing gets in but answers.",
-          },
-          { name: "The Bunker", description: "Safe place for risky guesses." },
-          { name: "Air Strike", description: "Clues drop fast — stay alert." },
-          {
-            name: "Naval Ops",
-            description: "Smooth sailing or sinking facts?",
-          },
-          {
-            name: "Code Red",
-            description: "It's not an emergency, just tricky trivia.",
-          },
-          {
-            name: "Foxtrot Field",
-            description: "A fancy way to dance around questions.",
-          },
-          { name: "Blackout Room", description: "Go dark, think deep." },
-          {
-            name: "Bravo Bunker",
-            description: "Applaud yourself for showing up.",
-          },
-          {
-            name: "Combat Deck",
-            description: "Locked, loaded, and clue-ready.",
-          },
-          { name: "Radar Room", description: "Nothing gets past your signal." },
-          {
-            name: "Peace Zone",
-            description: "Tranquil vibes, tactical trivia.",
-          },
-          {
-            name: "The Outpost",
-            description: "Remote questions from deep cover.",
-          },
-          {
-            name: "Launch Pad",
-            description: "Blast off with powerful guesses.",
-          },
-          { name: "War Room", description: "Strategy meets sudden brain fog." },
-          {
-            name: "Field Manual",
-            description: "Clues come with no instructions.",
-          },
-          {
-            name: "Sentry Point",
-            description: "Keep watch over tricky acronyms.",
-          },
-          {
-            name: "Parade Ground",
-            description: "March your thoughts into formation.",
-          },
-          {
-            name: "Recon Base",
-            description: "Intel gathering disguised as trivia.",
-          },
-          {
-            name: "Zone Zero",
-            description: "Where things begin... and go boom.",
-          },
-        ],
+        rooms: genericGameRooms("Military & Defense", 30, false),
       },
       {
         name: "Daily Life & General Knowledge",
         description:
-          "Acronyms encountered in everyday life and general trivia.",
+          "Acronyms encountered in everyday life and general trivia. Every room draws questions from the full category pool.",
         topics: [
           "Household Items",
           "Common Phrases",
@@ -6696,122 +1841,7 @@ const games: Game[] = [
           "Public Transportation",
           "Popular Apps",
         ],
-        rooms: [
-          {
-            name: "The Pantry",
-            description: "Stocked with clues you might actually use.",
-          },
-          {
-            name: "Shortcut Keys",
-            description: "Quick trivia for the daily multitasker.",
-          },
-          {
-            name: "The Bus Stop",
-            description: "Don't miss the next clue—next stop: genius.",
-          },
-          {
-            name: "App World",
-            description: "All your favorite apps... with extra confusion.",
-          },
-          {
-            name: "Laundry Room",
-            description: "Spin cycles and mind puzzles included.",
-          },
-          {
-            name: "Coffee Break",
-            description: "Perk up your brain while the kettle boils.",
-          },
-          {
-            name: "Daily Dose",
-            description: "One trivia question a day keeps the fog away.",
-          },
-          {
-            name: "Inbox Overflow",
-            description: "Because your brain has no spam filter.",
-          },
-          {
-            name: "The Hallway",
-            description: "Where everyday thoughts wander freely.",
-          },
-          {
-            name: "Kitchen Sink",
-            description: "Trivia with everything (and the sink).",
-          },
-          {
-            name: "Phone Zone",
-            description: "Tap your memory like it's a touchscreen.",
-          },
-          {
-            name: "Living Room",
-            description: "Comfortable chaos and cozy confusion.",
-          },
-          {
-            name: "Morning Routine",
-            description: "Rise, shine, and scramble for answers.",
-          },
-          { name: "FAQ Room", description: "Frequently unanswered questions." },
-          {
-            name: "Service Station",
-            description: "Where facts get a quick tune-up.",
-          },
-          { name: "Metro Line", description: "A fast track to trivia town." },
-          {
-            name: "Toolbox",
-            description: "Wrenches, screwdrivers, and mental fixes.",
-          },
-          {
-            name: "Ping Room",
-            description: "Clues incoming... better answer fast.",
-          },
-          {
-            name: "Smart Home",
-            description: "Automated chaos and trivia control.",
-          },
-          {
-            name: "Daily Grind",
-            description: "Work your way through some casual confusion.",
-          },
-          {
-            name: "Trash Day",
-            description: "Sort through nonsense for hidden gems.",
-          },
-          {
-            name: "The Mall",
-            description: "Trivia shopping with mental coupons.",
-          },
-          {
-            name: "Recycle Center",
-            description: "Where old clues find new meaning.",
-          },
-          {
-            name: "Sticky Notes",
-            description: "Little reminders of how much you don't know.",
-          },
-          {
-            name: "Quick Fix",
-            description: "Short, sharp, and oddly satisfying trivia.",
-          },
-          {
-            name: "The Fridge",
-            description: "Cool storage for lukewarm guesses.",
-          },
-          {
-            name: "Lost & Found",
-            description: "Find the clue, lose your sanity.",
-          },
-          {
-            name: "Remote Control",
-            description: "Flip through trivia channels on demand.",
-          },
-          {
-            name: "Fast Lane",
-            description: "Everyday questions at top speed.",
-          },
-          {
-            name: "Public Notice",
-            description: "General facts for general people.",
-          },
-        ],
+        rooms: genericGameRooms("Daily Life & General Knowledge", 30, false),
       },
     ],
   },
@@ -6823,7 +1853,7 @@ const games: Game[] = [
       {
         name: "Mathematics",
         description:
-          "Test your skills in various branches of mathematics, from algebra to calculus.",
+          "Test your skills in various branches of mathematics, from algebra to calculus. Every room draws questions from the full category pool.",
         topics: [
           "Algebra",
           "Geometry",
@@ -6832,128 +1862,13 @@ const games: Game[] = [
           "Statistics",
           "Probability",
         ],
-        rooms: [
-          {
-            name: "The Equation Den",
-            description: "Where numbers gather and plot things.",
-          },
-          {
-            name: "Pi Room",
-            description: "Endless trivia... just like the number.",
-          },
-          {
-            name: "The Variable Vault",
-            description: "x marks the spot, but where?",
-          },
-          {
-            name: "Infinity Loop",
-            description: "This might go on forever... or not.",
-          },
-          {
-            name: "The Hypotenuse",
-            description: "Where all sides are equally confused.",
-          },
-          {
-            name: "Number Crunch",
-            description: "Chew through digits, spit out facts.",
-          },
-          {
-            name: "The Proof Room",
-            description: "Where nothing is assumed... except fun.",
-          },
-          {
-            name: "Tangent Territory",
-            description: "Try to stay on topic — good luck.",
-          },
-          {
-            name: "The Function Lab",
-            description: "All functions, little functionality.",
-          },
-          { name: "Graph Zone", description: "Plot twists and XY drama." },
-          {
-            name: "Prime Time",
-            description: "Only the finest, indivisible questions.",
-          },
-          {
-            name: "The Radian Room",
-            description: "It's not irrational to play here.",
-          },
-          {
-            name: "Factor Field",
-            description: "Breaking things down is half the fun.",
-          },
-          {
-            name: "The Log Cabin",
-            description: "Exponential fun. Logarithmic confusion.",
-          },
-          {
-            name: "Sigma Space",
-            description: "Everything adds up… eventually.",
-          },
-          {
-            name: "The Math Cave",
-            description: "Echoes of equations everywhere.",
-          },
-          {
-            name: "Decimal Point",
-            description: "Just enough trivia to shift the balance.",
-          },
-          {
-            name: "Random Walk",
-            description: "Guess and go with statistical swagger.",
-          },
-          {
-            name: "Parallel Place",
-            description: "You'll never intersect with boredom.",
-          },
-          {
-            name: "The Matrix",
-            description: "There is no spoon, but there are numbers.",
-          },
-          {
-            name: "Modulo Hub",
-            description: "Things get weird after division.",
-          },
-          {
-            name: "The Derivative Den",
-            description: "Everything changes. Constantly.",
-          },
-          { name: "Cube Corner", description: "All sides point to confusion." },
-          {
-            name: "Zero Zone",
-            description: "The starting point of trivia greatness.",
-          },
-          {
-            name: "Angle Alley",
-            description: "All perspectives welcome, even obtuse ones.",
-          },
-          {
-            name: "The Mean Room",
-            description: "Where statistics come to misbehave.",
-          },
-          {
-            name: "Circle Sector",
-            description: "Round and round the answers go.",
-          },
-          {
-            name: "Probability Pit",
-            description: "Chances are, you'll guess it right.",
-          },
-          {
-            name: "Quadratic Quarters",
-            description: "Solutions come in pairs, mostly.",
-          },
-          {
-            name: "The Sum Room",
-            description: "The total experience in every way.",
-          },
-        ],
+        rooms: genericGameRooms("Mathematics", 30, false),
       },
 
       {
         name: "Science",
         description:
-          "Dive into the world of science and explore topics from biology to physics.",
+          "Dive into the world of science and explore topics from biology to physics. Every room draws questions from the full category pool.",
         topics: [
           "Physics",
           "Chemistry",
@@ -6962,128 +1877,13 @@ const games: Game[] = [
           "Astronomy",
           "Genetics",
         ],
-        rooms: [
-          {
-            name: "The Lab Coat",
-            description: "Things get messy, but in a smart way.",
-          },
-          {
-            name: "Elemental Zone",
-            description: "Where trivia reacts explosively.",
-          },
-          {
-            name: "Petri Dish",
-            description: "Culturing curiosity since forever.",
-          },
-          {
-            name: "Gravity Chamber",
-            description: "What goes up… gets questioned here.",
-          },
-          {
-            name: "Atomic Lounge",
-            description: "Small particles, big confusion.",
-          },
-          {
-            name: "The Greenhouse",
-            description: "Where answers grow unpredictably.",
-          },
-          {
-            name: "DNA Den",
-            description: "Twisted fun in every double helix.",
-          },
-          {
-            name: "The Bunsen Room",
-            description: "Things heat up fast — no goggles needed.",
-          },
-          {
-            name: "Star Field",
-            description: "Out-of-this-world trivia every time.",
-          },
-          {
-            name: "The Cell Block",
-            description: "Microscopic chaos, huge fun.",
-          },
-          {
-            name: "Reaction Room",
-            description: "Mix knowledge and see what blows up.",
-          },
-          {
-            name: "The Particle Pit",
-            description: "Where quarks and confusion collide.",
-          },
-          {
-            name: "The Fossil Site",
-            description: "Dig deep. Or just wildly guess.",
-          },
-          {
-            name: "Orbit Zone",
-            description: "Trivia that keeps going in circles.",
-          },
-          {
-            name: "Telescope Deck",
-            description: "Zoom in on universal weirdness.",
-          },
-          {
-            name: "The Ecosphere",
-            description: "Balanced chaos in every round.",
-          },
-          {
-            name: "Quantum Corner",
-            description: "You both know and don't know the answer.",
-          },
-          {
-            name: "Volcano Bay",
-            description: "Eruptions of facts and wild guesses.",
-          },
-          {
-            name: "The Magnet Room",
-            description: "Attracting the strangest questions.",
-          },
-          {
-            name: "The Nervous System",
-            description: "Tingling with scientific suspense.",
-          },
-          {
-            name: "Black Hole HQ",
-            description: "Once you're in, there's no escape.",
-          },
-          {
-            name: "Chemical Bond",
-            description: "Forming unstable trivia connections.",
-          },
-          {
-            name: "Storm Cellar",
-            description: "Where lightning strikes your brain.",
-          },
-          {
-            name: "The Tectonic Lab",
-            description: "Shifting knowledge under pressure.",
-          },
-          {
-            name: "Genome Gym",
-            description: "Stretch your strands of thought.",
-          },
-          {
-            name: "Rocket Pad",
-            description: "Launch into layers of nerdy fun.",
-          },
-          { name: "Wave Lab", description: "Catch a trivia frequency." },
-          {
-            name: "The Mutation Zone",
-            description: "Where facts evolve in strange ways.",
-          },
-          { name: "Matter Market", description: "Buy low, think high." },
-          {
-            name: "The Observatory",
-            description: "Seeing stars — and maybe answers.",
-          },
-        ],
+        rooms: genericGameRooms("Science", 30, false),
       },
 
       {
         name: "History",
         description:
-          "Explore the past, from ancient civilizations to modern history.",
+          "Explore the past, from ancient civilizations to modern history. Every room draws questions from the full category pool.",
         topics: [
           "Ancient Civilizations",
           "World History",
@@ -7092,130 +1892,12 @@ const games: Game[] = [
           "Wars and Conflicts",
           "Famous Leaders",
         ],
-        rooms: [
-          {
-            name: "Time Travelers",
-            description: "No flux capacitor required, just facts.",
-          },
-          {
-            name: "The Old Scroll",
-            description: "Dusty knowledge and classic chaos.",
-          },
-          {
-            name: "Empire Echoes",
-            description: "Ruins of trivia from great empires.",
-          },
-          {
-            name: "The Archive",
-            description: "All the stuff they didn't teach in school.",
-          },
-          {
-            name: "History Hall",
-            description: "Echoes of the past, and a bit of confusion.",
-          },
-          {
-            name: "The Battlefield",
-            description: "Trivia wars with zero casualties.",
-          },
-          {
-            name: "Founding Room",
-            description: "Where it all kind of started.",
-          },
-          {
-            name: "The Crown Room",
-            description: "Heavy lies the head… that guesses wrong.",
-          },
-          {
-            name: "Ancient Alley",
-            description: "Old places. New questions. Same confusion.",
-          },
-          {
-            name: "Timeline Tavern",
-            description: "Pour a round of random centuries.",
-          },
-          {
-            name: "Revolution Room",
-            description: "Facts that change the game. Literally.",
-          },
-          {
-            name: "The Treaty Table",
-            description: "Compromises not required here.",
-          },
-          {
-            name: "Dynasty Den",
-            description: "Generations of trivia in one room.",
-          },
-          {
-            name: "History Repeats",
-            description: "If you missed it once, here it is again.",
-          },
-          {
-            name: "The Archive Vault",
-            description: "Locked-in answers from unlocked pasts.",
-          },
-          {
-            name: "Ancient Debates",
-            description: "Still arguing over the pyramid builders.",
-          },
-          {
-            name: "Statue Circle",
-            description: "Frozen in time, but not in trivia.",
-          },
-          {
-            name: "The Sphinx Riddle",
-            description: "Nothing mysterious… except everything.",
-          },
-          {
-            name: "Colonial Quarters",
-            description: "Where revolutions and wrong guesses live.",
-          },
-          {
-            name: "War Room",
-            description: "Strategize before you guess wildly.",
-          },
-          {
-            name: "The Scroll Room",
-            description: "Roll out the history, one clue at a time.",
-          },
-          {
-            name: "Historic Halls",
-            description: "Where the walls whisper trivia.",
-          },
-          {
-            name: "The Dictator's Desk",
-            description: "Commanding questions with iron facts.",
-          },
-          {
-            name: "Decade Dungeon",
-            description: "Pick an era, roll the dice.",
-          },
-          { name: "Monarch Manor", description: "Long live the guessers!" },
-          {
-            name: "Artifacts Room",
-            description: "Old objects, new levels of confusion.",
-          },
-          {
-            name: "The Reign Room",
-            description: "Reigning over royal-level trivia.",
-          },
-          {
-            name: "Past Tense",
-            description: "It was fun. It is fun. It shall be fun.",
-          },
-          {
-            name: "The Great Debate",
-            description: "Still no agreement on what happened.",
-          },
-          {
-            name: "Time Capsule",
-            description: "Sealed with trivia. Opened with guesses.",
-          },
-        ],
+        rooms: genericGameRooms("History", 30, false),
       },
       {
         name: "Literature",
         description:
-          "Test your knowledge of literature, from famous authors to literary terms.",
+          "Test your knowledge of literature, from famous authors to literary terms. Every room draws questions from the full category pool.",
         topics: [
           "Famous Authors",
           "Poetry",
@@ -7224,124 +1906,12 @@ const games: Game[] = [
           "Genres",
           "Book Summaries",
         ],
-        rooms: [
-          {
-            name: "The Book Nook",
-            description: "Where characters live rent-free in your head.",
-          },
-          {
-            name: "Plot Twist",
-            description: "Expect the unexpected… or just forget the plot.",
-          },
-          {
-            name: "Writer's Block",
-            description: "Stuck between brilliance and blank pages.",
-          },
-          {
-            name: "Verse Vault",
-            description: "For poetry lovers and confused rhymers.",
-          },
-          {
-            name: "Prologue Place",
-            description: "It all begins here — kind of.",
-          },
-          {
-            name: "The Ink Well",
-            description: "Where ideas flow… sometimes messily.",
-          },
-          {
-            name: "Genre Junction",
-            description: "Mystery? Romance? Who knows anymore?",
-          },
-          {
-            name: "The Dust Jacket",
-            description: "Don't judge a room by its cover.",
-          },
-          {
-            name: "Epic Room",
-            description: "Not short. Not sweet. Just epic.",
-          },
-          { name: "Page Turners", description: "Every clue is a cliffhanger." },
-          {
-            name: "Cliffhanger Club",
-            description: "You'll never guess what's next. Literally.",
-          },
-          { name: "Chapter One", description: "We're starting strong… maybe." },
-          {
-            name: "The Margins",
-            description: "Notes on everything, answers on nothing.",
-          },
-          {
-            name: "Classic Corner",
-            description: "Old books, timeless confusion.",
-          },
-          {
-            name: "The Author's Lounge",
-            description: "Where pens are mighty and questions vague.",
-          },
-          {
-            name: "Metaphor Market",
-            description: "It's like trivia… but deeper.",
-          },
-          {
-            name: "Shakespearean Space",
-            description: "To guess or not to guess?",
-          },
-          {
-            name: "The Library",
-            description: "Silent chaos between the stacks.",
-          },
-          {
-            name: "Fiction Junction",
-            description: "Real fun in imaginary worlds.",
-          },
-          {
-            name: "The Blurb Room",
-            description: "Short, sweet, and totally misleading.",
-          },
-          { name: "Irony Island", description: "Nothing is what it seems." },
-          {
-            name: "Quill & Scroll",
-            description: "Old school tools, modern confusion.",
-          },
-          {
-            name: "Narrative Nest",
-            description: "All the plot twists live here.",
-          },
-          {
-            name: "Symbolism Station",
-            description: "Nothing means what it says.",
-          },
-          {
-            name: "The Thesaurus Pit",
-            description: "A place of synonymic chaos.",
-          },
-          {
-            name: "The Forbidden Chapter",
-            description: "Probably not supposed to be here.",
-          },
-          {
-            name: "Literary Lounge",
-            description: "Relax with a quote and a guess.",
-          },
-          {
-            name: "Bookworm Burrow",
-            description: "Squirm in delight and mild confusion.",
-          },
-          {
-            name: "The Editor's Desk",
-            description: "Correctness not guaranteed.",
-          },
-          {
-            name: "Imaginary Realms",
-            description: "Where fantasy and failed guesses meet.",
-          },
-        ],
+        rooms: genericGameRooms("Literature", 30, false),
       },
       {
         name: "Geography",
         description:
-          "Learn about the world's countries, capitals, and geography.",
+          "Learn about the world's countries, capitals, and geography. Every room draws questions from the full category pool.",
         topics: [
           "Countries",
           "Capitals",
@@ -7350,124 +1920,12 @@ const games: Game[] = [
           "Continents",
           "Natural Wonders",
         ],
-        rooms: [
-          {
-            name: "Map Masters",
-            description: "Where the world is your playground… sort of.",
-          },
-          {
-            name: "Border Patrol",
-            description: "No passport needed, just guesses.",
-          },
-          {
-            name: "Capital Chaos",
-            description: "You know the capital. Or do you?",
-          },
-          {
-            name: "Globe Trotters",
-            description: "Spinning through trivia at top speed.",
-          },
-          {
-            name: "Continental Drift",
-            description: "It's moving… and so are the questions.",
-          },
-          {
-            name: "The Equator Line",
-            description: "Hot trivia served globally.",
-          },
-          {
-            name: "Mountain High",
-            description: "Answers are steep, views not included.",
-          },
-          {
-            name: "Island Hop",
-            description: "Jump from question to question without getting wet.",
-          },
-          {
-            name: "The Latitude Lounge",
-            description: "Somewhere between chill and challenge.",
-          },
-          { name: "Desert Storm", description: "Dry facts, wild guesses." },
-          { name: "River Run", description: "Where trivia flows endlessly." },
-          { name: "Tundra Talks", description: "Cold facts. Cooler vibes." },
-          {
-            name: "World Wonders",
-            description: "Seven wonders. Thirty questions. Good luck.",
-          },
-          {
-            name: "The Compass Room",
-            description: "Spin around until you find the answer.",
-          },
-          {
-            name: "Ocean Depths",
-            description: "Dive deep for surface-level answers.",
-          },
-          {
-            name: "The Valley Vault",
-            description: "Low ground, high pressure.",
-          },
-          {
-            name: "Atlas Arena",
-            description: "Bring your mental maps and hope.",
-          },
-          {
-            name: "Country Club",
-            description: "Not that kind — this one tests you.",
-          },
-          {
-            name: "Climate Control",
-            description: "All weather accepted. Especially stormy guesses.",
-          },
-          {
-            name: "Peak Position",
-            description: "Only the highest scorers summit.",
-          },
-          {
-            name: "GeoQuiz Central",
-            description: "Geography from A to… whatever Z looks like.",
-          },
-          {
-            name: "Volcano Zone",
-            description: "Erupting with unpredictable trivia.",
-          },
-          {
-            name: "Archipelago Alley",
-            description: "More scattered than your answers.",
-          },
-          {
-            name: "Hemisphere Hangout",
-            description: "North? South? Who even knows anymore?",
-          },
-          {
-            name: "Plate Tectonics",
-            description: "Things shift. So do your scores.",
-          },
-          {
-            name: "Jungle Junction",
-            description: "It's a trivia jungle out there.",
-          },
-          {
-            name: "City Circuit",
-            description: "Round and round the capitals we go.",
-          },
-          {
-            name: "Natural Habitat",
-            description: "Where knowledge lives (or barely survives).",
-          },
-          {
-            name: "The Time Zone",
-            description: "No matter the zone, it's trivia time.",
-          },
-          {
-            name: "Geo Puzzle",
-            description: "Putting the world together, one guess at a time.",
-          },
-        ],
+        rooms: genericGameRooms("Geography", 30, false),
       },
       {
         name: "Language Arts",
         description:
-          "Master the art of grammar, writing, and reading comprehension.",
+          "Master the art of grammar, writing, and reading comprehension. Every room draws questions from the full category pool.",
         topics: [
           "Grammar",
           "Vocabulary",
@@ -7476,126 +1934,13 @@ const games: Game[] = [
           "Punctuation",
           "Spelling",
         ],
-        rooms: [
-          { name: "Comma Club", description: "Pause here… but only briefly." },
-          {
-            name: "The Wordsmiths",
-            description: "Forging brilliance one word at a time.",
-          },
-          {
-            name: "Grammar Gurus",
-            description: "Where rules exist, but vibes matter.",
-          },
-          {
-            name: "Spelling Bee",
-            description: "Buzzing with tricky letter combos.",
-          },
-          {
-            name: "The Edit Desk",
-            description: "Where mistakes go to be judged silently.",
-          },
-          {
-            name: "Punctuation Station",
-            description: "Dots, dashes, and drama.",
-          },
-          {
-            name: "Vocabulary Vault",
-            description: "Unlocking big words you'll forget tomorrow.",
-          },
-          {
-            name: "Paragraph Party",
-            description: "Where structure meets social chaos.",
-          },
-          {
-            name: "Capital Matters",
-            description: "Uppercase energy. Lowercase pressure.",
-          },
-          { name: "The Reading Room", description: "Please read responsibly." },
-          {
-            name: "Silent Letters",
-            description: "The letters we never speak of.",
-          },
-          {
-            name: "The Syntax Squad",
-            description: "Arranging confusion into semi-order.",
-          },
-          {
-            name: "The Red Pen",
-            description: "Marking up fun with precision.",
-          },
-          {
-            name: "Adjective Alley",
-            description: "Descriptive. Delightful. Dangerously random.",
-          },
-          {
-            name: "Conjunction Junction",
-            description: "Hooking thoughts together since forever.",
-          },
-          {
-            name: "Proofreaders' Pit",
-            description: "Spot the oops, earn the brag.",
-          },
-          {
-            name: "The Semicolon Spot",
-            description: "Half comma, half colon, all attitude.",
-          },
-          {
-            name: "Run-On Room",
-            description:
-              "Where the sentence never ends it just keeps going and—",
-          },
-          {
-            name: "Sentence Builders",
-            description: "Constructing greatness one clause at a time.",
-          },
-          {
-            name: "Reading Rangers",
-            description: "Patrolling pages like it's a mission.",
-          },
-          {
-            name: "Homophone Hangout",
-            description: "They're there in their own way.",
-          },
-          {
-            name: "Metaphor Mile",
-            description: "Like a racetrack of imagination… or something.",
-          },
-          {
-            name: "Apostrophe Academy",
-            description: "Its vs. it's — may the odds be ever in your favor.",
-          },
-          { name: "Tense Time", description: "Past, present, or stressed?" },
-          {
-            name: "Dialogue Den",
-            description: "“Say something clever,” he said nervously.",
-          },
-          {
-            name: "Spaced Out",
-            description: "Double spaces. Triple confusion.",
-          },
-          {
-            name: "The Draft Zone",
-            description: "Unfinished thoughts welcome.",
-          },
-          {
-            name: "Alliteration Alley",
-            description: "Playfully puzzling, possibly pointless.",
-          },
-          {
-            name: "The Reading Comprehenders",
-            description: "Reading between the lines since line one.",
-          },
-          {
-            name: "Writer's Retreat",
-            description: "Less peace. More punctuation panic.",
-          },
-        ],
+        rooms: genericGameRooms("Language Arts", 30, false),
       },
 
       {
         name: "Art & Music",
         description:
-          "Explore the worlds of art and music, from history to theory.",
+          "Explore the worlds of art and music, from history to theory. Every room draws questions from the full category pool.",
         topics: [
           "Famous Artists",
           "Art History",
@@ -7604,115 +1949,12 @@ const games: Game[] = [
           "Famous Composers",
           "Art Movements",
         ],
-        rooms: [
-          {
-            name: "The Color Palette",
-            description: "Everything but beige opinions.",
-          },
-          {
-            name: "Beethoven's Basement",
-            description: "Silence isn't always golden.",
-          },
-          {
-            name: "Brushstroke Lounge",
-            description: "Where strokes of genius get messy.",
-          },
-          {
-            name: "The Orchestra Pit",
-            description: "Harmony, chaos, and one rogue triangle.",
-          },
-          {
-            name: "Canvas Zone",
-            description: "Paint outside the trivia lines.",
-          },
-          {
-            name: "Chords & Chaos",
-            description: "Strum it, hum it, guess it.",
-          },
-          {
-            name: "Gallery Gossip",
-            description: "What the art world never told you.",
-          },
-          {
-            name: "Jazz Junction",
-            description: "Unexpected notes and even more unexpected answers.",
-          },
-          { name: "Doodle Den", description: "Where every squiggle is valid." },
-          { name: "Tempo Town", description: "Fast facts and faster guesses." },
-          {
-            name: "Muse Room",
-            description: "Inspiration shows up… eventually.",
-          },
-          { name: "Art Attack", description: "The only safe kind of attack." },
-          { name: "Major & Minor", description: "It's all key-dependent." },
-          {
-            name: "The Sculptor's Studio",
-            description: "Chisel your knowledge, no dust masks needed.",
-          },
-          {
-            name: "Vinyl Vault",
-            description: "Spinning trivia with retro vibes.",
-          },
-          {
-            name: "The Abstract Zone",
-            description: "Nothing makes sense, but it's still brilliant.",
-          },
-          {
-            name: "Rhythm Room",
-            description: "If you miss a beat, just nod confidently.",
-          },
-          { name: "The Art Market", description: "Buy low, guess high." },
-          {
-            name: "Melody Makers",
-            description: "Composing guesses one note at a time.",
-          },
-          {
-            name: "Portrait Place",
-            description: "Where everyone's a masterpiece… sort of.",
-          },
-          {
-            name: "The Scoreboard Symphony",
-            description: "Points in harmony, or not.",
-          },
-          {
-            name: "Gallery of Guessing",
-            description: "Curated confusion in every frame.",
-          },
-          {
-            name: "The Drum Circle",
-            description: "Keep the beat, drop the facts.",
-          },
-          {
-            name: "Minimalism Mode",
-            description: "Just the basics. And maybe one chair.",
-          },
-          {
-            name: "Brush and Bass",
-            description: "Painting soundscapes and confusing everyone.",
-          },
-          { name: "Treble Trouble", description: "High notes, higher stakes." },
-          {
-            name: "The Stage Lights",
-            description: "Step into the spotlight and blank out.",
-          },
-          {
-            name: "Creative Block",
-            description: "Where no one knows what they're doing.",
-          },
-          {
-            name: "Frame by Frame",
-            description: "Zooming in on every pixel of trivia.",
-          },
-          {
-            name: "The Encore",
-            description: "You thought it was over… it's not.",
-          },
-        ],
+        rooms: genericGameRooms("Art & Music", 30, false),
       },
       {
         name: "Physical Education",
         description:
-          "Learn about fitness, sports rules, and the importance of teamwork.",
+          "Learn about fitness, sports rules, and the importance of teamwork. Every room draws questions from the full category pool.",
         topics: [
           "Sports Rules",
           "Fitness",
@@ -7721,105 +1963,11 @@ const games: Game[] = [
           "Strength Training",
           "Cardio",
         ],
-        rooms: [
-          {
-            name: "The Locker Room",
-            description: "Smells like knowledge and socks.",
-          },
-          {
-            name: "Stretch Zone",
-            description: "Reach for the facts… carefully.",
-          },
-          { name: "Cardio Club", description: "Fast beats. Faster guesses." },
-          { name: "Muscle Memory", description: "If you know it, flex it." },
-          {
-            name: "Team Spirit",
-            description: "No ‘I' in trivia... except maybe in spelling.",
-          },
-          {
-            name: "The Warm-Up",
-            description: "Get loose and limber with light confusion.",
-          },
-          { name: "Nutrition Nook", description: "Snack on facts, not chips." },
-          {
-            name: "The Huddle",
-            description: "Quick pep talk, then brain blitz.",
-          },
-          {
-            name: "Goal Zone",
-            description: "Score points—no cleats required.",
-          },
-          { name: "Rep Room", description: "One answer. Ten mental reps." },
-          {
-            name: "Cool Down Corner",
-            description: "Catch your breath, lose your mind.",
-          },
-          {
-            name: "Coach's Clipboard",
-            description: "Strategies scribbled and guesses fumbled.",
-          },
-          { name: "Jumpstart", description: "High energy, low expectations." },
-          { name: "Power Play", description: "Big moves. Bold guesses." },
-          {
-            name: "The Sideline",
-            description: "Where the real chatter happens.",
-          },
-          {
-            name: "The Sprint Zone",
-            description: "Fast-paced questions. Slower reflexes.",
-          },
-          {
-            name: "Hydration Station",
-            description: "Stay cool. Stay confused.",
-          },
-          {
-            name: "Gym Class Heroes",
-            description: "Because someone has to guess right.",
-          },
-          {
-            name: "Penalty Box",
-            description: "For when your answers break the rules.",
-          },
-          { name: "The Bench", description: "Sitting out? Still judging." },
-          {
-            name: "The Mat Room",
-            description: "Roll with it. Or stretch the truth.",
-          },
-          {
-            name: "Training Day",
-            description: "It's always leg day for the brain.",
-          },
-          {
-            name: "The Endurance Test",
-            description: "Long game, longer questions.",
-          },
-          {
-            name: "Slam Dunk Zone",
-            description: "When trivia hits nothing but net.",
-          },
-          {
-            name: "Push-Up Parade",
-            description: "Raise the bar, and your eyebrows.",
-          },
-          {
-            name: "Agility Alley",
-            description: "Quick shifts. Even quicker guesses.",
-          },
-          {
-            name: "Balance Beam",
-            description: "Wobble between fact and fiction.",
-          },
-          {
-            name: "Fitness Freaks",
-            description: "Gym brains and protein facts.",
-          },
-          { name: "The Final Lap", description: "Almost there… maybe." },
-          { name: "Tug of Facts", description: "Mental strength over muscle." },
-        ],
+        rooms: genericGameRooms("Physical Education", 30, false),
       },
       {
         name: "Social Studies",
-        description: "Explore society, culture, government, and economics.",
+        description: "Explore society, culture, government, and economics. Every room draws questions from the full category pool.",
         topics: [
           "Government",
           "Economics",
@@ -7828,134 +1976,12 @@ const games: Game[] = [
           "Political Systems",
           "Law",
         ],
-        rooms: [
-          {
-            name: "Civic Circle",
-            description: "Discuss the basics of government and citizenship.",
-          },
-          {
-            name: "Economic Exchange",
-            description: "Trade your knowledge on markets and money.",
-          },
-          {
-            name: "Culture Corner",
-            description: "Dive into traditions, customs, and world cultures.",
-          },
-          {
-            name: "Political Plaza",
-            description: "Debate political systems and ideologies.",
-          },
-          {
-            name: "Law Lab",
-            description: "Break down legal systems and landmark cases.",
-          },
-          {
-            name: "Social Spectrum",
-            description: "Explore sociology and human behavior.",
-          },
-          {
-            name: "Policy Pavilion",
-            description: "Understand how laws and policies shape society.",
-          },
-          {
-            name: "Global Gateway",
-            description:
-              "Connect with global issues and international relations.",
-          },
-          {
-            name: "Market Street",
-            description: "Navigate the ins and outs of economics and trade.",
-          },
-          {
-            name: "Justice Junction",
-            description: "Where fairness and law intersect.",
-          },
-          {
-            name: "Cultural Crossroads",
-            description: "Where diverse traditions meet and mingle.",
-          },
-          {
-            name: "Democracy Den",
-            description: "All about democratic principles and governance.",
-          },
-          {
-            name: "Sociology Studio",
-            description: "Study the patterns of human society.",
-          },
-          {
-            name: "Political Pulse",
-            description: "Stay current on political movements and parties.",
-          },
-          {
-            name: "Economic Engine",
-            description: "Fuel your knowledge on finance and markets.",
-          },
-          {
-            name: "Rights & Responsibilities",
-            description: "Learn about citizens' roles and freedoms.",
-          },
-          {
-            name: "Culture Clash",
-            description: "Explore cultural conflicts and resolutions.",
-          },
-          {
-            name: "Government Grounds",
-            description: "The nuts and bolts of governance and administration.",
-          },
-          {
-            name: "Law Library",
-            description: "Your source for legal terms and court decisions.",
-          },
-          {
-            name: "Society Central",
-            description: "Where social norms and change are examined.",
-          },
-          {
-            name: "Econ Essentials",
-            description: "Back to basics in economics and finance.",
-          },
-          {
-            name: "Political Playground",
-            description: "Light-hearted look at politics and power.",
-          },
-          {
-            name: "Justice Hall",
-            description: "Explore courts, trials, and justice systems.",
-          },
-          {
-            name: "Culture Capsule",
-            description: "Snapshots of global cultures through time.",
-          },
-          {
-            name: "Policy Pathways",
-            description: "Follow the road from idea to law.",
-          },
-          {
-            name: "Social Sciences Spot",
-            description: "A hub for all things social science.",
-          },
-          {
-            name: "Economic Expedition",
-            description: "Journey through economic concepts and trends.",
-          },
-          {
-            name: "Government Gallery",
-            description: "Display of government forms and functions.",
-          },
-          {
-            name: "Rights Room",
-            description: "Focus on human rights and legal protections.",
-          },
-          {
-            name: "Cultural Collective",
-            description: "Celebrate diversity and heritage.",
-          },
-        ],
+        rooms: genericGameRooms("Social Studies", 30, false),
       },
       {
         name: "Technology",
         description:
-          "Test your knowledge of technology, from programming to innovations.",
+          "Test your knowledge of technology, from programming to innovations. Every room draws questions from the full category pool.",
         topics: [
           "Computers",
           "Programming",
@@ -7964,261 +1990,18 @@ const games: Game[] = [
           "Cybersecurity",
           "Artificial Intelligence",
         ],
-        rooms: [
-          {
-            name: "Code Corner",
-            description: "Where code comes to life and bugs get squashed!",
-          },
-          {
-            name: "Tech Trends",
-            description: "Chat about the coolest new gadgets and gizmos.",
-          },
-          {
-            name: "Cyber Safe",
-            description: "Keep it secure and stay one step ahead of hackers.",
-          },
-          {
-            name: "AI Arena",
-            description: "Robots, brains, and all things artificial!",
-          },
-          {
-            name: "Digital Literacy Lab",
-            description: "Master the digital world like a pro.",
-          },
-          {
-            name: "Hardware Hub",
-            description:
-              "Talk circuits, chips, and all the techy stuff inside.",
-          },
-          {
-            name: "Programming Paradigms",
-            description: "From Python to Java — let's talk code styles.",
-          },
-          {
-            name: "Innovation Incubator",
-            description: "Dream up the next big tech breakthrough.",
-          },
-          {
-            name: "Security Shield",
-            description: "Guard your data like a digital superhero.",
-          },
-          {
-            name: "AI Ethics",
-            description: "Think about robots' morals (yes, they have some!).",
-          },
-          {
-            name: "App Dev Alley",
-            description: "Build apps that make life easier and more fun.",
-          },
-          {
-            name: "Networking Node",
-            description: "Connect the dots in the world of networks.",
-          },
-          {
-            name: "Code Review Room",
-            description: "Swap tips, tricks, and a bit of code gossip.",
-          },
-          {
-            name: "Tech Support",
-            description: "Help and hacks for your everyday tech troubles.",
-          },
-          {
-            name: "Machine Learning Meetup",
-            description: "Train your machines to learn and amaze.",
-          },
-          {
-            name: "Digital Design Den",
-            description: "Make things look good and work even better.",
-          },
-          {
-            name: "Cloud Computing Cloud",
-            description: "Store it, share it, and surf the cloud waves.",
-          },
-          {
-            name: "Open Source Oasis",
-            description: "Share your code and find new friends to build with.",
-          },
-          {
-            name: "Data Science Depot",
-            description: "Turn numbers into stories and cool insights.",
-          },
-          {
-            name: "IoT Island",
-            description: "Everything smart, connected, and ready to rock.",
-          },
-          {
-            name: "Virtual Reality Vault",
-            description: "Step into new worlds and epic adventures.",
-          },
-          {
-            name: "Tech History Hall",
-            description: "Discover how tech shaped the world we know.",
-          },
-          {
-            name: "Programming Challenges",
-            description: "Show off your coding chops and beat the clock.",
-          },
-          {
-            name: "Security Breach Briefing",
-            description: "Spy the biggest hacks and what we learned.",
-          },
-          {
-            name: "AI Research Room",
-            description: "Dive into the coolest AI discoveries.",
-          },
-          {
-            name: "Tech Startup Street",
-            description: "Where ideas turn into tomorrow's tech giants.",
-          },
-          {
-            name: "Software Engineering Suite",
-            description: "Build software that just works (mostly!).",
-          },
-          {
-            name: "Gadget Garage",
-            description: "Show off your favorite tech toys and tools.",
-          },
-          {
-            name: "Digital Ethics Exchange",
-            description: "Chat about what's right and wrong in tech.",
-          },
-          {
-            name: "Quantum Computing Quarters",
-            description: "Get quantum curious with the next frontier.",
-          },
-        ],
+        rooms: genericGameRooms("Technology", 30, false),
       },
       {
         name: "Foreign Languages",
-        description: "Learn and test your skills in various foreign languages.",
+        description: "Learn and test your skills in various foreign languages. Every room draws questions from the full category pool.",
         topics: ["Spanish", "French", "German", "Latin", "Mandarin", "Italian"],
-        rooms: [
-          {
-            name: "Spanish Speak-Up",
-            description: "Practice your español and share cool phrases!",
-          },
-          {
-            name: "French Flair",
-            description: "Bonjour! Chat about French words and culture.",
-          },
-          {
-            name: "German Gabfest",
-            description: "Say hallo and dive into German grammar fun.",
-          },
-          {
-            name: "Latin Legends",
-            description: "Step back in time with classical Latin phrases.",
-          },
-          {
-            name: "Mandarin Moments",
-            description: "Master tones and characters one chat at a time.",
-          },
-          {
-            name: "Italian Inspirations",
-            description: "Speak like you're in Rome — with style and gusto!",
-          },
-          {
-            name: "Language Games",
-            description: "Fun challenges to test your vocab skills.",
-          },
-          {
-            name: "Grammar Gurus",
-            description: "Tackle tricky rules and win the grammar game.",
-          },
-          {
-            name: "Phrasebook Fun",
-            description: "Swap useful phrases for travel and chatting.",
-          },
-          {
-            name: "Accent Adventure",
-            description: "Perfect your accent and impress your friends.",
-          },
-          {
-            name: "Idioms & Expressions",
-            description: "Discover quirky sayings and what they mean.",
-          },
-          {
-            name: "Language Exchange",
-            description: "Teach a phrase, learn a phrase — everyone wins!",
-          },
-          {
-            name: "Travel Talk",
-            description: "Learn words to help you on your adventures.",
-          },
-          {
-            name: "Language Challenges",
-            description: "Try tongue twisters and tricky words.",
-          },
-          {
-            name: "Culture Connect",
-            description: "Explore the culture behind the language.",
-          },
-          {
-            name: "Writing Wizards",
-            description: "Practice writing in foreign scripts and alphabets.",
-          },
-          {
-            name: "Listening Lounge",
-            description: "Sharpen your ears with audio clips and chats.",
-          },
-          {
-            name: "Pronunciation Practice",
-            description: "Say it right every time with helpful tips.",
-          },
-          {
-            name: "Language Trivia",
-            description: "Test your knowledge with fun language facts.",
-          },
-          {
-            name: "Language Tips & Tricks",
-            description: "Share hacks to learn faster and easier.",
-          },
-          {
-            name: "Slang Spot",
-            description: "Get the scoop on informal and cool language.",
-          },
-          {
-            name: "Language Learners' Lounge",
-            description: "Chat with fellow learners and share progress.",
-          },
-          {
-            name: "Multilingual Mix",
-            description: "Switch between languages and keep it lively.",
-          },
-          {
-            name: "History of Languages",
-            description: "Discover how languages evolved over time.",
-          },
-          {
-            name: "Translation Tavern",
-            description: "Try your hand at translating fun texts.",
-          },
-          {
-            name: "Language Apps & Tools",
-            description: "Share your favorite learning apps and resources.",
-          },
-          {
-            name: "Storytelling Studio",
-            description: "Create and share stories in foreign tongues.",
-          },
-          {
-            name: "Language Challenges",
-            description: "Daily challenges to boost your skills.",
-          },
-          {
-            name: "Foreign Films & Music",
-            description: "Chat about movies and songs in other languages.",
-          },
-          {
-            name: "Language Practice Partners",
-            description: "Find buddies to practice with regularly.",
-          },
-        ],
+        rooms: genericGameRooms("Foreign Languages", 30, false),
       },
       {
         name: "Philosophy & Logic",
         description:
-          "Engage with thought-provoking topics in philosophy and logic.",
+          "Engage with thought-provoking topics in philosophy and logic. Every room draws questions from the full category pool.",
         topics: [
           "Famous Philosophers",
           "Logical Reasoning",
@@ -8227,135 +2010,12 @@ const games: Game[] = [
           "Philosophical Theories",
           "Metaphysics",
         ],
-        rooms: [
-          {
-            name: "Wisdom",
-            description: "Dive into big ideas and ancient thoughts.",
-          },
-          {
-            name: "Reason",
-            description: "Test your logic with fun puzzles and challenges.",
-          },
-          {
-            name: "Ethics",
-            description:
-              "Explore what's right, wrong, and everything in between.",
-          },
-          {
-            name: "Mind",
-            description:
-              "Wonder about thinking, consciousness, and perception.",
-          },
-          {
-            name: "Truth",
-            description: "Discuss what's real and what's just a theory.",
-          },
-          {
-            name: "Logic",
-            description: "Sharpen your reasoning skills with brain teasers.",
-          },
-          {
-            name: "Debate",
-            description: "Friendly battles of ideas and opinions.",
-          },
-          {
-            name: "Mystery",
-            description: "Explore the unknown and unexplainable questions.",
-          },
-          {
-            name: "Theory",
-            description: "Chat about cool philosophical concepts and theories.",
-          },
-          {
-            name: "Puzzle",
-            description: "Solve tricky problems and test your thinking.",
-          },
-          {
-            name: "Insight",
-            description: "Share those ‘aha!' moments and clever ideas.",
-          },
-          {
-            name: "Dilemma",
-            description: "Face tough choices and moral puzzles together.",
-          },
-          {
-            name: "Existence",
-            description: "Ponder life's big questions in a fun way.",
-          },
-          {
-            name: "Thought",
-            description: "Explore creative and curious ways of thinking.",
-          },
-          {
-            name: "Reasoning",
-            description: "Put your critical thinking skills to the test.",
-          },
-          {
-            name: "Imagination",
-            description: "Use your mind to explore new possibilities.",
-          },
-          {
-            name: "Focus",
-            description: "Concentrate on logic and clear thinking games.",
-          },
-          {
-            name: "LogicLab",
-            description: "Experiment with reasoning in a playful space.",
-          },
-          {
-            name: "Explore",
-            description: "Discover new ideas and challenge your mind.",
-          },
-          {
-            name: "Balance",
-            description: "Weigh ideas and arguments with a curious mind.",
-          },
-          {
-            name: "Journey",
-            description: "Travel through thought experiments and puzzles.",
-          },
-          {
-            name: "Vision",
-            description: "Imagine new perspectives and possibilities.",
-          },
-          {
-            name: "Challenge",
-            description: "Take on fun and brainy challenges.",
-          },
-          {
-            name: "Clarity",
-            description: "Find simple truths in complex ideas.",
-          },
-          {
-            name: "Focus",
-            description: "Practice sharp and clear thinking exercises.",
-          },
-          {
-            name: "Insight",
-            description: "Share deep thoughts and clever insights.",
-          },
-          {
-            name: "LogicPlay",
-            description: "Have fun with logic games and riddles.",
-          },
-          {
-            name: "Mindset",
-            description: "Train your brain with thoughtful activities.",
-          },
-          {
-            name: "Wonder",
-            description: "Let curiosity guide your philosophical explorations.",
-          },
-          {
-            name: "Balance",
-            description: "Explore harmony between ideas and logic.",
-          },
-        ],
+        rooms: genericGameRooms("Philosophy & Logic", 30, false),
       },
       {
         name: "Environmental Studies",
         description:
-          "Explore the wonders of nature and how we can protect our planet.",
+          "Explore the wonders of nature and how we can protect our planet. Every room draws questions from the full category pool.",
         topics: [
           "Conservation",
           "Ecology",
@@ -8364,118 +2024,12 @@ const games: Game[] = [
           "Pollution",
           "Biodiversity",
         ],
-        rooms: [
-          {
-            name: "Nature",
-            description: "Dive into the beauty of the natural world.",
-          },
-          {
-            name: "Green",
-            description: "Celebrate all things eco-friendly and sustainable.",
-          },
-          {
-            name: "Earth",
-            description: "Discover what makes our planet unique.",
-          },
-          {
-            name: "Climate",
-            description: "Chat about weather, seasons, and global changes.",
-          },
-          {
-            name: "Forest",
-            description: "Explore the secrets of trees and woodlands.",
-          },
-          {
-            name: "Ocean",
-            description: "Plunge into the deep blue and marine life.",
-          },
-          {
-            name: "Recycle",
-            description: "Learn how to give things a second life.",
-          },
-          {
-            name: "Energy",
-            description: "Power up with clean and renewable sources.",
-          },
-          {
-            name: "Wildlife",
-            description: "Meet the amazing animals that share our planet.",
-          },
-          {
-            name: "Pollution",
-            description: "Talk about ways to keep our world clean.",
-          },
-          {
-            name: "Habitat",
-            description: "Discover where animals and plants call home.",
-          },
-          { name: "Solar", description: "Soak up the power of the sun." },
-          {
-            name: "Wind",
-            description: "Feel the breeze and learn about wind energy.",
-          },
-          {
-            name: "Water",
-            description: "Dive into the importance of freshwater.",
-          },
-          {
-            name: "Eco",
-            description: "Celebrate earth-friendly habits and ideas.",
-          },
-          {
-            name: "Biodiversity",
-            description: "Discover the incredible variety of life.",
-          },
-          { name: "Trees", description: "Explore the lungs of our planet." },
-          { name: "Soil", description: "Dig into the foundation of life." },
-          {
-            name: "Carbon",
-            description: "Learn about the invisible gas changing our world.",
-          },
-          {
-            name: "Future",
-            description: "Imagine a cleaner, greener tomorrow.",
-          },
-          {
-            name: "Clean",
-            description: "Share tips on keeping the planet tidy.",
-          },
-          { name: "OceanLife", description: "Swim with creatures of the sea." },
-          {
-            name: "RecycleIt",
-            description: "Turn trash into treasure with recycling fun.",
-          },
-          {
-            name: "Sustain",
-            description: "Explore ways to live in harmony with nature.",
-          },
-          {
-            name: "EnergyLab",
-            description: "Experiment with cool renewable energy ideas.",
-          },
-          {
-            name: "ClimateTalk",
-            description: "Discuss changes and how we can help.",
-          },
-          {
-            name: "Wild",
-            description: "Celebrate untamed nature and its wonders.",
-          },
-          {
-            name: "EcoTips",
-            description: "Share and learn simple eco-friendly habits.",
-          },
-          { name: "EarthDay", description: "Celebrate our planet every day." },
-          {
-            name: "Harmony",
-            description: "Discover balance between humans and nature.",
-          },
-        ],
+        rooms: genericGameRooms("Environmental Studies", 30, false),
       },
       {
         name: "Health Education",
         description:
-          "Jump into the world of health and wellness with fun and easy learning!",
+          "Jump into the world of health and wellness with fun and easy learning! Every room draws questions from the full category pool.",
         topics: [
           "Anatomy",
           "Nutrition",
@@ -8484,115 +2038,12 @@ const games: Game[] = [
           "First Aid",
           "Public Health",
         ],
-        rooms: [
-          {
-            name: "Body",
-            description: "Explore the amazing machine that is you.",
-          },
-          {
-            name: "Food",
-            description: "Discover tasty ways to fuel your body.",
-          },
-          {
-            name: "Mind",
-            description: "Learn tricks to keep your brain happy and healthy.",
-          },
-          { name: "Safety", description: "Stay smart and safe every day." },
-          {
-            name: "FirstAid",
-            description: "Master the basics of helping others in a pinch.",
-          },
-          {
-            name: "Wellness",
-            description: "Find your balance and feel your best.",
-          },
-          {
-            name: "Muscles",
-            description: "Flex your knowledge about strength and movement.",
-          },
-          {
-            name: "Vitamins",
-            description: "Get the scoop on essential nutrients.",
-          },
-          { name: "Stress", description: "Chill out and learn ways to relax." },
-          {
-            name: "Sleep",
-            description: "Discover why catching Zzz's is so important.",
-          },
-          { name: "Hydrate", description: "Keep cool and stay refreshed." },
-          {
-            name: "Heart",
-            description: "Beat with the rhythm of a healthy lifestyle.",
-          },
-          {
-            name: "Hygiene",
-            description: "Stay fresh and clean with easy tips.",
-          },
-          {
-            name: "Exercise",
-            description: "Move it and groove it for a stronger you.",
-          },
-          {
-            name: "SafetyTips",
-            description: "Learn quick tips to avoid everyday risks.",
-          },
-          {
-            name: "Nutrition",
-            description: "Snack smart and eat well for energy.",
-          },
-          {
-            name: "Brain",
-            description: "Boost your brainpower with fun facts.",
-          },
-          {
-            name: "Immunity",
-            description: "Discover how your body fights off bugs.",
-          },
-          { name: "Balance", description: "Find your calm in body and mind." },
-          {
-            name: "Medic",
-            description: "Learn first steps in health emergencies.",
-          },
-          {
-            name: "Breath",
-            description: "Breathe deep and learn calming techniques.",
-          },
-          {
-            name: "Posture",
-            description: "Stand tall and keep your spine happy.",
-          },
-          {
-            name: "Vaccine",
-            description: "Understand how shots keep you safe.",
-          },
-          { name: "Mood", description: "Feel good and manage your emotions." },
-          {
-            name: "Checkup",
-            description: "Know the basics of health check routines.",
-          },
-          {
-            name: "SafetyGear",
-            description: "Protect yourself with the right equipment.",
-          },
-          {
-            name: "Dental",
-            description: "Keep that smile bright and healthy.",
-          },
-          {
-            name: "Yoga",
-            description: "Stretch, breathe, and relax your body.",
-          },
-          { name: "Kids", description: "Health tips for the little ones." },
-          {
-            name: "Public",
-            description: "Learn how communities stay healthy together.",
-          },
-        ],
+        rooms: genericGameRooms("Health Education", 30, false),
       },
       {
         name: "Current Events",
         description:
-          "Keep up with the buzz and test your knowledge on what's happening around the globe!",
+          "Keep up with the buzz and test your knowledge on what's happening around the globe! Every room draws questions from the full category pool.",
         topics: [
           "News",
           "Politics",
@@ -8601,132 +2052,7 @@ const games: Game[] = [
           "Environmental Policies",
           "Human Rights",
         ],
-        rooms: [
-          {
-            name: "News",
-            description:
-              "Catch up on the latest headlines and breaking stories.",
-          },
-          {
-            name: "Politics",
-            description: "Dive into debates and decisions shaping our world.",
-          },
-          {
-            name: "World",
-            description: "Explore global happenings from every corner.",
-          },
-          {
-            name: "Climate",
-            description: "Learn about Earth's changing weather and policies.",
-          },
-          {
-            name: "Rights",
-            description: "Understand the fight for justice and equality.",
-          },
-          {
-            name: "Elections",
-            description: "Test your knowledge on voting and campaigns.",
-          },
-          {
-            name: "Economy",
-            description:
-              "Discover how money flows through countries and markets.",
-          },
-          {
-            name: "Tech",
-            description: "Explore innovations changing daily life worldwide.",
-          },
-          {
-            name: "Culture",
-            description:
-              "Celebrate traditions and trends from around the globe.",
-          },
-          {
-            name: "Health",
-            description: "Stay informed about global health and wellness.",
-          },
-          {
-            name: "Space",
-            description: "Look up and learn about cosmic news and discoveries.",
-          },
-          {
-            name: "Conflict",
-            description: "Understand ongoing struggles and peace efforts.",
-          },
-          {
-            name: "Science",
-            description: "Keep up with breakthroughs and discoveries.",
-          },
-          {
-            name: "Sports",
-            description: "Catch the latest wins and world records.",
-          },
-          {
-            name: "Weather",
-            description: "Track storms, sunshine, and surprises in the sky.",
-          },
-          {
-            name: "Travel",
-            description: "Explore places making headlines around the world.",
-          },
-          {
-            name: "Media",
-            description: "Learn about news sources and how stories spread.",
-          },
-          {
-            name: "Policy",
-            description: "Discover rules and laws shaping societies.",
-          },
-          {
-            name: "Activism",
-            description: "Get inspired by movements making a difference.",
-          },
-          {
-            name: "Diplomacy",
-            description: "Test your knowledge of international relations.",
-          },
-          {
-            name: "Environment",
-            description: "Explore efforts to protect our planet.",
-          },
-          {
-            name: "Justice",
-            description: "Learn about courts, laws, and fairness worldwide.",
-          },
-          {
-            name: "Energy",
-            description: "Discover power sources shaping the future.",
-          },
-          {
-            name: "Innovation",
-            description: "Stay updated on cutting-edge advancements.",
-          },
-          {
-            name: "Education",
-            description: "Explore trends and challenges in learning worldwide.",
-          },
-          {
-            name: "Space",
-            description: "Stay curious about cosmic news and discoveries.",
-          },
-          {
-            name: "Culture",
-            description:
-              "Celebrate traditions and pop culture from everywhere.",
-          },
-          {
-            name: "Media",
-            description: "Understand how stories reach the world.",
-          },
-          {
-            name: "Finance",
-            description: "Learn about markets, trade, and money matters.",
-          },
-          {
-            name: "Environment",
-            description: "Discover ways the world is going green.",
-          },
-        ],
+        rooms: genericGameRooms("Current Events", 30, false),
       },
     ],
   },
@@ -8738,7 +2064,7 @@ const games: Game[] = [
       {
         name: "Football",
         description:
-          "Kick off your knowledge and score big in the exciting world of football!",
+          "Kick off your knowledge and score big in the exciting world of football! Every room draws questions from the full category pool.",
         topics: [
           "FIFA World Cup",
           "Club Football",
@@ -8759,144 +2085,12 @@ const games: Game[] = [
           "Cricket & Baseball",
           "Extreme Sports",
         ],
-        rooms: [
-          {
-            name: "WorldCup",
-            description: "Test your knowledge of football's biggest stage!",
-          },
-          {
-            name: "Clubs",
-            description: "Dive into the clubs that make football legends.",
-          },
-          {
-            name: "Nations",
-            description: "Show off what you know about national teams.",
-          },
-          {
-            name: "Tactics",
-            description: "Master the strategies behind the beautiful game.",
-          },
-          {
-            name: "History",
-            description:
-              "Travel through football's epic moments and milestones.",
-          },
-          {
-            name: "Positions",
-            description: "Know your forwards from defenders? Prove it!",
-          },
-          {
-            name: "Players",
-            description:
-              "Famous faces and legends of football await your guess.",
-          },
-          {
-            name: "Leagues",
-            description:
-              "From Premier League to La Liga, test your league smarts.",
-          },
-          {
-            name: "Referees",
-            description:
-              "How well do you know the rules and the men in charge?",
-          },
-          {
-            name: "Gear",
-            description:
-              "From boots to balls, learn about the essentials on the pitch.",
-          },
-          {
-            name: "Olympics",
-            description: "Discover football moments from the Olympic games.",
-          },
-          {
-            name: "Athletes",
-            description:
-              "Not just football—test your sports all-star knowledge.",
-          },
-          {
-            name: "Basketball",
-            description: "Cross-sport trivia that links football and hoops.",
-          },
-          {
-            name: "Esports",
-            description: "Step into the world where gaming meets football.",
-          },
-          {
-            name: "Unusual",
-            description:
-              "Explore weird and wonderful sports you didn't know existed.",
-          },
-          {
-            name: "BoardGames",
-            description: "Trivia about your favorite board games and beyond.",
-          },
-          {
-            name: "Cricket",
-            description:
-              "Not football, but test your cricket and baseball knowledge.",
-          },
-          {
-            name: "Baseball",
-            description: "Swing into this room for America's pastime trivia.",
-          },
-          {
-            name: "Extreme",
-            description:
-              "Adrenaline sports for thrill-seekers and trivia lovers.",
-          },
-          {
-            name: "Fans",
-            description: "Are you a true football fan? Prove it here!",
-          },
-          {
-            name: "Transfers",
-            description: "Know the hottest player moves and transfer rumors.",
-          },
-          {
-            name: "Records",
-            description: "Test your knowledge of football's greatest records.",
-          },
-          {
-            name: "Coaches",
-            description: "Learn about the masterminds behind the teams.",
-          },
-          {
-            name: "Stadiums",
-            description: "Explore famous football arenas worldwide.",
-          },
-          {
-            name: "Champions",
-            description: "Who has won the most? Challenge your knowledge.",
-          },
-          {
-            name: "Fansongs",
-            description: "Sing along with football's iconic chants and songs.",
-          },
-          {
-            name: "Legends",
-            description: "Meet the players who shaped football history.",
-          },
-          {
-            name: "Derbies",
-            description:
-              "Rivalries that set the pitch on fire—how much do you know?",
-          },
-          {
-            name: "Youth",
-            description: "Discover the stars of tomorrow in this fun room.",
-          },
-          {
-            name: "Skills",
-            description:
-              "Show off your knowledge of football tricks and moves.",
-          },
-        ],
+        rooms: genericGameRooms("Football", 30, false),
       },
       {
         name: "TeamSports",
         description:
-          "Get in the game and test your knowledge of all things team sports!",
+          "Get in the game and test your knowledge of all things team sports! Every room draws questions from the full category pool.",
         topics: [
           "Basketball",
           "Baseball",
@@ -8907,455 +2101,26 @@ const games: Game[] = [
           "Water Polo",
           "Handball",
         ],
-        rooms: [
-          {
-            name: "Basketball",
-            description:
-              "Dribble, shoot, and score your way through hoops trivia!",
-          },
-          {
-            name: "Baseball",
-            description:
-              "Step up to the plate and swing for the fences with baseball facts.",
-          },
-          {
-            name: "Rugby",
-            description:
-              "Tackle tough questions about this rough and exciting sport.",
-          },
-          {
-            name: "Hockey",
-            description:
-              "Skate through the fast-paced world of ice and field hockey.",
-          },
-          {
-            name: "Volleyball",
-            description:
-              "Serve up some fun and spike your way to victory here.",
-          },
-          {
-            name: "Lacrosse",
-            description: "Get ready to scoop up some cool lacrosse trivia.",
-          },
-          {
-            name: "WaterPolo",
-            description: "Dive into the pool for water polo facts and fun.",
-          },
-          {
-            name: "Handball",
-            description:
-              "Catch all the action and score big with handball trivia.",
-          },
-          {
-            name: "Fans",
-            description:
-              "Are you a true team sports fan? Prove it in this room!",
-          },
-          {
-            name: "Leagues",
-            description:
-              "Know your leagues? Test your knowledge of team competitions.",
-          },
-          {
-            name: "Positions",
-            description:
-              "From forwards to goalies, how well do you know the roles?",
-          },
-          {
-            name: "Records",
-            description:
-              "Who holds the records? Take on this challenge and find out!",
-          },
-          {
-            name: "Rules",
-            description:
-              "Master the rules and regulations of your favorite team sports.",
-          },
-          {
-            name: "Coaches",
-            description:
-              "Learn about the leaders who guide their teams to victory.",
-          },
-          {
-            name: "Tactics",
-            description:
-              "Strategy is key—show off your knowledge of team sport tactics.",
-          },
-          {
-            name: "Champions",
-            description:
-              "Celebrate the winners and legends of team sports history.",
-          },
-          {
-            name: "Equipment",
-            description: "Get to know the gear that keeps players in the game.",
-          },
-          {
-            name: "Derbies",
-            description:
-              "Feel the heat of fierce rivalries and classic matchups.",
-          },
-          {
-            name: "Youth",
-            description:
-              "Discover the rising stars and young talents in team sports.",
-          },
-          {
-            name: "Olympics",
-            description:
-              "Team sports on the world's biggest stage—how much do you know?",
-          },
-          {
-            name: "Drafts",
-            description:
-              "Test your knowledge of player drafts and team selections.",
-          },
-          {
-            name: "Rivalries",
-            description:
-              "Explore the fiercest competitions in team sports history.",
-          },
-          {
-            name: "Playoffs",
-            description:
-              "How well do you know the thrilling end-of-season battles?",
-          },
-          {
-            name: "Trades",
-            description: "Get the inside scoop on player trades and transfers.",
-          },
-          {
-            name: "Injuries",
-            description:
-              "Learn about common injuries and comebacks in team sports.",
-          },
-          {
-            name: "Referees",
-            description:
-              "Know your officials? Test your referee and umpire knowledge.",
-          },
-          {
-            name: "Fans",
-            description:
-              "The heart of the game—celebrate fan culture and traditions.",
-          },
-          {
-            name: "Mascots",
-            description:
-              "Fun and quirky mascots that bring team spirit to life.",
-          },
-          {
-            name: "Stadiums",
-            description:
-              "From iconic arenas to home fields, test your stadium knowledge.",
-          },
-          {
-            name: "Announcers",
-            description:
-              "Famous voices and catchphrases in team sports broadcasting.",
-          },
-        ],
+        rooms: genericGameRooms("TeamSports", 30, false),
       },
       {
         name: "Racquets",
         description:
-          "Swing into action and test your knowledge of all things racquet sports!",
+          "Swing into action and test your knowledge of all things racquet sports! Every room draws questions from the full category pool.",
         topics: ["Tennis", "Badminton", "Table Tennis", "Squash", "Pickleball"],
-        rooms: [
-          {
-            name: "Tennis",
-            description:
-              "Serve, volley, and ace your way through tennis trivia!",
-          },
-          {
-            name: "Badminton",
-            description:
-              "Smash and rally your knowledge of fast-paced badminton.",
-          },
-          {
-            name: "PingPong",
-            description:
-              "Spin the ball and test your table tennis skills here.",
-          },
-          {
-            name: "Squash",
-            description: "Hit the walls with quick thinking in squash trivia.",
-          },
-          {
-            name: "Pickleball",
-            description:
-              "A fun mix of tennis and ping pong — show your pickleball smarts!",
-          },
-          {
-            name: "Serves",
-            description:
-              "Master the art of the perfect serve in racquet sports.",
-          },
-          {
-            name: "Rallies",
-            description:
-              "How long can you keep the ball going? Test your rally knowledge!",
-          },
-          {
-            name: "Grip",
-            description:
-              "Get a grip on all things about holding and swinging your racket.",
-          },
-          {
-            name: "Courts",
-            description:
-              "From grass to indoor — know your racquet sport courts.",
-          },
-          {
-            name: "Rules",
-            description: "Play by the rules and show off your game know-how.",
-          },
-          {
-            name: "Shots",
-            description:
-              "Forehands, backhands, smashes — what's your favorite shot?",
-          },
-          {
-            name: "Players",
-            description:
-              "Famous players and legends of the racquet world await your guess.",
-          },
-          {
-            name: "Tournaments",
-            description:
-              "Grand slams and opens — know your biggest competitions.",
-          },
-          {
-            name: "History",
-            description: "Discover how racquet sports have evolved over time.",
-          },
-          {
-            name: "Equipment",
-            description:
-              "Rackets, strings, and gear — test your equipment expertise.",
-          },
-          {
-            name: "Scoring",
-            description: "Know your points, sets, and matches like a pro.",
-          },
-          {
-            name: "Techniques",
-            description:
-              "Perfect your swing with knowledge of racquet techniques.",
-          },
-          {
-            name: "Training",
-            description:
-              "Learn how pros train to stay at the top of their game.",
-          },
-          {
-            name: "Strategy",
-            description: "Smart plays win games — test your tactical thinking.",
-          },
-          {
-            name: "Doubles",
-            description: "Team up and know the ins and outs of doubles play.",
-          },
-          {
-            name: "Fitness",
-            description:
-              "Racquet sports need speed and stamina — test your fitness facts.",
-          },
-          {
-            name: "Shuttle",
-            description:
-              "Badminton fans, get ready for shuttlecock challenges!",
-          },
-          {
-            name: "Spin",
-            description:
-              "Master the art of putting spin on the ball or shuttle.",
-          },
-          {
-            name: "Footwork",
-            description:
-              "Quick feet make great players — test your footwork knowledge.",
-          },
-          {
-            name: "Umpires",
-            description:
-              "Know the officials and calls that keep the game fair.",
-          },
-          {
-            name: "Clubs",
-            description:
-              "From local courts to elite clubs — explore racquet sport communities.",
-          },
-          {
-            name: "Fans",
-            description:
-              "Celebrate the passionate fans of racquet sports worldwide.",
-          },
-          {
-            name: "Legends",
-            description: "Pay tribute to the legends who shaped the game.",
-          },
-          {
-            name: "Challenges",
-            description:
-              "Face off in fun challenges across all racquet sports.",
-          },
-          {
-            name: "Skills",
-            description:
-              "Sharpen your skills with trivia on racquet sports mastery.",
-          },
-          {
-            name: "Events",
-            description: "Major events and classic matches come alive here.",
-          },
-        ],
+        rooms: genericGameRooms("Racquets", 31, false),
       },
       {
         name: "Combat",
         description:
-          "Step into the ring and test your skills in the world of fighting sports!",
+          "Step into the ring and test your skills in the world of fighting sports! Every room draws questions from the full category pool.",
         topics: ["Boxing", "MMA", "Wrestling", "Fencing"],
-        rooms: [
-          {
-            name: "Boxing",
-            description: "Throw punches and dodge trivia in the boxing ring!",
-          },
-          {
-            name: "MMA",
-            description:
-              "Mixed martial arts fans, get ready to grapple with tough questions.",
-          },
-          {
-            name: "Wrestling",
-            description:
-              "Pin down your knowledge of wrestling moves and legends.",
-          },
-          {
-            name: "Fencing",
-            description:
-              "En garde! Show your skill with the foil, epee, and saber.",
-          },
-          {
-            name: "Strikes",
-            description: "Master the art of punches, kicks, and strikes.",
-          },
-          {
-            name: "Grappling",
-            description: "Lock in your facts about holds and submissions.",
-          },
-          {
-            name: "Tactics",
-            description: "Plan your next move with combat strategy trivia.",
-          },
-          {
-            name: "Legends",
-            description:
-              "Honor the fighters who made history in combat sports.",
-          },
-          {
-            name: "Rules",
-            description: "Know the rules that keep the fights fair and safe.",
-          },
-          {
-            name: "Training",
-            description: "Learn how fighters train to stay sharp and strong.",
-          },
-          {
-            name: "Events",
-            description:
-              "Major fight nights and tournaments await your knowledge.",
-          },
-          {
-            name: "Weight",
-            description: "Weight classes and divisions — do you know them all?",
-          },
-          {
-            name: "Gear",
-            description:
-              "Gloves, masks, and mats — test your equipment know-how.",
-          },
-          {
-            name: "Moves",
-            description:
-              "From jabs to takedowns, recall your favorite techniques.",
-          },
-          {
-            name: "Champions",
-            description: "Who's the best? Show off your champion knowledge.",
-          },
-          {
-            name: "Fights",
-            description:
-              "Classic bouts and memorable moments in combat sports.",
-          },
-          {
-            name: "Fitness",
-            description:
-              "Combat sports require peak fitness — prove your facts.",
-          },
-          {
-            name: "Judges",
-            description: "Know how fights are scored and decided.",
-          },
-          {
-            name: "Referees",
-            description: "Keep the match fair — what do referees watch for?",
-          },
-          {
-            name: "History",
-            description: "Explore the roots and evolution of fighting sports.",
-          },
-          {
-            name: "Skills",
-            description: "Sharpen your skills with challenging combat trivia.",
-          },
-          {
-            name: "Technique",
-            description: "Perfect your knowledge of combat moves and form.",
-          },
-          {
-            name: "Gyms",
-            description:
-              "Where the fighters train — know the famous gyms worldwide.",
-          },
-          {
-            name: "Fans",
-            description: "Celebrate the passionate fans of combat sports.",
-          },
-          {
-            name: "Tournaments",
-            description:
-              "From local fights to global contests, test your knowledge.",
-          },
-          {
-            name: "Fitness",
-            description:
-              "Strength, speed, and stamina — the keys to fighting success.",
-          },
-          {
-            name: "Defense",
-            description: "Learn how fighters protect themselves in the ring.",
-          },
-          {
-            name: "Spirit",
-            description:
-              "The heart and willpower behind every fighter's journey.",
-          },
-          {
-            name: "Titles",
-            description: "Know the belts, crowns, and titles of combat sports.",
-          },
-          {
-            name: "Challenges",
-            description: "Face off in exciting combat sports trivia battles.",
-          },
-        ],
+        rooms: genericGameRooms("Combat", 30, false),
       },
       {
         name: "Water",
         description:
-          "Dive into the splashy world of water sports and make a big splash with your knowledge!",
+          "Dive into the splashy world of water sports and make a big splash with your knowledge! Every room draws questions from the full category pool.",
         topics: [
           "Swimming",
           "Surfing",
@@ -9364,277 +2129,18 @@ const games: Game[] = [
           "Rowing",
           "Water Polo",
         ],
-        rooms: [
-          {
-            name: "Swimming",
-            description: "Make waves with your swimming skills and trivia!",
-          },
-          {
-            name: "Surfing",
-            description:
-              "Ride the waves of fun facts about surfing and surfers.",
-          },
-          {
-            name: "Canoeing",
-            description:
-              "Paddle through questions about canoeing and kayaking.",
-          },
-          {
-            name: "Sailing",
-            description:
-              "Set your sails for trivia on sailing adventures and gear.",
-          },
-          {
-            name: "Rowing",
-            description:
-              "Row your way through challenges on rowing and regattas.",
-          },
-          {
-            name: "WaterPolo",
-            description: "Dive into the fast-paced world of water polo trivia.",
-          },
-          {
-            name: "Diving",
-            description:
-              "Take the plunge with facts about diving and dive sites.",
-          },
-          {
-            name: "Boating",
-            description: "Explore trivia about boats, yachts, and watercraft.",
-          },
-          {
-            name: "Windsurf",
-            description: "Catch the wind with questions on windsurfing skills.",
-          },
-          {
-            name: "Kitesurf",
-            description: "Soar above water with kitesurfing knowledge.",
-          },
-          {
-            name: "Marathon",
-            description: "Swim your way through long-distance swimming trivia.",
-          },
-          {
-            name: "Rescue",
-            description: "Learn about water rescue techniques and safety.",
-          },
-          {
-            name: "Equipment",
-            description:
-              "Know your paddles, boards, and gear for water sports.",
-          },
-          {
-            name: "Tides",
-            description: "Ride the tides of trivia about oceans and currents.",
-          },
-          {
-            name: "Records",
-            description:
-              "Celebrate amazing water sport records and achievements.",
-          },
-          {
-            name: "Events",
-            description:
-              "Test your knowledge on famous water sport competitions.",
-          },
-          {
-            name: "Rules",
-            description: "Know the rules that keep water sports fair and fun.",
-          },
-          {
-            name: "Fitness",
-            description: "Learn how athletes stay fit for water sports.",
-          },
-          {
-            name: "History",
-            description: "Explore the history and origins of water sports.",
-          },
-          {
-            name: "Techniques",
-            description:
-              "Master the techniques behind top water sport athletes.",
-          },
-          {
-            name: "Champions",
-            description: "Celebrate the champions of water sports worldwide.",
-          },
-          {
-            name: "Safety",
-            description: "Stay safe on and in the water with important tips.",
-          },
-          {
-            name: "Adventure",
-            description: "Dive into thrilling water sport adventures.",
-          },
-          {
-            name: "Travel",
-            description:
-              "Discover the best places around the world for water sports.",
-          },
-          {
-            name: "Culture",
-            description: "Learn about water sports traditions and communities.",
-          },
-          {
-            name: "Competitions",
-            description:
-              "Know your major water sport contests and tournaments.",
-          },
-          {
-            name: "Tricks",
-            description: "Show off your knowledge of cool moves and stunts.",
-          },
-          {
-            name: "Environment",
-            description: "Understand how water sports interact with nature.",
-          },
-          {
-            name: "Training",
-            description:
-              "Find out how athletes train for water sports success.",
-          },
-          {
-            name: "Gear",
-            description:
-              "Get to know the gear that makes water sports possible.",
-          },
-        ],
+        rooms: genericGameRooms("Water", 30, false),
       },
       {
         name: "Winter",
         description:
-          "Chill out and have fun with cool trivia about sports on snow and ice!",
+          "Chill out and have fun with cool trivia about sports on snow and ice! Every room draws questions from the full category pool.",
         topics: ["Skiing", "Snowboarding", "Ice Skating", "Speed Skating"],
-        rooms: [
-          {
-            name: "Skiing",
-            description:
-              "Hit the slopes with your skiing knowledge and skills!",
-          },
-          {
-            name: "Snowboard",
-            description: "Ride the snowy hills and master snowboard trivia.",
-          },
-          {
-            name: "IceSkate",
-            description: "Glide gracefully through questions on ice skating.",
-          },
-          {
-            name: "SpeedSkate",
-            description: "Race through fast facts about speed skating.",
-          },
-          {
-            name: "Bobsled",
-            description: "Zoom down the ice track with bobsled trivia.",
-          },
-          {
-            name: "Luge",
-            description: "Slide into knowledge about luge competitions.",
-          },
-          {
-            name: "Curling",
-            description: "Sweep your way through curling fun facts.",
-          },
-          {
-            name: "Biathlon",
-            description:
-              "Combine skiing and shooting in this unique sport trivia.",
-          },
-          {
-            name: "Snowshoe",
-            description: "Walk through snowy trails with snowshoe knowledge.",
-          },
-          {
-            name: "Freestyle",
-            description:
-              "Show off your freestyle skiing and snowboarding know-how.",
-          },
-          {
-            name: "Halfpipe",
-            description: "Master the tricks and moves in halfpipe events.",
-          },
-          {
-            name: "IceHockey",
-            description:
-              "Skate into the fast-paced world of ice hockey trivia.",
-          },
-          {
-            name: "SkiJump",
-            description: "Take a leap with ski jumping fun facts.",
-          },
-          {
-            name: "SnowboardCross",
-            description: "Race and jump through snowboard cross trivia.",
-          },
-          {
-            name: "SpeedTrail",
-            description: "Explore the fastest trails in speed skating.",
-          },
-          {
-            name: "SnowFest",
-            description: "Celebrate winter sports festivals and events.",
-          },
-          {
-            name: "Equipment",
-            description: "Know your skis, boards, and ice gear.",
-          },
-          {
-            name: "Rules",
-            description: "Keep up with the rules that keep winter sports safe.",
-          },
-          {
-            name: "Champions",
-            description: "Celebrate the legends of winter sports.",
-          },
-          {
-            name: "Training",
-            description: "Learn how athletes prepare for the chill.",
-          },
-          {
-            name: "History",
-            description: "Discover the origins of winter sports.",
-          },
-          {
-            name: "Tricks",
-            description: "Show off your knowledge of cool winter sport tricks.",
-          },
-          {
-            name: "Competitions",
-            description: "Know your Winter Olympics and major contests.",
-          },
-          {
-            name: "Safety",
-            description: "Stay safe while having fun on ice and snow.",
-          },
-          {
-            name: "Adventure",
-            description: "Dive into thrilling winter sport adventures.",
-          },
-          {
-            name: "Travel",
-            description: "Find the best winter sport destinations.",
-          },
-          {
-            name: "Culture",
-            description: "Explore winter sports traditions worldwide.",
-          },
-          {
-            name: "Fitness",
-            description: "Learn about fitness for winter athletes.",
-          },
-          {
-            name: "SnowTech",
-            description: "Discover the tech behind winter sports gear.",
-          },
-          {
-            name: "Fans",
-            description: "Celebrate the passionate fans of winter sports.",
-          },
-        ],
+        rooms: genericGameRooms("Winter", 30, false),
       },
       {
         name: "Adventure",
-        description: "Get ready for thrilling challenges and wild outdoor fun!",
+        description: "Get ready for thrilling challenges and wild outdoor fun! Every room draws questions from the full category pool.",
         topics: [
           "Rock Climbing",
           "Parkour",
@@ -9642,375 +2148,31 @@ const games: Game[] = [
           "Cycling",
           "Mountain Biking",
         ],
-        rooms: [
-          {
-            name: "Climbing",
-            description: "Scale the heights with your rock climbing skills!",
-          },
-          {
-            name: "Parkour",
-            description: "Leap, jump, and sprint through parkour trivia.",
-          },
-          {
-            name: "Hiking",
-            description: "Explore trails and nature with hiking knowledge.",
-          },
-          {
-            name: "Cycling",
-            description: "Pedal your way through cycling facts and feats.",
-          },
-          {
-            name: "Mountain",
-            description: "Tackle the rugged terrain of mountain biking.",
-          },
-          {
-            name: "Trails",
-            description: "Navigate exciting trails and outdoor routes.",
-          },
-          { name: "Gear", description: "Know your adventure gear inside out." },
-          {
-            name: "Safety",
-            description: "Learn how to stay safe while chasing thrills.",
-          },
-          {
-            name: "Techniques",
-            description: "Master the techniques behind each sport.",
-          },
-          {
-            name: "Competitions",
-            description: "Compete with the best in adventure sports events.",
-          },
-          {
-            name: "Endurance",
-            description: "Test your stamina and endurance knowledge.",
-          },
-          {
-            name: "Urban",
-            description:
-              "Discover urban adventures like parkour and freerunning.",
-          },
-          {
-            name: "Nature",
-            description: "Connect with nature in every adventure sport.",
-          },
-          {
-            name: "Challenges",
-            description: "Overcome challenges in adventurous ways.",
-          },
-          {
-            name: "Legends",
-            description: "Celebrate legends and pioneers of adventure sports.",
-          },
-          {
-            name: "Records",
-            description: "Know the records and milestones achieved outdoors.",
-          },
-          {
-            name: "Training",
-            description: "Prepare your body and mind for adventure.",
-          },
-          {
-            name: "Stunts",
-            description: "Learn about daring stunts and tricks.",
-          },
-          {
-            name: "Events",
-            description: "Stay updated on major adventure sports events.",
-          },
-          {
-            name: "Exploration",
-            description: "Explore new frontiers and unknown paths.",
-          },
-          {
-            name: "Fitness",
-            description: "Stay fit for your next big adventure.",
-          },
-          {
-            name: "Mountains",
-            description: "Discover the best mountains for adventure sports.",
-          },
-          {
-            name: "Biking",
-            description: "Dive into all things biking and cycling.",
-          },
-          {
-            name: "Clubs",
-            description: "Join clubs and groups for adventure lovers.",
-          },
-          {
-            name: "Travel",
-            description: "Find the coolest destinations for thrill-seekers.",
-          },
-          {
-            name: "Tips",
-            description: "Get handy tips for your next outdoor quest.",
-          },
-          {
-            name: "Weather",
-            description: "Learn how weather impacts adventure sports.",
-          },
-          {
-            name: "History",
-            description: "Trace the roots and evolution of adventure sports.",
-          },
-          {
-            name: "Community",
-            description: "Connect with other adventure enthusiasts.",
-          },
-          {
-            name: "Wildlife",
-            description: "Respect and understand wildlife on your journeys.",
-          },
-        ],
+        rooms: genericGameRooms("Adventure", 30, false),
       },
       {
         name: "Motorsports",
         description:
-          "Feel the rush of speed and roar of engines in thrilling races!",
+          "Feel the rush of speed and roar of engines in thrilling races! Every room draws questions from the full category pool.",
         topics: ["Formula 1", "MotoGP", "Rally Racing", "NASCAR", "Go-Karting"],
-        rooms: [
-          {
-            name: "Speed",
-            description: "Test your knowledge of all things fast and furious!",
-          },
-          {
-            name: "Tracks",
-            description: "Learn about the most famous racing circuits.",
-          },
-          {
-            name: "Drivers",
-            description: "Know the legends and stars behind the wheel.",
-          },
-          {
-            name: "Engines",
-            description: "Dive into the power behind the machines.",
-          },
-          {
-            name: "Teams",
-            description: "Discover top racing teams and their histories.",
-          },
-          {
-            name: "Races",
-            description: "Explore iconic races and epic finishes.",
-          },
-          {
-            name: "MotoGP",
-            description: "Zoom into the world of motorcycle racing.",
-          },
-          { name: "NASCAR", description: "Get the scoop on stock car racing." },
-          {
-            name: "Rally",
-            description: "Conquer the twists and turns of rally racing.",
-          },
-          {
-            name: "Go-Kart",
-            description: "Start your engines with karting basics.",
-          },
-          {
-            name: "Champions",
-            description: "Celebrate the champions of motorsports.",
-          },
-          {
-            name: "Rules",
-            description: "Understand the rules that keep races fair.",
-          },
-          {
-            name: "Pitstop",
-            description: "Learn the secrets of fast pit stops.",
-          },
-          {
-            name: "History",
-            description: "Trace the history of motorsport competitions.",
-          },
-          { name: "Gear", description: "Know your racing gear and equipment." },
-          {
-            name: "Safety",
-            description: "Stay safe with motorsport safety facts.",
-          },
-          {
-            name: "Tires",
-            description: "Discover the importance of tires on race day.",
-          },
-          {
-            name: "Aerodynamics",
-            description: "Understand the science of speed and drag.",
-          },
-          {
-            name: "Records",
-            description: "Challenge yourself with record-breaking feats.",
-          },
-          {
-            name: "Technology",
-            description: "Explore cutting-edge tech in motorsports.",
-          },
-          { name: "Fans", description: "Connect with motorsport fan culture." },
-          {
-            name: "Legends",
-            description: "Know the legends who shaped the sport.",
-          },
-          {
-            name: "Events",
-            description: "Stay updated on major motorsport events.",
-          },
-          {
-            name: "Fuel",
-            description: "Learn about the fuel that powers these beasts.",
-          },
-          {
-            name: "Navigation",
-            description: "Master the art of navigating tough courses.",
-          },
-          {
-            name: "Sponsorship",
-            description: "Explore the business side of racing.",
-          },
-          {
-            name: "Innovation",
-            description: "Discover innovations that changed the game.",
-          },
-          {
-            name: "Offroad",
-            description: "Dive into the rugged world of off-road racing.",
-          },
-          {
-            name: "Qualifying",
-            description: "Test your knowledge of qualifying rounds.",
-          },
-          {
-            name: "Strategy",
-            description: "Learn the strategies that win races.",
-          },
-        ],
+        rooms: genericGameRooms("Motorsports", 30, false),
       },
       {
         name: "Strength",
         description:
-          "Flex your muscles and test your knowledge of power-packed sports!",
+          "Flex your muscles and test your knowledge of power-packed sports! Every room draws questions from the full category pool.",
         topics: [
           "Weightlifting",
           "Powerlifting",
           "CrossFit",
           "Strongman Competitions",
         ],
-        rooms: [
-          {
-            name: "Lift",
-            description: "Discover the art of lifting heavy weights.",
-          },
-          {
-            name: "Power",
-            description: "Learn about raw strength and power moves.",
-          },
-          {
-            name: "CrossFit",
-            description: "Dive into the world of high-intensity workouts.",
-          },
-          {
-            name: "Strongman",
-            description: "Explore epic feats from strongman contests.",
-          },
-          {
-            name: "Training",
-            description: "Get tips on training for strength sports.",
-          },
-          {
-            name: "Records",
-            description: "Challenge yourself with world records.",
-          },
-          {
-            name: "Nutrition",
-            description: "Fuel your strength with the right nutrition.",
-          },
-          {
-            name: "Techniques",
-            description: "Master the techniques behind the lifts.",
-          },
-          {
-            name: "Competitions",
-            description: "Learn about famous strength competitions.",
-          },
-          {
-            name: "Athletes",
-            description: "Meet legendary strength athletes.",
-          },
-          {
-            name: "Equipment",
-            description: "Know the gear used in strength sports.",
-          },
-          {
-            name: "History",
-            description: "Trace the history of strength sports.",
-          },
-          {
-            name: "Challenges",
-            description: "Take on fun strength challenges.",
-          },
-          {
-            name: "Safety",
-            description: "Learn how to stay safe while lifting.",
-          },
-          {
-            name: "Workouts",
-            description: "Explore popular strength training workouts.",
-          },
-          {
-            name: "Powerlifting",
-            description: "Focus on squat, bench, and deadlift.",
-          },
-          { name: "Olympic", description: "Dive into Olympic weightlifting." },
-          {
-            name: "Endurance",
-            description: "Balance strength with endurance training.",
-          },
-          {
-            name: "Recovery",
-            description: "Know how athletes recover from tough training.",
-          },
-          {
-            name: "Motivation",
-            description: "Stay inspired with strength sport stories.",
-          },
-          {
-            name: "Flexibility",
-            description: "Combine strength with flexibility.",
-          },
-          {
-            name: "CrossTraining",
-            description: "Explore cross-training techniques.",
-          },
-          {
-            name: "Events",
-            description: "Stay updated on upcoming strength events.",
-          },
-          { name: "Technique", description: "Perfect your lifting form." },
-          {
-            name: "Records",
-            description: "Learn about world and personal records.",
-          },
-          { name: "Nutrition", description: "Fuel up for peak performance." },
-          { name: "Gear", description: "Get to know the equipment pros use." },
-          {
-            name: "Community",
-            description: "Connect with strength sport enthusiasts.",
-          },
-          {
-            name: "Mindset",
-            description: "Develop the mental strength to push limits.",
-          },
-          {
-            name: "History",
-            description: "Explore the evolution of strength sports.",
-          },
-          {
-            name: "Power",
-            description: "Understand how to generate explosive power.",
-          },
-        ],
+        rooms: genericGameRooms("Strength", 31, false),
       },
       {
         name: "Individual",
         description:
-          "Show off your solo skills and master the game one play at a time!",
+          "Show off your solo skills and master the game one play at a time! Every room draws questions from the full category pool.",
         topics: [
           "Golf",
           "Tennis",
@@ -10020,189 +2182,19 @@ const games: Game[] = [
           "Billiards",
           "Darts",
         ],
-        rooms: [
-          { name: "Golf", description: "Tee off and learn all about golf." },
-          { name: "Tennis", description: "Serve up some tennis trivia." },
-          { name: "Bowling", description: "Strike it big with bowling facts." },
-          {
-            name: "Archery",
-            description: "Hit the bullseye with archery knowledge.",
-          },
-          { name: "Snooker", description: "Master the angles in snooker." },
-          { name: "Billiards", description: "Rack 'em up in billiards." },
-          { name: "Darts", description: "Aim high with darts challenges." },
-          {
-            name: "Skills",
-            description: "Sharpen your individual sport skills.",
-          },
-          { name: "Rules", description: "Know the rules of solo sports." },
-          {
-            name: "History",
-            description: "Explore the history of individual sports.",
-          },
-          {
-            name: "Equipment",
-            description: "Get to know gear used in solo sports.",
-          },
-          {
-            name: "Champions",
-            description: "Learn about top individual athletes.",
-          },
-          {
-            name: "Training",
-            description: "Discover training tips for solo sports.",
-          },
-          {
-            name: "Tournaments",
-            description: "Stay updated on major tournaments.",
-          },
-          {
-            name: "Techniques",
-            description: "Master techniques for better performance.",
-          },
-          { name: "Strategy", description: "Develop winning strategies." },
-          {
-            name: "Fitness",
-            description: "Get fit for peak individual performance.",
-          },
-          { name: "Mental", description: "Build focus and mental toughness." },
-          {
-            name: "Records",
-            description: "Challenge yourself with record trivia.",
-          },
-          {
-            name: "Legends",
-            description: "Meet the legends of individual sports.",
-          },
-          {
-            name: "Competitions",
-            description: "Test your knowledge of competitions.",
-          },
-          { name: "Scoring", description: "Understand scoring systems." },
-          { name: "Skills", description: "Improve key skills step by step." },
-          { name: "History", description: "Discover origins and evolution." },
-          { name: "Gear", description: "Know your sports equipment." },
-          { name: "Tactics", description: "Plan your game like a pro." },
-          {
-            name: "Championships",
-            description: "Learn about famous championships.",
-          },
-          {
-            name: "Sportsmanship",
-            description: "Celebrate fair play and respect.",
-          },
-          {
-            name: "Techniques",
-            description: "Perfect your playing techniques.",
-          },
-          {
-            name: "Challenge",
-            description: "Take on fun individual challenges.",
-          },
-        ],
+        rooms: genericGameRooms("Individual", 30, false),
       },
       {
         name: "Equestrian",
         description:
-          "Gallop into the exciting world of horse sports and riding skills!",
+          "Gallop into the exciting world of horse sports and riding skills! Every room draws questions from the full category pool.",
         topics: ["Horse Racing", "Polo", "Equestrian Jumping", "Dressage"],
-        rooms: [
-          {
-            name: "Racing",
-            description: "Speed through the thrills of horse racing.",
-          },
-          { name: "Polo", description: "Master the fast-paced game of polo." },
-          {
-            name: "Jumping",
-            description: "Leap over challenges in equestrian jumping.",
-          },
-          {
-            name: "Dressage",
-            description: "Gracefully explore the art of dressage.",
-          },
-          {
-            name: "Breeds",
-            description: "Learn about different horse breeds.",
-          },
-          { name: "Tack", description: "Get to know horse riding equipment." },
-          {
-            name: "Training",
-            description: "Discover how riders train their horses.",
-          },
-          {
-            name: "Competitions",
-            description: "Explore famous equestrian events.",
-          },
-          {
-            name: "History",
-            description: "Ride back through equestrian history.",
-          },
-          {
-            name: "Techniques",
-            description: "Improve your riding techniques.",
-          },
-          {
-            name: "Rules",
-            description: "Understand the rules of equestrian sports.",
-          },
-          { name: "Care", description: "Learn horse care and grooming tips." },
-          {
-            name: "Champions",
-            description: "Meet legendary riders and horses.",
-          },
-          {
-            name: "Stables",
-            description: "Discover the world of horse stables.",
-          },
-          {
-            name: "Events",
-            description: "Stay updated on upcoming horse events.",
-          },
-          {
-            name: "Safety",
-            description: "Learn about safety in horse sports.",
-          },
-          { name: "Gear", description: "Know your riding gear essentials." },
-          { name: "Styles", description: "Explore different riding styles." },
-          {
-            name: "Breeding",
-            description: "Dive into horse breeding knowledge.",
-          },
-          {
-            name: "Careers",
-            description: "Find out about careers in equestrian sports.",
-          },
-          {
-            name: "Legends",
-            description: "Discover famous horses and riders.",
-          },
-          { name: "Strategy", description: "Plan your winning moves." },
-          {
-            name: "Fitness",
-            description: "Stay fit for top riding performance.",
-          },
-          { name: "Grooming", description: "Master horse grooming skills." },
-          {
-            name: "Etiquette",
-            description: "Learn riding etiquette and manners.",
-          },
-          { name: "Jumping", description: "Perfect your jumping skills." },
-          {
-            name: "Dressage",
-            description: "Fine-tune your dressage knowledge.",
-          },
-          { name: "Polo", description: "Score points in the polo arena." },
-          { name: "Racing", description: "Race your way to the finish line." },
-          {
-            name: "Challenges",
-            description: "Test yourself with fun horse challenges.",
-          },
-        ],
+        rooms: genericGameRooms("Equestrian", 30, false),
       },
       {
         name: "Extreme",
         description:
-          "Get ready for thrills, spills, and adrenaline-pumping action!",
+          "Get ready for thrills, spills, and adrenaline-pumping action! Every room draws questions from the full category pool.",
         topics: [
           "Skateboarding",
           "BMX",
@@ -10210,118 +2202,12 @@ const games: Game[] = [
           "Surfing",
           "Freestyle Motocross",
         ],
-        rooms: [
-          {
-            name: "Skateboard",
-            description: "Master tricks and skills on the board.",
-          },
-          {
-            name: "BMX",
-            description: "Jump, spin, and race on your BMX bike.",
-          },
-          {
-            name: "Snowboard",
-            description: "Carve down snowy slopes with style.",
-          },
-          {
-            name: "Surf",
-            description: "Ride the waves and catch the perfect swell.",
-          },
-          {
-            name: "Motocross",
-            description: "Show off daring moves on dirt bikes.",
-          },
-          {
-            name: "Climbing",
-            description: "Scale rocks and cliffs with courage.",
-          },
-          {
-            name: "Parkour",
-            description: "Run, jump, and vault through urban landscapes.",
-          },
-          {
-            name: "Skydive",
-            description: "Feel the rush of freefalling from the sky.",
-          },
-          {
-            name: "Wingsuit",
-            description: "Fly like a bird with your wingsuit gear.",
-          },
-          {
-            name: "BaseJump",
-            description: "Leap from fixed objects with precision.",
-          },
-          {
-            name: "KiteSurf",
-            description: "Harness the wind and ride the waves.",
-          },
-          {
-            name: "Wakeboard",
-            description: "Glide and jump over water with your board.",
-          },
-          {
-            name: "Bungee",
-            description: "Experience the thrill of bungee jumping.",
-          },
-          {
-            name: "Freestyle",
-            description: "Show your flair in freestyle sports.",
-          },
-          {
-            name: "Skimboard",
-            description: "Skim across shallow water with style.",
-          },
-          {
-            name: "Snowmobile",
-            description: "Race and jump over snowy terrains.",
-          },
-          {
-            name: "Rollerblade",
-            description: "Cruise and perform tricks on wheels.",
-          },
-          {
-            name: "MountainBike",
-            description: "Race through rugged mountain trails.",
-          },
-          { name: "Park", description: "Hit the park and perform tricks." },
-          { name: "Trail", description: "Explore off-road trails with skill." },
-          {
-            name: "Scooter",
-            description: "Pop tricks and race on your scooter.",
-          },
-          {
-            name: "SkatePark",
-            description: "Perfect your skills in the skatepark.",
-          },
-          { name: "Jump", description: "Fly high with big jumps and tricks." },
-          {
-            name: "Flip",
-            description: "Master flips and spins on your board.",
-          },
-          { name: "Grind", description: "Slide and grind rails with finesse." },
-          {
-            name: "Balance",
-            description: "Test your balance in extreme moves.",
-          },
-          {
-            name: "Speed",
-            description: "Race to the finish with lightning speed.",
-          },
-          {
-            name: "Stunts",
-            description: "Pull off jaw-dropping stunts and tricks.",
-          },
-          {
-            name: "Gear",
-            description: "Know your gear for extreme sports safety.",
-          },
-          { name: "Legends", description: "Learn about extreme sports icons." },
-        ],
+        rooms: genericGameRooms("Extreme", 30, false),
       },
       {
         name: "Ballgames",
         description:
-          "Get ready to bounce, throw, and score in all kinds of ball sports!",
+          "Get ready to bounce, throw, and score in all kinds of ball sports! Every room draws questions from the full category pool.",
         topics: [
           "Golf",
           "Tennis",
@@ -10331,576 +2217,40 @@ const games: Game[] = [
           "Rugby",
           "Football",
         ],
-        rooms: [
-          { name: "Golf", description: "Hit the greens and aim for the hole." },
-          {
-            name: "Tennis",
-            description: "Serve, volley, and smash on the court.",
-          },
-          {
-            name: "Baseball",
-            description: "Pitch, bat, and run bases like a pro.",
-          },
-          {
-            name: "Basketball",
-            description: "Dribble, shoot, and dunk to win.",
-          },
-          {
-            name: "Cricket",
-            description: "Bowl, bat, and field in this classic game.",
-          },
-          { name: "Rugby", description: "Tackle, pass, and score tries." },
-          { name: "Football", description: "Pass, run, and score touchdowns." },
-          {
-            name: "Volleyball",
-            description: "Spike, set, and serve to win points.",
-          },
-          {
-            name: "Handball",
-            description: "Fast-paced play with quick passes.",
-          },
-          { name: "PingPong", description: "Fast reflexes and quick shots." },
-          {
-            name: "Softball",
-            description: "Swing big in this softball showdown.",
-          },
-          {
-            name: "Kickball",
-            description: "Kick, run, and have fun in this backyard classic.",
-          },
-          {
-            name: "Lacrosse",
-            description: "Catch, throw, and score with a stick.",
-          },
-          {
-            name: "Bowling",
-            description: "Roll the ball and knock down pins.",
-          },
-          {
-            name: "Squash",
-            description: "Fast indoor rallies with a small ball.",
-          },
-          {
-            name: "CricketT20",
-            description: "Short and exciting cricket format.",
-          },
-          { name: "Futsal", description: "Indoor soccer with quick moves." },
-          {
-            name: "WaterPolo",
-            description: "Swim, pass, and score goals in the pool.",
-          },
-          {
-            name: "BeachVolleyball",
-            description: "Sun, sand, and spikes on the beach.",
-          },
-          { name: "TableTennis", description: "Fast-paced ping pong action." },
-          { name: "FootGolf", description: "Kick the ball into golf holes." },
-          {
-            name: "HandballPro",
-            description: "Competitive handball at its best.",
-          },
-          {
-            name: "TennisDoubles",
-            description: "Team up for doubles tennis fun.",
-          },
-          {
-            name: "StreetBasketball",
-            description: "Play hoops on the street courts.",
-          },
-          {
-            name: "CricketTest",
-            description: "The classic, longer format cricket game.",
-          },
-          {
-            name: "AmericanFootball",
-            description: "The gridiron battle for touchdowns.",
-          },
-          {
-            name: "MiniGolf",
-            description: "Putt your way through fun obstacles.",
-          },
-          {
-            name: "BallSkills",
-            description: "Practice your ball control skills.",
-          },
-          { name: "Catch", description: "Improve your catching and throwing." },
-          {
-            name: "Freestyle",
-            description: "Show off your ball tricks and flair.",
-          },
-        ],
+        rooms: genericGameRooms("Ballgames", 30, false),
       },
       {
         name: "Track",
         description:
-          "Dash, jump, and race your way through thrilling track events!",
+          "Dash, jump, and race your way through thrilling track events! Every room draws questions from the full category pool.",
         topics: ["Cycling", "Sprinting", "Hurdles", "Relay"],
-        rooms: [
-          { name: "Sprint", description: "Speed off in short distance races." },
-          {
-            name: "Hurdles",
-            description: "Leap over barriers and race to the finish.",
-          },
-          {
-            name: "Relay",
-            description: "Team up and pass the baton smoothly.",
-          },
-          {
-            name: "Cycling",
-            description: "Race on two wheels around the track.",
-          },
-          {
-            name: "Marathon",
-            description: "Endurance racing for the long haul.",
-          },
-          {
-            name: "Steeplechase",
-            description: "Race with obstacles and water jumps.",
-          },
-          {
-            name: "LongJump",
-            description: "Leap as far as you can into the sand.",
-          },
-          {
-            name: "HighJump",
-            description: "Soar over the bar to new heights.",
-          },
-          {
-            name: "PoleVault",
-            description: "Use a pole to fly over tall bars.",
-          },
-          {
-            name: "Discus",
-            description: "Throw the discus for maximum distance.",
-          },
-          { name: "ShotPut", description: "Push the shot for a heavy throw." },
-          { name: "Javelin", description: "Throw the spear-like javelin far." },
-          {
-            name: "CrossCountry",
-            description: "Run over varied terrain and trails.",
-          },
-          { name: "Decathlon", description: "Test your skills in ten events." },
-          {
-            name: "Triathlon",
-            description: "Swim, bike, and run in one race.",
-          },
-          { name: "100m", description: "Classic sprint to show your speed." },
-          { name: "200m", description: "Double the distance, double the fun." },
-          { name: "400m", description: "Sprint around the track once." },
-          { name: "800m", description: "Middle-distance race for endurance." },
-          { name: "1500m", description: "Run just under a mile with speed." },
-          {
-            name: "4x100m",
-            description: "Fast-paced relay race with four sprinters.",
-          },
-          {
-            name: "4x400m",
-            description: "Longer relay race, teamwork is key.",
-          },
-          {
-            name: "Wheelchair",
-            description: "Racing on wheels with speed and skill.",
-          },
-          {
-            name: "MountainBike",
-            description: "Tackle rough tracks on a mountain bike.",
-          },
-          {
-            name: "Velodrome",
-            description: "Track cycling on a banked track.",
-          },
-          {
-            name: "UltraMarathon",
-            description: "Go beyond the marathon distance.",
-          },
-          { name: "RelayMixed", description: "Mixed gender team relay races." },
-          {
-            name: "SprintHurdles",
-            description: "Sprint races with hurdles to jump.",
-          },
-          { name: "FunRun", description: "Casual races just for fun." },
-          {
-            name: "NightRace",
-            description: "Exciting races held under the lights.",
-          },
-        ],
+        rooms: genericGameRooms("Track", 30, false),
       },
       {
         name: "Fitness",
         description:
-          "Get moving and have fun with all things fitness and exercise!",
+          "Get moving and have fun with all things fitness and exercise! Every room draws questions from the full category pool.",
         topics: ["Gymnastics", "Pilates", "Yoga", "Martial Arts", "Zumba"],
-        rooms: [
-          {
-            name: "Gymnastics",
-            description:
-              "Flip, balance, and tumble your way through challenges.",
-          },
-          {
-            name: "Pilates",
-            description: "Focus on core strength and flexibility.",
-          },
-          {
-            name: "Yoga",
-            description: "Stretch and relax while mastering your poses.",
-          },
-          {
-            name: "MartialArts",
-            description: "Learn the moves and tactics of martial arts.",
-          },
-          {
-            name: "Zumba",
-            description: "Dance your way to fitness with fun rhythms.",
-          },
-          {
-            name: "Cardio",
-            description: "Boost your heart rate with energizing exercises.",
-          },
-          {
-            name: "Strength",
-            description: "Build muscle and power with strength training.",
-          },
-          {
-            name: "Endurance",
-            description: "Push your limits with stamina-building workouts.",
-          },
-          {
-            name: "Balance",
-            description: "Improve your stability and coordination.",
-          },
-          {
-            name: "Flexibility",
-            description: "Stretch your muscles and increase mobility.",
-          },
-          {
-            name: "HIIT",
-            description: "High-intensity interval training for quick results.",
-          },
-          {
-            name: "CrossFit",
-            description: "Mix of strength and conditioning challenges.",
-          },
-          {
-            name: "Aerobics",
-            description: "Keep moving with fun and rhythmic workouts.",
-          },
-          {
-            name: "Circuit",
-            description: "Rotate through exercises for a total body workout.",
-          },
-          {
-            name: "Meditation",
-            description: "Calm your mind to complement your fitness.",
-          },
-          {
-            name: "Running",
-            description:
-              "Hit the track or trail to improve speed and endurance.",
-          },
-          { name: "Cycling", description: "Pedal your way to better fitness." },
-          { name: "Swimming", description: "Full-body workouts in the water." },
-          {
-            name: "Dance",
-            description: "Fun moves to keep you active and energized.",
-          },
-          {
-            name: "Stretching",
-            description: "Prevent injuries and improve recovery.",
-          },
-          {
-            name: "Boxing",
-            description: "Punch and move with cardio boxing workouts.",
-          },
-          {
-            name: "JumpRope",
-            description: "Quick, effective cardio with a simple rope.",
-          },
-          {
-            name: "Powerlifting",
-            description: "Lift heavy and build serious strength.",
-          },
-          {
-            name: "Kettlebells",
-            description: "Swing into fitness with kettlebell exercises.",
-          },
-          {
-            name: "TRX",
-            description: "Bodyweight training with suspension straps.",
-          },
-          {
-            name: "Calisthenics",
-            description: "Train your body with minimal equipment.",
-          },
-          {
-            name: "Bootcamp",
-            description: "Intense group workouts for all fitness levels.",
-          },
-          {
-            name: "Mobility",
-            description: "Move better with joint-friendly exercises.",
-          },
-          {
-            name: "Rehab",
-            description: "Exercises focused on recovery and injury prevention.",
-          },
-          {
-            name: "Wellness",
-            description: "Balance fitness with mental and physical health.",
-          },
-        ],
+        rooms: genericGameRooms("Fitness", 30, false),
       },
       {
         name: "Boards",
         description:
-          "Ride the waves, slopes, and streets with board sports fun and excitement!",
+          "Ride the waves, slopes, and streets with board sports fun and excitement! Every room draws questions from the full category pool.",
         topics: ["Skateboarding", "Snowboarding", "Surfing", "Windsurfing"],
-        rooms: [
-          {
-            name: "Skateboarding",
-            description: "Master tricks and stunts on your skateboard.",
-          },
-          {
-            name: "Snowboarding",
-            description: "Carve through the snow with style and speed.",
-          },
-          {
-            name: "Surfing",
-            description: "Catch the perfect wave and ride like a pro.",
-          },
-          {
-            name: "Windsurfing",
-            description: "Harness the wind to glide across the water.",
-          },
-          {
-            name: "Longboarding",
-            description: "Cruise and carve on longer boards for smooth rides.",
-          },
-          {
-            name: "Freestyle",
-            description: "Show off creative moves and freestyle skills.",
-          },
-          {
-            name: "Halfpipe",
-            description: "Ride the ramps and perform aerial tricks.",
-          },
-          {
-            name: "BigAir",
-            description: "Launch into the air with thrilling jumps.",
-          },
-          {
-            name: "Downhill",
-            description: "Speed down hills with control and precision.",
-          },
-          {
-            name: "ParkRiding",
-            description: "Hit the skate park with tricks and fun.",
-          },
-          {
-            name: "WaveRiding",
-            description: "Ride waves of all sizes in different spots.",
-          },
-          {
-            name: "Street",
-            description: "Skate through urban environments and obstacles.",
-          },
-          {
-            name: "Slalom",
-            description: "Weave through cones or obstacles with agility.",
-          },
-          {
-            name: "Freeride",
-            description: "Explore varied terrain with style and skill.",
-          },
-          {
-            name: "Speed",
-            description: "Race for the fastest times on board sports.",
-          },
-          {
-            name: "Tricks",
-            description: "Learn and perform the coolest board tricks.",
-          },
-          {
-            name: "Balance",
-            description: "Improve your balance for smooth rides.",
-          },
-          {
-            name: "Safety",
-            description: "Gear up and stay safe while enjoying the ride.",
-          },
-          {
-            name: "Equipment",
-            description: "Know your boards, gear, and maintenance tips.",
-          },
-          {
-            name: "Competitions",
-            description: "Compete and win in exciting board sports events.",
-          },
-          {
-            name: "History",
-            description: "Discover how board sports evolved over time.",
-          },
-          {
-            name: "Legends",
-            description: "Learn about famous board sports athletes.",
-          },
-          {
-            name: "Techniques",
-            description: "Master the techniques for every board sport.",
-          },
-          {
-            name: "Fitness",
-            description: "Stay fit and strong for board sports performance.",
-          },
-          {
-            name: "Culture",
-            description:
-              "Explore the lifestyle and culture around board sports.",
-          },
-          {
-            name: "Travel",
-            description: "Find the best spots worldwide for board sports.",
-          },
-          {
-            name: "Weather",
-            description: "Understand weather conditions for board sports.",
-          },
-          {
-            name: "Tournaments",
-            description: "Join and watch exciting board sports tournaments.",
-          },
-          {
-            name: "Training",
-            description: "Improve your skills with training tips and drills.",
-          },
-          {
-            name: "Events",
-            description: "Stay updated on upcoming board sports events.",
-          },
-        ],
+        rooms: genericGameRooms("Boards", 30, false),
       },
       {
         name: "WaterRacing",
         description:
-          "Race across waves and waterways with speed and skill in water-based racing!",
+          "Race across waves and waterways with speed and skill in water-based racing! Every room draws questions from the full category pool.",
         topics: ["Jet Skiing", "Canoeing", "Kayaking", "Sailing", "Rowing"],
-        rooms: [
-          {
-            name: "JetSki",
-            description: "Zoom over the water on a powerful jet ski.",
-          },
-          {
-            name: "Canoe",
-            description: "Paddle swiftly in a sleek canoe race.",
-          },
-          {
-            name: "Kayak",
-            description: "Navigate rapids and rivers in a kayak sprint.",
-          },
-          {
-            name: "Sail",
-            description: "Harness the wind to race your sailboat.",
-          },
-          {
-            name: "Row",
-            description: "Compete in teamwork rowing challenges.",
-          },
-          {
-            name: "Speed",
-            description: "Focus on top speeds across water races.",
-          },
-          {
-            name: "Sprint",
-            description: "Short, fast-paced water races for quick wins.",
-          },
-          {
-            name: "Endurance",
-            description: "Long-distance races that test stamina.",
-          },
-          {
-            name: "Relay",
-            description: "Team up for exciting water relay races.",
-          },
-          {
-            name: "Offshore",
-            description: "Race boats on open seas and offshore courses.",
-          },
-          {
-            name: "Freestyle",
-            description: "Show off stylish moves while racing.",
-          },
-          {
-            name: "Marathon",
-            description: "Test your limits in marathon water races.",
-          },
-          {
-            name: "Obstacle",
-            description: "Navigate courses with water obstacles.",
-          },
-          {
-            name: "Circuit",
-            description: "Complete laps in thrilling water circuits.",
-          },
-          {
-            name: "Tandem",
-            description: "Double the effort in tandem boat races.",
-          },
-          { name: "Team", description: "Work together for team water races." },
-          {
-            name: "Balance",
-            description: "Master balance to maintain speed and control.",
-          },
-          {
-            name: "Technique",
-            description: "Perfect your racing techniques on water.",
-          },
-          {
-            name: "Gear",
-            description: "Learn about the best gear for water racing.",
-          },
-          {
-            name: "Safety",
-            description: "Stay safe while pushing your limits on water.",
-          },
-          {
-            name: "History",
-            description: "Discover the history of water-based racing.",
-          },
-          {
-            name: "Legends",
-            description: "Meet the champions of water racing.",
-          },
-          {
-            name: "Training",
-            description: "Improve your skills with water racing drills.",
-          },
-          {
-            name: "Weather",
-            description: "Understand how weather impacts water races.",
-          },
-          {
-            name: "Competitions",
-            description: "Compete in water racing championships.",
-          },
-          { name: "Strategy", description: "Plan your race tactics to win." },
-          {
-            name: "Navigation",
-            description: "Master course navigation and turning.",
-          },
-          {
-            name: "Starts",
-            description: "Get off to a perfect start in every race.",
-          },
-          { name: "Turns", description: "Handle sharp turns like a pro." },
-          {
-            name: "Events",
-            description: "Keep up with exciting water racing events.",
-          },
-        ],
+        rooms: genericGameRooms("WaterRacing", 30, false),
       },
       {
         name: "Recreation",
         description:
-          "Enjoy casual games and fun sports perfect for friends, family, and good times!",
+          "Enjoy casual games and fun sports perfect for friends, family, and good times! Every room draws questions from the full category pool.",
         topics: [
           "Ultimate Frisbee",
           "Dodgeball",
@@ -10908,112 +2258,12 @@ const games: Game[] = [
           "Bocce Ball",
           "Horseshoes",
         ],
-        rooms: [
-          {
-            name: "Frisbee",
-            description: "Catch and throw in exciting Ultimate Frisbee action.",
-          },
-          {
-            name: "Dodge",
-            description: "Dodge, duck, and dive in fast-paced dodgeball.",
-          },
-          {
-            name: "Kickball",
-            description: "Kick, run, and score in classic kickball games.",
-          },
-          {
-            name: "Bocce",
-            description: "Aim and roll with precision in bocce ball.",
-          },
-          { name: "Horseshoe", description: "Toss and score with horseshoes." },
-          {
-            name: "Tag",
-            description: "Chase and tag in classic playground fun.",
-          },
-          { name: "Relay", description: "Team up for thrilling relay races." },
-          {
-            name: "Catch",
-            description: "Sharpen your catching skills in various games.",
-          },
-          {
-            name: "Throw",
-            description: "Perfect your throwing in fun challenges.",
-          },
-          {
-            name: "Balance",
-            description: "Test your balance with casual game twists.",
-          },
-          { name: "Speed", description: "Race and move fast to win the game." },
-          { name: "Team", description: "Work together to score and win." },
-          {
-            name: "Fun",
-            description: "Enjoy light-hearted, entertaining gameplay.",
-          },
-          {
-            name: "Outdoor",
-            description: "Play games best enjoyed outside in the sun.",
-          },
-          {
-            name: "Indoor",
-            description: "Casual games perfect for indoor fun.",
-          },
-          {
-            name: "Strategy",
-            description: "Plan smart moves to outplay opponents.",
-          },
-          {
-            name: "Skills",
-            description: "Practice and improve your game skills.",
-          },
-          {
-            name: "Challenges",
-            description: "Take on fun challenges with friends.",
-          },
-          {
-            name: "Practice",
-            description: "Hone your skills in relaxed sessions.",
-          },
-          {
-            name: "Friendly",
-            description: "Games for friendly competition and laughs.",
-          },
-          {
-            name: "Events",
-            description: "Join tournaments and fun social events.",
-          },
-          {
-            name: "Rules",
-            description: "Learn the basics and advanced game rules.",
-          },
-          {
-            name: "History",
-            description: "Discover the origins of your favorite games.",
-          },
-          {
-            name: "Gear",
-            description: "Explore equipment used in casual games.",
-          },
-          {
-            name: "Teams",
-            description: "Build and manage your winning teams.",
-          },
-          { name: "Tactics", description: "Master tactics to get the edge." },
-          {
-            name: "Warmup",
-            description: "Get ready with fun warm-up exercises.",
-          },
-          { name: "Play", description: "Jump right into the action and play!" },
-          {
-            name: "Scores",
-            description: "Keep track of points and leaderboards.",
-          },
-          { name: "Social", description: "Games that bring people together." },
-        ],
+        rooms: genericGameRooms("Recreation", 30, false),
       },
       {
         name: "Social Sports",
         description:
-          "Casual sports that bring friends together for fun and friendly competition.",
+          "Casual sports that bring friends together for fun and friendly competition. Every room draws questions from the full category pool.",
         topics: [
           "Softball",
           "Cricket",
@@ -11022,124 +2272,12 @@ const games: Game[] = [
           "Pool",
           "Darts",
         ],
-        rooms: [
-          {
-            name: "Softball",
-            description: "Swing, catch, and run in relaxed softball games.",
-          },
-          {
-            name: "Cricket",
-            description: "Bowl, bat, and field in casual cricket matches.",
-          },
-          {
-            name: "Bowling",
-            description: "Roll strikes and spares with your friends.",
-          },
-          {
-            name: "PingPong",
-            description: "Fast-paced table tennis action for all skill levels.",
-          },
-          {
-            name: "Pool",
-            description: "Aim and sink balls in friendly pool games.",
-          },
-          {
-            name: "Darts",
-            description: "Throw sharp and steady in fun darts matches.",
-          },
-          {
-            name: "Catch",
-            description: "Enjoy classic catch games that never get old.",
-          },
-          {
-            name: "Teams",
-            description: "Form teams and play together for the win.",
-          },
-          {
-            name: "Tournaments",
-            description: "Compete in fun and casual tournaments.",
-          },
-          {
-            name: "Skills",
-            description: "Sharpen your social sports skills here.",
-          },
-          {
-            name: "Strategy",
-            description: "Plan and play smarter to outscore your friends.",
-          },
-          {
-            name: "Friendly",
-            description: "Games designed for fun and friendly matches.",
-          },
-          {
-            name: "Socialize",
-            description: "Sports that are as much about friends as the game.",
-          },
-          {
-            name: "Leisure",
-            description: "Relaxed games perfect for downtime.",
-          },
-          {
-            name: "Practice",
-            description: "Work on your moves and improve your game.",
-          },
-          {
-            name: "Events",
-            description: "Join social sports events and gatherings.",
-          },
-          {
-            name: "Gear",
-            description: "Learn about equipment used in these games.",
-          },
-          {
-            name: "Rules",
-            description: "Brush up on the basics to keep the game fun.",
-          },
-          {
-            name: "Play",
-            description: "Jump into games and enjoy the action.",
-          },
-          {
-            name: "Scores",
-            description: "Track your progress and friendly rivalries.",
-          },
-          {
-            name: "Warmup",
-            description: "Get ready with fun warm-up activities.",
-          },
-          {
-            name: "Challenges",
-            description: "Take on new challenges with your crew.",
-          },
-          { name: "Fun", description: "Pure fun and laughs with every match." },
-          {
-            name: "Outdoor",
-            description: "Enjoy social sports best played outside.",
-          },
-          { name: "Indoor", description: "Cozy up with indoor social sports." },
-          {
-            name: "Mixed",
-            description: "Games for all ages and skill levels.",
-          },
-          { name: "Casual", description: "No pressure, just play and enjoy." },
-          {
-            name: "Competitive",
-            description: "For those who like a little friendly rivalry.",
-          },
-          {
-            name: "Teams",
-            description: "Join or create your own social sports teams.",
-          },
-          {
-            name: "Events",
-            description: "Be part of the community and have fun.",
-          },
-        ],
+        rooms: genericGameRooms("Social Sports", 30, false),
       },
       {
         name: "Esports",
         description:
-          "Jump into the fast-paced world of competitive gaming and epic battles!",
+          "Jump into the fast-paced world of competitive gaming and epic battles! Every room draws questions from the full category pool.",
         topics: [
           "League of Legends",
           "Fortnite",
@@ -11147,113 +2285,7 @@ const games: Game[] = [
           "Call of Duty",
           "Dota 2",
         ],
-        rooms: [
-          {
-            name: "League",
-            description: "Test your skills in the world of League of Legends.",
-          },
-          {
-            name: "Fortnite",
-            description: "Build, battle, and survive in Fortnite.",
-          },
-          {
-            name: "CSGO",
-            description: "Aim and strategize in Counter-Strike matches.",
-          },
-          {
-            name: "CallDuty",
-            description: "Dominate the battlefield in Call of Duty.",
-          },
-          {
-            name: "Dota",
-            description: "Master the lanes and heroes in Dota 2.",
-          },
-          {
-            name: "Shooter",
-            description: "Fast reflexes and sharp aim rule here.",
-          },
-          {
-            name: "Strategy",
-            description: "Plan and outsmart your opponents.",
-          },
-          {
-            name: "Teamwork",
-            description: "Win games with tight team coordination.",
-          },
-          {
-            name: "Tournaments",
-            description: "Compete in thrilling esports tournaments.",
-          },
-          {
-            name: "Ranked",
-            description: "Climb the ranks and prove your mettle.",
-          },
-          {
-            name: "Casual",
-            description: "Chill and play some casual matches.",
-          },
-          {
-            name: "Streamers",
-            description: "Follow and learn from the best gamers.",
-          },
-          {
-            name: "Events",
-            description: "Join live esports events and watch the action.",
-          },
-          {
-            name: "Practice",
-            description: "Sharpen your skills and tactics here.",
-          },
-          {
-            name: "Highlights",
-            description: "Catch the best moments and plays.",
-          },
-          {
-            name: "News",
-            description: "Stay updated with the latest esports news.",
-          },
-          { name: "Gear", description: "Explore gaming gear and setups." },
-          { name: "Mods", description: "Discover custom maps and mods." },
-          {
-            name: "Casters",
-            description: "Hear the excitement from esports commentators.",
-          },
-          {
-            name: "Updates",
-            description: "Keep up with game patches and changes.",
-          },
-          {
-            name: "Clans",
-            description: "Join or create clans and gaming communities.",
-          },
-          {
-            name: "Challenges",
-            description: "Take on in-game challenges and missions.",
-          },
-          {
-            name: "Achievements",
-            description: "Show off your in-game accomplishments.",
-          },
-          {
-            name: "Training",
-            description: "Improve your mechanics and game sense.",
-          },
-          {
-            name: "Replays",
-            description: "Review past matches to learn and improve.",
-          },
-          {
-            name: "Streaming",
-            description: "Tips and tricks for becoming a streamer.",
-          },
-          {
-            name: "Social",
-            description: "Meet and chat with fellow esports fans.",
-          },
-          { name: "Events", description: "Special community esports events." },
-          { name: "Battles", description: "Jump into intense player battles." },
-          { name: "Fun", description: "Just have fun and enjoy the game!" },
-        ],
+        rooms: genericGameRooms("Esports", 30, false),
       },
     ],
   },
@@ -11265,467 +2297,60 @@ const games: Game[] = [
       {
         name: "TypeMania",
         description:
-          "Race your fingers and show off your typing speed and accuracy!",
+          "Race your fingers and show off your typing speed and accuracy! Every room uses the same category content and rules.",
         topics: [],
-        rooms: [
-          { name: "Speed", description: "Test how fast you can type!" },
-          {
-            name: "Accuracy",
-            description: "Focus on typing perfectly without mistakes.",
-          },
-          {
-            name: "Words",
-            description: "Type tricky words before time runs out.",
-          },
-          {
-            name: "Phrases",
-            description: "Type full phrases with speed and style.",
-          },
-          {
-            name: "Challenge",
-            description: "Take on tough typing challenges.",
-          },
-          {
-            name: "Race",
-            description: "Compete against others in real-time typing races.",
-          },
-          { name: "Practice", description: "Hone your typing skills here." },
-          {
-            name: "Beginner",
-            description: "Start easy and build up your speed.",
-          },
-          {
-            name: "Intermediate",
-            description: "Step up your game with medium difficulty.",
-          },
-          {
-            name: "Advanced",
-            description: "For the pros who never miss a key.",
-          },
-          {
-            name: "Sentences",
-            description: "Type complete sentences quickly.",
-          },
-          {
-            name: "Speedrun",
-            description: "Beat the clock in this timed mode.",
-          },
-          { name: "Quotes", description: "Type famous quotes under pressure." },
-          {
-            name: "Numbers",
-            description: "Challenge your numeric typing skills.",
-          },
-          {
-            name: "Symbols",
-            description: "Master typing special characters fast.",
-          },
-          { name: "Daily", description: "Try the daily typing challenge." },
-          { name: "Weekly", description: "Compete in weekly typing contests." },
-          {
-            name: "Tournament",
-            description: "Join the big typing competitions.",
-          },
-          {
-            name: "Wordspeed",
-            description: "Focus on typing speed over accuracy.",
-          },
-          { name: "Perfection", description: "Type without a single mistake." },
-          {
-            name: "Combo",
-            description: "Build combos by typing consecutive words correctly.",
-          },
-          {
-            name: "Marathon",
-            description: "Endurance typing for the long haul.",
-          },
-          {
-            name: "Classic",
-            description: "The classic typing test experience.",
-          },
-          { name: "Timed", description: "Race against a ticking clock." },
-          {
-            name: "Freeplay",
-            description: "Type at your own pace, no pressure.",
-          },
-          {
-            name: "Challenge",
-            description: "Special typing challenges to push your limits.",
-          },
-          {
-            name: "Speedtest",
-            description: "Measure your maximum typing speed.",
-          },
-          {
-            name: "Wordsprint",
-            description: "Fast typing sprints with short bursts.",
-          },
-          {
-            name: "AccuracyPro",
-            description: "Focus purely on flawless typing.",
-          },
-          {
-            name: "Nightmode",
-            description: "Practice typing in a relaxed, dark theme.",
-          },
-        ],
+        rooms: genericGameRooms("TypeMania", 30, true),
       },
       {
         name: "Hangman",
         description:
-          "Guess letters to reveal the hidden word before the hangman is complete!",
+          "Guess letters to reveal the hidden word before the hangman is complete! Every room uses the same category content and rules.",
         topics: [],
-        rooms: [
-          { name: "Easy", description: "Simple words to get you started." },
-          { name: "Medium", description: "Words with a moderate challenge." },
-          { name: "Hard", description: "Test your skills with tough words." },
-          { name: "Animals", description: "Guess names of animals." },
-          {
-            name: "Fruits",
-            description: "Try to guess delicious fruit names.",
-          },
-          {
-            name: "Countries",
-            description: "Guess countries from around the world.",
-          },
-          { name: "Cities", description: "Famous cities to uncover." },
-          { name: "Sports", description: "Sports-related words to guess." },
-          { name: "Movies", description: "Guess popular movie titles." },
-          { name: "Music", description: "Names of songs and artists." },
-          { name: "Food", description: "Delicious food items to reveal." },
-          { name: "Colors", description: "Color names to guess." },
-          { name: "Technology", description: "Tech terms and gadgets." },
-          {
-            name: "Nature",
-            description: "Words inspired by the natural world.",
-          },
-          { name: "Body", description: "Parts of the human body to guess." },
-          { name: "Vehicles", description: "Types of transportation." },
-          { name: "Jobs", description: "Guess various professions." },
-          { name: "Clothing", description: "Items of clothing to reveal." },
-          { name: "Mythology", description: "Mythical creatures and legends." },
-          { name: "School", description: "School-related words and objects." },
-          { name: "Space", description: "Words from the cosmos." },
-          { name: "Games", description: "Guess names of popular games." },
-          { name: "Weather", description: "Weather-related terms." },
-          { name: "Plants", description: "Guess names of plants and trees." },
-          { name: "Transport", description: "Various means of travel." },
-          { name: "Instruments", description: "Musical instruments to guess." },
-          { name: "Books", description: "Famous book titles and authors." },
-          {
-            name: "Festivals",
-            description: "Names of holidays and festivals.",
-          },
-          { name: "Superheroes", description: "Guess superhero names." },
-          { name: "Fantasy", description: "Words from fantasy worlds." },
-        ],
+        rooms: genericGameRooms("Hangman", 30, true),
       },
       {
         name: "Anagram",
         description:
-          "Rearrange the letters to create new words and solve the puzzle!",
+          "Rearrange the letters to create new words and solve the puzzle! Every room uses the same category content and rules.",
         topics: [],
-        rooms: [
-          {
-            name: "Easy",
-            description: "Simple puzzles to warm up your brain.",
-          },
-          {
-            name: "Medium",
-            description: "Challenge yourself with tricky puzzles.",
-          },
-          { name: "Hard", description: "Only for the puzzle pros!" },
-          { name: "Animals", description: "Unscramble names of animals." },
-          { name: "Fruits", description: "Mix up fruit names and solve." },
-          { name: "Countries", description: "Anagrams of country names." },
-          { name: "Cities", description: "Try to solve city name puzzles." },
-          { name: "Sports", description: "Sports-related anagrams to crack." },
-          { name: "Movies", description: "Famous movie titles jumbled up." },
-          { name: "Music", description: "Unscramble song titles and artists." },
-          { name: "Food", description: "Delicious food word puzzles." },
-          { name: "Colors", description: "Color names to unscramble." },
-          { name: "Technology", description: "Tech terms mixed around." },
-          {
-            name: "Nature",
-            description: "Words inspired by the natural world.",
-          },
-          { name: "Body", description: "Parts of the human body anagrammed." },
-          { name: "Vehicles", description: "Transportation terms scrambled." },
-          { name: "Jobs", description: "Professions in mixed letters." },
-          { name: "Clothing", description: "Fashion words to unscramble." },
-          { name: "Mythology", description: "Mystical names jumbled up." },
-          { name: "School", description: "School-related anagram puzzles." },
-          { name: "Space", description: "Words from outer space." },
-          { name: "Games", description: "Popular game titles mixed up." },
-          { name: "Weather", description: "Weather-related word puzzles." },
-          { name: "Plants", description: "Names of plants to solve." },
-          { name: "Transport", description: "Means of travel anagrammed." },
-          {
-            name: "Instruments",
-            description: "Musical instruments scrambled.",
-          },
-          { name: "Books", description: "Famous books and authors jumbled." },
-          { name: "Festivals", description: "Holiday names mixed up." },
-          { name: "Superheroes", description: "Unscramble superhero names." },
-          { name: "Fantasy", description: "Words from fantasy realms." },
-        ],
+        rooms: genericGameRooms("Anagram", 30, true),
       },
       {
         name: "Unscramble",
         description:
-          "A fun and engaging game where players unscramble jumbled letters to discover the correct word or phrase.",
+          "A fun and engaging game where players unscramble jumbled letters to discover the correct word or phrase. Every room uses the same category content and rules.",
         topics: [],
-        rooms: [
-          { name: "Easy", description: "Start simple and warm up your brain." },
-          {
-            name: "Medium",
-            description: "A bit trickier for the word lovers.",
-          },
-          { name: "Hard", description: "Only for those who love a challenge." },
-          {
-            name: "Animals",
-            description: "Unscramble names of creatures big and small.",
-          },
-          { name: "Fruits", description: "Juicy and sweet word puzzles." },
-          {
-            name: "Countries",
-            description: "Discover nations through mixed letters.",
-          },
-          {
-            name: "Cities",
-            description: "Famous cities waiting to be solved.",
-          },
-          {
-            name: "Sports",
-            description: "Get sporty with these word jumbles.",
-          },
-          { name: "Movies", description: "Famous films in scrambled form." },
-          { name: "Music", description: "Songs and artists to decode." },
-          { name: "Food", description: "Yummy word challenges." },
-          { name: "Colors", description: "Brighten up with colorful puzzles." },
-          { name: "Tech", description: "Techie terms all jumbled up." },
-          {
-            name: "Nature",
-            description: "Words inspired by the great outdoors.",
-          },
-          { name: "Body", description: "Parts of the body to unscramble." },
-          { name: "Vehicles", description: "Travel words scrambled for fun." },
-          {
-            name: "Jobs",
-            description: "Professions mixed and waiting for you.",
-          },
-          { name: "Clothing", description: "Fashion words all tangled up." },
-          {
-            name: "Mythology",
-            description: "Mythical names and terms to solve.",
-          },
-          { name: "School", description: "Back to school with word puzzles." },
-          {
-            name: "Space",
-            description: "Explore outer space through letters.",
-          },
-          { name: "Games", description: "Famous games to unscramble." },
-          { name: "Weather", description: "Weather terms in a twist." },
-          { name: "Plants", description: "Nature's green friends scrambled." },
-          { name: "Transport", description: "Means of travel to decode." },
-          {
-            name: "Instruments",
-            description: "Musical tools waiting to be found.",
-          },
-          { name: "Books", description: "Famous titles and authors jumbled." },
-          { name: "Festivals", description: "Celebrate with festive words." },
-          { name: "Superheroes", description: "Hero names scrambled and fun." },
-          {
-            name: "Fantasy",
-            description: "Dive into fantasy worlds of words.",
-          },
-        ],
+        rooms: genericGameRooms("Unscramble", 30, true),
       },
 
       {
         name: "WordMaker",
         description:
-          "Given a base word, form as many smaller words as possible using its letters. A fun and challenging game to test your vocabulary skills!",
+          "Given a base word, form as many smaller words as possible using its letters. A fun and challenging game to test your vocabulary skills! Every room uses the same category content and rules.",
         topics: [],
-        rooms: [
-          {
-            name: "Easy",
-            description: "Start with simple words and build up.",
-          },
-          {
-            name: "Medium",
-            description: "A bit trickier for the word explorers.",
-          },
-          { name: "Hard", description: "Only for vocabulary masters." },
-          { name: "Animals", description: "Make words inspired by animals." },
-          { name: "Fruits", description: "Juicy word challenges await." },
-          {
-            name: "Colors",
-            description: "Create words that brighten your day.",
-          },
-          { name: "Foods", description: "Form delicious word combos." },
-          { name: "Sports", description: "Get sporty with your word skills." },
-          {
-            name: "Cities",
-            description: "Build words from famous city names.",
-          },
-          {
-            name: "Countries",
-            description: "Explore nations one word at a time.",
-          },
-          { name: "Nature", description: "Words inspired by the outdoors." },
-          { name: "Music", description: "Tune your brain with musical words." },
-          {
-            name: "Space",
-            description: "Shoot for the stars with your vocabulary.",
-          },
-          { name: "Tech", description: "Create words from tech terms." },
-          { name: "Body", description: "Words from the human body." },
-          { name: "Vehicles", description: "Drive your word skills forward." },
-          { name: "Clothing", description: "Fashionable word fun." },
-          { name: "Jobs", description: "Work your way through word puzzles." },
-          { name: "Instruments", description: "Make musical word combos." },
-          {
-            name: "Mythology",
-            description: "Create words from myths and legends.",
-          },
-          { name: "Books", description: "Words inspired by literature." },
-          { name: "Festivals", description: "Celebrate with festive words." },
-          { name: "Superheroes", description: "Form words from hero names." },
-          { name: "Fantasy", description: "Dive into magical word building." },
-          { name: "Weather", description: "Storm up some word fun." },
-          { name: "Games", description: "Play with words from games." },
-          {
-            name: "Plants",
-            description: "Grow your vocabulary with nature words.",
-          },
-          { name: "Ocean", description: "Dive deep into aquatic words." },
-          {
-            name: "History",
-            description: "Build words from historical themes.",
-          },
-          { name: "Adventure", description: "Explore exciting word puzzles." },
-        ],
+        rooms: genericGameRooms("WordMaker", 30, true),
       },
       {
         name: "LuckyFlip",
         description:
-          "This game combines excitement with unpredictability, making it perfect for casual gamers and risk-takers alike.",
+          "This game combines excitement with unpredictability, making it perfect for casual gamers and risk-takers alike. Every room uses the same category content and rules.",
         topics: [],
-        rooms: [
-          { name: "Flip", description: "Get ready to flip your luck!" },
-          { name: "Spin", description: "Spin the wheel and test your fate." },
-          { name: "Rush", description: "Fast-paced flips for thrill seekers." },
-          { name: "Dash", description: "Quick flips, big surprises." },
-          { name: "Twist", description: "Expect the unexpected twists!" },
-          { name: "Surge", description: "Feel the surge of excitement." },
-          { name: "Jolt", description: "Electrifying flips and turns." },
-          { name: "Boost", description: "Boost your chances with every flip." },
-          { name: "Jump", description: "Leap into the flipping action." },
-          { name: "Wave", description: "Ride the wave of luck." },
-          { name: "Flipout", description: "Go all out with daring flips." },
-          { name: "Spin-off", description: "Compete in wild spin-offs." },
-          { name: "Pop", description: "Pop your luck in every round." },
-          { name: "Flipster", description: "Become the ultimate flipster." },
-          {
-            name: "Bounce",
-            description: "Bounce your luck higher and higher.",
-          },
-          { name: "RushHour", description: "Feel the rush in every flip." },
-          { name: "Roller", description: "Roll the odds your way." },
-          { name: "FlipZone", description: "Enter the zone of flips and fun." },
-          { name: "FlipMax", description: "Maximize your flip potential." },
-          { name: "Blitz", description: "Quick, bold, and exciting flips." },
-          { name: "Glide", description: "Smooth flips with high stakes." },
-          { name: "Rocket", description: "Blast off with lucky flips." },
-          { name: "BounceBack", description: "Flip back from near misses." },
-          { name: "PopUp", description: "Surprise flips at every turn." },
-          { name: "FlipKing", description: "Rule the flips, rule the game." },
-          { name: "Flash", description: "Fast flips, bright rewards." },
-          { name: "Storm", description: "Whirlwind of lucky flips." },
-          { name: "Bolt", description: "Strike with lightning flips." },
-          { name: "Surprise", description: "Expect surprises every flip." },
-          { name: "Jumpstart", description: "Kick off with an exciting flip." },
-        ],
+        rooms: genericGameRooms("LuckyFlip", 30, true),
       },
 
       {
         name: "LuckyWhiz",
         description:
-          "A game of luck and logic, where you make quick decisions to win. Guess correctly and rise to the top!",
+          "A game of luck and logic, where you make quick decisions to win. Guess correctly and rise to the top! Every room uses the same category content and rules.",
         topics: [],
-        rooms: [
-          { name: "Spark", description: "Ignite your luck and wit!" },
-          { name: "Flash", description: "Quick moves, fast wins." },
-          { name: "Buzz", description: "Feel the buzz of smart guesses." },
-          { name: "Flip", description: "Flip your way to victory." },
-          { name: "Dash", description: "Race against time and luck." },
-          { name: "Blitz", description: "Fast decisions, big rewards." },
-          { name: "Glide", description: "Smooth moves, clever wins." },
-          { name: "Rush", description: "Feel the rush of the game." },
-          { name: "Jolt", description: "Electrify your luck and logic." },
-          { name: "Pop", description: "Pop quick guesses to win." },
-          { name: "Zap", description: "Zap your way to the top." },
-          { name: "Buzz", description: "Buzz through tricky questions." },
-          { name: "Twist", description: "Twist your luck and skill." },
-          { name: "Surge", description: "Ride the surge of wins." },
-          { name: "Blink", description: "Fast eyes, faster wins." },
-          { name: "Pulse", description: "Feel the pulse of the game." },
-          { name: "Glint", description: "Shine with sharp guesses." },
-          { name: "Sparkle", description: "Brighten your winning streak." },
-          { name: "Leap", description: "Leap ahead with clever guesses." },
-          { name: "Zoom", description: "Zoom past the competition." },
-          { name: "Bounce", description: "Bounce your way to victory." },
-          {
-            name: "Flashpoint",
-            description: "Make your move at the flashpoint.",
-          },
-          { name: "Rocket", description: "Blast off with quick thinking." },
-          { name: "Shine", description: "Shine bright with smart moves." },
-          { name: "Flick", description: "Flick your luck and win." },
-          { name: "Sprint", description: "Sprint to the top with speed." },
-          { name: "Dart", description: "Hit the target every time." },
-          { name: "Vibe", description: "Catch the winning vibe." },
-          { name: "Flashy", description: "Show off your quick smarts." },
-          { name: "SparkUp", description: "Turn up the luck and logic." },
-        ],
+        rooms: genericGameRooms("LuckyWhiz", 30, true),
       },
       {
         name: "LuckySpin",
         description:
-          "Spin the wheel of fortune and guess the word or number! The more you play, the luckier you get!",
+          "Spin the wheel of fortune and guess the word or number! The more you play, the luckier you get! Every room uses the same category content and rules.",
         topics: [],
-        rooms: [
-          { name: "Spin", description: "Get ready to spin and win!" },
-          { name: "Twirl", description: "Watch the wheel twirl your luck." },
-          { name: "Whirl", description: "Whirl to your fortune!" },
-          { name: "Reel", description: "Reel in those big wins." },
-          { name: "Wheel", description: "Round and round it goes!" },
-          { name: "Luck", description: "Put your luck to the test." },
-          { name: "Chance", description: "Take a chance, win big!" },
-          { name: "Turn", description: "Your turn to spin the wheel." },
-          { name: "Roll", description: "Roll for luck and fun." },
-          { name: "SpinOut", description: "Spin out your fortune!" },
-          { name: "Twist", description: "Twist fate in your favor." },
-          { name: "Flip", description: "Flip the odds your way." },
-          { name: "Rush", description: "Feel the rush of the spin." },
-          { name: "Glide", description: "Glide smoothly to victory." },
-          { name: "Bounce", description: "Bounce into your luck." },
-          { name: "Flash", description: "Spin fast, win faster." },
-          { name: "Jolt", description: "Get a jolt of excitement!" },
-          { name: "Blink", description: "Spin in the blink of an eye." },
-          { name: "Surge", description: "Surge ahead with every spin." },
-          { name: "Bolt", description: "Strike lucky with the bolt." },
-          { name: "Dart", description: "Aim your spin right." },
-          { name: "Pulse", description: "Feel the pulse of fortune." },
-          { name: "Glint", description: "Catch the glint of luck." },
-          { name: "Flashy", description: "Spin flashy and win big." },
-          { name: "Leap", description: "Leap to the next lucky win." },
-          { name: "Zoom", description: "Zoom through spins and wins." },
-          { name: "Spark", description: "Spark your fortune now." },
-          { name: "Rocket", description: "Blast off to lucky spins." },
-          { name: "Shine", description: "Shine with every spin." },
-          { name: "Twinkle", description: "Twinkle your way to fortune." },
-        ],
+        rooms: genericGameRooms("LuckySpin", 30, true),
       },
     ],
   },
@@ -25470,6 +16095,55 @@ function getRandomElement<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
 }
 
+/** Update seeded labels in place; country and user-created rooms retain their names. */
+export async function syncGenericGameRooms(tx: Prisma.TransactionClient) {
+  const definitions = new Map(games.filter(game => game.name !== "Country Mania").flatMap(game =>
+    game.categories.map(category => [JSON.stringify([game.name, category.name]), category] as const)
+  ));
+  const categories = await tx.gameCategory.findMany({
+    where: {userId: null, game: {name: {in: games.filter(game => game.name !== "Country Mania").map(game => game.name)}}},
+    select: {
+      id: true, name: true, description: true, game: {select: {name: true}},
+      rooms: {
+        where: {userId: null}, orderBy: [{createdAt: "asc"}, {id: "asc"}],
+        select: {id: true, name: true, description: true},
+      },
+    },
+  });
+  let categoriesUpdated = 0;
+  const roomUpdates: {id: string; name: string; description: string}[] = [];
+  for (const category of categories) {
+    const definition = definitions.get(JSON.stringify([category.game.name, category.name]));
+    if (!definition) continue;
+    if (category.description !== definition.description) {
+      await tx.gameCategory.update({where: {id: category.id}, data: {description: definition.description}});
+      categoriesUpdated++;
+    }
+    const labels = genericGameRooms(category.name, category.rooms.length, category.game.name === "MindMash");
+    category.rooms.forEach((room, index) => {
+      const label = labels[index];
+      if (room.name !== label.name || room.description !== label.description) {
+        roomUpdates.push({id: room.id, ...label});
+      }
+    });
+  }
+  // Batch writes to avoid thousands of database round trips during deployment.
+  let roomsUpdated = 0;
+  for (let offset = 0; offset < roomUpdates.length; offset += 200) {
+    const values = roomUpdates.slice(offset, offset + 200).map(room =>
+      Prisma.sql`(${room.id}, ${room.name}, ${room.description})`
+    );
+    roomsUpdated += await tx.$executeRaw(Prisma.sql`
+      UPDATE "GameRoom" AS room
+      SET "name" = labels.name, "description" = labels.description, "updatedAt" = CURRENT_TIMESTAMP
+      FROM (VALUES ${Prisma.join(values)}) AS labels(id, name, description)
+      WHERE room.id = labels.id
+    `);
+  }
+  console.log(`Game room labels: updated ${categoriesUpdated} categories and ${roomsUpdated} rooms.`);
+  return {categoriesUpdated, roomsUpdated};
+}
+
 /** Add seed topics to existing categories without recreating games or rooms. */
 export async function syncGameCategoryTopics(
   tx: Prisma.TransactionClient,
@@ -25639,6 +16313,7 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
     } else {
       console.log("Seeding complete.... games  already exists");
     }
+    await syncGenericGameRooms(prisma);
     await syncGameCategoryTopics(prisma);
     await syncGameBannerThumbnails(prisma);
     await syncCountryGameThumbnails(prisma);
