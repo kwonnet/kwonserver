@@ -1776,6 +1776,10 @@ export const getEmbedPost = async (postId: string, userId?: string) => {
       media: true, user: {select: authorSelect},
       tagUsers: {where: {user: publicUser}, select: {user: {select: authorSelect}}},
       mentions: {where: {user: publicUser}, select: {user: {select: authorSelect}}},
+      quiz: {include: {
+        options: {orderBy: [{createdAt: 'asc'}, {id: 'asc'}], include: {participants: {where: {userId: viewerId}}}},
+        continents: true, countries: true,
+      }},
       poll: {include: {options: {include: {voters: {where: {userId: viewerId}}}}, continents: true, countries: true}},
       likes: {where: {userId: viewerId}, select: {id: true, userId: true}},
       bookmarks: {where: {userId: viewerId}, select: {id: true, userId: true}},
@@ -5407,6 +5411,18 @@ const getSinglePost = async (postId: string, userId?: string) => {
                 },
               },
             },
+          },
+        },
+        quiz: {
+          include: {
+            options: {
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+              include: {
+                participants: { where: { userId: userId ?? "__public_viewer__" } },
+              },
+            },
+            continents: true,
+            countries: true,
           },
         },
         poll: {

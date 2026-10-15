@@ -4,7 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 vi.mock('@/utils/webpush', () => ({ default: {} }));
 import { newsfeedQuery } from '@/services/v1/posts';
-import { getNewsfeed } from '@/services/v1/posts';
+import { getPostFeedDetails, getEmbedPost, getNewsfeed } from '@/services/v1/posts';
 
 const db = new PrismaClient({ adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000}), log: [{ emit: 'event', level: 'query' }] });
 let queries = 0;
@@ -116,4 +116,50 @@ it('hydrates published paid quizzes and polls in every authenticated feed withou
   const poll=(response.data as any[]).find(post=>post.id===ids[3]);expect(poll.poll.options).toHaveLength(2);expect(poll.poll.hasVoted).toBe(true);
   const quiz=(response.data as any[]).find(post=>post.id===ids[4]);expect(quiz,feed).toBeDefined();expect(quiz.type).toBe('QUIZ');expect(quiz.quiz.options).toHaveLength(2);expect(quiz.quiz.options.every((option:any)=>!option.isCorrect)).toBe(true);
  }
+});
+
+
+it('renders quiz details for viewers, authors, guests and quoted parents with private answer state', async () => {
+  const quiz = await db.quiz.findUniqueOrThrow({where: {postId: ids[4]}, include: {options: true}});
+  const correct = quiz.options.find(option => option.isCorrect)!;
+  await db.quizParticipant.createMany({data: [viewer, 'feed-blocked'].map(userId => ({userId, quizId: quiz.id, optionId: correct.id, isCorrect: true}))});
+  const response = await getPostFeedDetails(ids[4], reader);
+  expect(response.status).toBe(200);
+  const details = response.data as any;
+  expect(details.type).toBe('QUIZ');
+  expect(Number(details.quiz.rewardAmount)).toBe(1.25);
+  expect(details.quiz).toMatchObject({isPaid: true, maxWinners: 2, hasVoted: true, isExpired: false});
+  expect(new Date(details.quiz.expireAt).toISOString()).toBe('2099-01-01T00:00:00.000Z');
+  expect(details.quiz.options.map((option: any) => option.text).sort()).toEqual(['Correct', 'Wrong']);
+  expect(details.quiz.options.every((option: any) => !option.isCorrect)).toBe(true);
+  expect(details.quiz.options.flatMap((option: any) => option.participants).map((participant: any) => participant.userId)).toEqual([viewer]);
+  expect(details.quiz.options.flatMap((option: any) => option.participants).every((participant: any) => !participant.isCorrect)).toBe(true);
+
+  const owner = await db.user.findUniqueOrThrow({where: {id: author}});
+  const ownerResponse = await getPostFeedDetails(ids[4], owner as any);
+  expect(ownerResponse.status).toBe(200);
+  expect((ownerResponse.data as any).quiz.options.some((option: any) => option.isCorrect)).toBe(true);
+
+  const preview = await getEmbedPost(ids[4]);
+  expect(preview.status).toBe(200);
+  expect((preview.data as any).quiz.options).toHaveLength(2);
+  expect((preview.data as any).quiz.hasVoted).toBe(false);
+  expect((preview.data as any).quiz.options.every((option: any) => !option.isCorrect && option.participants.length === 0)).toBe(true);
+
+  await db.post.create({data: {id: 'quiz-detail-quote', userId: author, type: 'CONTENT', kind: 'QUOTE', parentId: ids[4], rootId: ids[4]}});
+  const quote = await getPostFeedDetails('quiz-detail-quote', reader);
+  expect(quote.status).toBe(200);
+  expect((quote.data as any).parent.quiz.options).toHaveLength(2);
+  expect((quote.data as any).parent.quiz.options.every((option: any) => !option.isCorrect)).toBe(true);
+
+  const poll = await getPostFeedDetails(ids[3], reader);
+  expect(poll.status).toBe(200);
+  expect((poll.data as any).poll.options).toHaveLength(2);
+  expect((poll.data as any).poll.hasVoted).toBe(true);
+
+  await db.quiz.update({where: {id: quiz.id}, data: {expireAt: new Date('2020-01-01')}});
+  const expired = await getPostFeedDetails(ids[4], reader);
+  expect(expired.status).toBe(200);
+  expect((expired.data as any).quiz.isExpired).toBe(true);
+  expect((expired.data as any).quiz.options.some((option: any) => option.isCorrect)).toBe(true);
 });
