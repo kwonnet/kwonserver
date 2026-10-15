@@ -6931,8 +6931,8 @@ export function publicPreviewQuery(now = new Date(), older = false, take = PUBLI
     take,
     relationLoadStrategy: "join",
     where: {
-      status: "PUBLISHED", scope: "ANYONE", kind: "ROOT", type: {in:["CONTENT","QUIZ"]},
-      AND:[{OR:[{type:"CONTENT"},{quiz:{isNot:null}}]}],
+      status: "PUBLISHED", scope: "ANYONE", kind: "ROOT", type: {in:["CONTENT","POLL","QUIZ"]},
+      AND:[{OR:[{type:"CONTENT"},{type:"POLL",poll:{isNot:null}},{type:"QUIZ",quiz:{isNot:null}}]}],
       deletedAt: null, isHidden: false, parentId: null, rootId: null,
       createdAt: older ? { lt: cutoff } : { gte: cutoff, lte: now },
       OR: [{ scheduleAt: null }, { scheduleAt: { lte: now } }],
@@ -6943,6 +6943,7 @@ export function publicPreviewQuery(now = new Date(), older = false, take = PUBLI
       : [{ totalLikes: "desc" }, { totalReplies: "desc" }, { totalReposts: "desc" }, { totalShares: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true, type:true, content: true, createdAt: true, userId: true,
+      poll:{select:{id:true,isMultiVote:true,expireAt:true,scope:true,options:{orderBy:[{createdAt:"asc"},{id:"asc"}],select:{id:true,text:true,votes:true}}}},
       quiz:{select:{id:true,isPaid:true,rewardAmount:true,maxWinners:true,expireAt:true,scope:true,options:{orderBy:[{createdAt:"asc"},{id:"asc"}],select:{id:true,text:true,votes:true}}}},
       totalLikes: true, totalReplies: true, totalReposts: true, totalQuotes: true,
       totalShares: true, totalBookmarks: true, totalImpressions: true, totalTips: true, totalViews: true,
@@ -6965,6 +6966,7 @@ export async function getPublicPostPreview(now = new Date()) {
   return posts.map(({ user, totalLikes, totalReplies, totalReposts, totalQuotes, totalShares,
     totalBookmarks, totalImpressions, totalTips, totalViews, ...post }) => ({
     ...post, author: user,
+    poll:post.poll?{...post.poll,options:post.poll.options.map(option=>({...option,votes:option.votes.toString()}))}:null,
     totalLikes: totalLikes.toString(), totalReplies: totalReplies.toString(), totalReposts: totalReposts.toString(),
     totalQuotes: totalQuotes.toString(), totalShares: totalShares.toString(), totalBookmarks: totalBookmarks.toString(),
     totalImpressions: totalImpressions.toString(), totalTips: totalTips.toString(), totalViews: totalViews.toString(),

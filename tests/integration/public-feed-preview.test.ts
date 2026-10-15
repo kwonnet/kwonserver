@@ -15,6 +15,7 @@ beforeAll(async () => {
   }
   await db.post.create({ data: { id: "preview-allowed", userId: "preview-public", content: "Visible", type: "CONTENT", kind: "ROOT", createdAt: new Date("2040-01-02") } });
   await db.post.create({data:{id:'preview-quiz',userId:'preview-public',content:'Public quiz',type:'QUIZ',kind:'ROOT',createdAt:new Date('2040-01-02'),quiz:{create:{isPaid:true,rewardAmount:1000,maxWinners:2,expireAt:new Date('2040-01-05'),options:{create:[{text:'Correct secret',isCorrect:true},{text:'Wrong',isCorrect:false}]}}}}});
+  await db.post.create({data:{id:'preview-poll',userId:'preview-public',content:'Public poll',type:'POLL',kind:'ROOT',createdAt:new Date('2040-01-02'),poll:{create:{isMultiVote:true,expireAt:new Date('2040-01-05'),options:{create:[{text:'Yes',votes:1n,voters:{create:{userId:'preview-private'}}},{text:'No'}]}}}}});
   const restricted = [
     { status: "DRAFT" }, { status: "SCHEDULED" }, { status: "REPORTED" }, { status: "DELETED" },
     { scope: "FOLLOWED" }, { scope: "VERIFIED" }, { scope: "COUNTRY" }, { scope: "MENTIONS" }, { scope: "CONTINENT" },
@@ -26,6 +27,7 @@ beforeAll(async () => {
   await db.post.createMany({ data: restricted.map((extra, i) => ({ id: `preview-restricted-${i}`, userId: "preview-public", type: "CONTENT", kind: "ROOT", createdAt: new Date("2040-01-02"), ...extra })) as any });
 });
 afterAll(async () => {
+  await db.pollVoter.deleteMany({where:{option:{poll:{postId:"preview-poll"}}}});await db.pollOption.deleteMany({where:{poll:{postId:"preview-poll"}}});await db.poll.deleteMany({where:{postId:"preview-poll"}});
   await db.quizOption.deleteMany({where:{quiz:{postId:"preview-quiz"}}});await db.quiz.deleteMany({where:{postId:"preview-quiz"}});
   await db.post.deleteMany({ where: { userId: { startsWith: "preview-" } } });
   await db.user.deleteMany({ where: { id: { startsWith: "preview-" } } });
@@ -34,8 +36,9 @@ afterAll(async () => {
 
 it("enforces guest visibility against PostgreSQL and immediately reflects privacy changes", async () => {
   const initial = await getPublicPostPreview(now);
-  expect(initial.filter(post => post.id.startsWith("preview-")).map(post => post.id).sort()).toEqual(["preview-allowed","preview-quiz"]);
+  expect(initial.filter(post => post.id.startsWith("preview-")).map(post => post.id).sort()).toEqual(["preview-allowed","preview-poll","preview-quiz"]);
   const quiz=initial.find(post=>post.id==="preview-quiz")!;expect(quiz.type).toBe("QUIZ");expect(quiz.quiz!.options).toHaveLength(2);expect(JSON.stringify(quiz)).not.toContain("isCorrect");expect(JSON.stringify(quiz)).not.toContain("participants");
+  const poll=initial.find(post=>post.id==="preview-poll")!;expect(poll.type).toBe("POLL");expect(poll.poll!.options).toHaveLength(2);expect(poll.poll!.options.some(option=>option.votes==="1")).toBe(true);expect(JSON.stringify(poll)).not.toContain("voters");expect(JSON.stringify(poll)).not.toContain("preview-private");
   expect(initial[0].author).not.toHaveProperty("email");
   await db.user.update({ where: { id: "preview-public" }, data: { isPrivate: true } });
   expect((await getPublicPostPreview(now)).filter(post => post.id.startsWith("preview-"))).toEqual([]);

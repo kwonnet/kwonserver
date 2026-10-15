@@ -111,7 +111,9 @@ it('hydrates published paid quizzes and polls in every authenticated feed withou
  await db.quiz.update({where:{postId:ids[4]},data:{isPaid:true}});
  await db.follow.upsert({where:{followerId_followingId:{followerId:author,followingId:viewer}},create:{followerId:author,followingId:viewer,status:'ACCEPTED'},update:{status:'ACCEPTED'}});
  for(const feed of ['foryou','latest','following','friends','trending']){
-  const response=await getNewsfeed([ids[3],ids[4]],reader,{feed,limit:100});expect(response.status,feed).toBe(200);
+  const response=await getNewsfeed([ids[2],ids[3],ids[4]],reader,{feed,limit:100});expect(response.status,feed).toBe(200);
+  for(const [id,type] of [[ids[2],'CONTENT'],[ids[3],'POLL'],[ids[4],'QUIZ']])expect((response.data as any[]).find(post=>post.id===id)?.type,feed).toBe(type);
+  const poll=(response.data as any[]).find(post=>post.id===ids[3]);expect(poll.poll.options).toHaveLength(2);expect(poll.poll.hasVoted).toBe(true);
   const quiz=(response.data as any[]).find(post=>post.id===ids[4]);expect(quiz,feed).toBeDefined();expect(quiz.type).toBe('QUIZ');expect(quiz.quiz.options).toHaveLength(2);expect(quiz.quiz.options.every((option:any)=>!option.isCorrect)).toBe(true);
  }
 });

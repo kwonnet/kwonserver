@@ -14,8 +14,8 @@ beforeEach(() => { db.post.findMany.mockReset(); });
 it("only reads published, unhidden, public root posts from active public accounts", () => {
   const now = new Date("2026-10-04T00:00:00Z");
   expect(publicPreviewQuery(now).where).toEqual({
-    status: "PUBLISHED", scope: "ANYONE", kind: "ROOT", type: {in:["CONTENT","QUIZ"]},
-    AND:[{OR:[{type:"CONTENT"},{quiz:{isNot:null}}]}],
+    status: "PUBLISHED", scope: "ANYONE", kind: "ROOT", type: {in:["CONTENT","POLL","QUIZ"]},
+    AND:[{OR:[{type:"CONTENT"},{type:"POLL",poll:{isNot:null}},{type:"QUIZ",quiz:{isNot:null}}]}],
     deletedAt: null, isHidden: false, parentId: null, rootId: null,
     createdAt: { gte: new Date("2026-10-01T00:00:00Z"), lte: now },
     OR: [{ scheduleAt: null }, { scheduleAt: { lte: now } }],
@@ -26,10 +26,12 @@ it("only reads published, unhidden, public root posts from active public account
 it("projects only preview fields, never credentials, relationships, transactions, metadata or quiz answers", () => {
   const query = publicPreviewQuery();
   expect(Object.keys(query.select).sort()).toEqual([
-    "content", "createdAt", "id", "media", "quiz", "totalBookmarks", "totalImpressions", "totalLikes", "totalQuotes", "totalReplies", "totalReposts", "totalShares", "totalTips", "totalViews", "type", "user", "userId",
+    "content", "createdAt", "id", "media", "poll", "quiz", "totalBookmarks", "totalImpressions", "totalLikes", "totalQuotes", "totalReplies", "totalReposts", "totalShares", "totalTips", "totalViews", "type", "user", "userId",
   ]);
   expect(query.select.user).toEqual({ select: { id: true, name: true, username: true, avatar: true } });
   expect(Object.keys(query.select.media.select).sort()).toEqual(["altText", "fileId", "fileType", "height", "id", "thumbnailUrl", "url", "width"]);
+  expect(query.select.poll.select.options.select).toEqual({id:true,text:true,votes:true});
+  expect(JSON.stringify(query.select.poll)).not.toContain("voters");
   expect(query.select.quiz.select.options.select).toEqual({id:true,text:true,votes:true});
   expect(JSON.stringify(query.select.quiz)).not.toContain("isCorrect");
   expect(JSON.stringify(query.select.quiz)).not.toContain("participants");
