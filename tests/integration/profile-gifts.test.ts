@@ -7,6 +7,7 @@ import {getNotificationStreamSnapshot} from '@/services/v1/notifications';
 const db=new PrismaClient({adapter:new PrismaPg({connectionString:process.env.DATABASE_URL})});
 const sender='gift-test-sender',receiver='gift-test-receiver',gift='gift-test-package';let actor:any;
 beforeAll(async()=>{
+ await db.chargeRate.upsert({where:{id:'default'},create:{id:'default'},update:{tipFee:0.5}});
  for(const id of [sender,receiver]){const user=await db.user.create({data:{id,name:id,username:id,email:`${id}@example.test`,wallet:{create:{coins:id===sender?100:0,bonus:500}}}});if(id===sender)actor=user;}
  await db.tipPackage.create({data:{id:gift,name:'Rose',price:25,thumbnail:'/static/tips/velvet-bloom.webp'}});
 });
@@ -36,7 +37,7 @@ it('rolls back both wallets and ledger entries if saving the gift record fails',
 
 
 it('lists received gifts with anonymous senders redacted and messages visible only to the recipient',async()=>{
- const owner=await getUserReceivedGifts(receiver,receiver,1,1);expect(owner.status).toBe(200);expect((owner.data as any).items[0]).toMatchObject({anonymous:true,sender:null,message:'Private gift note',thumbnail:'https://media.kwonnet.com/static/tips/velvet-bloom.webp'});
+ const owner=await getUserReceivedGifts(receiver,receiver,1,1);expect(owner.status).toBe(200);expect((owner.data as any).items[0]).toMatchObject({anonymous:true,sender:null,coins:'25',estimated:false,message:'Private gift note',thumbnail:'https://media.kwonnet.com/static/tips/velvet-bloom.webp'});
  const visitor=await getUserReceivedGifts(receiver,sender);expect(visitor.status).toBe(200);expect(JSON.stringify(visitor.data)).not.toContain('Private gift note');expect(JSON.stringify(visitor.data)).not.toContain(sender);
  await db.user.update({where:{id:receiver},data:{isPrivate:true}});
  try{expect((await getUserReceivedGifts(receiver,sender)).status).toBe(403);expect((await getUserReceivedGifts(receiver,receiver)).status).toBe(200);}finally{await db.user.update({where:{id:receiver},data:{isPrivate:false}});}
@@ -48,4 +49,18 @@ it('retains a named sender for non-anonymous gifts and paginates deterministical
  const inbox=await db.notification.findMany({where:{recipientId:receiver,senderId:sender}});expect(inbox).toHaveLength(1);expect(inbox[0].message).toContain(actor.name);
  const first=(await getUserReceivedGifts(receiver,receiver,1,1)).data as any,second=(await getUserReceivedGifts(receiver,receiver,2,1)).data as any;
  expect(first.hasMore).toBe(true);expect(second.hasMore).toBe(false);expect(first.items[0].sender).toMatchObject({id:sender});expect(first.items[0].id).not.toBe(second.items[0].id);
+});
+
+it('reads the current tip fee for each new gift while preserving retried settlements',async()=>{
+ const before=await db.wallet.findUniqueOrThrow({where:{userId:receiver}});
+ await db.chargeRate.update({where:{id:'default'},data:{tipFee:0.4}});
+ try{
+  const changed={...args,idempotencyKey:'dynamic-tip-fee'};
+  expect((await createUserGift(changed,actor)).status).toBe(200);
+  expect((await db.wallet.findUniqueOrThrow({where:{userId:receiver}})).coins.minus(before.coins).toNumber()).toBe(15);
+  await db.chargeRate.update({where:{id:'default'},data:{tipFee:0.2}});
+  expect((await createUserGift(changed,actor)).status).toBe(200);
+  expect((await db.wallet.findUniqueOrThrow({where:{userId:receiver}})).coins.minus(before.coins).toNumber()).toBe(15);
+  expect((await db.transaction.findFirstOrThrow({where:{tipPackageId:gift,metadata:{path:['tipFeeRate'],equals:0.4}}})).metadata).toMatchObject({grossCoins:25,recipientCoins:15,platformFeeCoins:10});
+ }finally{await db.chargeRate.update({where:{id:'default'},data:{tipFee:0.5}});}
 });

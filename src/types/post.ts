@@ -69,6 +69,7 @@ export type PollThread =  {
   };
 
   export interface PostCreate {
+    expectedQuizFee?: number;
     thread: PostThread[]
     scheduleAt?: string | Date;
     location?: string;

@@ -1419,3 +1419,45 @@ The catalog replacement preserves gift history and does not reset users or coin
 balances. Re-running the seed keeps the same IDs/prices. For a standalone repair
 outside CI/CD, `npm run db:seed:tips` replaces only the gift catalog using configured
 PostgreSQL credentials; the normal release runs the complete reference seed.
+
+# Paid quizzes and dynamic gift fees
+
+`ChargeRate` row `default` supplies `tipFee` (default `0.5`) and `quizFee`
+(default `0.15`) as fractions. Every new financial transaction reads the current
+row inside its transaction. Seed updates preserve configured rates. Existing
+gifts and funded quiz pools retain their recorded fees. Fees round upward to the
+nearest 0.01 coin; wallet arithmetic uses integer hundredths of a coin.
+
+The authenticated `GET /v1/wallets/transaction-rates` response is uncached. Paid
+quiz creation includes the displayed `expectedQuizFee` and an `Idempotency-Key`.
+The server rejects a changed fee before debiting. A 1,000 coin pool at 15% debits
+1,150 coins: 1,000 reserved for winners and 150 recorded as the platform fee.
+Drafts do not reserve funds. Scheduled quizzes expire relative to publication.
+Rewarded quizzes must be published as a new post or thread, not a reply/quote.
+Both quiz and poll options must contain at least two distinct nonblank choices;
+the editor trims/removes blank added choices before validating the payload.
+
+The existing worker automatically registers `settle_quiz_rewards` every minute.
+Expired, funded pools select a random subset of eligible correct participants in
+PostgreSQL, up to `maxWinners` (and at most one winner per available 0.01 coin).
+Only the chosen IDs reach the app. The selection and exact shares persist;
+retries never redraw committed winners. At most 100 wallets are credited per
+transaction and 2,000 awards per quiz per scan. The full pool is split equally,
+with any remaining 0.01 coins assigned in the random selection order. Each award
+has a ledger entry and durable notification available to the existing SSE inbox.
+The author receives one expiry notice when winners are selected, linking to an
+author-only Winners tab under post engagements. That list privately paginates
+all selected winners with their coin amounts and pending/paid status. Both author
+and winner inbox changes reach their own authenticated SSE connections through
+the existing five-second inbox refresh; worker restarts do not duplicate notices.
+Quiz and wallet locks make ledger, award, and balance changes atomic. Locked
+wallet awards remain pending until unlocked. No correct eligible participants
+(or a deleted/unpublished quiz at expiry) returns the pool to its creator once;
+the creation fee is retained. The creator cannot enter their own quiz, repeat or
+late answers are rejected, and paid quiz correctness is hidden until expiry.
+
+The existing CI/CD database release applies the migration before API/worker
+replacement. Legacy paid quizzes are activated only when a single matching
+completed creator debit proves their pool and no prior winner records exist.
+Ambiguous legacy pools remain `REVIEW` for investigation instead of creating
+unfunded payouts. No seed or release step reapplies fees to old quizzes.

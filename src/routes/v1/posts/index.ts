@@ -1,3 +1,4 @@
+import {getPostQuizWinnersController} from "@/controllers/v1/posts";
 
 import express from "express";
 import { authMiddleware } from "@/middleware";
@@ -78,6 +79,7 @@ router.post("/:id/media", authMiddleware({checkPermission: true}), createPostMed
 
 router.get("/:id/engagements", authMiddleware(), getPostEngagementsOverviewController)
 
+router.get("/:id/winners",authMiddleware(),getPostQuizWinnersController);
 router.get("/:id/gifters", authMiddleware(), getPostGiftersController)
 
 router.post("/:id/tips", authMiddleware({checkPermission: true}), createPostTipController)

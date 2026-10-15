@@ -1,3 +1,4 @@
+import {transactionRatesController} from '@/controllers/v1/wallets';
 import {withdrawalOtpController,withdrawalAdminPolicyController,updateWithdrawalAdminPolicyController,restrictWithdrawalUserController,withdrawalAdminQueueController,withdrawalAdminDetailsController,withdrawalAdminDecisionController} from '@/controllers/v1/wallets';
 import {withdrawalSettingsController,withdrawalBanksController,resolveWithdrawalBankController,quoteCoinWithdrawalController,confirmCoinWithdrawalController,listCoinWithdrawalsController,withdrawalStatusController} from '@/controllers/v1/wallets';
 
@@ -7,6 +8,7 @@ import { authMiddleware } from "@/middleware";
 import { claimDailyBonusController, claimDailyTaskController, fundCoinsController, getTxnHistoryController, getUserCoinsWalletController, transferCoinsController } from "@/controllers/v1/wallets";
 
 const router = express.Router();
+router.get("/transaction-rates",authMiddleware(),transactionRatesController);
 
 router.get("/", authMiddleware(), getUserCoinsWalletController)
 

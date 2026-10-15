@@ -1,3 +1,4 @@
+import {getPostQuizWinners} from "@/services/v1/posts";
 import {injectPostBoosts, getPostBoostStatus} from '@/services/v1/posts';
 import {getEmbedPost, getPublicPostMetadata, getPublicPostMetadataIndex, getPublicPostSitemapCount} from "@/services/v1/posts";
 import { z } from 'zod/v3';
@@ -78,7 +79,7 @@ export const createPostController = async (
 
     const user = req.user as AuthUser;
 
-    const result = await createPost(zodData, user.id);
+    const result = await createPost(zodData, user.id, req.get('Idempotency-Key'));
 
     return res.status(result.status).send(result.data);
   } catch (error: any) {
@@ -1150,3 +1151,11 @@ export const publicPostSitemapCountController = async (_req: Request, res: Respo
   try {return res.json(await getPublicPostSitemapCount());}
   catch {return res.status(503).json({error: 'Sitemap unavailable'});}
 };
+
+export async function getPostQuizWinnersController(req:Request,res:Response) {
+  res.setHeader('Cache-Control','private, no-store');
+  const query=z.object({page:z.coerce.number().int().min(1).max(100000).default(1),limit:z.coerce.number().int().min(1).max(50).default(21)}).safeParse(req.query);
+  if(!query.success)return res.status(400).send('Invalid pagination');
+  try{const result=await getPostQuizWinners(req.params.id,req.user!.id,query.data.page,query.data.limit);return res.status(result.status).send(result.data);}
+  catch{return res.status(503).send('Unable to load quiz winners. Please try again.');}
+}

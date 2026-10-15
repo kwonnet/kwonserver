@@ -444,3 +444,9 @@ async function assertWithdrawalOtpProof(row:CoinWithdrawal,user:{email:string;pa
   if(!action||!action.usedAt||action.subjectId!==row.id||action.userId!==row.userId||action.purpose!=='WITHDRAWAL_OTP'||action.recipientHash!==hashEmailToken(user.email)||
     (user.passwordChangedAt&&action.createdAt<=user.passwordChangedAt)) throw new WithdrawalBlockedError('Email or credentials changed after withdrawal authorization; request a fresh withdrawal',403);
 }
+
+
+export async function getTransactionRates() {
+  const rates=await prisma.chargeRate.findUniqueOrThrow({where:{id:'default'},select:{tipFee:true,quizFee:true}});
+  return {tipFee:rates.tipFee.toNumber(),quizFee:rates.quizFee.toNumber()};
+}

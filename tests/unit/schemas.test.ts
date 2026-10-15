@@ -49,7 +49,7 @@ it('rejects retired providers in nested purchase metadata', () => {
 });
 const quizPost = (overrides = {}) => ({ isDraft: false, thread: [{ type: 'QUIZ', scope: 'ANYONE', content: 'Question', media: [], tags: ['NEWS'],
   quiz: { scope: 'NONE', isPaid: true, rewardAmount: 500, maxWinners: 1, duration: { days: 1, hours: 0, minutes: 0 },
-    options: [{ id: 'a', text: 'A', isCorrect: true }], ...overrides } }] });
+    options: [{ id: 'a', text: 'A', isCorrect: true }, { id: 'b', text: 'B', isCorrect: false }], ...overrides } }] });
 it('accepts funded quizzes and normalizes tags', () => {
   const parsed = PostCreateSchema.parse(quizPost()); expect(parsed.thread[0].tags).toEqual(['news']);
   expect(parsed.thread[0].mentions).toEqual([]);
@@ -82,3 +82,11 @@ it.each(['not-a-date', '2020-01-01T00:00:00Z', new Date(Date.now() + 60_000).toI
 it('accepts future schedule dates with an explicit timezone', () => {
  expect(PostCreateSchema.safeParse({...quizPost(), scheduleAt: new Date(Date.now() + 3600_000).toISOString()}).success).toBe(true);
 });
+
+it.each(['', '   ', '\n\t'])('rejects blank quiz and poll choices %j', text => {
+ const quiz=quizPost({options:[{id:'a',text:'Valid',isCorrect:true},{id:'b',text,isCorrect:false}]});
+ expect(PostCreateSchema.safeParse(quiz).success).toBe(false);
+ const poll={type:'POLL',scope:'ANYONE',content:'Poll',media:[],poll:{scope:'NONE',isMultiVote:false,continents:[],countries:[],duration:{days:1,hours:0,minutes:0},options:[{id:'a',text:'Valid'},{id:'b',text}]}};
+ expect(PostCreateSchema.safeParse({isDraft:false,thread:[poll]}).success).toBe(false);
+});
+it.each([{maxWinners:1.5},{maxWinners:50001},{rewardAmount:500.001},{duration:{days:0,hours:0,minutes:0}},{options:[{id:'a',text:'A',isCorrect:true},{id:'b',text:' a ',isCorrect:false}]}])('rejects malformed reward settings %j', overrides=>expect(PostCreateSchema.safeParse(quizPost(overrides)).success).toBe(false));

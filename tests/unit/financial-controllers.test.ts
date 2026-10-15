@@ -1,8 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response, resetMocks } from './fixtures';
-const services = vi.hoisted(() => ({ wallet: vi.fn(), transfer: vi.fn(), fund: vi.fn(), history: vi.fn(), bonus: vi.fn(), task: vi.fn(),
+const services = vi.hoisted(() => ({ rates:vi.fn(), wallet: vi.fn(), transfer: vi.fn(), fund: vi.fn(), history: vi.fn(), bonus: vi.fn(), task: vi.fn(),
   coins: vi.fn(), walletCoins: vi.fn(), tokenCoins: vi.fn(), plans: vi.fn(), walletSub: vi.fn(), externalSub: vi.fn(), cancel: vi.fn() }));
-vi.mock('@/services/v1/wallets', () => ({ getUserCoinsWallet: services.wallet, transferCoins: services.transfer, fundCoins: services.fund,
+vi.mock('@/services/v1/wallets', () => ({ getTransactionRates:services.rates, getUserCoinsWallet: services.wallet, transferCoins: services.transfer, fundCoins: services.fund,
   getTxnHistory: services.history, updateWalletBonus: services.bonus, rewardDailyTask: services.task }));
 vi.mock('@/services/v1/coins', () => ({ getCoinPackages: services.coins, purchaseCoinsWithWallet: services.walletCoins, purchaseCoinsWithToken: services.tokenCoins }));
 vi.mock('@/services/v1/subscriptions', () => ({ getPlans: services.plans, purchaseAppSubscriptionWithWallet: services.walletSub,
@@ -100,4 +100,9 @@ it.each([
 ])('$fn controller masks unexpected service failures', async ({ controller, fn, body }) => {
   services[fn as keyof typeof services].mockRejectedValue(new Error('private db error')); const res = response();
   await controller(req(body), res); expect(res.statusCode).toBe(500); expect(res.body).not.toContain('private db error');
+});
+
+it('returns uncached transaction rates and a safe unavailable response',async()=>{
+ services.rates.mockResolvedValue({tipFee:0.5,quizFee:0.15});const res=response();await w.transactionRatesController(req(),res);expect(res.body).toEqual({tipFee:0.5,quizFee:0.15});expect(res.headers['Cache-Control']).toBe('private, no-store');
+ services.rates.mockRejectedValue(new Error('secret'));const failed=response();await w.transactionRatesController(req(),failed);expect(failed.statusCode).toBe(503);expect(failed.body).toBe('Transaction fees unavailable');
 });

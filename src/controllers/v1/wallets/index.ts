@@ -232,3 +232,10 @@ export async function withdrawalAdminDecisionController(req:Request,res:Response
   if(!parsed.success)return res.status(400).json({message:'Record an approval or rejection reason'});
   try{return res.json(await decideWithdrawal(String(req.user?.id),req.params.id,parsed.data.decision,parsed.data.note,req.get('Idempotency-Key')!));}catch(error){return withdrawalError(res,error);}
 }
+
+
+export async function transactionRatesController(req:Request,res:Response) {
+  res.setHeader('Cache-Control','private, no-store');
+  try{const {getTransactionRates}=await import('@/services/v1/wallets');return res.json(await getTransactionRates());}
+  catch{return res.status(503).send('Transaction fees unavailable');}
+}

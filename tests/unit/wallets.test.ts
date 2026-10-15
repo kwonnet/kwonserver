@@ -1,8 +1,9 @@
+import {Prisma} from '@prisma/client';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { setupWalletTransaction } from './wallet-fixture';
-const db = vi.hoisted(() => ({ wallet: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn() }, transaction: { create: vi.fn() }, $transaction: vi.fn() }));
+const db = vi.hoisted(() => ({ chargeRate:{findUniqueOrThrow:vi.fn()}, wallet: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn() }, transaction: { create: vi.fn() }, $transaction: vi.fn() }));
 vi.mock('@/db', () => ({ default: db }));
-import { transferCoins, getUserCoinsWallet } from '@/services/v1/wallets';
+import { transferCoins, getUserCoinsWallet, getTransactionRates } from '@/services/v1/wallets';
 const args = { idempotencyKey: 'transfer-test-1', senderId: 's', recipientId: 'r', amount: 100 };
 beforeEach(() => {
  vi.clearAllMocks(); setupWalletTransaction(db);
@@ -35,4 +36,10 @@ it('rejects locked wallets and invalid keys',async()=>{
 });
 it('returns a generic database failure without leaking details',async()=>{
  db.$transaction.mockRejectedValue(new Error('secret'));expect(await transferCoins(args)).toMatchObject({status:500,data:expect.not.stringContaining('secret')});
+});
+
+it('reads current transaction fee fractions from ChargeRate without caching',async()=>{
+ db.chargeRate.findUniqueOrThrow.mockResolvedValueOnce({tipFee:new Prisma.Decimal('0.5'),quizFee:new Prisma.Decimal('0.15')}).mockResolvedValueOnce({tipFee:new Prisma.Decimal('0.4'),quizFee:new Prisma.Decimal('0.123456')});
+ expect(await getTransactionRates()).toEqual({tipFee:0.5,quizFee:0.15});expect(await getTransactionRates()).toEqual({tipFee:0.4,quizFee:0.123456});
+ db.chargeRate.findUniqueOrThrow.mockRejectedValue(new Error('database unavailable'));await expect(getTransactionRates()).rejects.toThrow('database unavailable');
 });

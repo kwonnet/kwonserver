@@ -10997,14 +10997,14 @@ export async function getUserReceivedGifts(identifier: string, viewerId: string,
     const rows = await prisma.postTip.findMany({
       where:{recipientId:target.id,rewardTip:{is:{status:'SETTLED'}}},skip:(page-1)*limit,take:limit+1,
       orderBy:[{createdAt:'desc'},{id:'desc'}],
-      select:{id:true,createdAt:true,isAnon:true,giftName:true,giftThumbnail:true,message:true,
+      select:{id:true,createdAt:true,isAnon:true,giftName:true,giftThumbnail:true,message:true,coinsAmount:true,giftCoinsSnapshot:true,
         tip:{select:{name:true,thumbnail:true}},sender:{select:{id:true,name:true,username:true,avatar:true}}},
     });
     const base = (process.env.CLOUDFLARE_PUBLIC_MEDIA_URL || 'https://media.kwonnet.com').replace(/\/+$/, '');
     return {status:200,data:{items:rows.slice(0,limit).map(row=>{
       const thumbnail=row.giftThumbnail ?? row.tip?.thumbnail ?? null;
       return {id:row.id,name:row.giftName ?? row.tip?.name ?? 'Gift',thumbnail:thumbnail?.startsWith('/static/tips/')?`${base}${thumbnail}`:thumbnail,
-        createdAt:row.createdAt.toISOString(),anonymous:row.isAnon,sender:row.isAnon?null:row.sender,
+        createdAt:row.createdAt.toISOString(),coins:(row.coinsAmount ?? row.giftCoinsSnapshot)?.toString() ?? null,estimated:row.coinsAmount===null && row.giftCoinsSnapshot!==null,anonymous:row.isAnon,sender:row.isAnon?null:row.sender,
         ...(owner && row.message ? {message:row.message}:{}),};
     }),hasMore:rows.length>limit,page}};
   } catch(error) {logServiceError('v1/users/index','getUserReceivedGifts',error);return {status:500,data:'Unable to load received gifts'};}

@@ -143,3 +143,12 @@ it('serializes nested Decimal amounts as the existing numeric API shape',()=>{
  expect(u.serializeBigInts({wallet:{coins:new Prisma.Decimal('0.30')},ledger:[{amount:new Prisma.Decimal('13.64')}]}))
  .toEqual({wallet:{coins:0.3},ledger:[{amount:13.64}]});
 });
+
+it('conceals paid quiz answers from non-creators until the deadline without mutating stored correctness',()=>{
+ const quiz:any={scope:'NONE',isPaid:true,expireAt:new Date(Date.now()+1000),options:[{id:'a',isCorrect:true,participants:[{userId:'user-1',isCorrect:true}]}]};
+ const source=post({type:'QUIZ',userId:'creator',quiz});
+ const hidden:any=u.checkQuizPermissions(source,user());expect(hidden.quiz.options[0]).toMatchObject({isCorrect:false,participants:[{isCorrect:false}]});
+ expect((u.checkQuizPermissions(source,user({id:'creator'})) as any).quiz.options[0].isCorrect).toBe(true);
+ expect((u.checkQuizPermissions({...source,quiz:{...quiz,expireAt:new Date(Date.now()-1)}},user()) as any).quiz.options[0].isCorrect).toBe(true);
+ expect(quiz.options[0].isCorrect).toBe(true);
+});

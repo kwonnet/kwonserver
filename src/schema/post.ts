@@ -20,7 +20,7 @@ const PostMediaSchema = z.object({
 // Schema for PollOption
 const PollOptionSchema = z.object({
   id: z.string(),
-  text: z.string(),
+  text: z.string().trim().min(1,"Options cannot be empty").max(500),
 });
 
 // Schema for PollThread
@@ -28,32 +28,32 @@ const PollThreadSchema = z.object({
   scope: z.nativeEnum(ScopeEnum),
   isMultiVote: z.boolean(),
   duration: z.object({
-    days: z.number(),
-    hours: z.number(),
-    minutes: z.number(),
-  }),
-  options: z.array(PollOptionSchema),
+    days: z.number().int().min(0).max(30),
+    hours: z.number().int().min(0).max(23),
+    minutes: z.number().int().min(0).max(59),
+  }).refine(d=>d.days*1440+d.hours*60+d.minutes>0,"Set a positive duration"),
+  options: z.array(PollOptionSchema).min(2).max(20).refine(options=>new Set(options.map(o=>o.text.toLowerCase())).size===options.length,"Options must be different"),
   continents: z.array(z.string()),
   countries: z.array(z.string()),
 });
 
 const QuizOptionSchema = z.object({
   id: z.string(),
-  text: z.string(),
+  text: z.string().trim().min(1,"Options cannot be empty").max(500),
   isCorrect: z.boolean(),
 });
 
 const QuizThreadSchema = z.object({
   scope: z.nativeEnum(QuizScopeEnum),
   isPaid: z.boolean(),
-  rewardAmount: z.number().default(0),
-  maxWinners: z.number().default(0),
+  rewardAmount: z.number().finite().min(0).max(1000000000).refine(n=>Number(n.toFixed(2))===n,"Use at most two decimal places").default(0),
+  maxWinners: z.number().int().min(0).max(50000).default(0),
   duration: z.object({
-    days: z.number(),
-    hours: z.number(),
-    minutes: z.number(),
-  }),
-  options: z.array(QuizOptionSchema),
+    days: z.number().int().min(0).max(30),
+    hours: z.number().int().min(0).max(23),
+    minutes: z.number().int().min(0).max(59),
+  }).refine(d=>d.days*1440+d.hours*60+d.minutes>0,"Set a positive duration"),
+  options: z.array(QuizOptionSchema).min(2).max(20).refine(options=>new Set(options.map(o=>o.text.toLowerCase())).size===options.length,"Options must be different"),
   continents: z.array(z.string()).default([]),
   countries: z.array(z.string()).default([]),
 })
@@ -84,11 +84,12 @@ const PostThreadSchema = z.object({
   countries: z.array(z.string()).default([]),
   continents: z.array(z.string()).default([]),
   scope: z.nativeEnum(PostScopeEnum),
-});
+}).refine(p=>p.type!==PostTypeEnum.QUIZ||!!p.quiz,"Quiz settings required").refine(p=>p.type!==PostTypeEnum.POLL||!!p.poll,"Poll settings required");
 
 // Schema for PostCreate
 export const PostCreateSchema = z.object({
-  thread: z.array(PostThreadSchema),
+  expectedQuizFee: z.number().min(0).max(1).optional(),
+  thread: z.array(PostThreadSchema).min(1).max(20),
   scheduleAt: z.union([z.string().datetime({offset: true}), z.date()]).refine(value => new Date(value).getTime() >= Date.now() + 5 * 60_000, 'Schedule at least five minutes in the future').optional(),
   location: z.string().optional(),
   isDraft: z.boolean(),

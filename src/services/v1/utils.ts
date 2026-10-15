@@ -274,6 +274,7 @@ export function checkQuizPermissions(
       hasVoted,
       isExpired,
       canVote,
+      ...(quiz.isPaid && !isExpired && post.userId !== user?.id ? {options:quiz.options?.map(option=>({...option,isCorrect:false,participants:option.participants?.map(participant=>({...participant,isCorrect:false}))}))} : {}),
     };
   }
 

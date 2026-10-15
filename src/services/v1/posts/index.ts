@@ -1,3 +1,5 @@
+import {transactionFee} from "@/services/walletLedger/fees";
+import {PostCreateSchema} from "@/schema/post";
 import {enqueuePostPublicationNotification} from '@/services/v1/notifications';
 import {randomInt, randomUUID} from 'node:crypto';
 import boostRedis from '@/redis';
@@ -74,7 +76,10 @@ interface CreatePostThread extends Post {
   quiz?: Quiz | null;
 }
 
-export const createPost = async (body: PostCreate, userId: string) => {
+export const createPost = async (body: PostCreate, userId: string, idempotencyKey?: string) => {
+  const parsed = PostCreateSchema.safeParse(body);
+  if(!parsed.success)return {status:400,data:"Invalid post: quiz and poll options must be complete"};
+  body = parsed.data;
   try {
     // if(!body.isDraft){
     //   body.thread = await Promise.all(body?.thread?.map(async(item) => {
@@ -90,28 +95,16 @@ export const createPost = async (body: PostCreate, userId: string) => {
     const rewardedQuiz = body.thread.filter(
       (item) => item.type === PostTypeEnum.QUIZ && item.quiz?.isPaid
     );
-    const totalRewardAmount = rewardedQuiz.reduce(
-      (prev, curr) => prev + cents(curr.quiz?.rewardAmount ?? 0) / 100,
-      0
-    );
-    //  check user wallet balance
-    if (rewardedQuiz.length > 0) {
-      const userWallet = await prisma.wallet.findUniqueOrThrow({
-        where: { userId },
-      });
-      if (cents(userWallet.coins, true) < cents(totalRewardAmount)) {
-        return {
-          data: "Insufficient balance to create reward quiz",
-          status: 400,
-        };
-      }
-    }
+    const needsFunding = rewardedQuiz.length > 0 && !body.isDraft;
     const isScheduled = !!body.scheduleAt;
     
 
-    const result = await prisma.$transaction(async (tx) => {
+    const create = async (tx: Prisma.TransactionClient) => {
+      const rates = needsFunding ? await tx.chargeRate.findUniqueOrThrow({where:{id:'default'}}) : null;
+      if(rates && (body.expectedQuizFee===undefined || !rates.quizFee.eq(body.expectedQuizFee)))throw new WalletError('Quiz fee changed. Refresh the fee and confirm again.',409);
+      const totalRewardAmount = rates ? rewardedQuiz.reduce((sum,p)=>sum+transactionFee(p.quiz!.rewardAmount,rates.quizFee,'quiz').total,0)/100 : 0;
       // locked user wallet temporary
-      if (rewardedQuiz.length > 0) {
+      if (needsFunding) {
         await lockWallets(tx, [userId]);
         const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId } });
         if (wallet.isLocked || cents(wallet.coins, true) < cents(totalRewardAmount)) {
@@ -546,15 +539,18 @@ export const createPost = async (body: PostCreate, userId: string) => {
       const rewardPostQuizzes = [rootPost, ...thread]
         .filter((p) => p.type === PostTypeEnum.QUIZ)
         .filter((p) => p.quiz?.isPaid);
-      if (rewardPostQuizzes.length > 0) {
+      if (needsFunding && rates && rewardPostQuizzes.length > 0) {
         await Promise.all(
           rewardPostQuizzes.map(async (post) => {
             const quiz = post.quiz!;
+            const quote=transactionFee(quiz.rewardAmount,rates.quizFee,'quiz');
+            const fundingTxnRef=generateUniqueRef();
+            post.quiz=await tx.quiz.update({where:{id:quiz.id},data:{fundedAmount:quiz.rewardAmount,feeRate:rates.quizFee,feeAmount:quote.fee/100,fundingTxnRef,settlementStatus:'FUNDED'}});
             const wallet = await tx.wallet.update({
               where: { userId },
               data: {
                 coins: {
-                  decrement: quiz.rewardAmount,
+                  decrement: quote.total/100,
                 },
               },
             });
@@ -562,10 +558,11 @@ export const createPost = async (body: PostCreate, userId: string) => {
             return tx.transaction.create({
               data: {
                 userId,
-                amount: quiz.rewardAmount,
+                amount: quote.total/100,
                 postId: post.id,
-                txnRef: generateUniqueRef(),
-                description: `Quiz reward pool`,
+                txnRef: fundingTxnRef,
+                metadata:{quizId:quiz.id,rewardPoolCoins:quote.gross/100,platformFeeCoins:quote.fee/100,quizFeeRate:quote.rate},
+                description: `Quiz reward pool and creation fee`,
                 senderId: post.userId,
                 walletId: wallet.id,
                 type: TxnTypeEnum.DEBIT,
@@ -579,8 +576,11 @@ export const createPost = async (body: PostCreate, userId: string) => {
           })
         );
       }
-      return { ...rootPost, thread };
-    });
+      return serializeBigInts({ ...rootPost, thread });
+    };
+    const result = needsFunding
+      ? await walletOperation(`quiz-create:${userId}`,requestKey(idempotencyKey),body,[userId],create)
+      : await prisma.$transaction(create);
 
     if (result.status === PostStatus.PUBLISHED) await enqueuePostPublicationNotification(result.id);
     for (const post of [result, ...result.thread]) {
@@ -595,6 +595,7 @@ export const createPost = async (body: PostCreate, userId: string) => {
     return { data: serializeBigInts(result), status: 200 };
   } catch (error: any) {
     logServiceError("v1/posts/index", "createPost", error);
+    if(error instanceof WalletError)return {status:error.status,data:error.message};
 
 
     return {
@@ -610,6 +611,7 @@ export const createPostQuote = async (
   body: PostCreate
 ) => {
   let publishedQuoteId: string | undefined;
+  if(body.thread.some(thread=>thread.quiz?.isPaid))return {status:400,data:'Publish rewarded quizzes as a new post or thread'};
   try {
     const isScheduled = !!body.scheduleAt;
     const result = await prisma.$transaction(async (tx) => {
@@ -906,6 +908,7 @@ export const createPostReply = async (
   body: PostCreate,
   user: AuthUser
 ) => {
+  if(body.thread.some(thread=>thread.quiz?.isPaid))return {status:400,data:'Publish rewarded quizzes as a new post or thread'};
   try {
     const result = await prisma.$transaction(async (tx) => {
       let reply: Post | undefined = undefined;
@@ -1407,14 +1410,16 @@ export async function createPostTip(args:{idempotencyKey?:string;device:DetectRe
       if(await tx.blockUser.findFirst({where:{OR:[{blockerId:args.senderId,blockedId:args.recipientId},{blockerId:args.recipientId,blockedId:args.senderId}]}}))throw new WalletError('Gifting is unavailable between these accounts',403);
       const tip=await tx.tipPackage.findUniqueOrThrow({where:{id:args.tipId}});
       if(!tip.isActive||(tip.endDate&&tip.endDate<new Date())||!['ALL',args.postId?'POST':'ALL'].includes(tip.kind))throw new WalletError('Gift unavailable');
-      const price=cents(tip.price),received=Math.floor(price/2),platformFee=price-received;
+      const rates=await tx.chargeRate.findUniqueOrThrow({where:{id:'default'}});
+      const split=transactionFee(tip.price,rates.tipFee,'tip');
+      const price=split.gross,received=split.received,platformFee=split.fee;
       if(!received)throw new WalletError('Gift price is too small');
       const senderWallet=await tx.wallet.findUniqueOrThrow({where:{userId:args.senderId}}),receiverWallet=await tx.wallet.findUniqueOrThrow({where:{userId:args.recipientId}});
       if(senderWallet.isLocked||receiverWallet.isLocked)throw new WalletError('Wallet is locked');
       if(cents(senderWallet.coins,true)<price)throw new WalletError('Insufficient coins, please purchase coins');
       await tx.wallet.update({where:{id:senderWallet.id},data:{coins:{decrement:price/100}}});
       await tx.wallet.update({where:{id:receiverWallet.id},data:{coins:{increment:received/100}}});
-      const txnRef=generateUniqueRef(),metadata={giftId:tip.id,giftName:tip.name,giftThumbnail:tip.thumbnail,grossCoins:price/100,recipientCoins:received/100,platformFeeCoins:platformFee/100,settlementVersion:2};
+      const txnRef=generateUniqueRef(),metadata={giftId:tip.id,giftName:tip.name,giftThumbnail:tip.thumbnail,grossCoins:price/100,recipientCoins:received/100,platformFeeCoins:platformFee/100,tipFeeRate:split.rate,settlementVersion:2};
       const common={txnRef,tipPackageId:tip.id,postId:args.postId,senderId:args.senderId,recipientId:args.recipientId,currency:TxnCurrencyEnum.COINS,source:TxnSourceEnum.COINS,gateway:TxnGatewayEnum.WALLET,category:TxnCategoryEnum.POST_TIP,status:TxnStatusEnum.COMPLETED,metadata};
       await tx.transaction.create({data:{...common,userId:args.senderId,walletId:senderWallet.id,amount:price/100,type:TxnTypeEnum.DEBIT,description:`Gift sent to ${recipient.name}`}});
       const reward=await tx.transaction.create({data:{...common,senderId:args.isAnon?null:args.senderId,userId:args.recipientId,walletId:receiverWallet.id,amount:received/100,type:TxnTypeEnum.CREDIT,description:`Gift received from ${args.isAnon?'anonymous':user.name}`}});
@@ -5009,57 +5014,95 @@ export const votePollPost = async (
 export const voteQuizPost = async (
   postId: string,
   optionId: string,
-  userId: string
+  userId: string,
 ) => {
   try {
-    const post = await prisma.post.findUniqueOrThrow({
-      where: { id: postId },
-      include: { quiz: { include: { options: true } } },
-    });
-    const quiz = post.quiz;
-    if (!quiz) return { data: "Quiz not found", status: 404 };
-    const option = quiz.options.find((o) => o.id === optionId);
-    if (!option) return { data: "Option not found", status: 404 };
-    const data = await prisma.post.update({
-      where: {
-        id: postId,
-      },
-      data: {
-        quiz: {
-          update: {
-            options: {
-              update: {
-                where: { id: optionId },
-                data: {
-                  votes: { increment: 1 },
-                  participants: {
-                    create: {
-                      userId,
-                      quizId: option.quizId,
-                      isCorrect: option.isCorrect,
-                    },
-                  },
-                },
-              },
-            },
-          },
+    const data = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Quiz" WHERE "postId"=${postId} FOR UPDATE`;
+      const quiz = await tx.quiz.findUnique({
+        where: { postId },
+        include: { post: true, countries: true, continents: true },
+      });
+      if (!quiz) throw new WalletError("Quiz not found", 404);
+      if (
+        quiz.expireAt <= new Date() ||
+        quiz.post.status !== "PUBLISHED" ||
+        quiz.post.deletedAt ||
+        quiz.post.isHidden ||
+        (quiz.post.scheduleAt && quiz.post.scheduleAt > new Date()) ||
+        quiz.post.userId === userId
+      )
+        throw new WalletError("Quiz is closed or unavailable");
+      const { postNotificationVisibility } =
+        await import("@/services/recommendation-visibility");
+      if (
+        !(await tx.post.findFirst({
+          where: { id: postId, ...postNotificationVisibility(userId) },
+          select: { id: true },
+        }))
+      )
+        throw new WalletError("Quiz is unavailable", 403);
+      const participant = await tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: {
+          status: true,
+          deletedAt: true,
+          deactivatedAt: true,
+          countryId: true,
+          country: { select: { continentId: true } },
         },
-      },
+      });
+      if (
+        !["ACTIVE", "PRIVATE"].includes(participant.status) ||
+        participant.deletedAt ||
+        participant.deactivatedAt
+      )
+        throw new WalletError("Account unavailable", 403);
+      if (
+        (quiz.scope === "COUNTRY" &&
+          !quiz.countries.some((c) => c.countryId === participant.countryId)) ||
+        (quiz.scope === "CONTINENT" &&
+          !quiz.continents.some(
+            (c) => c.continentId === participant.country?.continentId,
+          ))
+      )
+        throw new WalletError("Quiz is unavailable in your location", 403);
+      const option = await tx.quizOption.findFirst({
+        where: { id: optionId, quizId: quiz.id },
+      });
+      if (!option) throw new WalletError("Invalid quiz option");
+      const previous = await tx.quizParticipant.findUnique({
+        where: { userId_quizId: { userId, quizId: quiz.id } },
+      });
+      if (previous) {
+        if (previous.optionId !== optionId)
+          throw new WalletError("You have already answered this quiz", 409);
+        return { id: postId };
+      }
+      await tx.quizParticipant.create({
+        data: {
+          userId,
+          quizId: quiz.id,
+          optionId,
+          isCorrect: option.isCorrect,
+        },
+      });
+      await tx.quizOption.update({
+        where: { id: optionId },
+        data: { votes: { increment: 1 } },
+      });
+      return { id: postId };
     });
-    logger.info("Post quiz option voted ");
-    return {
-      data: JSON.parse(
-        JSON.stringify(data, (_, value) =>
-          typeof value === "bigint" ? Number(value) : value
-        )
-      ),
-      status: 200,
-    };
-  } catch (error: any) {
+    return { data, status: 200 };
+  } catch (error) {
     logServiceError("v1/posts/index", "voteQuizPost", error);
-
-    logger.error({data: error?.message}, "Voting option error ");
-    return { data: "Error occurred reposting, please try again", status: 500 };
+    return {
+      status: error instanceof WalletError ? error.status : 500,
+      data:
+        error instanceof WalletError
+          ? error.message
+          : "Unable to record quiz answer",
+    };
   }
 };
 
@@ -8191,9 +8234,100 @@ export async function getPostGifters(postId: string, viewerId: string, page = 1,
   }, {isolationLevel: 'RepeatableRead'});
 }
 
+/** Private, stable pagination over committed winner selections and their payouts. */
+export async function getPostQuizWinners(
+  postId: string,
+  viewerId: string,
+  page = 1,
+  limit = 21,
+) {
+  if (
+    !Number.isInteger(page) ||
+    page < 1 ||
+    page > 100000 ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 50
+  )
+    return { status: 400, data: "Invalid pagination" };
+  return prisma.$transaction(
+    async (tx) => {
+      const post = await tx.post.findUnique({
+        where: { id: postId },
+        select: {
+          userId: true,
+          deletedAt: true,
+          type: true,
+          quiz: {
+            select: {
+              id: true,
+              isPaid: true,
+              rewardAmount: true,
+              maxWinners: true,
+              expireAt: true,
+              settlementStatus: true,
+            },
+          },
+        },
+      });
+      if (!post || post.deletedAt)
+        return { status: 404, data: "Post not found" };
+      if (post.userId !== viewerId)
+        return {
+          status: 403,
+          data: "Only the post author can view quiz winners",
+        };
+      if (post.type !== "QUIZ" || !post.quiz)
+        return { status: 400, data: "This post is not a quiz" };
+      const quiz = post.quiz,
+        where = { quizId: quiz.id };
+      const [winners, totalWinners, paidWinners] = await Promise.all([
+        tx.quizReward.findMany({
+          where,
+          skip: (page - 1) * limit,
+          take: limit,
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: {
+            id: true,
+            amount: true,
+            status: true,
+            paidAt: true,
+            user: {
+              select: { id: true, name: true, username: true, avatar: true },
+            },
+          },
+        }),
+        tx.quizReward.count({ where }),
+        tx.quizReward.count({ where: { ...where, status: "COMPLETED" } }),
+      ]);
+      return {
+        status: 200,
+        data: {
+          ownerId: post.userId,
+          quizId: quiz.id,
+          isPaid: quiz.isPaid,
+          rewardPool: quiz.rewardAmount.toString(),
+          maxWinners: quiz.maxWinners,
+          expiresAt: quiz.expireAt,
+          settlementStatus: quiz.settlementStatus,
+          totalWinners,
+          paidWinners,
+          page,
+          hasMore: page * limit < totalWinners,
+          winners: winners.map(({ amount, ...winner }) => ({
+            ...winner,
+            coins: amount.toString(),
+          })),
+        },
+      };
+    },
+    { isolationLevel: "RepeatableRead" },
+  );
+}
+
 export async function getPostEngagementsOverview(postId: string, viewerId: string) {
-  const post = await prisma.post.findUnique({where: {id: postId}, select: {userId: true, deletedAt: true}});
-  return !post || post.deletedAt ? {status: 404, data: "Post not found"} : {status: 200, data: {isOwner: post.userId === viewerId}};
+  const post = await prisma.post.findUnique({where: {id: postId}, select: {userId: true, deletedAt: true, type:true}});
+  return !post || post.deletedAt ? {status: 404, data: "Post not found"} : {status: 200, data: {isOwner: post.userId === viewerId,isQuiz:post.type==='QUIZ'}};
 }
 
 /** Atomic bounded publication; DB triggers update recommendation/trend indexes. */

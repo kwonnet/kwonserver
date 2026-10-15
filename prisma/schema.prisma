@@ -641,6 +641,13 @@ model PostReport {
 }
 
 model Quiz {
+  fundedAmount Decimal? @db.Decimal(20,2)
+  feeRate Decimal? @db.Decimal(10,6)
+  feeAmount Decimal? @db.Decimal(20,2)
+  fundingTxnRef String? @unique
+  settlementStatus String @default("UNFUNDED")
+  selectionSeed String?
+  settledAt DateTime?
   id           String            @id @default(cuid())
   postId       String            @unique
   post         Post              @relation(fields: [postId], references: [id])
@@ -658,6 +665,7 @@ model Quiz {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+   @@index([settlementStatus, expireAt])
    @@index([createdAt])
 }
 
@@ -678,8 +686,10 @@ model QuizOption {
 }
 
 model QuizReward {
+  status TxnStatusEnum @default(COMPLETED)
+  paidAt DateTime?
   id        String   @id @default(cuid())
-  userId    String   @unique
+  userId    String
   user      User     @relation(fields: [userId], references: [id])
   quizId    String
   quiz      Quiz     @relation(fields: [quizId], references: [id])
@@ -687,6 +697,7 @@ model QuizReward {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([quizId, status, id])
   @@unique([userId, quizId]) // ✅ one reward per quiz
 
    @@index([createdAt])
@@ -708,6 +719,7 @@ model QuizParticipant {
 
   @@unique([userId, quizId])
 
+  @@index([quizId, isCorrect, createdAt])
   @@index([userId, createdAt])
 
    @@index([createdAt])
@@ -2315,6 +2327,8 @@ model BachsCheckout {
 
 // Decimal rates retain sub-cent prices such as USD 0.015 per coin.
 model ChargeRate {
+  tipFee Decimal @default(0.5) @db.Decimal(10,6)
+  quizFee Decimal @default(0.15) @db.Decimal(10,6)
   id String @id @default("default")
   price Decimal @default(0.015) @db.Decimal(20,6)
   maxPrice Decimal @default(0.017) @db.Decimal(20,6)

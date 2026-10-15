@@ -26,3 +26,18 @@ it('recovers a failed refresh without closing the stream or overlapping queries'
  await vi.advanceTimersByTimeAsync(10000);expect(deps.snapshot).toHaveBeenCalledTimes(calls);
  res.emit('close');res.write.mockClear();resolve({userId:'viewer',latestNotificationId:'late',totalUnseenCount:1});await vi.advanceTimersByTimeAsync(0);expect(res.write).not.toHaveBeenCalled();
 });
+it('delivers quiz author and winner inbox updates to their own SSE connections only',async()=>{
+ const inbox:Record<string,any>={};
+ deps.snapshot.mockImplementation(async id=>inbox[id]??{userId:id,latestNotificationId:null,totalUnseenCount:0});
+ const streams=['author','winner','loser'].map(id=>{const res=response();notificationStreamController({user:{id}} as any,res as any);return res;});
+ await vi.advanceTimersByTimeAsync(0);streams.forEach(stream=>stream.write.mockClear());
+ inbox.author={userId:'author',latestNotificationId:'quiz-expired-author',totalUnseenCount:1};
+ inbox.winner={userId:'winner',latestNotificationId:'quiz-paid-winner',totalUnseenCount:1};
+ await vi.advanceTimersByTimeAsync(5000);
+ expect(streams[0].write).toHaveBeenCalledWith(expect.stringContaining('quiz-expired-author'));
+ expect(streams[1].write).toHaveBeenCalledWith(expect.stringContaining('quiz-paid-winner'));
+ expect(streams[2].write).not.toHaveBeenCalled();
+ expect(JSON.stringify(streams[0].write.mock.calls)).not.toContain('quiz-paid-winner');
+ expect(JSON.stringify(streams[1].write.mock.calls)).not.toContain('quiz-expired-author');
+ streams.forEach(stream=>stream.emit('close'));expect(vi.getTimerCount()).toBe(0);
+});

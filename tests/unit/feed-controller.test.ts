@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response } from './fixtures';
-const deps = vi.hoisted(() => ({ recommend: vi.fn(), hydrate: vi.fn(), create: vi.fn(), gifters: vi.fn(), availableIds: vi.fn(), availablePosts: vi.fn() }));
+const deps = vi.hoisted(() => ({ recommend: vi.fn(), hydrate: vi.fn(), create: vi.fn(), winners:vi.fn(), gifters: vi.fn(), availableIds: vi.fn(), availablePosts: vi.fn() }));
 vi.mock('@/services/kwonrec', () => ({ getRecommendationResponse: deps.recommend }));
-vi.mock('@/services/v1/posts', () => ({ getNewsfeed: deps.hydrate, createPost: deps.create, getPostGifters: deps.gifters, getAvailableNewsfeedSnapshot: deps.availableIds, getAvailableNewsfeedPosts: deps.availablePosts }));
+vi.mock('@/services/v1/posts', () => ({ getNewsfeed: deps.hydrate, createPost: deps.create, getPostQuizWinners:deps.winners,getPostGifters: deps.gifters, getAvailableNewsfeedSnapshot: deps.availableIds, getAvailableNewsfeedPosts: deps.availablePosts }));
 vi.mock('@/sseEmitter', () => ({ default: {} }));
 vi.mock('@/utils/helpers', () => ({ getReqInfo: vi.fn() }));
-import { availableNewsfeedController, availableNewsfeedStreamController, getNewsfeedController, createPostController, getPostGiftersController } from '@/controllers/v1/posts';
+import { availableNewsfeedController, availableNewsfeedStreamController, getNewsfeedController, createPostController, getPostGiftersController,getPostQuizWinnersController } from '@/controllers/v1/posts';
 beforeEach(() => {
   Object.values(deps).forEach(fn => fn.mockReset());
   deps.recommend.mockResolvedValue({ data: { recommendations: [{ id: 'p2' }, { id: 'p1' }] } });
@@ -54,8 +54,8 @@ it('rejects invalid post creation without calling the service', async () => {
 it('binds valid post creation to the authenticated user', async () => {
   deps.create.mockResolvedValue({ status: 201, data: { id: 'p' } }); const res = response();
   const body = { isDraft: false, thread: [{ type: 'CONTENT', scope: 'ANYONE', media: [], content: 'Hello' }] };
-  await createPostController({ body, user: { id: 'viewer' } } as any, res);
-  expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ isDraft: false }), 'viewer'); expect(res.statusCode).toBe(201);
+  await createPostController({ body, user: { id: 'viewer' }, get: () => undefined } as any, res);
+  expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ isDraft: false }), 'viewer', undefined); expect(res.statusCode).toBe(201);
 });
 
 it.each(['following', 'friends', 'latest', 'trending'])('loads %s directly for the authenticated viewer without recommendations', async feed => {
@@ -132,4 +132,15 @@ it('waits one minute before rechecking For You against the supplied delivered ba
     await vi.advanceTimersByTimeAsync(1);expect(deps.availableIds).toHaveBeenCalledWith('viewer','foryou',new Date(since),['last-recommended','older']);
     close();expect(vi.getTimerCount()).toBe(0);
   } finally {vi.useRealTimers();}
+});
+
+it('binds winner pagination to the authenticated author and disallows shared caching',async()=>{
+ deps.winners.mockResolvedValue({status:200,data:{winners:[]}});const res=response();await getPostQuizWinnersController({params:{id:'quiz-post'},user:{id:'author'},query:{page:'2',limit:'10',viewerId:'forged'}} as any,res);
+ expect(deps.winners).toHaveBeenCalledWith('quiz-post','author',2,10);expect(res.headers['Cache-Control']).toBe('private, no-store');expect(res.body).toEqual({winners:[]});
+});
+it.each([{page:'0'},{limit:'51'},{page:'1.5'}])('rejects invalid winner pagination %j before querying',async query=>{
+ const res=response();await getPostQuizWinnersController({params:{id:'p'},user:{id:'u'},query} as any,res);expect(res.statusCode).toBe(400);expect(deps.winners).not.toHaveBeenCalled();
+});
+it('returns safe winner query failures',async()=>{
+ deps.winners.mockRejectedValue(new Error('private failure'));const res=response();await getPostQuizWinnersController({params:{id:'p'},user:{id:'u'},query:{}} as any,res);expect(res.statusCode).toBe(503);expect(res.body).not.toContain('private failure');
 });

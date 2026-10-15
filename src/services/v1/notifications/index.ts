@@ -10,6 +10,7 @@ export function publicationNotificationVisibility(userId: string): Prisma.Notifi
   return { OR: [
     { sourceKey: null },
     { sourceKey: { startsWith: 'gift-received:' } },
+    { sourceKey: { startsWith: 'quiz-reward:' } },
     { sourceKey: { startsWith: 'post-published:' },
       sender: { postNotificationSubscribers: { some: { subscriberId: userId } } },
       AND: [{sender: {followers: {some: {followerId: userId, status: 'ACCEPTED'}}}}],
