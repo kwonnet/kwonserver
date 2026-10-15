@@ -25509,6 +25509,36 @@ export async function syncGameCategoryTopics(
   return { updated, added, missingCategories };
 }
 
+/** Country assets match kwonweb2/public/flags; no sibling checkout is needed at deploy time. */
+export function countryGameThumbnail(countryName: string) {
+  const filename = countryName.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const base = (process.env.CLOUDFLARE_PUBLIC_MEDIA_URL || "https://media.kwonnet.com").replace(/\/+$/, "");
+  return `${base}/assets/flags/${filename}.webp`;
+}
+
+/** Backfill thumbnails without recreating countries, rooms or game history. */
+export async function syncCountryGameThumbnails(tx: Prisma.TransactionClient) {
+  const categories = await tx.gameCategory.findMany({
+    where: {game: {name: "Country Mania"}}, select: {id: true, name: true, thumbnail: true},
+  });
+  let categoriesUpdated = 0, roomsUpdated = 0;
+  for (const category of categories) {
+    const thumbnail = countryGameThumbnail(category.name);
+    if (category.thumbnail !== thumbnail) {
+      await tx.gameCategory.update({where: {id: category.id}, data: {thumbnail}});
+      categoriesUpdated++;
+    }
+    const result = await tx.gameRoom.updateMany({
+      where: {catId: category.id, OR: [{thumbnail: null}, {thumbnail: {not: thumbnail}}]},
+      data: {thumbnail},
+    });
+    roomsUpdated += result.count;
+  }
+  console.log(`Country flags: updated ${categoriesUpdated} categories and ${roomsUpdated} rooms.`);
+  return {categoriesUpdated, roomsUpdated};
+}
+
 async function seedReferenceData(prisma: Prisma.TransactionClient) {
     await prisma.chargeRate.upsert({where:{id:"default"},update:{},create:{id:"default"}});
     // seed coin packages
@@ -25549,7 +25579,10 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
                 name: item.name,
                 description: item.description,
                 topics: item.topics,
-                rooms: { create: item.rooms },
+                ...(el.name === "Country Mania" ? {thumbnail: countryGameThumbnail(item.name)} : {}),
+                rooms: { create: item.rooms.map(room => ({...room,
+                  ...(el.name === "Country Mania" ? {thumbnail: countryGameThumbnail(item.name)} : {}),
+                })) },
               })),
             },
           },
@@ -25560,6 +25593,7 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
       console.log("Seeding complete.... games  already exists");
     }
     await syncGameCategoryTopics(prisma);
+    await syncCountryGameThumbnails(prisma);
     // seed app subscriptions
     const plans = await prisma.subscriptionPlan.count();
     if (plans === 0) {

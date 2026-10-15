@@ -1805,7 +1805,7 @@ export const getGameCategories = async (gameId: string) => {
 
 export const getGameCategoryRooms = async (catId: string, mode: string) => {
   try {
-    const rooms = await prisma.gameRoom.findMany({ where: { catId }, include: { category: { select: { game: { select: { name: true } } } } } });
+    const rooms = await prisma.gameRoom.findMany({ where: { catId }, include: { category: { select: { thumbnail: true, game: { select: { name: true } } } } } });
     // Fetch participant counts from Redis for each room
     const result = await Promise.all(
       rooms.map(async (room) => {

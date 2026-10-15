@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, '../prisma/seed.ts'), 'utf8'
 const output = ts.transpileModule(source, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true,
 } }).outputText;
-function load({ demo = false, failure = false, topicsOnly = false } = {}) {
+function load({ demo = false, failure = false, topicsOnly = false, mediaBase } = {}) {
   let transactions = 0;
   const chargeRateWrites = [];
   const tx = { $executeRaw: async () => {} };
@@ -33,9 +33,9 @@ function load({ demo = false, failure = false, topicsOnly = false } = {}) {
     throw new Error('Unexpected import: ' + name);
   };
   vm.runInNewContext(output, { exports, module: { exports }, require: requireMock,
-    console: { log() {}, error() {} }, process: { argv: demo ? ['node', 'seed', '--demo'] : topicsOnly ? ['node', 'seed', '--game-topics'] : [], env: { NODE_ENV: 'production' } },
+    console: { log() {}, error() {} }, process: { argv: demo ? ['node', 'seed', '--demo'] : topicsOnly ? ['node', 'seed', '--game-topics'] : [], env: { NODE_ENV: 'production', CLOUDFLARE_PUBLIC_MEDIA_URL: mediaBase } },
   });
-  return { main: exports.main, sync: exports.syncGameCategoryTopics, tx, chargeRateWrites, transactions: () => transactions };
+  return { main: exports.main, flags: exports.syncCountryGameThumbnails, flagUrl: exports.countryGameThumbnail, sync: exports.syncGameCategoryTopics, tx, chargeRateWrites, transactions: () => transactions };
 }
 test('production seed only accesses reference tables and runs transactionally', async () => {
   const seed = load(); await seed.main(); assert.equal(seed.transactions(), 1);
@@ -91,4 +91,22 @@ test('generated gift catalog uses stable IDs, thumbnails and affordable coin pri
  vm.runInNewContext(output,{exports,module:{exports},require:requireMock,process:{env:{},argv:[]},console});
  const gifts=JSON.parse(JSON.stringify(exports.tipPackages));assert.equal(gifts.length,50);assert.equal(new Set(gifts.map(g=>g.id)).size,50);
  for(const gift of gifts){assert.equal(gift.thumbnail,`/static/tips/${gift.id}.webp`);assert.ok(Number.isInteger(gift.price)&&gift.price>=5&&gift.price<=12500);assert.ok(gift.name);}
+});
+
+test('country flag seed uses the configured media domain and updates category rooms idempotently',async()=>{
+ const seed=load({mediaBase:'https://media.example.test/'});
+ assert.equal(seed.flagUrl('United Kingdom'),'https://media.example.test/assets/flags/united-kingdom.webp');
+ const rows=[{id:'nigeria',name:'Nigeria',thumbnail:null},{id:'new-zealand',name:'New Zealand',thumbnail:'old.webp'}];
+ const rooms=[{catId:'nigeria',thumbnail:null},{catId:'nigeria',thumbnail:'old.webp'},{catId:'new-zealand',thumbnail:null}];
+ seed.tx.gameCategory.findMany=async args=>{assert.equal(args.where.game.name,'Country Mania');return rows;};
+ seed.tx.gameCategory.update=async({where,data})=>Object.assign(rows.find(row=>row.id===where.id),data);
+ seed.tx.gameRoom={updateMany:async({where,data})=>{
+  const changed=rooms.filter(room=>room.catId===where.catId&&room.thumbnail!==data.thumbnail);
+  changed.forEach(room=>Object.assign(room,data));return {count:changed.length};
+ }};
+ assert.deepEqual(JSON.parse(JSON.stringify(await seed.flags(seed.tx))),{categoriesUpdated:2,roomsUpdated:3});
+ assert.equal(rows[0].thumbnail,'https://media.example.test/assets/flags/nigeria.webp');
+ assert.equal(rooms[2].thumbnail,'https://media.example.test/assets/flags/new-zealand.webp');
+ assert.deepEqual(JSON.parse(JSON.stringify(await seed.flags(seed.tx))),{categoriesUpdated:0,roomsUpdated:0});
+ assert.equal(load().flagUrl('Nigeria'),'https://media.kwonnet.com/assets/flags/nigeria.webp');
 });

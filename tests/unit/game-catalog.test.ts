@@ -35,7 +35,7 @@ it('adds participant counts to rooms for the selected mode', async () => {
   deps.db.gameRoom.findMany.mockResolvedValue([{ id: 'r1' }, { id: 'r2' }]); deps.redis.get.mockResolvedValueOnce('8').mockResolvedValueOnce(null);
   expect(await games.getGameCategoryRooms('cat', 'multi')).toMatchObject({ status: 200, data: [{ id: 'r1', participants: 8 }, { id: 'r2', participants: 0 }] });
   expect(deps.redis.get.mock.calls).toEqual([['room:multi-r1:participants'], ['room:multi-r2:participants']]);
-  expect(deps.db.gameRoom.findMany).toHaveBeenCalledWith({where:{catId:'cat'},include:{category:{select:{game:{select:{name:true}}}}}});
+  expect(deps.db.gameRoom.findMany).toHaveBeenCalledWith({where:{catId:'cat'},include:{category:{select:{thumbnail:true,game:{select:{name:true}}}}}});
 });
 it('returns a room and loads its game ancestry when checking it', async () => {
   deps.db.gameRoom.findUniqueOrThrow.mockResolvedValue({ id: 'r' });
