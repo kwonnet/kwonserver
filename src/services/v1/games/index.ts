@@ -222,12 +222,16 @@ export async function syncUserRedisWalletToPrisma(userId: string) {
 
 export const storeGameRoomQuestion = async (
   roomId: string,
-  params: ThemedGameQuestion
+  params: ThemedGameQuestion,
+  generation?: string
 ) => {
   try {
     const uniqueKey = `room:${roomId}:question`;
     const stored = { ...params, roundId: params.roundId ?? randomUUID() };
-    await redisClient.set(uniqueKey, JSON.stringify(stored));
+    if (generation) {
+      const saved = await redisClient.eval("if redis.call('HGET',KEYS[1],'generation') ~= ARGV[1] then return 0 end; redis.call('SET',KEYS[2],ARGV[2]); return 1",{keys:[`room:${roomId}`,uniqueKey],arguments:[generation,JSON.stringify(stored)]});
+      if (!saved) return null;
+    } else await redisClient.set(uniqueKey, JSON.stringify(stored));
     return stored as unknown as ThemedGameQuestion;
   } catch (error) {
     logGameError('storeGameRoomQuestion', error, params);
@@ -528,47 +532,173 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
 }
 
 
+// Presence is account-wide and socket-owned. All membership/counter mutations
+// happen together so an old disconnect cannot delete a replacement session.
+const gamePresenceScript = `
+local action, uid, sid = ARGV[1], ARGV[2], ARGV[3]
+local leases = 'game:presence:leases'
+local nowParts = redis.call('TIME')
+local now = tonumber(nowParts[1])*1000 + math.floor(tonumber(nowParts[2])/1000)
+local function player(id)
+ local values = redis.call('HGETALL','room:'..id..':player')
+ local p = {}
+ for i=1,#values,2 do p[values[i]]=values[i+1] end
+ return p
+end
+local function parent(room) return string.match(room,'^[^_]+') end
+local function empty(room)
+ if redis.call('SCARD','room:'..room..':players') > 0 then return end
+ if redis.call('TYPE','room:'..room..':answers').ok == 'hash' then
+  for _,id in ipairs(redis.call('HKEYS','room:'..room..':answers')) do redis.call('DEL','room:'..room..':player:'..id..':guesses') end
+ end
+ for _,suffix in ipairs({'',':players',':answers',':u-answers',':votes',':question',':streak',':question-history',':paid-messages'}) do
+  redis.call('DEL','room:'..room..suffix)
+ end
+end
+local function remove(id,p,keepRoom)
+ if not p.roomId then return end
+ local room = p.roomId
+ -- Legacy hashes stored the catalog ID instead of the actual room partition.
+ if string.sub(room,1,6) ~= 'multi-' and string.sub(room,1,7) ~= 'single-' then
+  room = string.lower(p.mode)..'-'..room
+  if p.mode == 'SINGLE' then room = room..'_'..string.sub(id,-10) end
+ end
+ local base = parent(room)
+ if redis.call('SREM','room:'..room..':players',id) == 1 then
+  local count = math.max(0,tonumber(redis.call('GET','room:'..base..':participants') or '0')-1)
+  if count == 0 then redis.call('DEL','room:'..base..':participants') else redis.call('SET','room:'..base..':participants',count) end
+ end
+ local count = redis.call('SCARD','room:'..room..':players')
+ if room ~= base and p.mode == 'MULTI' then
+  if count == 0 then redis.call('ZREM','room:'..base..':partitions',room) else redis.call('ZADD','room:'..base..':partitions',count,room) end
+ end
+ redis.call('DEL','room:'..id..':player')
+ redis.call('ZREM',leases,id)
+ if not keepRoom then empty(room) end
+ p.roomId = room
+end
+local p = player(uid)
+if action == 'leave' then
+ if p.socketId ~= sid or (ARGV[4] ~= '' and p.roomId ~= ARGV[4]) then return '' end
+ remove(uid,p,false)
+ return cjson.encode(p)
+elseif action == 'heartbeat' then
+ if p.socketId ~= sid or p.roomId ~= ARGV[4] then return 0 end
+ redis.call('ZADD',leases,now+30000,uid)
+ return 1
+elseif action == 'sweep' then
+ local removed = {}
+ for _,id in ipairs(redis.call('ZRANGEBYSCORE',leases,'-inf',now,'LIMIT',0,200)) do
+  local old = player(id)
+  remove(id,old,false)
+  redis.call('ZREM',leases,id)
+  if old.roomId then table.insert(removed,old) end
+ end
+ if #removed == 0 then return '[]' end
+ return cjson.encode(removed)
+elseif action == 'prune' then
+ local room = ARGV[4]
+ local base = parent(room)
+ for _,id in ipairs(redis.call('SMEMBERS','room:'..room..':players')) do
+  local owner = player(id)
+  local expires = tonumber(redis.call('ZSCORE',leases,id) or '0')
+  if owner.roomId == room and expires <= now then remove(id,owner,false)
+  elseif owner.roomId ~= room then
+   if redis.call('SREM','room:'..room..':players',id) == 1 then
+    local count = math.max(0,tonumber(redis.call('GET','room:'..base..':participants') or '0')-1)
+    redis.call('SET','room:'..base..':participants',count)
+   end
+  end
+ end
+ local count = redis.call('SCARD','room:'..room..':players')
+ if room ~= base and string.sub(room,1,6) == 'multi-' then
+  if count == 0 then redis.call('ZREM','room:'..base..':partitions',room) else redis.call('ZADD','room:'..base..':partitions',count,room) end
+ end
+ empty(room)
+ return count
+elseif action == 'join' then
+ local next = cjson.decode(ARGV[4])
+ local base = string.lower(next.mode)..'-'..next.roomId
+ local room = base
+ if p.socketId == sid and p.catalogRoomId == next.roomId and p.mode == next.mode and redis.call('SISMEMBER','room:'..p.roomId..':players',uid) == 1 then
+  redis.call('ZADD',leases,now+30000,uid)
+  return cjson.encode({roomId=p.roomId,firstPlayer=not redis.call('HGET','room:'..p.roomId,'status'),generation=redis.call('HGET','room:'..p.roomId,'generation')})
+ end
+ if next.mode == 'SINGLE' then room = base..'_'..string.sub(uid,-10)
+ elseif p.catalogRoomId == next.roomId and p.mode == next.mode then room = p.roomId
+ elseif redis.call('SCARD','room:'..base..':players') >= 20 then
+  local partitions = redis.call('ZRANGEBYSCORE','room:'..base..':partitions',1,19,'LIMIT',0,1)
+  room = partitions[1] or base..'_'..ARGV[5]
+ end
+ local same = p.roomId == room
+ if p.roomId then remove(uid,p,same) end
+ local added = redis.call('SADD','room:'..room..':players',uid)
+ if added == 1 then redis.call('INCR','room:'..base..':participants') end
+ local count = redis.call('SCARD','room:'..room..':players')
+ if next.mode == 'MULTI' and room ~= base then redis.call('ZADD','room:'..base..':partitions',count,room) end
+ local generation = redis.call('HGET','room:'..room,'generation') or ARGV[5]
+ redis.call('HSET','room:'..room,'generation',generation)
+ next.catalogRoomId = next.roomId
+ next.roomId = room
+ for key,value in pairs(next) do redis.call('HSET','room:'..uid..':player',key,tostring(value)) end
+ redis.call('ZADD',leases,now+30000,uid)
+ return cjson.encode({roomId=room,generation=generation,firstPlayer=not redis.call('HGET','room:'..room,'status'),previous=p.roomId and p or cjson.null})
+end
+`;
+
+export async function claimGamePresence(params: GameRoomPlayer) {
+  const raw = await redisClient.eval(gamePresenceScript, {keys: [], arguments: ['join',params.playerId,params.socketId,JSON.stringify(params),randomUUID()]});
+  return JSON.parse(String(raw)) as {roomId:string;generation:string;firstPlayer:boolean;previous?:GameRoomPlayer};
+}
+
+export async function refreshGamePresence(playerId: string, socketId: string, roomId: string) {
+  return Number(await redisClient.eval(gamePresenceScript,{keys:[],arguments:['heartbeat',playerId,socketId,roomId]})) === 1;
+}
+
+export async function sweepGamePresence(io: GameIoNamespace) {
+  const raw = await redisClient.eval(gamePresenceScript,{keys:[],arguments:['sweep','','']});
+  const removed = JSON.parse(String(raw)) as GameRoomPlayer[];
+  for (const player of removed) await publishGamePresence(player,io);
+}
+
+const presenceOrigin = randomUUID();
+export async function publishGamePresence(player: GameRoomPlayer, io: GameIoNamespace, localOnly = false) {
+  io.emit(GameEventEnum.GAME_ROOM_PARTICIPANTS,{roomId:player.roomId.split('_')[0],count:await getTotalRoomParticipants(player.roomId)});
+  io.to(player.roomId).emit(GameEventEnum.GAME_ROOM_PLAYERS,await getGameRoomPlayersWithRank(player.roomId,player.catId,player.mode));
+  if (!localOnly) await redisClient.publish('game:presence:changed',JSON.stringify({origin:presenceOrigin,player:{roomId:player.roomId,catId:player.catId,mode:player.mode}}));
+}
+
+export async function subscribeGamePresence(io: GameIoNamespace) {
+  const subscriber = redisClient.duplicate();
+  subscriber.on('error',error=>logGameError('gamePresenceSubscriber',error,{}));
+  try {
+    await subscriber.connect();
+    await subscriber.subscribe('game:presence:changed',async raw=>{
+      try {
+        const event=JSON.parse(raw);
+        if (event.origin !== presenceOrigin && event.player?.roomId) {
+          for (const id of io.adapter.rooms.get(event.player.roomId) ?? []) {
+            const socket=io.sockets.get(id);
+            if (!socket?.data.room || await refreshGamePresence(socket.data.user.id,socket.id,socket.data.room.id)) continue;
+            socket.data.cancelGameInitialization?.();
+            await disconnectGameRoomPlayer(socket,io);
+            socket.emit(GameEventEnum.GAME_ERROR_NOTIFY,'Your account joined a game in another tab or device.');
+          }
+          await publishGamePresence(event.player,io,true);
+        }
+      } catch(error) { logGameError('gamePresenceSubscriber',error,{}); }
+    });
+    return async () => { await subscriber.unsubscribe(); await subscriber.quit(); };
+  } catch(error) {
+    logGameError('subscribeGamePresence',error,{});
+    subscriber.destroy();
+    throw error;
+  }
+}
+
 export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
   try {
     const mode = getGameMode(params.mode)
-    // const parentRoomId = params.roomId;
-    // let roomId = params.roomId;
-    let parentRoomId = `${mode}-${params.roomId}` // MODE-ROOMID
-    let roomId = `${mode}-${params.roomId}` // MODE-ROOMID
-    const totalPlayers = await getTotalRoomPlayers(roomId);
-    if(params.mode === GameMode.SINGLE){
-      const uID = params.playerId.slice(-10)
-      roomId = `${roomId}_${uID}`; // user room partition
-    }
-    if (totalPlayers >= 20 && params.mode === GameMode.MULTI) {
-      const partitionKey = `room:${parentRoomId}:partitions`;
-      // Fetch only partitions with players < MAX_PLAYERS and limit the number of results
-      const roomPartitions = await redisClient.zRangeByScore(
-        partitionKey,
-        "1",
-        "19",
-        { LIMIT: { count: 5, offset: 0 } }
-      );
-      // Parse the result into an array of objects with roomId and players
-      const partitions = roomPartitions.reduce<
-        {
-          roomId: string;
-          players: number;
-        }[]
-      >((acc, val, idx) => {
-        if (idx % 2 === 0)
-          acc.push({ roomId: val, players: parseInt(roomPartitions[idx + 1]) });
-        return acc;
-      }, []);
-      // If no available room, create a new partition
-      if (partitions.length === 0) {
-        roomId = `${parentRoomId}_${generateUniqueRef(13)}`; //MODE-ROOMID_PARTITIONKEY
-        await redisClient.zAdd(partitionKey, { score: 1, value: roomId }); // Add to partitions with 0 players
-      } else {
-        roomId = shuffleArray(partitions)[0].roomId;
-        await redisClient.zIncrBy(partitionKey, 1, roomId);
-      }
-    }
     // current date
     const currDate = new Date().toISOString();
     // get expiration
@@ -629,10 +759,6 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
         redisClient.hSet(playerKeys.week, score),
         redisClient.hSet(playerKeys.today, score),
         // temp room keys
-        redisClient.hSet(`room:${params.playerId}:player`, { ...params }),
-        redisClient.sAdd(`room:${roomId}:players`, params.playerId),
-        // update parent room total participants
-        redisClient.incr(`room:${parentRoomId}:participants`),
         // expire ranking keys
         redisClient.expire(rankingKeys.month, expire),
         redisClient.expireAt(rankingKeys.week, expireAt),
@@ -653,16 +779,12 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
         redisClient.hSet(playerKeys.info, "name", params.name),
         redisClient.hSet(playerKeys.info, "avatar", params.avatar ?? ""),
         // update current room data
-        redisClient.hSet(`room:${params.playerId}:player`, { ...params }),
-        redisClient.sAdd(`room:${roomId}:players`, params.playerId),
-        // update parent room total participants
-        redisClient.incr(`room:${parentRoomId}:participants`),
       ]);
     }
     // check user energy
     const isEnergyExists = await redisClient.exists(playerKeys.energy);
     if (!isEnergyExists) {
-      redisClient.hSet(playerKeys.energy, {
+      await redisClient.hSet(playerKeys.energy, {
         id: energy.id,
         amount: energy.amount,
         gauge: energy.gauge,
@@ -671,8 +793,12 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
         catId: energy.catId,
       });
     }
+    const presence = await claimGamePresence(params);
+    if (presence.previous?.catId && presence.previous.catId !== params.catId) {
+      await syncUserRedisGameEnergyToPrisma(params.playerId,presence.previous.catId,getGameMode(presence.previous.mode));
+    }
     return {
-      data: { energy, wallet, room: { id: roomId } },
+      data: { energy, wallet, room: { id: presence.roomId, firstPlayer: presence.firstPlayer, generation: presence.generation }, previous: presence.previous },
       message: "success",
     };
   } catch (error: any) {
@@ -717,6 +843,7 @@ export const getTotalRoomPlayers = async (roomId: string) => {
 
 export async function getGameRoomPlayers(roomId: string) {
   try {
+  await redisClient.eval(gamePresenceScript,{keys:[],arguments:['prune','','',roomId]});
     // Get all player IDs in the room set
     const playerIds = await redisClient.sMembers(`room:${roomId}:players`);
     // Fetch details for each player
@@ -737,6 +864,7 @@ export const getGameRoomPlayersWithRank = async (
   catId: string,
   mode: GameMode
 ) => {
+  await redisClient.eval(gamePresenceScript,{keys:[],arguments:['prune','','',roomId]});
   const _mode = getGameMode(mode)
   // get ranking keys and retrieve the over monthly data of the room player
   const rankingKeys = getRankingKeys(catId, _mode);
@@ -852,54 +980,11 @@ export const getGameLeaderboard = async ({
   return playersData;
 };
 
-export async function removeGameRoomPlayer(roomId: string, playerId: string, mode: GameMode) {
-  try {
-    const strArry = roomId.split("_");
-    const parentRoomId = strArry[0];
-    const partitionKey = `room:${parentRoomId}:partitions`;
-    const participantKey = `room:${parentRoomId}:participants`;
-    // check if it's a partioned room
-    if (roomId.includes("_") && mode === GameMode.MULTI) {
-      // Remove player from the room set & delete player details as no longer needed
-      const [partitionCount, participantCount] = await Promise.all([
-        // update partioned room
-        redisClient.zIncrBy(partitionKey, -1, roomId),
-        // update parent room total participants
-        redisClient.decr(participantKey),
-        redisClient.sRem(`room:${roomId}:players`, playerId),
-        redisClient.del(`room:${playerId}:player`),
-      ]);
-      // Clean up empty partition room
-      if (partitionCount <= 0) {
-        await redisClient.zRem(partitionKey, roomId);
-        logger.info(`Partition Room ${roomId} has been cleaned up.`);
-      }
-      // Clean up empty participant room
-      if (participantCount <= 0) {
-        await redisClient.del(participantKey);
-        logger.info(`Participants Room ${parentRoomId} has been cleaned up.`);
-      }
-      return participantCount
-    } else {
-      // Remove player from the room set & delete player details as no longer needed
-      const [participantCount] = await Promise.all([
-        // update parent room total participants
-        redisClient.decr(participantKey),
-        redisClient.sRem(`room:${roomId}:players`, playerId),
-        redisClient.del(`room:${playerId}:player`),
-      ]);
-      // Clean up empty participant room
-      if (participantCount <= 0) {
-        await redisClient.del(participantKey);
-        logger.info(`Participants Room ${parentRoomId} has been cleaned up.`);
-      }
-      return participantCount
-    }
-
-  } catch (error) {
-    logGameError('removeGameRoomPlayer', error, {roomId,playerId});
-    return 0;
-  }
+export async function removeGameRoomPlayer(roomId: string, playerId: string, mode: GameMode, socketId?: string) {
+  // Destructive cleanup must always identify the owning socket.
+  if (!socketId) return null;
+  const raw = await redisClient.eval(gamePresenceScript,{keys:[],arguments:['leave',playerId,socketId,roomId]});
+  return raw ? JSON.parse(String(raw)) as GameRoomPlayer : null;
 }
 
 export async function cleanUpGameRoom(roomId: string) {
@@ -914,7 +999,7 @@ export async function cleanUpGameRoom(roomId: string) {
       `room:${roomId}:question`,
       `room:${roomId}:streak`,
     ];
-    await Promise.all(keys.map((key) => redisClient.del(key)));
+    await redisClient.eval("if redis.call('SCARD',KEYS[1]) > 0 then return 0 end; for i=2,#KEYS do redis.call('DEL',KEYS[i]) end; return 1", {keys:[`room:${roomId}:players`,...keys,`room:${roomId}:votes`,`room:${roomId}:paid-messages`],arguments:[]});
   } catch (error: any) {
     logGameError('cleanUpGameRoom', error, {roomId});
 
@@ -936,60 +1021,27 @@ export const getGameRoomPlayer = async (playerId: string) => {
 };
 
 export const disconnectGameRoomPlayer = async (socket: Socket, io: GameIoNamespace) => {
+  const user: User = socket.data.user;
+  const room: SocketGameRoom = socket.data.room;
+  socket.data.room = undefined;
+  socket.data.gameType = undefined;
+  socket.data.catType = undefined;
+  if (!room || !user) return;
   try {
-    logger.info(
-      socket.data.user,
-      "Disconnecting player...",
-      "from room ",
-      socket.data.room
-    );
-    const user: User = socket.data.user;
-    const room: SocketGameRoom = socket.data.room;
-    if (!room || !user) return;
-    const mode = getGameMode(room.mode)
-    // check if game room player exists
-    const player = await getGameRoomPlayer(socket.data.user.id);
-    if (!player) return;
-    logServiceTrace("v1/games/index", "disconnectGameRoomPlayer", "Disconnected socket rooms");
-    // remove user from all rooms
-    const socketRooms = Array.from(socket.rooms);
-    for (let r = 0; r < socketRooms.length; r++) {
-      if (r > 0) {
-        socket.leave(socketRooms[r]);
-      }
+    await socket.leave(room.id);
+    await socket.leave(user.id);
+    const removed = await removeGameRoomPlayer(room.id,user.id,room.mode,socket.id);
+    if (!removed) {
+      await publishGamePresence({playerId:user.id,socketId:socket.id,roomId:room.id,catId:room.catId,mode:room.mode,gameId:room.gameId,name:user.name,voteCount:0},io);
+      return;
     }
-    // broadcasting to the room that a player has left
-    socket.to(room.id).emit(
-      GameEventEnum.MESSAGE,
-      composeMessage({
-        playerName: "SWEN",
-        content: `${user.name}, has left!`,
-      })
-    );
-    // remove player from game room
-    const totalParticipants = await removeGameRoomPlayer(room.id, user.id, room.mode);
-    const roomStrArr = room?.id.split("_");
-    const parentRoomId = roomStrArr[0]
-    logServiceTrace("v1/games/index", "disconnectGameRoomPlayer", "Discon totalParticipants ");
-    io.emit(GameEventEnum.GAME_ROOM_PARTICIPANTS, {
-      roomId: parentRoomId,
-      count: totalParticipants,
-    });
-    // broadcast the players present in the room
-    const players = await getGameRoomPlayersWithRank(room.id, room.catId, room.mode);
-    // clean up room data if no players in the room
-    if (players.length === 0) {
-      await cleanUpGameRoom(room.id);
-    }
-    socket.broadcast.to(room.id).emit(GameEventEnum.GAME_ROOM_PLAYERS, players);
-    // sync redis user game energy to prisma
-    syncUserRedisGameEnergyToPrisma(user.id, room.catId, mode);
-    // sync redis user wallet to prisma
-    syncUserRedisWalletToPrisma(user.id);
-    // disconnect the socket
-    // socket.disconnect();
+    io.to(room.id).emit(GameEventEnum.MESSAGE,composeMessage({playerName:'SWEN',content:`${user.name}, has left!`}));
+    await publishGamePresence(removed,io);
+    await syncUserRedisGameEnergyToPrisma(user.id,room.catId,getGameMode(room.mode));
+    await syncUserRedisWalletToPrisma(user.id);
   } catch (error) {
-    logGameError('disconnectGameRoomPlayer', error, {});}
+    logGameError('disconnectGameRoomPlayer',error,{roomId:room.id,playerId:user.id});
+  }
 };
 
 export const getGameRoom = async (roomId: string) => {
@@ -1336,8 +1388,9 @@ export const updatePlayersGameEnergy = async (
   }
 };
 
-export const isGameRoomExists = async (roomId: string) => {
+export const isGameRoomExists = async (roomId: string, generation?: string) => {
   try {
+    if (generation) return await redisClient.hGet(`room:${roomId}`,"generation") === generation;
     const exists = await redisClient.exists(`room:${roomId}`);
     return exists === 1;
   } catch (error) {
@@ -1346,11 +1399,16 @@ export const isGameRoomExists = async (roomId: string) => {
   }
 };
 
-export const updateGameRoom = async (params: TempGameRoom) => {
+export const updateGameRoom = async (params: TempGameRoom, initializeOnly = false) => {
   const timer = params.timer ?? getRandomNumber(10, 20, true);
   const roomKey = `room:${params.roomId}`;
   // console.log(`Update room - ${roomKey} payload `, { ...params, timer } )
-  await redisClient.hSet(roomKey, { ...params, timer });
+  if (params.generation) {
+    return Number(await redisClient.eval("if redis.call('HGET',KEYS[1],'generation') ~= ARGV[1] or redis.call('SCARD',KEYS[2]) == 0 then return 0 end; if ARGV[2] == '1' and redis.call('HEXISTS',KEYS[1],'status') == 1 then return 0 end; for i=3,#ARGV,2 do redis.call('HSET',KEYS[1],ARGV[i],ARGV[i+1]) end; return 1",{keys:[roomKey,`room:${params.roomId}:players`],arguments:[params.generation,initializeOnly?'1':'0',...Object.entries({...params,timer}).flatMap(([key,value])=>[key,String(value)])]})) === 1;
+  } else {
+    await redisClient.hSet(roomKey, { ...params, timer });
+    return true;
+  }
 };
 
 export const notifyGameRoomPlayers = ({roomId, io, mode, totalPlayers}:{roomId: string,
@@ -1443,7 +1501,7 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
   const timer = timers[timerKey] ?? 15 //gameType === GameType.ACRONYM ? 25 : initTimer
 
   const storedQuestion = await storeGameRoomQuestion(room.roomId, {...gameQuestion,
-    answerUntil:Date.now()+timer*1000, voteUntil:Date.now()+(timer+12)*1000});
+    answerUntil:Date.now()+timer*1000, voteUntil:Date.now()+(timer+12)*1000},room.generation);
   if (!storedQuestion) return;
   await updateGameRoom({
     ...room,
@@ -1531,7 +1589,7 @@ export const gamePlayTime = async (
     ticking = true;
     void (async () => {
     --countdown;
-    const isExists = await isGameRoomExists(roomId);
+    const isExists = await isGameRoomExists(roomId,room.generation);
     if (!isExists) return clearInterval(interval);
     await updateGameRoom({
       ...room,
@@ -1592,7 +1650,7 @@ export const gameChatTime = async (
     ticking = true;
     void (async () => {
     --countdown;
-    const isExists = await isGameRoomExists(roomId);
+    const isExists = await isGameRoomExists(roomId,room.generation);
     if (!isExists) return clearInterval(interval);
     // emit to the client side
     io.to(roomId).emit(GameEventEnum.GAME_ROOM_STATE, { status, countdown });
@@ -1649,6 +1707,7 @@ const gameVoteTime = async (room: TempGameRoom, io: GameIoNamespace) => {
     ticking = true;
     void (async () => {
     countdown--;
+    if (!await isGameRoomExists(room.roomId,room.generation)) return clearInterval(interval);
     // emit to the client side
     io.to(room.roomId).emit(GameEventEnum.GAME_ROOM_STATE, {
       status,

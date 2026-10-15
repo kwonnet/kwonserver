@@ -1,13 +1,13 @@
-import { beforeEach, expect, it, vi } from 'vitest';
-const games = vi.hoisted(() => ({deductGameCoins:vi.fn(),retrieveGameRoomQuestion:vi.fn(),saveGameRoomPlayerAnswer:vi.fn(),insertWordMakerGameRoomAnswer:vi.fn(),updatePlayerSession:vi.fn(),checkGameRoom:vi.fn(),getGameRoomPlayer:vi.fn(),addGameRoomPlayer:vi.fn(),getTotalRoomPlayers:vi.fn(),getTotalRoomParticipants:vi.fn(),updateGameRoom:vi.fn(),getGameRoomPlayersWithRank:vi.fn()}));
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+const games = vi.hoisted(() => ({refreshGamePresence:vi.fn(),sweepGamePresence:vi.fn(),publishGamePresence:vi.fn(),disconnectGameRoomPlayer:vi.fn(),deductGameCoins:vi.fn(),retrieveGameRoomQuestion:vi.fn(),saveGameRoomPlayerAnswer:vi.fn(),insertWordMakerGameRoomAnswer:vi.fn(),updatePlayerSession:vi.fn(),checkGameRoom:vi.fn(),getGameRoomPlayer:vi.fn(),addGameRoomPlayer:vi.fn(),getTotalRoomPlayers:vi.fn(),getTotalRoomParticipants:vi.fn(),updateGameRoom:vi.fn(),getGameRoomPlayersWithRank:vi.fn()}));
 vi.mock('@/services/v1/games',()=>games);
 vi.mock('@/services/helper',()=>({composeGameAnswer:({params}:any)=>params,getGameType:vi.fn(),getGameCatType:vi.fn()}));
 import gameSocketIo from '@/socketIo/gameSocketIo';
 import {GameEventEnum,GameActionEnum} from '@/types';
-let handlers:Record<string,Function>,socket:any;
+let handlers:Record<string,Function>,socket:any,packetGuard:Function;
 beforeEach(()=>{
- vi.clearAllMocks(); handlers={};
- socket={id:'socket',connected:true,join:vi.fn(),leave:vi.fn(),once:vi.fn(),off:vi.fn(),data:{user:{id:'user',name:'User'}},on:(event:string,fn:Function)=>{handlers[event]=fn;},emit:vi.fn()};
+ vi.clearAllMocks(); games.refreshGamePresence.mockResolvedValue(true); handlers={};
+ socket={use:(fn:Function)=>{packetGuard=fn;},id:'socket',connected:true,join:vi.fn(),leave:vi.fn(),once:vi.fn(),off:vi.fn(),data:{user:{id:'user',name:'User'}},on:(event:string,fn:Function)=>{handlers[event]=fn;},emit:vi.fn()};
  const io={emit:vi.fn(),use:vi.fn(),on:(_event:string,fn:Function)=>fn(socket)};
  gameSocketIo({of:()=>io} as any);
  // Server-owned state populated from the catalog at join time.
@@ -85,4 +85,26 @@ it('normalizes valid modes and owns delayed initialization failures',async()=>{
   expect(games.addGameRoomPlayer).toHaveBeenCalledWith(expect.objectContaining({mode:'MULTI',avatar:'https://images.example/player.webp'}));expect(ack).toHaveBeenCalledWith({isError:false,message:'User joined room'});
   await vi.advanceTimersByTimeAsync(500);expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ERROR_NOTIFY,expect.stringContaining('initialize'));expect(vi.getTimerCount()).toBe(0);
  }finally{vi.useRealTimers();}
+});
+
+afterEach(async()=>{await handlers.disconnect('test cleanup');});
+it('rejects actions from a replaced session before reaching a paid action handler',async()=>{
+ games.refreshGamePresence.mockResolvedValue(false);const next=vi.fn();
+ await packetGuard([GameEventEnum.GAME_ROOM_ANSWER,{}],next);
+ expect(next).toHaveBeenCalledWith(expect.any(Error));
+ expect(games.disconnectGameRoomPlayer).toHaveBeenCalled();expect(games.deductGameCoins).not.toHaveBeenCalled();
+ expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ERROR_NOTIFY,expect.stringContaining('another tab'));
+});
+it('ignores a delayed leave event for a previous game page',async()=>{
+ await handlers.disconnected('old-room');expect(games.disconnectGameRoomPlayer).not.toHaveBeenCalled();
+ await handlers.disconnected('room');expect(games.disconnectGameRoomPlayer).toHaveBeenCalledOnce();
+});
+
+it('cancels a join when the page leaves before the room lookup completes',async()=>{
+ let resolveLookup!:(value:any)=>void;
+ games.checkGameRoom.mockImplementationOnce(()=>new Promise(resolve=>{resolveLookup=resolve;}));
+ const ack=vi.fn();const pending=handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'MULTI'},ack);
+ await Promise.resolve();await handlers.disconnected('room');
+ resolveLookup({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
+ await pending;expect(games.addGameRoomPlayer).not.toHaveBeenCalled();expect(ack).toHaveBeenCalledWith(expect.objectContaining({code:'JOIN_CANCELLED'}));
 });

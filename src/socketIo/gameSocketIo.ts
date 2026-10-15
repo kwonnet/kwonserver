@@ -5,6 +5,10 @@ import { moneyJson, requestKey } from '@/services/walletLedger';
 import redisClient from '@/redis';
 import {
   addGameRoomPlayer,
+  refreshGamePresence,
+  sweepGamePresence,
+  publishGamePresence,
+  subscribeGamePresence,
   checkGameRoom,
   deductGameCoins,
   retrieveGameRoomQuestion,
@@ -31,6 +35,36 @@ import { DefaultEventsMap, Server } from "socket.io";
 const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) => {
   const io = _io.of("/games");
   registerAuthNamespace(io);
+  if (_io.httpServer) {
+    let closeSubscription: (() => Promise<void>) | undefined;
+    let closed = false;
+    _io.httpServer.once('listening',async () => {
+      try {
+        closeSubscription = await subscribeGamePresence(io);
+        if (closed) await closeSubscription();
+      } catch(error) { logger.error({event:'game_presence_subscription_failed',error:error instanceof Error?error.message:'Unknown failure'}); }
+    });
+    _io.httpServer.once('close',async () => {
+      closed = true;
+      try { await closeSubscription?.(); }
+      catch(error) { logger.error({event:'game_presence_subscription_close_failed',error:error instanceof Error?error.message:'Unknown failure'}); }
+    });
+  }
+
+  // One sweeper per API process, rather than one Redis sweep per player.
+  if (io.sockets) {
+    let sweeping = false;
+    const sweepTimer = setInterval(async () => {
+      if (sweeping) return;
+      sweeping = true;
+      try { await sweepGamePresence(io); }
+      catch (error) { logger.error({event:'game_presence_sweep_failed',error:error instanceof Error?error.message:'Unknown failure'}); }
+      finally { sweeping = false; }
+    },5000);
+    sweepTimer.unref();
+    _io.httpServer?.once('close',() => clearInterval(sweepTimer));
+  }
+
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token
@@ -52,6 +86,32 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
     logger.info(`Connected games namespace - ${socket.id}`)
     // declare it globally
     socket.data.room = undefined;
+    const loseSession = async () => {
+      socket.data.cancelGameInitialization?.();
+      await disconnectGameRoomPlayer(socket,io);
+      socket.emit(GameEventEnum.GAME_ERROR_NOTIFY,'Your account joined a game in another tab or device.');
+    };
+    // Redis ownership also fences sockets on other API replicas (no local-only lock).
+    socket.use?.(async ([event],next) => {
+      if (event === GameEventEnum.PLAYER_JOINED || event === 'disconnected' || !socket.data.room) return next();
+      try {
+        if (await refreshGamePresence(socket.data.user.id,socket.id,socket.data.room.id)) return next();
+        await loseSession();
+        next(new Error('Game session replaced'));
+      } catch (error) { next(error instanceof Error ? error : new Error('Game presence unavailable')); }
+    });
+    let refreshing = false;
+    const presenceTimer = setInterval(async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        if (socket.data.room && !await refreshGamePresence(socket.data.user.id,socket.id,socket.data.room.id)) await loseSession();
+
+      } catch (error) { logger.error({event:'game_presence_refresh_failed',error:error instanceof Error?error.message:'Unknown failure'}); }
+      finally { refreshing = false; }
+    },5000);
+    presenceTimer.unref();
+
     socket.on(
       GameEventEnum.PLAYER_JOINED,
       async (
@@ -62,6 +122,13 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           code?: string;
         }) => void
       ) => {
+        const intent = (socket.data.gameJoinIntent ?? 0) + 1;
+        socket.data.gameJoinIntent = intent;
+        socket.data.pendingGameRoom = args?.roomId;
+        const earlier = socket.data.gameJoinQueue ?? Promise.resolve();
+        let release!: () => void;
+        socket.data.gameJoinQueue = new Promise<void>(resolve => { release = resolve; });
+        await earlier;
         let acknowledged = false;
         const respond = (payload: {isError: boolean; message: string; code?: string}) => {
           if (acknowledged) return;
@@ -90,14 +157,8 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
             code: "ER-1",
           });
         }
-        // check if the user previously joined any room
-        const prevUser = await getGameRoomPlayer(socket.data.user.id);
-        console.log("prevUser ", prevUser)
-        if (prevUser) {
-          socket.leave(prevUser.roomId)
-          // io.to(prevUser.socketId).socketsLeave(prevUser.roomId);
-        }
-
+        if (!socket.connected || intent !== socket.data.gameJoinIntent) return respond({isError:true,message:"Game join cancelled",code:"JOIN_CANCELLED"});
+        socket.data.cancelGameInitialization?.();
         // add player to the room
         const result = await addGameRoomPlayer({
           roomId,
@@ -117,6 +178,28 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
             code: "ER-2",
           });
         }
+        const previousRoom = socket.data.room?.id;
+        socket.data.room = {id:result.data.room.id,catId:room.catId,name:room.name,gameId:room.category.gameId,mode};
+        if (previousRoom && previousRoom !== result.data.room.id) await socket.leave(previousRoom);
+        if (!socket.connected || intent !== socket.data.gameJoinIntent) {
+          await disconnectGameRoomPlayer(socket,io);
+          return respond({isError:true,message:'Game join cancelled',code:'JOIN_CANCELLED'});
+        }
+        const previous = result.data.previous;
+        if (previous) {
+          await socket.leave(previous.roomId);
+          const previousSocket = io.sockets?.get(previous.socketId);
+          if (previousSocket && previousSocket.id !== socket.id) {
+            previousSocket.data.cancelGameInitialization?.();
+            previousSocket.data.room = undefined;
+            previousSocket.data.gameType = undefined;
+            previousSocket.data.catType = undefined;
+            await previousSocket.leave(previous.roomId);
+            await previousSocket.leave(socket.data.user.id);
+            previousSocket.emit(GameEventEnum.GAME_ERROR_NOTIFY,'Your account joined a game in another tab or device.');
+          }
+          await publishGamePresence(previous,io);
+        }
         // assigned room
         roomId = result?.data?.room?.id
         // attach room to socket
@@ -125,9 +208,10 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         socket.data.catType = getGameCatType(room.category.name);
         // join a socket to a room
         // socket.join(`${roomId}:${mode}`)
-        socket.join(roomId);
+        await socket.join(roomId);
         // join the player id to a room to receive personal messages
-        socket.join(socket.data.user.id);
+        await socket.join(socket.data.user.id);
+        if (!socket.connected) { await disconnectGameRoomPlayer(socket,io); return; }
         // acknowledge
         respond({ isError: false, message: "User joined room" });
         // count players
@@ -140,11 +224,12 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         // update room participants
         io.emit(GameEventEnum.GAME_ROOM_PARTICIPANTS, { roomId: parentRoomId, count: totalParticipants });
         // emit room data
-        const cancelInitialization = () => clearTimeout(timeout);
+        const cancelInitialization = () => { clearTimeout(timeout); socket.off('disconnect',cancelInitialization); };
         const timeout = setTimeout(async () => {
           socket.off('disconnect', cancelInitialization);
-          if (!socket.connected) return;
+          if (!socket.connected || socket.data.room?.id !== roomId) return;
           try {
+          if (!await refreshGamePresence(socket.data.user.id,socket.id,roomId)) return;
           //  emit player wallet and game energy
           socket.emit(GameEventEnum.GAME_PLAYER_DATA, moneyJson(result.data) );
           // emit room info
@@ -158,8 +243,8 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
             roomId,
           })
           // check if only just the joined player
-          if (totalPlayers === 1) {
-            await updateGameRoom({
+          if (result.data.room.firstPlayer) {
+            const started = await updateGameRoom({
               gameId: room.category.gameId,
               gameName: room.category.game.name,
               catName: room.category.name,
@@ -167,8 +252,8 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
               topics: room.category.topics.join(","),
               roomId,
               mode,
-              status: GameStatusEnum.CHAT });
-            await gameChatTime(roomId, io, true);
+              status: GameStatusEnum.CHAT, generation: result.data.room.generation },true);
+            if (started) await gameChatTime(roomId, io, true);
           }
           // emitting a welcome message to a new player
           socket.emit(
@@ -208,6 +293,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
             socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, 'Unable to initialize this game room. Please rejoin.');
           }
         }, 500);
+        socket.data.cancelGameInitialization = cancelInitialization;
         socket.once('disconnect', cancelInitialization);
 
         } catch (error) {
@@ -215,7 +301,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           const alreadyAcknowledged = acknowledged;
           respond({isError: true, message: 'Unable to join this game room. Please retry.', code: 'JOIN_UNAVAILABLE'});
           if (alreadyAcknowledged) socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, 'Unable to join this game room. Please retry.');
-        }
+        } finally { if (socket.data.gameJoinIntent === intent) socket.data.pendingGameRoom = undefined; release(); }
       }
     );
     // Paid messages are stored durably and replayed from Redis; IDs deduplicate retries.
@@ -240,7 +326,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         if (result.isError || !result.data) { socket.emit(GameEventEnum.GAME_ERROR_NOTIFY,result.message); return; }
         // Clients poll the durable history too, covering a crash before this broadcast.
         if (!('pending' in result.data)) io.in(room.id).emit(GameEventEnum.MESSAGE,payload);
-        void updatePlayerSession({playerId:user.id,catId:room.catId,mode:room.mode});
+        await updatePlayerSession({playerId:user.id,catId:room.catId,mode:room.mode});
       } catch { socket.emit(GameEventEnum.GAME_ERROR_NOTIFY,'Unable to accept this message'); }
     });
 
@@ -278,7 +364,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         }
 
         // update player session for the category
-        updatePlayerSession({playerId: body.playerId, catId: body.catId, mode: room.mode})
+        await updatePlayerSession({playerId: body.playerId, catId: body.catId, mode: room.mode})
       } catch (error: any) {
         console.log(error?.message);
       }
@@ -320,26 +406,24 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
     });
 
     // listen to game energy events
-    socket.on(GameEventEnum.GAME_PLAYER_ENERGY, (params: PlayerGameEnergy) => updatePlayerGameEnergy(socket,params))
+    socket.on(GameEventEnum.GAME_PLAYER_ENERGY, async (params: PlayerGameEnergy) => {
+      if (!socket.data.room || params?.playerId !== socket.data.user.id || params?.catId !== socket.data.room.catId) return;
+      await updatePlayerGameEnergy(socket,params);
+    })
 
-    // listen to disconnecting
-    socket.on("disconnecting", (_reason) => {
-      for (const room of socket.rooms) {
-        if (room !== socket.id) {
-          //   socket.to(room).emit("user has left", socket.data.user.id);
-          socket.leave(room);
-        }
-      }
+    socket.on("disconnect", async (reason) => {
+      clearInterval(presenceTimer);
+      socket.data.cancelGameInitialization?.();
+      logger.info({event:'game_socket_disconnected',socketId:socket.id,reason});
+      await disconnectGameRoomPlayer(socket,io);
     });
-    // listen to socket disconnect event and remove player from game room
-    socket.on("disconnect", (reason) => {
-      logger.info({event: 'game_socket_disconnected', socketId: socket.id, roomId: socket.data.room?.id, reason}, 'Game socket disconnected');
-      disconnectGameRoomPlayer(socket, io)
-    });
-    // listen to emitted disconnected event and remove player from game room
-    socket.on("disconnected", () => {
-      logger.info({event: 'game_room_leave_requested', socketId: socket.id, roomId: socket.data.room?.id}, 'Player requested room leave');
-      disconnectGameRoomPlayer(socket, io)
+    socket.on("disconnected", async (roomId?: string) => {
+      // A delayed unmount from an old page must not leave the new room.
+      if (!roomId || roomId === socket.data.pendingGameRoom) socket.data.gameJoinIntent = (socket.data.gameJoinIntent ?? 0) + 1;
+      const current = socket.data.room?.id;
+      if (!current || (roomId && current !== roomId && !current.startsWith(`${socket.data.room.mode.toLowerCase()}-${roomId}_`) && current !== `${socket.data.room.mode.toLowerCase()}-${roomId}`)) return;
+      socket.data.cancelGameInitialization?.();
+      await disconnectGameRoomPlayer(socket,io);
     });
   });
 };

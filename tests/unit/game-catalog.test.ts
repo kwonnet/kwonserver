@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { resetMocks } from './fixtures';
 const deps = vi.hoisted(() => {
   const model = () => ({ create: vi.fn(), findMany: vi.fn(), findUniqueOrThrow: vi.fn() });
-  return { db: { game: model(), gameCategory: model(), gameRoom: model() }, redis: { get: vi.fn(), hGetAll: vi.fn(), del: vi.fn() } };
+  return { db: { game: model(), gameCategory: model(), gameRoom: model() }, redis: { eval:vi.fn(), get: vi.fn(), hGetAll: vi.fn(), del: vi.fn() } };
 });
 vi.mock('@/db', () => ({ default: deps.db }));
 vi.mock('@/redis', () => ({ default: deps.redis }));
@@ -53,5 +53,5 @@ it.each([{ value: {}, expected: null }, { value: { score: '12', name: 'Ada' }, e
 
 it('clears quiz room history only on room lifecycle cleanup',async()=>{
  await games.cleanUpGameRoom('r');
- expect(deps.redis.del).toHaveBeenCalledWith('room:r:question-history');
+ expect(deps.redis.eval).toHaveBeenCalledWith(expect.stringContaining('SCARD'),expect.objectContaining({keys:expect.arrayContaining(['room:r:players','room:r:question-history','room:r:votes'])}));
 });
