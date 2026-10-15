@@ -26,8 +26,13 @@ it('renames existing rooms in batches without changing their parent, content, ca
         name: 'Country Mania', description: 'Countries', modes: ['MULTI'],
         categories: {create: {name: 'Nigeria', description: 'Country description', topics: ['Cities'], rooms: {create: {name: 'Lagos', description: 'City description', thumbnail: '/static/flags/nigeria.webp'}}}},
       }, include: {categories: {include: {rooms: true}}}});
+      const extra = await tx.game.create({data: {
+        name: 'Additional game', description: 'Additional catalog', modes: ['MULTI'],
+        categories: {create: {name: 'Additional category', description: 'Keep category content',
+          rooms: {create: {name: 'Additional category Room 01', description: 'Old room text'}}}},
+      }, include: {categories: {include: {rooms: true}}}});
       const originalCountry = country.categories[0];
-      expect(await syncGenericGameRooms(tx)).toEqual({categoriesUpdated: 2, roomsUpdated: 206});
+      expect(await syncGenericGameRooms(tx)).toEqual({categoriesUpdated: 2, roomsUpdated: 207});
       const football = sports.categories[0];
       const updated = await tx.gameCategory.findUniqueOrThrow({where: {id: football.id}, include: {rooms: {orderBy: [{createdAt: 'asc'}, {id: 'asc'}]}}});
       expect(updated.topics).toEqual(football.topics);
@@ -39,6 +44,8 @@ it('renames existing rooms in batches without changing their parent, content, ca
       });
       expect(await tx.gameRoom.findUniqueOrThrow({where: {id: mind.categories[0].rooms[0].id}})).toMatchObject({name: 'Room 1', description: genericGameRooms('Hangman', 1, true)[0].description});
       expect(await tx.gameCategory.findUniqueOrThrow({where: {id: originalCountry.id}, include: {rooms: true}})).toEqual(originalCountry);
+      expect(await tx.gameRoom.findUniqueOrThrow({where: {id: extra.categories[0].rooms[0].id}})).toMatchObject({name: 'Room 1', catId: extra.categories[0].id});
+      expect((await tx.gameCategory.findUniqueOrThrow({where: {id: extra.categories[0].id}})).description).toBe('Keep category content');
       expect(await syncGenericGameRooms(tx)).toEqual({categoriesUpdated: 0, roomsUpdated: 0});
       throw new Error('rollback generic room probe');
     }, {timeout: 30000});

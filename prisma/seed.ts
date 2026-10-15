@@ -16095,17 +16095,17 @@ function getRandomElement<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
 }
 
-/** Update seeded labels in place; country and user-created rooms retain their names. */
+/** Normalize all existing room labels in place, preserving Country Mania names. */
 export async function syncGenericGameRooms(tx: Prisma.TransactionClient) {
   const definitions = new Map(games.filter(game => game.name !== "Country Mania").flatMap(game =>
     game.categories.map(category => [JSON.stringify([game.name, category.name]), category] as const)
   ));
   const categories = await tx.gameCategory.findMany({
-    where: {userId: null, game: {name: {in: games.filter(game => game.name !== "Country Mania").map(game => game.name)}}},
+    where: {game: {name: {not: "Country Mania"}}},
     select: {
       id: true, name: true, description: true, game: {select: {name: true}},
       rooms: {
-        where: {userId: null}, orderBy: [{createdAt: "asc"}, {id: "asc"}],
+        orderBy: [{createdAt: "asc"}, {id: "asc"}],
         select: {id: true, name: true, description: true},
       },
     },
@@ -16114,8 +16114,7 @@ export async function syncGenericGameRooms(tx: Prisma.TransactionClient) {
   const roomUpdates: {id: string; name: string; description: string}[] = [];
   for (const category of categories) {
     const definition = definitions.get(JSON.stringify([category.game.name, category.name]));
-    if (!definition) continue;
-    if (category.description !== definition.description) {
+    if (definition && category.description !== definition.description) {
       await tx.gameCategory.update({where: {id: category.id}, data: {description: definition.description}});
       categoriesUpdated++;
     }
