@@ -37,7 +37,7 @@ it('renames existing rooms in batches without changing their parent, content, ca
       updated.rooms.forEach((room, index) => {
         expect(room).toMatchObject({...labels[index], id: football.rooms[index].id, catId: football.id, capacity: 9, thumbnail: '/preserved.webp', createdAt: football.rooms[index].createdAt});
       });
-      expect(await tx.gameRoom.findUniqueOrThrow({where: {id: mind.categories[0].rooms[0].id}})).toMatchObject({name: 'Hangman Room 01', description: genericGameRooms('Hangman', 1, true)[0].description});
+      expect(await tx.gameRoom.findUniqueOrThrow({where: {id: mind.categories[0].rooms[0].id}})).toMatchObject({name: 'Room 1', description: genericGameRooms('Hangman', 1, true)[0].description});
       expect(await tx.gameCategory.findUniqueOrThrow({where: {id: originalCountry.id}, include: {rooms: true}})).toEqual(originalCountry);
       expect(await syncGenericGameRooms(tx)).toEqual({categoriesUpdated: 0, roomsUpdated: 0});
       throw new Error('rollback generic room probe');

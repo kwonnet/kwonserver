@@ -1126,10 +1126,10 @@ type Game = {
 /** Room labels identify spaces to play; they never narrow the category content. */
 export function genericGameRooms(categoryName: string, count: number, activity = false) {
   return Array.from({length: count}, (_, index) => ({
-    name: `${categoryName} Room ${String(index + 1).padStart(2, "0")}`,
+    name: `Room ${index + 1}`,
     description: activity
-      ? `Play ${categoryName} with others. All rooms use the same category content and rules.`
-      : `Play with others using the full ${categoryName} question pool. All rooms cover the same category topics.`,
+      ? `Play in this room. All rooms use the same category content and rules.`
+      : `Play in this room using the full ${categoryName} question pool. All rooms cover the same category topics.`,
   }));
 }
 

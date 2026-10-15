@@ -138,7 +138,9 @@ test('fresh seed gives every non-country room a generic label without changing i
    assert.match(category.description,/Every room/);
    assert.ok(Array.isArray(category.topics));
    category.rooms.create.forEach((room,index)=>{
-    assert.equal(room.name,`${category.name} Room ${String(index+1).padStart(2,'0')}`);
+    assert.equal(room.name,`Room ${index+1}`);
+    assert.match(room.description,/^Play in this room/);
+    assert.doesNotMatch(room.description,/with others/i);
     assert.match(room.description,game.name==='MindMash'?/same category content and rules/:/full .* question pool/);
    });
   }
