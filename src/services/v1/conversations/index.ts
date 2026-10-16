@@ -1,15 +1,22 @@
 import logger from '@/logger';
+import {encryptEmailToken,decryptEmailToken,consumeAuthRateLimit} from '@/utils/auth-security';
 import { publishMessagingHints } from './live';
 import * as objects from './storage';
 import { getPublicUser, composeAuthUser } from "../utils";
 import db from '@/db';
 import { Prisma } from '@prisma/client';
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { EnrollInput, SendInput, ReceiptInput, ReceiptBatchInput } from './e2ee-contracts';
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest();
 const b64 = (value: Uint8Array) => Buffer.from(value).toString('base64');
 export class MessagingError extends Error {
     constructor(public status: number, message: string) { super(message); }
+}
+function protectMessagingValue(context:string,value:string){return encryptEmailToken(JSON.stringify(['kwonnet-messaging',1,context,value]));}
+function readMessagingValue(context:string,ciphertext:string){
+    const value=JSON.parse(decryptEmailToken(ciphertext));
+    if(!Array.isArray(value)||value.length!==4||value[0]!=='kwonnet-messaging'||value[1]!==1||value[2]!==context||typeof value[3]!=='string')throw new MessagingError(503,'Messaging recovery data is invalid');
+    return value[3] as string;
 }
 type Tx = Prisma.TransactionClient;
 async function actorLock(tx: Tx, userId: string) { await tx.$executeRaw `SELECT pg_advisory_xact_lock(hashtext(${`e2:${userId}`}))`; }
@@ -113,14 +120,16 @@ export async function createMessagingConversation(userId: string, recipientId: s
         if (!target)
             throw new MessagingError(404, 'User unavailable');
         const mutual = await tx.follow.count({ where: { status: 'ACCEPTED', OR: [{ followerId: userId, followingId: recipientId }, { followerId: recipientId, followingId: userId }] } }) === 2;
-        const created = await tx.e2Conversation.create({ data: { pairKey, initiatorId: userId, approverId: recipientId, state: mutual ? 'ACCEPTED' : 'PENDING_REQUEST', acceptedAt: mutual ? new Date() : null, members: { create: [{ userId }, { userId: recipientId }] } }, include: { members: true } });
+        const ready = mutual && await tx.e2Device.count({where:{userId:recipientId,revokedAt:null}}) > 0;
+        const created = await tx.e2Conversation.create({ data: { pairKey, initiatorId: userId, approverId: recipientId, state: ready ? 'ACCEPTED' : 'PENDING_REQUEST', acceptedAt: ready ? new Date() : null, members: { create: [{ userId }, { userId: recipientId }] } }, include: { members: true } });
         return messagingConversationDTO(created, userId);
     });
 }
 function messagingConversationDTO(c: any, viewerId: string) {
     // Rejection/block are private to the approver. Sender sees their unchanged request.
     const accepted = !!c.acceptedAt;
-    return { id: c.id, kind: 'chat', state: accepted ? 'ACCEPTED' : 'PENDING_REQUEST', epoch: c.epoch, requestMessageSent: !!c.requestSentAt, initiator: { id: c.initiatorId, acceptedAt: c.createdAt, isPaid: false }, responder: { id: c.approverId, acceptedAt: c.acceptedAt, isPaid: false }, unreadCount: c.members?.find((m: any) => m.userId === viewerId)?.unreadCount ?? 0, unseenCount: c.members?.find((m: any) => m.userId === viewerId)?.unseenCount ?? 0, createdAt: c.createdAt, updatedAt: c.lastActivityAt ?? c.createdAt, lastSequence: String(c.messages?.[0]?.serverSequence ?? 0) };
+    const preview = c.introCiphertext && c.requestSentAt && c.requestSentAt > new Date(Date.now()-90*86400000) && !c.members?.find((m:any)=>m.userId===viewerId)?.hiddenAt ? {id:c.introClientId,text:readMessagingValue(`intro:${c.id}:${c.initiatorId}`,c.introCiphertext),senderId:c.initiatorId,createdAt:c.requestSentAt} : undefined;
+    return { ...(preview ? {requestPreview:preview} : {}), id: c.id, kind: 'chat', state: accepted ? 'ACCEPTED' : 'PENDING_REQUEST', epoch: c.epoch, requestMessageSent: !!c.requestSentAt, initiator: { id: c.initiatorId, acceptedAt: c.createdAt, isPaid: false }, responder: { id: c.approverId, acceptedAt: c.acceptedAt, isPaid: false }, unreadCount: c.members?.find((m: any) => m.userId === viewerId)?.unreadCount ?? 0, unseenCount: c.members?.find((m: any) => m.userId === viewerId)?.unseenCount ?? 0, createdAt: c.createdAt, updatedAt: c.lastActivityAt ?? c.createdAt, lastSequence: String(c.messages?.[0]?.serverSequence ?? 0) };
 }
 export async function listMessagingConversations(userId: string, kind: string, page: number, limit: number) {
     const rows = await db.e2Conversation.findMany({ where: { members: { some: { userId, hiddenAt: null } }, ...(kind === 'requests' ? { approverId: userId, acceptedAt: null, rejectedAt: null } : { OR: [{ acceptedAt: { not: null } }, { initiatorId: userId }] }) }, include: { members: true, messages: { where: { expiresAt: { gt: new Date() }, NOT: { deletedFor: { has: userId } } }, take: 1, orderBy: { serverSequence: 'desc' }, select: { serverSequence: true } } }, orderBy: [{ lastActivityAt: 'desc' }, { id: 'desc' }], take: Math.min(limit, 100), skip: Math.max(0, page - 1) * limit });
@@ -141,6 +150,29 @@ export async function messagingPeer(userId: string, recipientId: string, session
     // Its browser still verifies device identity and decrypts with its local keys.
     const initialSync = c && ownDevice && sessionId ? { userId, deviceId: ownDevice.id, result: await messagingSync(userId, sessionId, ownDevice.id, c.id, '0', '0') } : undefined;
     return { recipient, recipientDevices, convo: c ? messagingConversationDTO(c, userId) : undefined, messages: [], initialSync };
+}
+/** One standard text introduction, readable before the recipient enrolls a device. */
+export async function sendMessagingIntroduction(userId:string, conversationId:string, clientId:string, text:string) {
+    const limit=await consumeAuthRateLimit('messaging:introduction',userId);
+    if(!limit.allowed)throw new MessagingError(429,'Too many message requests. Try again later.');
+    const result=await db.$transaction(async tx=>{
+        await actorLock(tx,userId);
+        await conversationLock(tx,conversationId);
+        const c=await membership(tx,conversationId,userId);
+        if(c.initiatorId!==userId)throw new MessagingError(403,'Accept this request before replying');
+        if(c.rejectedAt||c.state==='BLOCKED'||await blocked(tx,userId,c.approverId))return {ok:true};
+        if(c.introClientId===clientId){
+            if(!c.introCiphertext||readMessagingValue(`intro:${c.id}:${c.initiatorId}`,c.introCiphertext)!==text)throw new MessagingError(409,'Message ID reused with different text');
+            return {ok:true};
+        }
+        if(c.state!=='PENDING_REQUEST'||c.requestSentAt||await tx.e2Message.count({where:{conversationId}}))throw new MessagingError(403,'Send one text request and wait for acceptance');
+        await tx.e2Conversation.update({where:{id:conversationId},data:{introClientId:clientId,introCiphertext:protectMessagingValue(`intro:${conversationId}:${userId}`,text),requestSentAt:new Date(),lastActivityAt:new Date()}});
+        const targets=await tx.e2Device.findMany({where:{userId:{in:[c.initiatorId,c.approverId]},revokedAt:null},select:{id:true}});
+        if(targets.length)await tx.e2Outbox.createMany({data:targets.map(d=>({dedupeKey:`intro:${conversationId}:${d.id}`,conversationId,targetDeviceId:d.id,expectedEpoch:c.epoch,event:'inbox',payload:{conversationId}}))});
+        return {ok:true};
+    });
+    wakeMessagingRelay(conversationId);
+    return result;
 }
 export async function sendMessagingEvent(userId: string, sessionId: string, deviceId: string, input: SendInput) {
     const result = await db.$transaction(async (tx) => {
@@ -384,6 +416,7 @@ export async function dispatchMessagingOutbox(conversationId?: string) {
 }
 export async function cleanMessagingRetention() {
     const cutoff = new Date(Date.now() - 90 * 86400000);
+    await db.e2Conversation.updateMany({where:{introCiphertext:{not:null},requestSentAt:{lt:cutoff}},data:{introCiphertext:null}});
     await db.$transaction(async (tx) => {
         const expired = await tx.e2Message.findMany({ where: { expiresAt: { lt: new Date() } }, select: { id: true, conversationId: true }, take: 500 });
         if (expired.length) {
@@ -396,6 +429,8 @@ export async function cleanMessagingRetention() {
         await tx.$executeRaw `DELETE FROM "E2PreKeyClaim" WHERE id IN (SELECT id FROM "E2PreKeyClaim" WHERE "createdAt"<${cutoff} LIMIT 1000)`;
         await tx.e2OneTimePreKey.deleteMany({ where: { claimedAt: { lt: cutoff } } });
     });
+    const histories=await db.e2HistoryBackup.findMany({where:{createdAt:{lt:new Date(Date.now()-15*60000)},OR:[{finalizedAt:null},{discardedAt:{not:null}}]},take:100});
+    for(const history of histories){await objects.removeMessagingObject(history.objectKey);await db.e2HistoryBackup.delete({where:{id:history.id}});}
     const blobs = await db.e2Blob.findMany({ where: { OR: [{ expiresAt: { lt: new Date() } }, { discardedAt: { not: null }, OR: [{ uploadGrantExpiresAt: null }, { uploadGrantExpiresAt: { lt: new Date() } }] }] }, take: 100, select: { id: true, objectKey: true, ciphertext: true } });
     for (const blob of blobs) {
         if (!blob.ciphertext)
@@ -414,4 +449,66 @@ export async function migrateLegacyMessagingBlobs() {
             await objects.removeMessagingObject(key);
     }
     return blobs.length;
+}
+
+// Account-assisted escrow: only authenticated, rate-limited passcode verification
+// releases the random history key. A six-digit PIN is never the offline file key.
+function recoveryProof(userId:string,passcode:string) {
+    const secret=process.env.AUTH_EMAIL_TOKEN_SECRET;
+    if(!secret||secret.length<32)throw new MessagingError(503,'Messaging recovery is not configured');
+    return createHmac('sha256',secret).update(JSON.stringify(['kwonnet-messaging-pin',1,userId,passcode])).digest('hex');
+}
+export async function messagingRecoveryStatus(userId:string) {
+    return {configured:!!await db.e2Recovery.findUnique({where:{userId},select:{userId:true}})};
+}
+export async function unlockMessagingRecovery(userId:string,passcode:string,setup=false) {
+    if(!/^\d{6}$/.test(passcode))throw new MessagingError(400,'Enter a six-digit messaging passcode');
+    const limit=await consumeAuthRateLimit('messaging:recovery',userId);
+    if(!limit.allowed)throw new MessagingError(429,'Too many passcode attempts. Try again in 15 minutes.');
+    const proof=recoveryProof(userId,passcode);
+    const row=await db.$transaction(async tx=>{
+        await actorLock(tx,userId);
+        const current=await tx.e2Recovery.findUnique({where:{userId}});
+        if(setup){
+            if(current)throw new MessagingError(409,'Messaging passcode already exists. Unlock with your existing code.');
+            return tx.e2Recovery.create({data:{userId,passcodeHash:proof,wrappedSecret:protectMessagingValue(`recovery:${userId}`,randomBytes(32).toString('hex'))}});
+        }
+        if(!current||!timingSafeEqual(Buffer.from(current.passcodeHash,'hex'),Buffer.from(proof,'hex')))throw new MessagingError(403,'Incorrect messaging passcode');
+        return current;
+    });
+    const backups=await db.e2HistoryBackup.findMany({where:{userId,finalizedAt:{not:null},discardedAt:null},select:{id:true,bytes:true},orderBy:{createdAt:'asc'}});
+    return {secret:readMessagingValue(`recovery:${userId}`,row.wrappedSecret),backups};
+}
+export async function reserveMessagingHistory(userId:string,sessionId:string,deviceId:string,bytes:number) {
+    await messagingDevice(userId,sessionId,deviceId);
+    const row=await db.$transaction(async tx=>{
+        await actorLock(tx,userId);
+        if(!await tx.e2Recovery.findUnique({where:{userId}}))throw new MessagingError(409,'Set up a messaging passcode first');
+        const recent=await tx.e2HistoryBackup.count({where:{userId,createdAt:{gt:new Date(Date.now()-60000)}}});
+        if(recent>=12)throw new MessagingError(429,'History backup is updating too frequently');
+        return tx.e2HistoryBackup.create({data:{userId,deviceId,bytes,objectKey:`messaging-history/${randomUUID()}`}});
+    });
+    return {id:row.id,...await objects.messagingUploadGrant(row.objectKey,bytes)};
+}
+export async function finalizeMessagingHistory(userId:string,sessionId:string,deviceId:string,id:string) {
+    await messagingDevice(userId,sessionId,deviceId);
+    const row=await db.e2HistoryBackup.findFirst({where:{id,userId,deviceId,discardedAt:null}});
+    if(!row||row.createdAt<new Date(Date.now()-15*60000))throw new MessagingError(404,'History upload expired');
+    if(await objects.messagingObjectSize(row.objectKey)!==row.bytes)throw new MessagingError(400,'History upload is incomplete');
+    await db.$transaction(async tx=>{
+        await actorLock(tx,userId);
+        // Do not let a slower upload replace a newer finalized snapshot.
+        const newer=await tx.e2HistoryBackup.findFirst({where:{userId,deviceId,discardedAt:null,finalizedAt:{not:null},createdAt:{gt:row.createdAt}}});
+        if(newer)throw new MessagingError(409,'A newer history backup already exists');
+        await tx.e2HistoryBackup.updateMany({where:{userId,deviceId,id:{not:id},discardedAt:null,finalizedAt:{not:null}},data:{discardedAt:new Date()}});
+        await tx.e2HistoryBackup.update({where:{id},data:{finalizedAt:new Date()}});
+    });
+    return {ok:true};
+}
+
+export async function downloadMessagingHistory(userId:string,sessionId:string,deviceId:string,id:string){
+    await messagingDevice(userId,sessionId,deviceId);
+    const row=await db.e2HistoryBackup.findFirst({where:{id,userId,finalizedAt:{not:null},discardedAt:null}});
+    if(!row)throw new MessagingError(404,'History backup unavailable');
+    return objects.messagingDownloadGrant(row.objectKey);
 }

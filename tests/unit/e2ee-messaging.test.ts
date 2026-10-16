@@ -1,10 +1,12 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 const mocks = vi.hoisted(() => {
-    const model = () => Object.fromEntries(['findFirst', 'findMany', 'findUnique', 'findUniqueOrThrow', 'create', 'createMany', 'count', 'aggregate', 'upsert', 'update', 'updateMany', 'deleteMany'].map(k => [k, vi.fn()]));
-    const db: any = { $transaction: vi.fn(), $executeRaw: vi.fn(), $queryRaw: vi.fn(), e2Device: model(), e2SignedPreKey: model(), e2OneTimePreKey: model(), e2PreKeyClaim: model(), e2Conversation: model(), e2Member: model(), e2Message: model(), e2Envelope: model(), e2Receipt: model(), e2Delivery:model(), e2Blob: model(), e2Outbox: model(), blockUser: model(), follow: model(), user: model() };
+    const model = () => Object.fromEntries(['findFirst', 'findMany', 'findUnique', 'findUniqueOrThrow', 'create', 'createMany', 'count', 'aggregate', 'upsert', 'update', 'updateMany', 'delete','deleteMany'].map(k => [k, vi.fn()]));
+    const db: any = { $transaction: vi.fn(), $executeRaw: vi.fn(), $queryRaw: vi.fn(), e2Recovery:model(), e2HistoryBackup:model(), e2Device: model(), e2SignedPreKey: model(), e2OneTimePreKey: model(), e2PreKeyClaim: model(), e2Conversation: model(), e2Member: model(), e2Message: model(), e2Envelope: model(), e2Receipt: model(), e2Delivery:model(), e2Blob: model(), e2Outbox: model(), blockUser: model(), follow: model(), user: model() };
     return { db, publicUser: vi.fn() };
 });
+const recoveryLimit=vi.hoisted(()=>vi.fn());
+vi.mock('@/utils/auth-security',async original=>({...await original<any>(),consumeAuthRateLimit:recoveryLimit}));
 vi.mock('@/db', () => ({ default: mocks.db }));
 const objectMocks=vi.hoisted(()=>({requireMessagingStorage:vi.fn(),messagingUploadGrant:vi.fn(),messagingDownloadGrant:vi.fn(),messagingObjectSize:vi.fn(),removeMessagingObject:vi.fn(),migrateMessagingObject:vi.fn()}));
 vi.mock('@/services/v1/conversations/storage',()=>objectMocks);
@@ -18,6 +20,8 @@ const enroll: any = { deviceId: d, signalDeviceId: 1, registrationId: 42, identi
 const input: any = { conversationId: room, clientId, envelopes: [{ recipientDeviceId: target, wireType: 3, ciphertextB64: Buffer.alloc(64, 7).toString('base64') }] };
 const db = mocks.db;
 beforeEach(() => {
+    vi.stubEnv('AUTH_EMAIL_TOKEN_SECRET','unit-test-messaging-secret-32-characters');
+    recoveryLimit.mockResolvedValue({allowed:true});
     for (const value of Object.values(db))
         if (typeof value === 'function')
             (value as any).mockReset();
@@ -27,6 +31,9 @@ beforeEach(() => {
     db.$transaction.mockImplementation((work: any) => work(db));
     db.$executeRaw.mockResolvedValue(1);
     db.$queryRaw.mockResolvedValue([]);
+    db.e2Recovery.findUnique.mockResolvedValue(null);
+    db.e2HistoryBackup.findMany.mockResolvedValue([]);
+    db.e2HistoryBackup.count.mockResolvedValue(0);
     db.e2Device.findFirst.mockResolvedValue(device);
     db.e2Device.findUnique.mockResolvedValue(null);
     db.e2Device.findMany.mockResolvedValue([{ id: target, userId: 'b' }]);
@@ -111,7 +118,7 @@ it('rejects prekey claims for missing/blocked devices, exhaustion without signed
 it('canonically creates/reuses requests; only mutual accepted contacts bypass acceptance', async () => {
     await expect(chat.createMessagingConversation('a', 'a')).rejects.toThrow('another');
     expect((await chat.createMessagingConversation('a', 'b')).state).toBe('PENDING_REQUEST');
-    db.follow.count.mockResolvedValue(2);
+    db.follow.count.mockResolvedValue(2);db.e2Device.count.mockResolvedValue(1);
     db.e2Conversation.create.mockResolvedValue({ ...convo, acceptedAt: new Date() });
     expect((await chat.createMessagingConversation('a', 'b')).state).toBe('ACCEPTED');
     db.e2Conversation.findUnique.mockResolvedValue(convo);
@@ -284,4 +291,86 @@ it('caps encrypted image upload reservations at 500 KB plus the AES-GCM tag', as
     expect(BlobReserveSchema.safeParse({ ...input, ciphertextBytes: 512017 }).success).toBe(false);
     await expect(chat.reserveMessagingBlob('a', 's', d, room, { ...input, ciphertextBytes: 512017 })).rejects.toThrow('500 KB');
     expect(db.e2Blob.create).not.toHaveBeenCalled();
+});
+
+it('stores one protected standard introduction, including idempotent retries, without requiring recipient keys',async()=>{
+    db.e2Device.findMany.mockResolvedValue([]);
+    await chat.sendMessagingIntroduction('a',room,clientId,'hello');
+    const saved=db.e2Conversation.update.mock.calls[0][0].data;
+    expect(saved.introCiphertext).not.toContain('hello');
+    db.e2Conversation.findFirst.mockResolvedValue({...convo,...saved});
+    await chat.sendMessagingIntroduction('a',room,clientId,'hello');
+    expect(db.e2Conversation.update).toHaveBeenCalledTimes(1);
+    await expect(chat.sendMessagingIntroduction('a',room,clientId,'changed')).rejects.toMatchObject({status:409});
+    db.e2Conversation.findUnique.mockResolvedValue({...convo,...saved});
+    expect((await chat.createMessagingConversation('a','b')).requestPreview?.text).toBe('hello');
+    db.e2Conversation.findUnique.mockResolvedValue({...convo,...saved,requestSentAt:new Date(0)});
+    expect((await chat.createMessagingConversation('a','b')).requestPreview).toBeUndefined();
+    db.e2Conversation.findUnique.mockResolvedValue({...convo,...saved,members:[{userId:'a',hiddenAt:new Date()}]});
+    expect((await chat.createMessagingConversation('a','b')).requestPreview).toBeUndefined();
+});
+it('routes request hints only to member devices and refuses unauthorized, repeated or post-acceptance introductions',async()=>{
+    await chat.sendMessagingIntroduction('a',room,clientId,'hello');expect(db.e2Outbox.createMany).toHaveBeenCalled();
+    await expect(chat.sendMessagingIntroduction('b',room,clientId,'hello')).rejects.toMatchObject({status:403});
+    for(const change of [{state:'ACCEPTED'},{requestSentAt:new Date()}]){
+        db.e2Conversation.findFirst.mockResolvedValue({...convo,...change});
+        await expect(chat.sendMessagingIntroduction('a',room,clientId,'hello')).rejects.toMatchObject({status:403});
+    }
+    db.e2Conversation.findFirst.mockResolvedValue(convo);db.e2Message.count.mockResolvedValue(1);
+    await expect(chat.sendMessagingIntroduction('a',room,clientId,'hello')).rejects.toMatchObject({status:403});
+    db.e2Conversation.findFirst.mockResolvedValue({...convo,introClientId:clientId,introCiphertext:null});
+    await expect(chat.sendMessagingIntroduction('a',room,clientId,'hello')).rejects.toMatchObject({status:409});
+});
+it.each([{rejectedAt:new Date()},{state:'BLOCKED'},{blocked:true}])('quietly discards blocked or rejected requests %j',async change=>{
+    db.e2Conversation.findFirst.mockResolvedValue({...convo,...change});if(change.blocked)db.blockUser.findFirst.mockResolvedValue({id:'block'});
+    expect(await chat.sendMessagingIntroduction('a',room,clientId,'hello')).toEqual({ok:true});expect(db.e2Conversation.update).not.toHaveBeenCalled();
+});
+it('limits introduction attempts and keeps mutual follows pending until a recipient device exists',async()=>{
+    recoveryLimit.mockResolvedValue({allowed:false});await expect(chat.sendMessagingIntroduction('a',room,clientId,'hello')).rejects.toMatchObject({status:429});
+    db.follow.count.mockResolvedValue(2);db.e2Device.count.mockResolvedValue(0);await chat.createMessagingConversation('a','b');
+    expect(db.e2Conversation.create.mock.calls[0][0].data.state).toBe('PENDING_REQUEST');
+});
+it('creates a random escrow secret and returns it only for the correct account passcode',async()=>{
+    expect(await chat.messagingRecoveryStatus('a')).toEqual({configured:false});
+    db.e2Recovery.create.mockImplementation(async({data}:any)=>data);
+    const result=await chat.unlockMessagingRecovery('a','012345',true);
+    expect(result.secret).toMatch(/^[a-f0-9]{64}$/);expect(result.backups).toEqual([]);
+    const row=db.e2Recovery.create.mock.calls[0][0].data;
+    expect(JSON.stringify(row)).not.toContain('012345');expect(row.wrappedSecret).not.toContain(result.secret);
+    db.e2Recovery.findUnique.mockResolvedValue(row);expect(await chat.messagingRecoveryStatus('a')).toEqual({configured:true});
+    expect((await chat.unlockMessagingRecovery('a','012345')).secret).toBe(result.secret);
+    await expect(chat.unlockMessagingRecovery('a','012346')).rejects.toMatchObject({status:403});
+    await expect(chat.unlockMessagingRecovery('b','012345')).rejects.toMatchObject({status:403});
+    await expect(chat.unlockMessagingRecovery('a','012345',true)).rejects.toMatchObject({status:409});
+});
+it('refuses invalid passcodes, unavailable escrow, attempts over limit and missing recovery accounts',async()=>{
+    await expect(chat.unlockMessagingRecovery('a','abc123')).rejects.toMatchObject({status:400});
+    await expect(chat.unlockMessagingRecovery('a','123456')).rejects.toMatchObject({status:403});
+    recoveryLimit.mockResolvedValue({allowed:false});await expect(chat.unlockMessagingRecovery('a','123456')).rejects.toMatchObject({status:429});
+    recoveryLimit.mockResolvedValue({allowed:true});vi.stubEnv('AUTH_EMAIL_TOKEN_SECRET','short');await expect(chat.unlockMessagingRecovery('a','123456')).rejects.toMatchObject({status:503});
+});
+it('reserves bounded opaque history uploads only for an enrolled device with recovery configured',async()=>{
+    await expect(chat.reserveMessagingHistory('a','s',d,128)).rejects.toMatchObject({status:409});
+    db.e2Recovery.findUnique.mockResolvedValue({userId:'a'});db.e2HistoryBackup.count.mockResolvedValue(12);
+    await expect(chat.reserveMessagingHistory('a','s',d,128)).rejects.toMatchObject({status:429});
+    db.e2HistoryBackup.count.mockResolvedValue(0);db.e2HistoryBackup.create.mockImplementation(async({data}:any)=>({id:msgId,...data}));
+    expect(await chat.reserveMessagingHistory('a','s',d,128)).toMatchObject({id:msgId,url:'https://private.test/upload'});
+    expect(db.e2HistoryBackup.create).toHaveBeenCalledWith({data:expect.objectContaining({userId:'a',deviceId:d,bytes:128,objectKey:expect.stringMatching(/^messaging-history\//)})});
+});
+it('finalizes only complete, owned, fresh uploads and rejects older snapshots arriving late',async()=>{
+    await expect(chat.finalizeMessagingHistory('a','s',d,msgId)).rejects.toMatchObject({status:404});
+    db.e2HistoryBackup.findFirst.mockResolvedValue({id:msgId,createdAt:new Date(0)});await expect(chat.finalizeMessagingHistory('a','s',d,msgId)).rejects.toMatchObject({status:404});
+    const backup={id:msgId,createdAt:new Date(),bytes:128,objectKey:'object'};
+    db.e2HistoryBackup.findFirst.mockResolvedValue(backup);await expect(chat.finalizeMessagingHistory('a','s',d,msgId)).rejects.toMatchObject({status:400});
+    objectMocks.messagingObjectSize.mockResolvedValue(128);db.e2HistoryBackup.findFirst.mockResolvedValueOnce(backup).mockResolvedValueOnce({id:'newer'});
+    await expect(chat.finalizeMessagingHistory('a','s',d,msgId)).rejects.toMatchObject({status:409});
+    db.e2HistoryBackup.findFirst.mockResolvedValueOnce(backup).mockResolvedValueOnce(null);
+    expect(await chat.finalizeMessagingHistory('a','s',d,msgId)).toEqual({ok:true});expect(db.e2HistoryBackup.updateMany).toHaveBeenCalled();
+});
+it('downloads only owned finalized snapshots and cleans obsolete objects before deleting metadata',async()=>{
+    await expect(chat.downloadMessagingHistory('a','s',d,msgId)).rejects.toMatchObject({status:404});
+    db.e2HistoryBackup.findFirst.mockResolvedValue({objectKey:'history'});expect(await chat.downloadMessagingHistory('a','s',d,msgId)).toEqual({url:'https://private.test/download'});
+    expect(db.e2HistoryBackup.findFirst).toHaveBeenLastCalledWith({where:{id:msgId,userId:'a',finalizedAt:{not:null},discardedAt:null}});
+    db.e2HistoryBackup.findMany.mockResolvedValue([{id:msgId,objectKey:'obsolete'}]);
+    await chat.cleanMessagingRetention();expect(objectMocks.removeMessagingObject).toHaveBeenCalledWith('obsolete');expect(db.e2HistoryBackup.delete).toHaveBeenCalledWith({where:{id:msgId}});
 });

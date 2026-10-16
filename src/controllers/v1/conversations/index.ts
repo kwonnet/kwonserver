@@ -69,3 +69,23 @@ export const messagingDownloadController = async (req: Request, res: Response) =
         return res.status(error instanceof messaging.MessagingError ? error.status : 400).send('Attachment unavailable');
     }
 };
+
+export const messagingIntroductionController=messagingController((req,u)=>{
+    session(u);
+    const input=z.object({clientId:UUID,text:z.string().trim().min(1).max(10000)}).strict().parse(req.body);
+    return messaging.sendMessagingIntroduction(u.id,UUID.parse(req.params.id),input.clientId,input.text);
+});
+
+export const messagingRecoveryStatusController=messagingController((req,u)=>{session(u);return messaging.messagingRecoveryStatus(u.id);});
+export const messagingRecoveryUnlockController=messagingController((req,u)=>{
+    session(u);
+    const input=z.object({passcode:z.string().regex(/^\d{6}$/),setup:z.boolean().default(false)}).strict().parse(req.body);
+    return messaging.unlockMessagingRecovery(u.id,input.passcode,input.setup);
+});
+export const messagingHistoryReserveController=messagingController((req,u)=>{
+    const input=z.object({bytes:z.number().int().min(1).max(48*1024*1024)}).strict().parse(req.body);
+    return messaging.reserveMessagingHistory(u.id,session(u),device(req),input.bytes);
+});
+export const messagingHistoryFinalizeController=messagingController((req,u)=>messaging.finalizeMessagingHistory(u.id,session(u),device(req),UUID.parse(req.params.backupId)));
+
+export const messagingHistoryDownloadController=messagingController((req,u)=>messaging.downloadMessagingHistory(u.id,session(u),device(req),UUID.parse(req.params.backupId)));

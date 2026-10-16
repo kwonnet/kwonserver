@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { response } from './fixtures';
-const services = vi.hoisted(() => Object.fromEntries(['enrollMessagingDevice', 'messagingRoster', 'claimMessagingPreKey', 'createMessagingConversation', 'listMessagingConversations', 'messagingPeer', 'sendMessagingEvent', 'messagingSync', 'messagingReceipt', 'resolveMessagingRequest', 'deleteMessagingForMe', 'revokeMessagingDevice', 'reserveMessagingBlob','finalizeMessagingBlob','messagingReceiptBatch', 'getMessagingBlob'].map(name => [name, vi.fn()])));
+const services = vi.hoisted(() => Object.fromEntries(['sendMessagingIntroduction','messagingRecoveryStatus','unlockMessagingRecovery','reserveMessagingHistory','finalizeMessagingHistory','downloadMessagingHistory','enrollMessagingDevice', 'messagingRoster', 'claimMessagingPreKey', 'createMessagingConversation', 'listMessagingConversations', 'messagingPeer', 'sendMessagingEvent', 'messagingSync', 'messagingReceipt', 'resolveMessagingRequest', 'deleteMessagingForMe', 'revokeMessagingDevice', 'reserveMessagingBlob','finalizeMessagingBlob','messagingReceiptBatch', 'getMessagingBlob'].map(name => [name, vi.fn()])));
 vi.mock('@/services/v1/conversations', () => ({ ...services, MessagingError: class extends Error {
         constructor(public status: number, message: string) { super(message); }
     } }));
@@ -12,6 +12,12 @@ const req = (overrides: any = {}) => ({ user: { id: 'u', sessionId: 's' }, param
 const enrollment = { deviceId: device, signalDeviceId: 1, registrationId: 1, identityPublic: Buffer.alloc(33).toString('base64'), actionSigningPublic: Buffer.alloc(32).toString('base64'), signedPreKey: { keyId: 1, publicKey: Buffer.alloc(33).toString('base64'), signature: Buffer.alloc(64).toString('base64') }, preKeys: [] };
 const send = { conversationId: room, clientId: message, envelopes: [{ recipientDeviceId: device, wireType: 3, ciphertextB64: Buffer.alloc(64).toString('base64') }] };
 const cases = [
+    [c.messagingIntroductionController,'sendMessagingIntroduction',{body:{clientId:message,text:'Hello'}}],
+    [c.messagingRecoveryStatusController,'messagingRecoveryStatus',{}],
+    [c.messagingRecoveryUnlockController,'unlockMessagingRecovery',{body:{passcode:'123456'}}],
+    [c.messagingHistoryReserveController,'reserveMessagingHistory',{body:{bytes:128}}],
+    [c.messagingHistoryFinalizeController,'finalizeMessagingHistory',{params:{backupId:message}}],
+    [c.messagingHistoryDownloadController,'downloadMessagingHistory',{params:{backupId:message}}],
     [c.messagingEnrollController, 'enrollMessagingDevice', { body: enrollment }],
     [c.messagingRosterController, 'messagingRoster', {}],
     [c.messagingClaimController, 'claimMessagingPreKey', { body: { claimId: message } }],
