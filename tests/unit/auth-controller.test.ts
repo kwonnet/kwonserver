@@ -1,12 +1,13 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response, user } from './fixtures';
 import logger from '@/logger';
-const deps = vi.hoisted(() => ({ beginFactor:vi.fn(),factorIdentity:vi.fn(),requestEmail: vi.fn(), consumeEmail: vi.fn(), create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn(), startSession: vi.fn(), validateSession: vi.fn(), touch: vi.fn(), provider: vi.fn(), revoke: vi.fn(), sessions: vi.fn(), events: vi.fn(), account: vi.fn(), password: vi.fn() }));
-vi.mock('@/services/v1/auth', () => ({AuthSecurityError:class extends Error {},beginTwoFactorLogin:deps.beginFactor,twoFactorChallengeIdentity:deps.factorIdentity, requestAuthEmail: deps.requestEmail, consumeAuthEmail: deps.consumeEmail, getAccountSettings: deps.account, updateAccountPassword: deps.password, createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google, startAuthSession: deps.startSession, validateAuthSession: deps.validateSession, touchAuthSession: deps.touch, sessionProvider: deps.provider, revokeAuthSession: deps.revoke, listAuthSessions: deps.sessions, listLoginEvents: deps.events }));
+const deps = vi.hoisted(() => ({ beginSetup:vi.fn(),confirmSetup:vi.fn(),changeFactor:vi.fn(),beginFactor:vi.fn(),factorIdentity:vi.fn(),requestEmail: vi.fn(), consumeEmail: vi.fn(), create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn(), startSession: vi.fn(), validateSession: vi.fn(), touch: vi.fn(), provider: vi.fn(), revoke: vi.fn(), sessions: vi.fn(), events: vi.fn(), account: vi.fn(), password: vi.fn() }));
+vi.mock('@/services/v1/auth', () => ({AuthSecurityError:class extends Error {constructor(message:string,public status=400,public retryAfter?:number){super(message)}} ,beginTwoFactorSetup:deps.beginSetup,confirmTwoFactorSetup:deps.confirmSetup,changeTwoFactor:deps.changeFactor,beginTwoFactorLogin:deps.beginFactor,twoFactorChallengeIdentity:deps.factorIdentity, requestAuthEmail: deps.requestEmail, consumeAuthEmail: deps.consumeEmail, getAccountSettings: deps.account, updateAccountPassword: deps.password, createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google, startAuthSession: deps.startSession, validateAuthSession: deps.validateSession, touchAuthSession: deps.touch, sessionProvider: deps.provider, revokeAuthSession: deps.revoke, listAuthSessions: deps.sessions, listLoginEvents: deps.events }));
 vi.mock('@/services/v1/utils', () => ({ getAuthUser: deps.getUser }));
 vi.mock('@/utils', () => ({ generateToken: deps.generate, getAuthTokenUser: deps.decode, getRefreshAuthTokenUser: deps.decode }));
 vi.mock('@/utils/ipLocation', () => ({ lookup: deps.lookup }));
-import { authEmailActionController, accountSettingsController, passwordUpdateController, signInController, signUpController, refreshTokenController, getMeController, logoutController, googleSignInController, authSessionsController, loginEventsController, revokeAuthSessionController, guardAuthStream } from '@/controllers/v1/auth';
+import { AuthSecurityError } from "@/services/v1/auth";
+import { verifyTwoFactorLoginController,twoFactorManagementController,authEmailActionController, accountSettingsController, passwordUpdateController, signInController, signUpController, refreshTokenController, getMeController, logoutController, googleSignInController, authSessionsController, loginEventsController, revokeAuthSessionController, guardAuthStream } from '@/controllers/v1/auth';
 const body = { name: 'Ada', email: 'ADA@example.test', password: 'password123' };
 it('logout clears both historical API cookies even without a working authenticated session', () => {
   const res = response(); res.clearCookie = vi.fn(() => res);
@@ -269,4 +270,51 @@ it('returns the verified Google account rate-limit retry deadline without issuin
  deps.google.mockResolvedValue({status:429,data:'Too many Google sign-in requests',retryAfter:321});
  const res=response();await googleSignInController({body:{idToken:'signed-google-id-token'},ip:'198.51.100.1'} as any,res);
  expect(res.statusCode).toBe(429);expect(res.setHeader).toHaveBeenCalledWith('Retry-After','321');expect(deps.startSession).not.toHaveBeenCalled();expect(deps.generate).not.toHaveBeenCalled();
+});
+
+const factorBody={challengeToken:'a'.repeat(43),code:'123456'};
+it.each([{}, {...factorBody,extra:true},{...factorBody,code:'123'},{...factorBody,challengeToken:'bad'}])('validates two-factor login input before accessing the challenge',async input=>{
+ const res=response();await verifyTwoFactorLoginController({body:input} as any,res);expect(res.statusCode).toBe(400);expect(deps.factorIdentity).not.toHaveBeenCalled();
+});
+it('completes a two-factor login using only the challenge identity and verified proof',async()=>{
+ deps.factorIdentity.mockResolvedValue({userId:'owner',provider:'GOOGLE',kind:'ACCOUNT_SWITCH'});
+ const res=response();await verifyTwoFactorLoginController({body:factorBody,ip:'127.0.0.1'} as any,res);
+ expect(deps.getUser).toHaveBeenCalledWith('owner',{includeEmail:true});expect(deps.startSession).toHaveBeenCalledWith('user-1','GOOGLE',expect.any(Object),'ACCOUNT_SWITCH',expect.any(String),factorBody);
+ expect(res.body.accessToken).toBe('signed-token');expect(res.headers['Cache-Control']).toBe('private, no-store');
+});
+it.each([{status:401,data:'Unavailable'},{status:200,data:'Unavailable'}])('refuses unavailable accounts after a challenge %j',async result=>{
+ deps.factorIdentity.mockResolvedValue({userId:'owner'});deps.getUser.mockResolvedValue(result);const res=response();await verifyTwoFactorLoginController({body:factorBody} as any,res);expect(res.statusCode).toBe(401);expect(deps.startSession).not.toHaveBeenCalled();
+});
+it.each([
+ ['setup',{currentPassword:'password'},'beginSetup',['owner','current','password']],
+ ['setup',{},'beginSetup',['owner','current',undefined]],
+ ['enable',{setupId:'b25e02fe-f375-4e89-8bc6-7519fef3c032',code:'123456'},'confirmSetup',['owner','current','b25e02fe-f375-4e89-8bc6-7519fef3c032','123456']],
+ ['disable',{code:'123456',currentPassword:'password'},'changeFactor',['owner','current','disable','123456','password']],
+ ['recovery-codes',{code:' 123456 '},'changeFactor',['owner','current','recovery-codes','123456',undefined]],
+] as const)('dispatches authenticated %s with validated fields',async(action,input,key,args)=>{
+ deps[key].mockResolvedValue({ok:true});const res=response();await twoFactorManagementController({path:'/two-factor/'+action,body:input,user:{id:'owner',sessionId:'current'}} as any,res);expect(deps[key]).toHaveBeenCalledWith(...args);expect(res.body).toEqual({ok:true});expect(res.headers['Cache-Control']).toBe('private, no-store');
+});
+it.each(['setup','enable','disable','recovery-codes'])('rejects extra or invalid fields on %s',async action=>{
+ const res=response();await twoFactorManagementController({path:'/two-factor/'+action,body:{extra:'bad'},user:{id:'owner'}} as any,res);expect(res.statusCode).toBe(400);
+});
+it('rejects unknown two-factor management actions',async()=>{const res=response();await twoFactorManagementController({path:'/two-factor/unknown',user:{id:'owner'}} as any,res);expect(res.statusCode).toBe(404);});
+it.each([
+ ['signin',signInController,'login',body],['signup',signUpController,'create',body],
+ ['google',googleSignInController,'google',{idToken:'signed-google-id-token'}],
+ ['refresh',refreshTokenController,'getUser',{token:'token'}],
+ ['verify',verifyTwoFactorLoginController,'factorIdentity',factorBody],
+ ['manage',twoFactorManagementController,'beginSetup',{}],
+] as const)('%s preserves security error status and bounded retry information',async(_name,controller,key,input)=>{
+ for(const [status,retry] of [[401,undefined],[429,37],[429,undefined]] as const){
+  deps[key].mockRejectedValue(new AuthSecurityError('Authentication denied',status,retry));const res=response();
+  await controller({body:input,path:'/two-factor/setup',user:{id:'owner',sessionId:'current'}} as any,res);
+  expect(res.statusCode).toBe(status);expect(res.body).toEqual({message:'Authentication denied'});expect(res.headers['Retry-After']).toBe(status===429?String(retry??900):undefined);expect(res.cookie).not.toHaveBeenCalled();
+ }
+});
+it.each([['verify',verifyTwoFactorLoginController,'factorIdentity',factorBody],['manage',twoFactorManagementController,'beginSetup',{}]] as const)('%s masks unexpected security failures',async(_name,controller,key,input)=>{
+ deps[key].mockRejectedValue(new Error('private detail'));const res=response();await controller({body:input,path:'/two-factor/setup',user:{id:'owner'}} as any,res);expect(res.statusCode).toBe(503);expect(JSON.stringify(res.body)).not.toContain('private detail');
+});
+it.each([['password',signInController,body],['google',googleSignInController,{idToken:'signed-google-id-token'}],['saved account',refreshTokenController,{token:'old',newSession:true}]] as const)('%s returns a challenge without issuing a session or token',async(_name,controller,input)=>{
+ deps.google.mockResolvedValue({status:200,data:user()});deps.beginFactor.mockResolvedValue({twoFactorRequired:true,challengeToken:'challenge'});const res=response();await controller({body:input} as any,res);
+ expect(res.statusCode).toBe(202);expect(res.body.twoFactorRequired).toBe(true);expect(deps.startSession).not.toHaveBeenCalled();expect(deps.generate).not.toHaveBeenCalled();expect(res.cookie).not.toHaveBeenCalled();
 });

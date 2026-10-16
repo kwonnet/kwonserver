@@ -69,3 +69,13 @@ it('rejects old sessionless tokens after a password change or account removal', 
  mocks.db.user.findUnique.mockResolvedValue({passwordChangedAt: new Date()}); expect(await validateAuthSession({id: 'user'})).toBe(false);
  mocks.db.user.findUnique.mockResolvedValue(null); expect(await validateAuthSession({id: 'user'})).toBe(false);
 });
+
+it('rejects legacy tokens and sessions that have not satisfied enabled account 2FA',async()=>{
+ const enabledAt=new Date('2026-10-16T12:00:00Z');
+ mocks.db.user.findUnique.mockResolvedValue({emailVerifiedAt:enabledAt,passwordChangedAt:null,twoFactor:{enabledAt}});
+ expect(await validateAuthSession({id:'user'})).toBe(false);
+ for(const stamp of [null,new Date(0),enabledAt]){
+  mocks.db.userSession.findFirst.mockResolvedValue({id:'session',twoFactorVerifiedAt:stamp,user:{twoFactor:{enabledAt}}});
+  expect(await validateAuthSession({id:'user',sessionId:'session'})).toBe(stamp===enabledAt);
+ }
+});
