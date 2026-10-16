@@ -112,3 +112,49 @@ test('automatic database release migrates then seeds with the direct runtime con
     assert.equal(queries.some(sql=>sql.includes('SELECT extname')),!failSeed,'analytics and new services must wait for successful seeding');
   }
 });
+
+test('first setup warms aggregates before scheduling background policies and checkpoints only completed refreshes',async()=>{
+ const calls=[];
+ await prepareAnalytics({query:async(sql,params)=>{
+  calls.push({sql,params});
+  if(sql.startsWith('SELECT extname'))return {rows:[{extname:'timescaledb'}]};
+  if(sql.includes("current_setting('timescaledb.license'"))return {rows:[{license:'timescale'}]};
+  if(sql.includes('timescaledb_information.continuous_aggregates'))return {rows:[{}]};
+  if(sql.startsWith('SELECT cursor'))return {rows:[{completedAt:new Date()}]};
+  return {rows:[]};
+ }},log,{});
+ const refreshes=calls.map((call,index)=>call.sql.startsWith('CALL refresh')?index:-1).filter(index=>index>=0);
+ const policies=calls.map((call,index)=>call.sql.includes('add_continuous_aggregate_policy')?index:-1).filter(index=>index>=0);
+ const checkpoint=calls.findIndex(call=>call.params?.[0]==='post-trends-v1:aggregate-warm'&&call.sql.startsWith('INSERT'));
+ assert.equal(refreshes.length,2);assert.equal(policies.length,2);
+ assert.ok(Math.max(...refreshes)<checkpoint&&checkpoint<Math.min(...policies));
+ assert.ok(policies.every(index=>calls[index].sql.includes('initial_start => now() + INTERVAL')));
+});
+test('aggregate refresh retries transient lock contention but propagates persistent locks and other errors',async()=>{
+ const {refreshAggregate}=require('../scripts/database-analytics.cjs');
+ const lock=Object.assign(new Error('lock unavailable'),{code:'55P03'});
+ const permission=Object.assign(new Error('permission denied'),{code:'42501'});
+ for(const failures of [[lock], [lock,lock], [lock,lock,lock], [permission]]){
+  let attempts=0;const waits=[];const warnings=[];
+  const db={query:async sql=>{assert.ok(sql.startsWith('CALL refresh_continuous_aggregate'));const error=failures[attempts++];if(error)throw error;return {rows:[]};}};
+  const run=()=>refreshAggregate(db,'kwonnet_trending_hourly_v1','1 hour',{warn:message=>warnings.push(message)},async ms=>{waits.push(ms);});
+  if(failures.length===3||failures[0]===permission)await assert.rejects(run(),error=>error===failures[0]);else await run();
+  const retries=failures[0]===permission?0:Math.min(failures.length,2);
+  assert.equal(attempts,Math.min(failures.length+1,failures[0]===permission?1:3));
+  assert.deepEqual(waits,[1000,2000].slice(0,retries));assert.equal(warnings.length,retries);
+ }
+});
+test('failed initial aggregate refresh never marks initialization complete or schedules new policies',async()=>{
+ const calls=[];
+ await assert.rejects(prepareAnalytics({query:async(sql,params)=>{
+  calls.push({sql,params});
+  if(sql.startsWith('SELECT extname'))return {rows:[{extname:'timescaledb'}]};
+  if(sql.includes("current_setting('timescaledb.license'"))return {rows:[{license:'timescale'}]};
+  if(sql.includes('timescaledb_information.continuous_aggregates'))return {rows:[{}]};
+  if(sql.startsWith('SELECT cursor'))return {rows:[{completedAt:new Date()}]};
+  if(sql.startsWith('CALL refresh'))throw Object.assign(new Error('refresh failed'),{code:'42501'});
+  return {rows:[]};
+ }},log,{}),/refresh failed/);
+ assert.ok(!calls.some(call=>call.sql.includes('add_continuous_aggregate_policy')));
+ assert.ok(!calls.some(call=>call.sql.startsWith('INSERT')&&call.params?.[0]==='post-trends-v1:aggregate-warm'));
+});

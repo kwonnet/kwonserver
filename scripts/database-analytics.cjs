@@ -1,6 +1,7 @@
 const { Client } = require('pg');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
+const { setTimeout: delay } = require('node:timers/promises');
 require('dotenv').config({ quiet: true });
 const LOCK = 'kwonserver:database-analytics';
 const VERSION = 'post-trends-v1';
@@ -52,9 +53,7 @@ async function prepareAnalytics(db, log = console, env = process.env) {
       'SELECT 1 FROM timescaledb_information.continuous_aggregates WHERE view_schema = current_schema() AND view_name = $1', [name],
     )).rows.length > 0;
     if (aggregate) {
-      aggregateNames.push([name, offset]);
-      await db.query(`SELECT add_continuous_aggregate_policy('${name}', start_offset => INTERVAL '3 months',
-        end_offset => INTERVAL '${offset}', schedule_interval => INTERVAL '${interval}', if_not_exists => TRUE)`);
+      aggregateNames.push([name, offset, interval]);
     }
   }
   log.info(`Trending analytics: ${timescale ? 'TimescaleDB hypertable' : 'PostgreSQL table'}; ${aggregateNames.length ? 'continuous aggregates' : 'live views'}`);
@@ -64,10 +63,32 @@ async function prepareAnalytics(db, log = console, env = process.env) {
     const state = await db.query('SELECT 1 FROM "KwonnetAnalyticsSetup" WHERE name = $1 AND "completedAt" IS NOT NULL', [warm]);
     if (!state.rows.length) {
       for (const [name, offset] of aggregateNames) {
-        await db.query(`CALL refresh_continuous_aggregate('${name}', now() - INTERVAL '30 days', now() - INTERVAL '${offset}')`);
+        await refreshAggregate(db, name, offset, log);
       }
       await db.query('INSERT INTO "KwonnetAnalyticsSetup" (name, "completedAt") VALUES ($1, now()) ON CONFLICT (name) DO UPDATE SET "completedAt" = now()', [warm]);
       log.info('Trending continuous aggregates: initial 30-day refresh complete');
+    }
+    // A new policy can run immediately. Do not let it compete with backfill or
+    // initial refresh. Existing policies retain their original schedule.
+    for (const [name, offset, interval] of aggregateNames) {
+      await db.query(`SELECT add_continuous_aggregate_policy('${name}', start_offset => INTERVAL '3 months',
+        end_offset => INTERVAL '${offset}', schedule_interval => INTERVAL '${interval}',
+        initial_start => now() + INTERVAL '${interval}', if_not_exists => TRUE)`);
+    }
+  }
+}
+async function refreshAggregate(db, name, offset, log = console, wait = delay) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await db.query(`CALL refresh_continuous_aggregate('${name}', now() - INTERVAL '30 days', now() - INTERVAL '${offset}')`);
+      return;
+    } catch (error) {
+      // No explicit transaction surrounds the CALL; the connection stays usable
+      // after a lock timeout, and refreshing the same window is safe to repeat.
+      // A pre-existing background policy may still be finishing on a re-release.
+      if (error.code !== '55P03' || attempt >= 3) throw error;
+      log.warn(`Trending aggregate ${name}: lock contention; retry ${attempt}/2`);
+      await wait(attempt * 1000);
     }
   }
 }
@@ -130,9 +151,14 @@ async function main(command = process.argv[2]) {
     else throw new Error('Use deploy, extensions or setup');
   } finally { await db.end(); }
 }
-module.exports = { mode, enableExtensions, prepareAnalytics, backfill, releaseUrl, main };
+module.exports = { mode, enableExtensions, prepareAnalytics, refreshAggregate, backfill, releaseUrl, main };
 if (require.main === module) main().catch(error => {
   // PostgreSQL messages may contain URL/user data; expose only known safe setup errors.
+  if (error.code === '55P03') {
+    console.error('Database analytics setup failed (55P03): timed out waiting for a database lock. Check concurrent migrations, analytics refreshes and blocking transactions. The release has not completed.');
+    process.exitCode = 1;
+    return;
+  }
   const safe = /^(TIMESCALEDB_MODE|Database host|DATABASE_URL|Analytics setup|Use extensions)/.test(error.message);
   console.error(safe ? error.message : `Database analytics setup failed (${error.code || 'connection/query failure'}). Check extension privileges, shared_preload_libraries and a direct database connection. The release has not completed; API/worker may be paused by deployment. Repair the release before restarting services.`);
   process.exitCode = 1;
