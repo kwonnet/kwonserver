@@ -14,7 +14,7 @@ export interface GameDelivery {
 export function gameActionId(userId: string, operationId: string) {
   return createHash('sha256').update(JSON.stringify([userId,operationId])).digest('hex');
 }
-export async function dispatchGameAction(id: string) {
+export async function dispatchGameAction(id: string, liveChatPayload?: Record<string, any>) {
   const action = await prisma.gameWalletAction.findUniqueOrThrow({where:{id}});
   if (action.status !== 'PENDING') return action;
   const room = `room:${action.roomId}`;
@@ -22,7 +22,7 @@ export async function dispatchGameAction(id: string) {
   const raw = await redis.eval(gameDeliveryScript, {keys:[
     `wallet-action:${id}`, `${room}:question`, room, `${room}:answers`, `${room}:u-answers`,
     `${room}:votes`, `${room}:player:${action.userId}:guesses`, `${room}:paid-messages`,
-  ], arguments:[JSON.stringify({...action, expiresAt:action.createdAt.getTime()+5*60*1000})]});
+  ], arguments:[JSON.stringify({...action, expiresAt:action.createdAt.getTime()+5*60*1000}), liveChatPayload ? JSON.stringify({...liveChatPayload, playerId:action.userId}) : '']});
   const result = JSON.parse(String(raw)) as {state:'APPLIED'|'REJECTED';reason?:string};
   if (result.state === 'APPLIED') {
     await prisma.gameWalletAction.updateMany({where:{id,status:'PENDING'},data:{status:'DELIVERED',settledAt:new Date()}});

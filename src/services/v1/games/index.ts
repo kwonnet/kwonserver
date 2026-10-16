@@ -105,7 +105,7 @@ export async function deductGameCoins(params: {
     const data = await chargeGameAction(params, getRandomNumber(0.99, 2.2), getRandomNumber(rate.min, rate.max), delivery);
     if (data.actionId) {
       try {
-        const action = await dispatchGameAction(data.actionId);
+        const action = await dispatchGameAction(data.actionId, delivery?.kind === 'CHAT' ? delivery.payload : undefined);
         if (action.status === 'REFUNDED') {
           const wallet=await prisma.wallet.findUniqueOrThrow({where:{userId:params.playerId}});
           return {message:action.reason || 'Action refunded',isError:true,
@@ -687,6 +687,14 @@ export async function subscribeGamePresence(io: GameIoNamespace) {
           await publishGamePresence(event.player,io,true);
         }
       } catch(error) { logGameError('gamePresenceSubscriber',error,{}); }
+    });
+    // Pub/Sub is transient: only sockets currently joined to this exact room receive chat.
+    await subscriber.subscribe('game:chat:live', raw => {
+      try {
+        const event = JSON.parse(raw);
+        if (typeof event.roomId !== 'string' || typeof event.message?.id !== 'string' || typeof event.message?.content !== 'string') return;
+        io.local.to(event.roomId).emit(GameEventEnum.MESSAGE, event.message);
+      } catch (error) { logGameError('gameChatSubscriber', error, {}); }
     });
     return async () => { await subscriber.unsubscribe(); await subscriber.quit(); };
   } catch(error) {

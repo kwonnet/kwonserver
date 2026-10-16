@@ -7,7 +7,9 @@ import { cents, WalletError, walletOperation } from './index';
 export async function chargeGameAction(params: { playerId: string; action: GameActionEnum; [key: string]: any }, high: number, fallback: number, delivery?: GameDelivery) {
   const key = params.operationId as string | undefined;
   if (delivery && !key) throw new WalletError('Game action identity is required');
-  return walletOperation(`game:${params.playerId}`, key, params, [params.playerId], async tx => {
+  const storedParams = {...params};
+  if (delivery?.kind === 'CHAT') delete storedParams.content;
+  return walletOperation(`game:${params.playerId}`, key, storedParams, [params.playerId], async tx => {
     const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: params.playerId } });
     if (wallet.isLocked) throw new WalletError('Wallet is locked');
     const bonus = cents(wallet.bonus, true), coins = cents(wallet.coins, true);
@@ -17,14 +19,14 @@ export async function chargeGameAction(params: { playerId: string; action: GameA
     await tx.wallet.update({ where: { id: wallet.id }, data: { coins: (coins - coinDebit) / 100, bonus: (bonus - bonusDebit) / 100 } });
     const actionId = delivery ? gameActionId(params.playerId,key!) : undefined;
     if (delivery) await tx.gameWalletAction.create({data:{id:actionId!,userId:params.playerId,roomId:delivery.roomId,roundId:delivery.roundId,
-      kind:delivery.kind,payload:delivery.payload,deductedCoins:coinDebit/100,deductedBonus:bonusDebit/100}});
+      kind:delivery.kind,payload:delivery.kind === 'CHAT' ? {id: delivery.payload.id} : delivery.payload,deductedCoins:coinDebit/100,deductedBonus:bonusDebit/100}});
     await tx.transaction.create({ data: {
       userId: params.playerId, senderId: params.playerId, walletId: wallet.id,
       txnRef: randomUUID(), amount: charge / 100, currency: TxnCurrencyEnum.COINS,
       source: bonusDebit === 0 ? TxnSourceEnum.COINS : coinDebit === 0 ? TxnSourceEnum.BONUS : TxnSourceEnum.COINS_BONUS,
       category: TxnCategoryEnum.GAME_DEDUCTION, gateway: TxnGatewayEnum.WALLET,
       type: TxnTypeEnum.DEBIT, status: TxnStatusEnum.COMPLETED,
-      description: 'Game action charge', metadata: { ...params, gameActionId:actionId, deductedBonus: bonusDebit / 100, deductedCoins: coinDebit / 100 },
+      description: 'Game action charge', metadata: { ...storedParams, gameActionId:actionId, deductedBonus: bonusDebit / 100, deductedCoins: coinDebit / 100 },
     } });
     return { ...(actionId ? {actionId} : {}), amount: (coins - coinDebit) / 100, bonus: (bonus - bonusDebit) / 100,
       deductedBonus: bonusDebit / 100, deductedCoins: coinDebit / 100 };

@@ -114,3 +114,22 @@ it('never replays prior room messages to clients requesting chat history', async
  expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_CHAT, []);
  expect(games.deductGameCoins).not.toHaveBeenCalled();
 });
+
+it('sends chat using the joined room and server identity, without persisting content as charge metadata',async()=>{
+ const ack=vi.fn();
+ await handlers[GameEventEnum.MESSAGE]({id:'live-message-1',roomId:'untrusted-room',playerId:'spoofed',content:' hello '},ack);
+ expect(games.deductGameCoins).toHaveBeenCalledWith(
+  expect.objectContaining({action:GameActionEnum.CHAT,roomId:'room',playerId:'user',operationId:'chat:live-message-1'}),
+  {kind:'CHAT',roomId:'room',payload:expect.objectContaining({id:'live-message-1',playerId:'user',content:'hello'})},
+ );
+ expect(games.deductGameCoins.mock.calls[0][0]).not.toHaveProperty('content');
+ expect(ack).toHaveBeenCalledWith({isError:false,message:undefined});
+ expect(socket.leave).not.toHaveBeenCalled();
+});
+it('keeps chat failures nonfatal so the player can retry without leaving the room',async()=>{
+ games.deductGameCoins.mockResolvedValue({isError:true,message:'Chat unavailable',data:{amount:10,bonus:0}});
+ await handlers[GameEventEnum.MESSAGE]({id:'live-message-2',content:'hello'});
+ expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ACTION_REJECTED,'Chat unavailable');
+ expect(socket.emit).not.toHaveBeenCalledWith(GameEventEnum.GAME_ERROR_NOTIFY,expect.anything());
+ expect(socket.leave).not.toHaveBeenCalled();
+});

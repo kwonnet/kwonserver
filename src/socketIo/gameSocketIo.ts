@@ -316,14 +316,14 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         const key = requestKey(arg.id);
         const payload = {id:key,playerId:user.id,playerName:user.name,content:arg.content.trim(),createdAt:new Date().toISOString()};
         const result = await deductGameCoins({action:GameActionEnum.CHAT,playerId:user.id,gameId:room.gameId,roomId:room.id,mode:room.mode,catId:room.catId,
-          operationId:`chat:${key}`,content:payload.content}, {kind:'CHAT',roomId:room.id,payload});
+          operationId:`chat:${key}`}, {kind:'CHAT',roomId:room.id,payload});
         ack?.({isError:result.isError,message:result.message});
         if (result.data) socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE,result.data);
-        if (result.isError || !result.data) { socket.emit(GameEventEnum.GAME_ERROR_NOTIFY,result.message); return; }
-        // Broadcast accepted messages only to players currently in the room.
-        if (!('pending' in result.data)) io.in(room.id).emit(GameEventEnum.MESSAGE,payload);
+        if (result.isError || !result.data) { socket.emit(GameEventEnum.GAME_ACTION_REJECTED,result.message); return; }
+        // The atomic delivery publishes live chat to every replica's room subscriber.
+        if ('pending' in result.data && result.data.pending) socket.emit(GameEventEnum.GAME_ACTION_REJECTED,'Message delivery is being checked. Any undelivered charge will be refunded.');
         await updatePlayerSession({playerId:user.id,catId:room.catId,mode:room.mode});
-      } catch { socket.emit(GameEventEnum.GAME_ERROR_NOTIFY,'Unable to accept this message'); }
+      } catch { socket.emit(GameEventEnum.GAME_ACTION_REJECTED,'Unable to accept this message'); }
     });
 
     // listen to emitted answers

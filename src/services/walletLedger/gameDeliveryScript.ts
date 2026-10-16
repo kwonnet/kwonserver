@@ -9,8 +9,8 @@ local function reject(reason)
  return result
 end
 -- Preflight types before writes: Redis Lua errors do not roll back earlier commands.
-local types = {'string','string','hash','hash','set','hash','hash','list'}
-for i=2,#KEYS do
+local types = {'string','string','hash','hash','set','hash','hash'}
+for i=2,#types do
  local t = redis.call('TYPE', KEYS[i]).ok
  if t ~= 'none' and t ~= types[i] then return redis.error_reply('Invalid game storage type') end
 end
@@ -20,9 +20,16 @@ local now = tonumber(redis.call('TIME')[1]) * 1000
 local roomExists = redis.call('EXISTS', KEYS[3])
 if roomExists == 0 then return reject('Room closed') end
 if d.kind == 'CHAT' then
+ -- Remove any legacy replay buffer; this key is never written again.
+ redis.call('DEL', KEYS[8])
  if now > d.expiresAt then return reject('Message expired') end
- redis.call('RPUSH', KEYS[8], cjson.encode(p))
- redis.call('LTRIM', KEYS[8], -100, -1)
+ -- Message bodies exist only in this request and transient Pub/Sub delivery.
+ -- Recovery without the live body refunds rather than storing or replaying chat.
+ if not ARGV[2] or ARGV[2] == '' then return reject('Live message unavailable') end
+ local message = cjson.decode(ARGV[2])
+ if not p.id or message.id ~= p.id then return reject('Invalid live message') end
+ local listeners = redis.call('PUBLISH', 'game:chat:live', cjson.encode({roomId=d.roomId, message=message}))
+ if listeners == 0 then return reject('Chat unavailable') end
 else
  local raw = redis.call('GET', KEYS[2])
  if not raw then return reject('Round closed') end
