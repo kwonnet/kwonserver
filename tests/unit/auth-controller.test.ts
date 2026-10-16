@@ -1,8 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response, user } from './fixtures';
 import logger from '@/logger';
-const deps = vi.hoisted(() => ({ requestEmail: vi.fn(), consumeEmail: vi.fn(), create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn(), startSession: vi.fn(), validateSession: vi.fn(), touch: vi.fn(), provider: vi.fn(), revoke: vi.fn(), sessions: vi.fn(), events: vi.fn(), account: vi.fn(), password: vi.fn() }));
-vi.mock('@/services/v1/auth', () => ({ requestAuthEmail: deps.requestEmail, consumeAuthEmail: deps.consumeEmail, getAccountSettings: deps.account, updateAccountPassword: deps.password, createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google, startAuthSession: deps.startSession, validateAuthSession: deps.validateSession, touchAuthSession: deps.touch, sessionProvider: deps.provider, revokeAuthSession: deps.revoke, listAuthSessions: deps.sessions, listLoginEvents: deps.events }));
+const deps = vi.hoisted(() => ({ beginFactor:vi.fn(),factorIdentity:vi.fn(),requestEmail: vi.fn(), consumeEmail: vi.fn(), create: vi.fn(), login: vi.fn(), google: vi.fn(), generate: vi.fn(), decode: vi.fn(), getUser: vi.fn(), lookup: vi.fn(), startSession: vi.fn(), validateSession: vi.fn(), touch: vi.fn(), provider: vi.fn(), revoke: vi.fn(), sessions: vi.fn(), events: vi.fn(), account: vi.fn(), password: vi.fn() }));
+vi.mock('@/services/v1/auth', () => ({AuthSecurityError:class extends Error {},beginTwoFactorLogin:deps.beginFactor,twoFactorChallengeIdentity:deps.factorIdentity, requestAuthEmail: deps.requestEmail, consumeAuthEmail: deps.consumeEmail, getAccountSettings: deps.account, updateAccountPassword: deps.password, createUser: deps.create, loginUser: deps.login, loginGoogleUser: deps.google, startAuthSession: deps.startSession, validateAuthSession: deps.validateSession, touchAuthSession: deps.touch, sessionProvider: deps.provider, revokeAuthSession: deps.revoke, listAuthSessions: deps.sessions, listLoginEvents: deps.events }));
 vi.mock('@/services/v1/utils', () => ({ getAuthUser: deps.getUser }));
 vi.mock('@/utils', () => ({ generateToken: deps.generate, getAuthTokenUser: deps.decode, getRefreshAuthTokenUser: deps.decode }));
 vi.mock('@/utils/ipLocation', () => ({ lookup: deps.lookup }));
@@ -22,6 +22,7 @@ it('rejects cross-origin logout attempts', () => {
 });
 beforeEach(() => {
   Object.values(deps).forEach(fn => fn.mockReset());
+  deps.beginFactor.mockResolvedValue(null);
   deps.create.mockResolvedValue({ status: 200, data: user() }); deps.login.mockResolvedValue({ status: 200, data: user() });
   deps.generate.mockReturnValue('signed-token'); deps.decode.mockReturnValue({ id: 'u', sessionId: 'existing-session' });
   deps.validateSession.mockResolvedValue(true); deps.startSession.mockResolvedValue('new-session'); deps.provider.mockResolvedValue('GOOGLE');

@@ -130,3 +130,23 @@ export async function consumeAuthRateLimit(scope:string,identity:string) {
   if(!Array.isArray(result)||result.length!==2) throw new Error('Invalid authentication rate limit result');
   return {allowed:Number(result[0])===1,retryAfter:Math.max(1,Number(result[1]))};
 }
+
+/** Purpose-separated AES-GCM key, bound to the account owning the authenticator. */
+function twoFactorKey() {
+  return createHmac('sha256',emailTokenKey()).update('kwonnet:two-factor:v1').digest();
+}
+export function encryptTwoFactorSecret(userId:string,secret:string) {
+  const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',twoFactorKey(),iv);
+  cipher.setAAD(Buffer.from(userId));
+  const encrypted=Buffer.concat([cipher.update(secret,'utf8'),cipher.final()]);
+  return [iv,cipher.getAuthTag(),encrypted].map(value=>value.toString('base64url')).join('.');
+}
+export function decryptTwoFactorSecret(userId:string,value:string) {
+  const [iv,tag,encrypted]=value.split('.').map(part=>Buffer.from(part,'base64url'));
+  const decipher=createDecipheriv('aes-256-gcm',twoFactorKey(),iv);
+  decipher.setAAD(Buffer.from(userId));decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(encrypted),decipher.final()]).toString('utf8');
+}
+export function twoFactorRecoveryHash(userId:string,code:string) {
+  return createHmac('sha256',twoFactorKey()).update(`recovery:${userId}:${code.toUpperCase().replace(/[\s-]/g,'')}`).digest('hex');
+}

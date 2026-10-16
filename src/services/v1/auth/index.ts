@@ -8,7 +8,8 @@ import {
 import prisma from "@/db";
 import { getRandomNumber } from "@/utils";
 import bcrypt from "bcrypt";
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes, timingSafeEqual } from "crypto";
+import {TOTP,Secret} from "otpauth";
 import { LookupResult } from "ip-location-api";
 import { composeAuthUser, getUserStatusMessage } from "../utils";
 import logger from "@/logger";
@@ -17,7 +18,7 @@ import {disconnectAuthSession} from "@/utils/auth-session-sockets";
 import { OAuth2Client } from "google-auth-library";
 import { getAuthUser } from "../utils";
 import {logServiceError} from '@/logger/events';
-import {consumeAuthRateLimit, createEmailToken, hashEmailToken} from '@/utils/auth-security';
+import {consumeAuthRateLimit, createEmailToken, hashEmailToken, encryptTwoFactorSecret, decryptTwoFactorSecret, twoFactorRecoveryHash} from '@/utils/auth-security';
 const googleVerifier = new OAuth2Client();
 
 export const createUser = async (
@@ -353,11 +354,20 @@ export async function loginGoogleUser(idToken: string, registrationLocation?: Pa
 
 
 // Authentication identity fields remain in User for backward compatibility.
-export async function startAuthSession(userId: string, provider: import('@prisma/client').AuthProvider, metadata: Awaited<ReturnType<typeof import('@/utils/auth-security').authRequestMetadata>>, kind = 'SIGN_IN', id = randomUUID()) {
+export async function startAuthSession(userId: string, provider: import('@prisma/client').AuthProvider, metadata: Awaited<ReturnType<typeof import('@/utils/auth-security').authRequestMetadata>>, kind = 'SIGN_IN', id = randomUUID(), proof?:{challengeToken:string;code:string}) {
+  if(proof){const limit=await consumeAuthRateLimit('two-factor:verify',userId);if(!limit.allowed)throw new AuthSecurityError('Too many authentication attempts. Try again later.',429,limit.retryAfter);}
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 30 * 86400000);
   const retainUntil = new Date(now.getTime() + 90 * 86400000);
-  return prisma.$transaction(async tx => {
+  const result=await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+    const factor=await tx.userTwoFactor.findUnique({where:{userId}});
+    let twoFactorVerifiedAt:Date|undefined;
+    if(factor?.enabledAt||proof){
+      if(!proof)return {error:'Two-factor authentication is required'};
+      if(!await consumeTwoFactorChallenge(tx,userId,provider,kind,proof))return {error:'Invalid, expired or already used authentication code. Try a fresh code or recovery code.'};
+      twoFactorVerifiedAt=now;
+    }
     let identityId: string | undefined;
     if (provider !== 'LEGACY') {
       const user = await tx.user.findUniqueOrThrow({where: {id: userId}, select: {googleSubject: true}});
@@ -370,20 +380,22 @@ export async function startAuthSession(userId: string, provider: import('@prisma
     }
     const {location, ...fields} = metadata;
     const safeMetadata = {...fields, location: location ?? Prisma.DbNull};
-    const session = await tx.userSession.create({data: {id, userId, identityId, provider, ...safeMetadata, expiresAt, retainUntil}});
+    const session = await tx.userSession.create({data: {id, userId, identityId, provider, ...safeMetadata, expiresAt, retainUntil, ...(twoFactorVerifiedAt&&{twoFactorVerifiedAt})}});
     await tx.loginEvent.create({data: {userId, sessionId: session.id, provider, kind, ...safeMetadata, retainUntil}});
     return session.id;
   });
+  if(typeof result!=='string')throw new AuthSecurityError(result.error,401);
+  return result;
 }
 export async function validateAuthSession(user: {id: string; sessionId?: string}) {
   // Pre-migration signed API tokens retain their existing expiry; their next refresh
   // upgrades them to a LEGACY-attributed, revocable session without inventing a provider.
   if (!user.sessionId) {
-    const account = await prisma.user.findUnique({where: {id: user.id}, select: {passwordChangedAt: true, emailVerifiedAt: true}});
-    return !!account?.emailVerifiedAt && !account.passwordChangedAt;
+    const account = await prisma.user.findUnique({where: {id: user.id}, select: {passwordChangedAt: true, emailVerifiedAt: true, twoFactor:{select:{enabledAt:true}}}});
+    return !!account?.emailVerifiedAt && !account.passwordChangedAt && !account.twoFactor?.enabledAt;
   }
-  const session = await prisma.userSession.findFirst({where: {id: user.sessionId, userId: user.id, revokedAt: null, expiresAt: {gt: new Date()}, user: {emailVerifiedAt: {not: null}, status: {in: ['ACTIVE', 'PRIVATE']}, deletedAt: null, deactivatedAt: null}}, select: {id: true}});
-  return !!session;
+  const session = await prisma.userSession.findFirst({where: {id: user.sessionId, userId: user.id, revokedAt: null, expiresAt: {gt: new Date()}, user: {emailVerifiedAt: {not: null}, status: {in: ['ACTIVE', 'PRIVATE']}, deletedAt: null, deactivatedAt: null}}, select: {id: true, twoFactorVerifiedAt:true,user:{select:{twoFactor:{select:{enabledAt:true}}}}}});
+  return !!session && (!session.user?.twoFactor?.enabledAt || !!session.twoFactorVerifiedAt&&session.twoFactorVerifiedAt>=session.user.twoFactor.enabledAt);
 }
 export async function touchAuthSession(user: {id: string; sessionId?: string}) {
   if (!user.sessionId) return;
@@ -414,6 +426,7 @@ export async function revokeAuthSession(userId: string, sessionId: string, reaso
 }
 export async function cleanupAuthHistory() {
   const now = new Date();
+  await prisma.authTwoFactorChallenge.deleteMany({where:{expiresAt:{lt:now}}});
   const events = await prisma.loginEvent.deleteMany({where: {retainUntil: {lt: now}}});
   const sessions = await prisma.userSession.deleteMany({where: {retainUntil: {lt: now}, OR: [{revokedAt: {not: null}}, {expiresAt: {lt: now}}]}});
   return {events: events.count, sessions: sessions.count};
@@ -427,9 +440,9 @@ export async function sessionProvider(userId: string, id: string) {
 }
 
 export async function getAccountSettings(userId: string, sessionId?: string) {
-  const user = await prisma.user.findUniqueOrThrow({where: {id: userId}, select: {username: true, password: true, googleSubject: true}});
+  const user = await prisma.user.findUniqueOrThrow({where: {id: userId}, select: {username: true, password: true, googleSubject: true,twoFactor:{select:{enabledAt:true,recoveryCodeHashes:true}}}});
   const recent = !user.password && sessionId && user.googleSubject && await prisma.userSession.findFirst({where: {id: sessionId, userId, provider: 'GOOGLE', revokedAt: null, expiresAt: {gt: new Date()}, createdAt: {gte: new Date(Date.now() - 5 * 60_000)}, events: {some: {provider: 'GOOGLE', kind: 'SIGN_IN'}}}, select: {createdAt: true}});
-  return {username: user.username, hasPassword: !!user.password, passwordSetupVerifiedUntil: recent ? new Date(recent.createdAt.getTime() + 5 * 60_000).toISOString() : null};
+  return {twoFactor:{enabled:!!user.twoFactor?.enabledAt,recoveryCodesRemaining:user.twoFactor?.recoveryCodeHashes.length??0},username: user.username, hasPassword: !!user.password, passwordSetupVerifiedUntil: recent ? new Date(recent.createdAt.getTime() + 5 * 60_000).toISOString() : null};
 }
 export async function updateAccountPassword(userId: string, sessionId: string | undefined, input: {currentPassword?: string; newPassword: string}) {
   const user = await prisma.user.findUnique({where: {id: userId}, select: {password: true, googleSubject: true}});
@@ -523,4 +536,123 @@ export async function consumeAuthEmail(token: string, purpose: 'VERIFY_EMAIL' | 
   await queueAuthEmail(result.messageId, result.userId);
   logger.info({event: purpose === 'VERIFY_EMAIL' ? 'email_verified' : 'password_reset_completed', userId: result.userId}, 'Account email action completed');
   return {status: 200, data: {message: purpose === 'VERIFY_EMAIL' ? 'Email verified. You can now sign in.' : 'Password reset. Sign in with your new password.'}};
+}
+
+export class AuthSecurityError extends Error {
+  constructor(message:string,public status=400,public retryAfter?:number){super(message);}
+}
+function authenticator(secret:string,email='account') {
+  return new TOTP({issuer:'Kwonnet',label:email,algorithm:'SHA1',digits:6,period:30,secret:Secret.fromBase32(secret)});
+}
+function authenticatorStep(secret:string,code:string,lastUsedStep:number|null) {
+  if(!/^\d{6}$/.test(code))return null;
+  const timestamp=Date.now(),delta=authenticator(secret).validate({token:code,timestamp,window:1});
+  if(delta===null)return null;
+  const step=Math.floor(timestamp/30000)+delta;
+  return lastUsedStep!==null&&step<=lastUsedStep?null:step;
+}
+function newRecoveryCodes(userId:string) {
+  const codes=Array.from({length:10},()=>randomBytes(10).toString('hex').toUpperCase().match(/.{5}/g)!.join('-'));
+  return {codes,hashes:codes.map(code=>twoFactorRecoveryHash(userId,code))};
+}
+async function consumeAuthenticator(tx:Prisma.TransactionClient,factor:import('@prisma/client').UserTwoFactor,code:string) {
+  if(!factor.enabledAt||!factor.secret)return false;
+  const step=authenticatorStep(decryptTwoFactorSecret(factor.userId,factor.secret),code,factor.lastUsedStep);
+  if(step!==null){await tx.userTwoFactor.update({where:{userId:factor.userId},data:{lastUsedStep:step}});return true;}
+  const hash=twoFactorRecoveryHash(factor.userId,code);
+  const index=factor.recoveryCodeHashes.findIndex(saved=>timingSafeEqual(Buffer.from(saved,'hex'),Buffer.from(hash,'hex')));
+  if(index<0)return false;
+  await tx.userTwoFactor.update({where:{userId:factor.userId},data:{recoveryCodeHashes:factor.recoveryCodeHashes.filter((_,i)=>i!==index)}});
+  return true;
+}
+export async function beginTwoFactorLogin(userId:string,provider:import('@prisma/client').AuthProvider,kind='SIGN_IN',sourceSessionId?:string) {
+  const user=await prisma.user.findUniqueOrThrow({where:{id:userId},select:{passwordChangedAt:true,twoFactor:true}});
+  if(!user.twoFactor?.enabledAt)return null;
+  const limit=await consumeAuthRateLimit('two-factor:challenge',userId);
+  if(!limit.allowed)throw new AuthSecurityError('Too many authentication attempts. Try again later.',429,limit.retryAfter);
+  const challengeToken=randomBytes(32).toString('base64url'),expiresAt=new Date(Date.now()+5*60000);
+  await prisma.$transaction(async tx=>{
+    await tx.authTwoFactorChallenge.deleteMany({where:{userId,OR:[{expiresAt:{lte:new Date()}},{usedAt:{not:null}}]}});
+    await tx.authTwoFactorChallenge.create({data:{userId,provider,kind,sourceSessionId,passwordVersion:user.passwordChangedAt,factorVersion:user.twoFactor!.version,tokenHash:hashEmailToken(challengeToken),expiresAt}});
+  });
+  return {twoFactorRequired:true as const,challengeToken,expiresAt:expiresAt.toISOString()};
+}
+export async function twoFactorChallengeIdentity(challengeToken:string) {
+  const challenge=await prisma.authTwoFactorChallenge.findUnique({where:{tokenHash:hashEmailToken(challengeToken)}});
+  if(!challenge||challenge.usedAt||challenge.attempts>=5||challenge.expiresAt<=new Date())throw new AuthSecurityError('This sign-in request expired. Sign in again.',401);
+  return {userId:challenge.userId,provider:challenge.provider,kind:challenge.kind};
+}
+async function consumeTwoFactorChallenge(tx:Prisma.TransactionClient,userId:string,provider:import('@prisma/client').AuthProvider,kind:string,proof:{challengeToken:string;code:string}) {
+  const challenge=await tx.authTwoFactorChallenge.findUnique({where:{tokenHash:hashEmailToken(proof.challengeToken)}});
+  const user=await tx.user.findUniqueOrThrow({where:{id:userId},include:{twoFactor:true}}),factor=user.twoFactor;
+  if(!challenge||challenge.userId!==userId||challenge.provider!==provider||challenge.kind!==kind||challenge.usedAt||challenge.attempts>=5||challenge.expiresAt<=new Date()||!factor?.enabledAt||factor.version!==challenge.factorVersion||user.passwordChangedAt?.getTime()!==challenge.passwordVersion?.getTime()||!user.emailVerifiedAt||!['ACTIVE','PRIVATE'].includes(user.status)||user.deletedAt||user.deactivatedAt)return false;
+  if(challenge.sourceSessionId&&!await tx.userSession.findFirst({where:{id:challenge.sourceSessionId,userId,revokedAt:null,expiresAt:{gt:new Date()}}}))return false;
+  await tx.authTwoFactorChallenge.update({where:{id:challenge.id},data:{attempts:{increment:1}}});
+  if(!await consumeAuthenticator(tx,factor,proof.code))return false;
+  await tx.authTwoFactorChallenge.update({where:{id:challenge.id},data:{usedAt:new Date()}});
+  return true;
+}
+async function managementIdentity(tx:Prisma.TransactionClient,userId:string,sessionId:string|undefined,currentPassword:string|undefined) {
+  if(!sessionId)throw new AuthSecurityError('Sign in again before changing two-factor authentication.',401);
+  const user=await tx.user.findUniqueOrThrow({where:{id:userId},include:{twoFactor:true}});
+  const session=await tx.userSession.findFirst({where:{id:sessionId,userId,revokedAt:null,expiresAt:{gt:new Date()}}});
+  if(!session||!user.emailVerifiedAt||!['ACTIVE','PRIVATE'].includes(user.status)||user.deletedAt||user.deactivatedAt||user.twoFactor?.enabledAt&&(!session.twoFactorVerifiedAt||session.twoFactorVerifiedAt<user.twoFactor.enabledAt))throw new AuthSecurityError('Sign in again before changing two-factor authentication.',401);
+  if(user.password){
+    if(!currentPassword||!await bcrypt.compare(currentPassword,user.password))throw new AuthSecurityError('Current password is incorrect.',403);
+  }else if(session.provider!=='GOOGLE'||session.createdAt<new Date(Date.now()-5*60000)||!await tx.loginEvent.findFirst({where:{sessionId,kind:'SIGN_IN',provider:'GOOGLE'}}))throw new AuthSecurityError('Sign in with Google again, then update security settings within five minutes.',403);
+  return user;
+}
+async function revokeOtherTwoFactorSessions(tx:Prisma.TransactionClient,userId:string,sessionId:string|undefined) {
+  const sessions=await tx.userSession.findMany({where:{userId,revokedAt:null,...(sessionId?{id:{not:sessionId}}:{})},select:{id:true}});
+  await tx.userSession.updateMany({where:{id:{in:sessions.map(row=>row.id)}},data:{revokedAt:new Date(),revokedReason:'TWO_FACTOR_CHANGED'}});
+  await tx.authTwoFactorChallenge.deleteMany({where:{userId}});
+  return sessions;
+}
+export async function beginTwoFactorSetup(userId:string,sessionId:string|undefined,currentPassword?:string) {
+  const result=await prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+    const user=await managementIdentity(tx,userId,sessionId,currentPassword);
+    if(user.twoFactor?.enabledAt)throw new AuthSecurityError('Two-factor authentication is already enabled.',409);
+    const secret=new Secret({size:20}).base32,setupId=randomUUID(),expiresAt=new Date(Date.now()+10*60000);
+    const data={pendingSecret:encryptTwoFactorSecret(userId,secret),pendingId:setupId,pendingSessionId:sessionId,pendingExpiresAt:expiresAt,pendingAttempts:0};
+    await tx.userTwoFactor.upsert({where:{userId},create:{userId,...data},update:data});
+    return {setupId,secret,uri:authenticator(secret,user.email).toString(),expiresAt:expiresAt.toISOString()};
+  });
+  return result;
+}
+export async function confirmTwoFactorSetup(userId:string,sessionId:string|undefined,setupId:string,code:string) {
+  const result=await prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+    const factor=await tx.userTwoFactor.findUnique({where:{userId}});
+    const session=sessionId&&await tx.userSession.findFirst({where:{id:sessionId,userId,revokedAt:null,expiresAt:{gt:new Date()},user:{emailVerifiedAt:{not:null},status:{in:['ACTIVE','PRIVATE']},deletedAt:null,deactivatedAt:null}}});
+    if(!session||!factor?.pendingSecret||factor.pendingId!==setupId||factor.pendingSessionId!==sessionId||!factor.pendingExpiresAt||factor.pendingExpiresAt<=new Date()||factor.pendingAttempts>=5||factor.enabledAt)return {error:'This setup expired. Start setup again.'};
+    const step=authenticatorStep(decryptTwoFactorSecret(userId,factor.pendingSecret),code,null);
+    await tx.userTwoFactor.update({where:{userId},data:{pendingAttempts:{increment:1}}});
+    if(step===null)return {error:'Invalid authenticator code. Try the latest six-digit code.'};
+    const recovery=newRecoveryCodes(userId),now=new Date();
+    await tx.userTwoFactor.update({where:{userId},data:{secret:factor.pendingSecret,enabledAt:now,version:randomUUID(),lastUsedStep:step,recoveryCodeHashes:recovery.hashes,pendingSecret:null,pendingId:null,pendingSessionId:null,pendingExpiresAt:null,pendingAttempts:0}});
+    await tx.userSession.update({where:{id:sessionId},data:{twoFactorVerifiedAt:now}});
+    const revoked=await revokeOtherTwoFactorSessions(tx,userId,sessionId);
+    return {recoveryCodes:recovery.codes,revoked};
+  });
+  if('error' in result)throw new AuthSecurityError(result.error!);
+  for(const session of result.revoked)disconnectAuthSession(session.id);
+  return {enabled:true,recoveryCodes:result.recoveryCodes};
+}
+export async function changeTwoFactor(userId:string,sessionId:string|undefined,action:'disable'|'recovery-codes',code:string,currentPassword?:string) {
+  const limit=await consumeAuthRateLimit('two-factor:manage',userId);
+  if(!limit.allowed)throw new AuthSecurityError('Too many security requests. Try again later.',429,limit.retryAfter);
+  const result=await prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+    const user=await managementIdentity(tx,userId,sessionId,currentPassword),factor=user.twoFactor;
+    if(!factor?.enabledAt)throw new AuthSecurityError('Two-factor authentication is not enabled.',409);
+    if(!await consumeAuthenticator(tx,factor,code))return {error:'Invalid or already used code. Use a fresh authenticator code or an unused recovery code.'};
+    const recovery=action==='recovery-codes'?newRecoveryCodes(userId):null;
+    await tx.userTwoFactor.update({where:{userId},data:recovery?{recoveryCodeHashes:recovery.hashes}:{secret:null,enabledAt:null,version:randomUUID(),lastUsedStep:null,recoveryCodeHashes:[],pendingSecret:null,pendingId:null,pendingSessionId:null,pendingExpiresAt:null,pendingAttempts:0}});
+    const revoked=await revokeOtherTwoFactorSessions(tx,userId,sessionId);
+    return {recoveryCodes:recovery?.codes,revoked};
+  });
+  if('error' in result)throw new AuthSecurityError(result.error!);
+  for(const session of result.revoked)disconnectAuthSession(session.id);
+  return {enabled:action!=='disable',...(result.recoveryCodes?{recoveryCodes:result.recoveryCodes}:{})};
 }

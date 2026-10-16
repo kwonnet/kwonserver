@@ -2,7 +2,7 @@ import express, {  } from "express";
 import {authEmailActionController} from '@/controllers/v1/auth';
 import {consumeAuthRateLimit,normalizedIp,verifiedWebContext} from '@/utils/auth-security';
 import { authMiddleware } from "@/middleware";
-import { accountSettingsController, passwordUpdateController, authSessionsController, loginEventsController, revokeAuthSessionController, googleSignInController, getMeController, logoutController, refreshTokenController, signInController, signUpController } from "@/controllers/v1/auth";
+import { twoFactorManagementController, verifyTwoFactorLoginController, accountSettingsController, passwordUpdateController, authSessionsController, loginEventsController, revokeAuthSessionController, googleSignInController, getMeController, logoutController, refreshTokenController, signInController, signUpController } from "@/controllers/v1/auth";
 
 const router = express.Router();
 const limitAuth: express.RequestHandler = async (req, res, next) => {
@@ -37,6 +37,9 @@ router.patch("/password", limitAuth, authMiddleware(), passwordUpdateController)
 router.get("/sessions", limitAuth, authMiddleware(), authSessionsController)
 router.get("/login-events", limitAuth, authMiddleware(), loginEventsController)
 router.delete("/sessions/:id", limitAuth, authMiddleware(), revokeAuthSessionController)
+
+router.post('/two-factor/verify',limitAuth,verifyTwoFactorLoginController);
+for(const action of ['setup','enable','disable','recovery-codes'])router.post(`/two-factor/${action}`,limitAuth,authMiddleware(),twoFactorManagementController);
 
 const authRoutes = router
 

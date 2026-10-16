@@ -11,7 +11,7 @@ beforeEach(() => {
  deps.compare.mockResolvedValueOnce(true).mockResolvedValueOnce(false); deps.hash.mockResolvedValue('new-hash');
  deps.db.$transaction.mockImplementation(fn => fn(deps.db)); deps.db.userSession.findMany.mockResolvedValue([{id: 'other'}]);
 });
-it('returns safe account settings without the password hash', async () => {expect(await getAccountSettings('owner')).toEqual({username: 'owner', hasPassword: true, passwordSetupVerifiedUntil: null});});
+it('returns safe account settings without the password hash', async () => {expect(await getAccountSettings('owner')).toEqual({twoFactor:{enabled:false,recoveryCodesRemaining:0},username: 'owner', hasPassword: true, passwordSetupVerifiedUntil: null});});
 it('updates a verified password atomically and revokes only other sessions', async () => {
  expect(await updateAccountPassword('owner', 'current', {currentPassword: 'correct', newPassword: 'new-password'})).toEqual({status: 200, data: {updated: true, reloginRequired: false}});
  expect(deps.db.user.update).toHaveBeenCalledWith({where: {id: 'owner'}, data: {password: 'new-hash', passwordChangedAt: expect.any(Date)}});
@@ -63,6 +63,6 @@ it('reports the authenticated Google verification expiry without leaking its ide
  const createdAt = new Date();
  deps.db.user.findUniqueOrThrow.mockResolvedValue({username: 'owner', password: null, googleSubject: 'private-sub'});
  deps.db.userSession.findFirst.mockResolvedValue({createdAt});
- expect(await getAccountSettings('owner', 'current')).toEqual({username: 'owner', hasPassword: false, passwordSetupVerifiedUntil: new Date(createdAt.getTime() + 300000).toISOString()});
+ expect(await getAccountSettings('owner', 'current')).toEqual({twoFactor:{enabled:false,recoveryCodesRemaining:0},username: 'owner', hasPassword: false, passwordSetupVerifiedUntil: new Date(createdAt.getTime() + 300000).toISOString()});
  expect(deps.db.userSession.findFirst).toHaveBeenCalledWith(expect.objectContaining({where: expect.objectContaining({id: 'current', userId: 'owner', provider: 'GOOGLE', revokedAt: null, events: {some: {provider: 'GOOGLE', kind: 'SIGN_IN'}}})}));
 });

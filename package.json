@@ -102,6 +102,7 @@
     "node-rake-v2": "^0.0.3",
     "nodemailer": "10.0.15",
     "openai": "7.30.0",
+    "otpauth": "9.5.2",
     "pg": "8.23.1",
     "pg-hstore": "^2.3.4",
     "pgvector": "0.3.0",

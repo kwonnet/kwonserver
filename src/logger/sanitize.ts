@@ -1,5 +1,5 @@
 import {isIP} from 'node:net';
-const privateKey = /refundAddress|refund_address|password|passwd|secret|token|api[_-]?key|private[_-]?key|authorization|cookie|^(headers|body|payload|config|data|email|ipAddress|ipHash|keys|auth|p256dh|command|smtp_user)$/i;
+const privateKey = /recoveryCodes|recoveryCodeHashes|challengeToken|pendingSecret|setupKey|uri|qrCode|otp|code|refundAddress|refund_address|password|passwd|secret|token|api[_-]?key|private[_-]?key|authorization|cookie|^(headers|body|payload|config|data|email|ipAddress|ipHash|keys|auth|p256dh|command|smtp_user)$/i;
 export function safeLogText(value: string): string {
   let text = value;
   for (const [name, secret] of Object.entries(process.env)) {

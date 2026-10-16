@@ -1,6 +1,6 @@
 import {beforeEach, expect, it, vi} from 'vitest';
 const mocks = vi.hoisted(() => ({disconnect: vi.fn(), db: {
- user: {findUnique: vi.fn(), findUniqueOrThrow: vi.fn()}, authIdentity: {upsert: vi.fn()}, userSession: {create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), count: vi.fn(), deleteMany: vi.fn()}, loginEvent: {create: vi.fn(), findMany: vi.fn(), count: vi.fn(), deleteMany: vi.fn()}, $transaction: vi.fn(),
+ $queryRaw:vi.fn(),userTwoFactor:{findUnique:vi.fn()},authTwoFactorChallenge:{deleteMany:vi.fn()},user: {findUnique: vi.fn(), findUniqueOrThrow: vi.fn()}, authIdentity: {upsert: vi.fn()}, userSession: {create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), count: vi.fn(), deleteMany: vi.fn()}, loginEvent: {create: vi.fn(), findMany: vi.fn(), count: vi.fn(), deleteMany: vi.fn()}, $transaction: vi.fn(),
 }}));
 vi.mock('@/db', () => ({default: mocks.db}));
 vi.mock('@/utils/auth-session-sockets', () => ({disconnectAuthSession: mocks.disconnect}));

@@ -4,7 +4,7 @@ import {authRequestMetadata} from "@/utils/auth-security";
 import { Response } from "express";
 import type {Request} from "@/types/express";
 import { generateToken, getAuthTokenUser, getRefreshAuthTokenUser } from "@/utils";
-import { getAccountSettings, updateAccountPassword, createUser, loginUser, loginGoogleUser, startAuthSession, validateAuthSession, touchAuthSession, listAuthSessions, listLoginEvents, revokeAuthSession, sessionProvider } from "@/services/v1/auth";
+import { AuthSecurityError, beginTwoFactorLogin, twoFactorChallengeIdentity, beginTwoFactorSetup, confirmTwoFactorSetup, changeTwoFactor, getAccountSettings, updateAccountPassword, createUser, loginUser, loginGoogleUser, startAuthSession, validateAuthSession, touchAuthSession, listAuthSessions, listLoginEvents, revokeAuthSession, sessionProvider } from "@/services/v1/auth";
 import type { LookupResult } from 'ip-location-api';
 import { lookup } from '@/utils/ipLocation';
 import { PasswordUpdateSchema, SignInSchema, SignUpSchema } from "@/schema/auth";
@@ -55,6 +55,7 @@ export const signUpController = async (req: Request, res: Response) => {
     }
     return res.status(202).send({verificationRequired: true, message: 'Account created. Check your email for a verification link before signing in.'});
   } catch (error: any) {
+    if(error instanceof AuthSecurityError){if(error.status===429)res.setHeader('Retry-After',String(error.retryAfter??900));return res.status(error.status).json({message:error.message});}
     if(error instanceof ZodError) {
       const issues = error.issues
       const message = issues.map((issue) => issue.message).join(", ")
@@ -66,6 +67,7 @@ export const signUpController = async (req: Request, res: Response) => {
 
 
 export const signInController = async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control","private, no-store");
   try {
 
     const LoginSchema = SignInSchema.pick({
@@ -82,6 +84,8 @@ export const signInController = async (req: Request, res: Response) => {
       return res.status(result.status).send(result.data);
     }
     const user = result.data
+    const challenge=await beginTwoFactorLogin(user.id,'PASSWORD');
+    if(challenge)return res.status(202).json(challenge);
     const {accessToken, trackedUser} = await issueTrackedLogin(req, user, "PASSWORD");
 
     // set cookies
@@ -95,6 +99,7 @@ export const signInController = async (req: Request, res: Response) => {
     // return response
     return res.send({ user: trackedUser, accessToken });
   } catch (error: any) {
+    if(error instanceof AuthSecurityError){if(error.status===429)res.setHeader('Retry-After',String(error.retryAfter??900));return res.status(error.status).json({message:error.message});}
     if(error instanceof ZodError) {
       const issues = error.issues
       const message = issues.map((issue) => issue.message).join(", ")
@@ -144,7 +149,10 @@ export const refreshTokenController = async (req: Request, res: Response) => {
     if (!jwtUser.sessionId || req.body?.newSession === true) {
       // A saved-account switch is a new device session, retaining provider attribution.
       const provider = jwtUser.sessionId ? await sessionProvider(jwtUser.id, jwtUser.sessionId) : "LEGACY";
-      const {accessToken, trackedUser} = await issueTrackedLogin(req, user, provider, jwtUser.sessionId ? "ACCOUNT_SWITCH" : "LEGACY_UPGRADE");
+      const kind=jwtUser.sessionId?'ACCOUNT_SWITCH':'LEGACY_UPGRADE';
+      const challenge=await beginTwoFactorLogin(user.id,provider,kind,jwtUser.sessionId);
+      if(challenge)return res.status(202).json(challenge);
+      const {accessToken, trackedUser} = await issueTrackedLogin(req, user, provider, kind);
       return res.status(200).send({user: trackedUser, accessToken});
     }
     await touchAuthSession(jwtUser);
@@ -152,6 +160,7 @@ export const refreshTokenController = async (req: Request, res: Response) => {
     return res.status(200).send({user: {...user, sessionId: jwtUser.sessionId}, accessToken});
 
   } catch (error: any) {
+    if(error instanceof AuthSecurityError){if(error.status===429)res.setHeader('Retry-After',String(error.retryAfter??900));return res.status(error.status).json({message:error.message});}
     return res.status(500).send("Error: Sorry an error occurred trying to process request. Please close this app & open again.");
   }
 };
@@ -171,19 +180,24 @@ export const googleSignInController = async (req: Request, res: Response) => {
     if(result.status===429)res.setHeader('Retry-After',String('retryAfter' in result?result.retryAfter:900));
     if (result.status !== 200 || typeof result.data === "string") return res.status(result.status).send(result.data);
     const user = result.data;
+    const challenge=await beginTwoFactorLogin(user.id,'GOOGLE');
+    if(challenge)return res.status(202).json(challenge);
     const {accessToken, trackedUser} = await issueTrackedLogin(req, user, "GOOGLE", "SIGN_IN", metadata);
     return res.status(200).send({user: trackedUser, accessToken});
-  } catch {
+  } catch(error) {
+    if(error instanceof AuthSecurityError){if(error.status===429)res.setHeader('Retry-After',String(error.retryAfter??900));return res.status(error.status).json({message:error.message});}
     return res.status(500).send("Unable to sign in with Google. Please try again");
   }
 };
 
 
-async function issueTrackedLogin(req: Request, user: AuthUser, provider: import('@prisma/client').AuthProvider, kind = 'SIGN_IN', metadata?: Awaited<ReturnType<typeof authRequestMetadata>>) {
+async function issueTrackedLogin(req: Request, user: AuthUser, provider: import('@prisma/client').AuthProvider, kind = 'SIGN_IN', metadata?: Awaited<ReturnType<typeof authRequestMetadata>>,proof?:{challengeToken:string;code:string}) {
   const sessionId = randomUUID();
   // Sign before writing telemetry: signing failures create no successful login event.
   const accessToken = generateToken({...composeAuthUser(user), sessionId}, {expiresIn: '24h'});
-  await startAuthSession(user.id, provider, metadata ?? await authRequestMetadata(req), kind, sessionId);
+  const context=metadata??await authRequestMetadata(req);
+  if(proof)await startAuthSession(user.id,provider,context,kind,sessionId,proof);
+  else await startAuthSession(user.id,provider,context,kind,sessionId);
   return {accessToken, trackedUser: {...user, sessionId}};
 }
 const authPageSchema = z.object({page: z.coerce.number().int().min(1).max(10000).default(1)});
@@ -252,5 +266,45 @@ export async function authEmailActionController(req: Request, res: Response) {
     if (err instanceof ZodError) return res.status(400).json({message: 'Check your email address, link and password. Passwords must be 8–32 characters.'});
     logger.error({event: 'auth_email_action_failed', errorType: err instanceof Error ? err.name : 'Unknown', err: safeError(err)}, 'Account email action failed');
     return res.status(503).json({message: 'Unable to process this request. Please try again.'});
+  }
+}
+
+export async function verifyTwoFactorLoginController(req:Request,res:Response) {
+  res.setHeader('Cache-Control','private, no-store');
+  const parsed=z.object({challengeToken:z.string().regex(/^[A-Za-z0-9_-]{43}$/),code:z.string().trim().min(6).max(64)}).strict().safeParse(req.body);
+  if(!parsed.success)return res.status(400).json({message:'Enter an authenticator code or recovery code.'});
+  try{
+    const identity=await twoFactorChallengeIdentity(parsed.data.challengeToken);
+    const result=await getAuthUser(identity.userId,{includeEmail:true});
+    if(result.status!==200||typeof result.data==='string')return res.status(401).json({message:'Account unavailable.'});
+    const login=await issueTrackedLogin(req,result.data,identity.provider,identity.kind,undefined,parsed.data);
+    return res.json({user:login.trackedUser,accessToken:login.accessToken});
+  }catch(error){
+    if(error instanceof AuthSecurityError){if(error.status===429)res.setHeader('Retry-After',String(error.retryAfter??900));return res.status(error.status).json({message:error.message});}
+    return res.status(503).json({message:'Unable to verify two-factor authentication. Try again.'});
+  }
+}
+export async function twoFactorManagementController(req:Request,res:Response) {
+  res.setHeader('Cache-Control','private, no-store');
+  const action=req.path.split('/').pop();
+  try{
+    const userId=req.user!.id,sessionId=req.user!.sessionId;
+    if(action==='setup'){
+      const input=z.object({currentPassword:z.string().max(72).optional()}).strict().parse(req.body);
+      return res.json(await beginTwoFactorSetup(userId,sessionId,input.currentPassword));
+    }
+    if(action==='enable'){
+      const input=z.object({setupId:z.string().uuid(),code:z.string().regex(/^\d{6}$/)}).strict().parse(req.body);
+      return res.json(await confirmTwoFactorSetup(userId,sessionId,input.setupId,input.code));
+    }
+    if(action==='disable'||action==='recovery-codes'){
+      const input=z.object({code:z.string().trim().min(6).max(64),currentPassword:z.string().max(72).optional()}).strict().parse(req.body);
+      return res.json(await changeTwoFactor(userId,sessionId,action,input.code,input.currentPassword));
+    }
+    return res.status(404).json({message:'Unknown security action.'});
+  }catch(error){
+    if(error instanceof z.ZodError)return res.status(400).json({message:'Check the security fields and try again.'});
+    if(error instanceof AuthSecurityError){if(error.status===429)res.setHeader('Retry-After',String(error.retryAfter??900));return res.status(error.status).json({message:error.message});}
+    return res.status(503).json({message:'Unable to update two-factor authentication. Try again.'});
   }
 }

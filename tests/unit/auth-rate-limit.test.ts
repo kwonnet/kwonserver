@@ -4,12 +4,12 @@ import {response} from './fixtures';
 const deps=vi.hoisted(()=>({redis:{isReady:true,eval:vi.fn()}}));
 vi.mock('@/redis',()=>({default:deps.redis}));
 vi.mock('@/middleware',()=>({authMiddleware:()=>()=>{}}));
-vi.mock('@/controllers/v1/auth',()=>Object.fromEntries(['authEmailActionController','accountSettingsController','passwordUpdateController','authSessionsController','loginEventsController','revokeAuthSessionController','googleSignInController','getMeController','logoutController','refreshTokenController','signInController','signUpController'].map(name=>[name,()=>{}])));
+vi.mock('@/controllers/v1/auth',()=>Object.fromEntries(['twoFactorManagementController','verifyTwoFactorLoginController','authEmailActionController','accountSettingsController','passwordUpdateController','authSessionsController','loginEventsController','revokeAuthSessionController','googleSignInController','getMeController','logoutController','refreshTokenController','signInController','signUpController'].map(name=>[name,()=>{}])));
 vi.mock('@/utils/ipLocation',()=>({lookup:vi.fn()}));
 import router from '@/routes/v1/auth';
 import {AUTH_RATE_LIMIT_SCRIPT} from '@/utils/auth-security';
 const routes=(router as any).stack.filter((layer:any)=>layer.route).map((layer:any)=>layer.route);
-const endpoints=[['post','/signup'],['post','/forgot-password'],['post','/reset-password'],['post','/resend-verification'],['post','/verify-email'],['post','/signin'],['post','/google'],['post','/logout'],['post','/refresh-token'],['get','/me'],['get','/session-status'],['get','/settings'],['patch','/password'],['get','/sessions'],['get','/login-events'],['delete','/sessions/:id']];
+const endpoints=[['post','/signup'],['post','/forgot-password'],['post','/reset-password'],['post','/resend-verification'],['post','/verify-email'],['post','/signin'],['post','/google'],['post','/logout'],['post','/refresh-token'],['get','/me'],['get','/session-status'],['get','/settings'],['patch','/password'],['get','/sessions'],['get','/login-events'],['delete','/sessions/:id'],['post','/two-factor/verify'],...['setup','enable','disable','recovery-codes'].map(action=>['post',`/two-factor/${action}`])];
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 function request(path='/signin',ip='198.51.100.1',headers:Record<string,string>={}){return {method:'POST',route:{path},ip,socket:{remoteAddress:ip},get:(name:string)=>headers[name]} as any;}
 beforeEach(()=>{
