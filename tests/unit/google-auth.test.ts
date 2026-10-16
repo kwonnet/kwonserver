@@ -1,6 +1,7 @@
 import {beforeEach, afterEach, expect, it, vi} from 'vitest';
-const mocks = vi.hoisted(() => ({verify: vi.fn(), identity: vi.fn(), compose: vi.fn(), hash: vi.fn(),
+const mocks = vi.hoisted(() => ({rate: vi.fn(), verify: vi.fn(), identity: vi.fn(), compose: vi.fn(), hash: vi.fn(),
   db: {user: {findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), create: vi.fn()}, country: {findFirst: vi.fn()}, wallet: {findUniqueOrThrow: vi.fn()}, emailMessage: {create: vi.fn()}, transaction: {create: vi.fn()}, $transaction: vi.fn()}}));
+vi.mock('@/utils/auth-security',async importOriginal=>({...await importOriginal<typeof import('@/utils/auth-security')>(),consumeAuthRateLimit:mocks.rate}));
 vi.mock('@/services/email',()=>({enqueueEmailMessage:vi.fn()}));
 vi.mock('google-auth-library', () => ({OAuth2Client: class {verifyIdToken = mocks.verify;}}));
 vi.mock('@/db', () => ({default: mocks.db}));
@@ -13,6 +14,7 @@ const account = {emailVerifiedAt: new Date(), id: 'kwon-id', status: 'ACTIVE', g
 beforeEach(() => {
   vi.stubEnv('REGISTRATION_ENABLED', 'true');
   vi.resetAllMocks(); vi.stubEnv('AUTH_GOOGLE_ID', 'client-id');
+  mocks.rate.mockResolvedValue({allowed:true,retryAfter:900});
   mocks.db.emailMessage.create.mockResolvedValue({id:'welcome-event'});
   mocks.verify.mockResolvedValue({getPayload: () => claims});
   mocks.identity.mockResolvedValue({status: 200, data: {id: 'kwon-id'}});
@@ -160,4 +162,17 @@ it('keeps existing Google sign-in available while rejecting new Google accounts 
   expect((await loginGoogleUser('new-token')).status).toBe(403);
   expect(mocks.db.user.create).not.toHaveBeenCalled();
   expect(mocks.db.$transaction).not.toHaveBeenCalled();
+});
+
+it('limits verified Google identities across IP addresses before account or session work',async()=>{
+  mocks.rate.mockResolvedValue({allowed:false,retryAfter:412});
+  expect(await loginGoogleUser('valid-token')).toEqual({status:429,data:'Too many Google sign-in requests. Please try again later.',retryAfter:412});
+  expect(mocks.rate).toHaveBeenCalledWith('google:subject','google-sub');
+  expect(mocks.db.user.findUnique).not.toHaveBeenCalled();expect(mocks.identity).not.toHaveBeenCalled();
+});
+it('does not trust unverified Google claims for account limits and fails closed on Redis failure',async()=>{
+  mocks.verify.mockRejectedValueOnce(new Error('invalid'));
+  expect((await loginGoogleUser('forged')).status).toBe(401);expect(mocks.rate).not.toHaveBeenCalled();
+  mocks.rate.mockRejectedValueOnce(new Error('Redis unavailable'));
+  expect((await loginGoogleUser('valid')).status).toBe(503);expect(mocks.db.user.findUnique).not.toHaveBeenCalled();
 });

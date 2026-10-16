@@ -1,3 +1,4 @@
+import redis from '@/redis';
 import {createHmac, timingSafeEqual, createHash, randomBytes, createCipheriv, createDecipheriv} from 'node:crypto';
 function emailTokenKey() {
   const secret = process.env.AUTH_EMAIL_TOKEN_SECRET;
@@ -106,4 +107,26 @@ export async function authRequestMetadata(req: Request) {
   }
   return {device: parseAuthDevice(bridge ? bridge.agent : req.get?.('user-agent')), location,
     ...protectedIp(ip), metadataSource: bridge ? 'SIGNED_WEB' : 'API_REQUEST'};
+}
+
+/** Atomic fixed window shared by API instances; blocked requests do not extend it. */
+export const AUTH_RATE_LIMIT_SCRIPT = `
+local count = tonumber(redis.call('GET', KEYS[1]) or '0')
+local ttl = redis.call('TTL', KEYS[1])
+if count >= tonumber(ARGV[1]) then
+  if ttl < 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]); ttl = tonumber(ARGV[2]) end
+  return {0, math.max(1, ttl)}
+end
+count = redis.call('INCR', KEYS[1])
+if count == 1 or ttl < 0 then
+  redis.call('EXPIRE', KEYS[1], ARGV[2]); ttl = tonumber(ARGV[2])
+end
+return {1, math.max(1, ttl)}
+`;
+export async function consumeAuthRateLimit(scope:string,identity:string) {
+  if(!redis.isReady) throw new Error('Authentication rate limiter unavailable');
+  const key=`auth:rate:v2:${createHash('sha256').update(scope).digest('hex')}:${createHash('sha256').update(identity).digest('hex')}`;
+  const result=await redis.eval(AUTH_RATE_LIMIT_SCRIPT,{keys:[key],arguments:['5','900']});
+  if(!Array.isArray(result)||result.length!==2) throw new Error('Invalid authentication rate limit result');
+  return {allowed:Number(result[0])===1,retryAfter:Math.max(1,Number(result[1]))};
 }

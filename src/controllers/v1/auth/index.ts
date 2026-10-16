@@ -168,6 +168,7 @@ export const googleSignInController = async (req: Request, res: Response) => {
     // and authentication history. Existing-account signin never updates its profile.
     const metadata = await authRequestMetadata(req);
     const result = await loginGoogleUser(idToken, metadata.location as Partial<LookupResult> | null);
+    if(result.status===429)res.setHeader('Retry-After',String('retryAfter' in result?result.retryAfter:900));
     if (result.status !== 200 || typeof result.data === "string") return res.status(result.status).send(result.data);
     const user = result.data;
     const {accessToken, trackedUser} = await issueTrackedLogin(req, user, "GOOGLE", "SIGN_IN", metadata);

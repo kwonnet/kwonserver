@@ -17,7 +17,7 @@ import {disconnectAuthSession} from "@/utils/auth-session-sockets";
 import { OAuth2Client } from "google-auth-library";
 import { getAuthUser } from "../utils";
 import {logServiceError} from '@/logger/events';
-import {createEmailToken, hashEmailToken} from '@/utils/auth-security';
+import {consumeAuthRateLimit, createEmailToken, hashEmailToken} from '@/utils/auth-security';
 const googleVerifier = new OAuth2Client();
 
 export const createUser = async (
@@ -310,6 +310,10 @@ export async function loginGoogleUser(idToken: string, registrationLocation?: Pa
   if (!claims?.sub || !claims.email || claims.email_verified !== true) {
     return {status: 401, data: "Google email verification is required"};
   }
+  try {
+    const limit=await consumeAuthRateLimit('google:subject',claims.sub);
+    if(!limit.allowed)return {status:429,data:'Too many Google sign-in requests. Please try again later.',retryAfter:limit.retryAfter};
+  }catch(error){logServiceError('v1/auth/index','google.rate-limit',error);return {status:503,data:'Please try again shortly.'};}
   const email = claims.email.toLowerCase();
   try {
     let account = await prisma.user.findUnique({where: {googleSubject: claims.sub}});

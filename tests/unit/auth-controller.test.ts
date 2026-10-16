@@ -263,3 +263,9 @@ it('logs a safe database error code while keeping account action details out of 
  expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({event: 'auth_email_action_failed', err: expect.objectContaining({code: 'P2021', message: 'Database operation failed'})}), expect.any(String));
  expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toMatch(/private@example|private-reset-token/);
 });
+
+it('returns the verified Google account rate-limit retry deadline without issuing a session',async()=>{
+ deps.google.mockResolvedValue({status:429,data:'Too many Google sign-in requests',retryAfter:321});
+ const res=response();await googleSignInController({body:{idToken:'signed-google-id-token'},ip:'198.51.100.1'} as any,res);
+ expect(res.statusCode).toBe(429);expect(res.setHeader).toHaveBeenCalledWith('Retry-After','321');expect(deps.startSession).not.toHaveBeenCalled();expect(deps.generate).not.toHaveBeenCalled();
+});
