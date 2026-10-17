@@ -6,6 +6,7 @@ import redisClient from '@/redis';
 import {
   addGameRoomPlayer,
   getGamePlayerIdentity,
+  getGameRoom,
   refreshGamePresence,
   sweepGamePresence,
   publishGamePresence,
@@ -214,6 +215,20 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         // join the player id to a room to receive personal messages
         await socket.join(socket.data.user.id);
         if (!socket.connected) { await disconnectGameRoomPlayer(socket,io); return; }
+        // Start the room before acknowledging navigation. A cancelled page initializer
+        // must never strand a claimed room without a running countdown.
+        const started = await updateGameRoom({
+          gameId: room.category.gameId,
+          gameName: room.category.game.name,
+          catName: room.category.name,
+          catId: room.catId,
+          topics: room.category.topics.join(","),
+          roomId,
+          mode,
+          status: GameStatusEnum.CHAT,
+          generation: result.data.room.generation,
+        }, true);
+        if (started) await gameChatTime(roomId, io, true);
         // acknowledge
         respond({ isError: false, message: "User joined room" });
         // count players
@@ -231,7 +246,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           socket.off('disconnect', cancelInitialization);
           if (!socket.connected || socket.data.room?.id !== roomId) return;
           try {
-          if (!await refreshGamePresence(socket.data.user.id,socket.id,roomId)) return;
+          if (!await refreshGamePresence(socket.data.user.id,socket.id,roomId) || intent !== socket.data.gameJoinIntent || socket.data.room?.id !== roomId) return;
           //  emit player wallet and game energy
           socket.emit(GameEventEnum.GAME_PLAYER_DATA, moneyJson(result.data) );
           // emit room info
@@ -244,18 +259,17 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
             catId: room.catId,
             roomId,
           })
-          // check if only just the joined player
-          if (result.data.room.firstPlayer) {
-            const started = await updateGameRoom({
-              gameId: room.category.gameId,
-              gameName: room.category.game.name,
-              catName: room.category.name,
-              catId: room.catId,
-              topics: room.category.topics.join(","),
-              roomId,
-              mode,
-              status: GameStatusEnum.CHAT, generation: result.data.room.generation },true);
-            if (started) await gameChatTime(roomId, io, true);
+          // A room page can mount after its catalog join, including during PLAY.
+          // Send its current phase and question again without restarting the round.
+          const currentRoom = await getGameRoom(roomId);
+          if (intent !== socket.data.gameJoinIntent || socket.data.room?.id !== roomId) return;
+          if (currentRoom) {
+            if (currentRoom.status === GameStatusEnum.PLAY) {
+              const question = await retrieveGameRoomQuestion(roomId);
+              if (intent !== socket.data.gameJoinIntent || socket.data.room?.id !== roomId) return;
+              if (question) socket.emit(GameEventEnum.GAME_ROOM_QUESTION, {question, message: "Swen says, it's play time!"});
+            }
+            socket.emit(GameEventEnum.GAME_ROOM_STATE, {status: currentRoom.status, countdown: Number(currentRoom.timer ?? 0)});
           }
           // emitting a welcome message to a new player
           socket.emit(
@@ -292,7 +306,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           await notifyGameRoomPlayers({roomId, totalPlayers, mode, io} )
           } catch (error) {
             logger.error({event: 'game_join_initialization_failed', roomId, error: error instanceof Error ? error.message : 'Unknown failure'});
-            socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, 'Unable to initialize this game room. Please rejoin.');
+            if (intent === socket.data.gameJoinIntent && socket.data.room?.id === roomId) socket.emit(GameEventEnum.GAME_ERROR_NOTIFY, 'Unable to initialize this game room. Please rejoin.');
           }
         }, 500);
         socket.data.cancelGameInitialization = cancelInitialization;
@@ -423,10 +437,16 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
     socket.on("disconnected", async (roomId?: string) => {
       // A delayed unmount from an old page must not leave the new room.
       if (!roomId || roomId === socket.data.pendingGameRoom) socket.data.gameJoinIntent = (socket.data.gameJoinIntent ?? 0) + 1;
-      const current = socket.data.room?.id;
-      if (!current || (roomId && current !== roomId && !current.startsWith(`${socket.data.room.mode.toLowerCase()}-${roomId}_`) && current !== `${socket.data.room.mode.toLowerCase()}-${roomId}`)) return;
-      socket.data.cancelGameInitialization?.();
-      await disconnectGameRoomPlayer(socket,io);
+      const earlier = socket.data.gameJoinQueue ?? Promise.resolve();
+      let release!: () => void;
+      socket.data.gameJoinQueue = new Promise<void>(resolve => { release = resolve; });
+      await earlier;
+      try {
+        const current = socket.data.room?.id;
+        if (!current || (roomId && current !== roomId && !current.startsWith(`${socket.data.room.mode.toLowerCase()}-${roomId}_`) && current !== `${socket.data.room.mode.toLowerCase()}-${roomId}`)) return;
+        socket.data.cancelGameInitialization?.();
+        await disconnectGameRoomPlayer(socket,io);
+      } finally { release(); }
     });
   });
 };

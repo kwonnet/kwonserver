@@ -1,12 +1,12 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-const games = vi.hoisted(() => ({refreshGamePresence:vi.fn(),sweepGamePresence:vi.fn(),publishGamePresence:vi.fn(),disconnectGameRoomPlayer:vi.fn(),deductGameCoins:vi.fn(),retrieveGameRoomQuestion:vi.fn(),saveGameRoomPlayerAnswer:vi.fn(),insertWordMakerGameRoomAnswer:vi.fn(),updatePlayerSession:vi.fn(),checkGameRoom:vi.fn(),getGameRoomPlayer:vi.fn(),addGameRoomPlayer:vi.fn(),getTotalRoomPlayers:vi.fn(),getTotalRoomParticipants:vi.fn(),updateGameRoom:vi.fn(),getGameRoomPlayersWithRank:vi.fn()}));
+const games = vi.hoisted(() => ({getGameRoom:vi.fn(),gameChatTime:vi.fn(),getCountGamePlayers:vi.fn(),notifyGameRoomPlayers:vi.fn(),refreshGamePresence:vi.fn(),sweepGamePresence:vi.fn(),publishGamePresence:vi.fn(),disconnectGameRoomPlayer:vi.fn(),deductGameCoins:vi.fn(),retrieveGameRoomQuestion:vi.fn(),saveGameRoomPlayerAnswer:vi.fn(),insertWordMakerGameRoomAnswer:vi.fn(),updatePlayerSession:vi.fn(),checkGameRoom:vi.fn(),getGameRoomPlayer:vi.fn(),addGameRoomPlayer:vi.fn(),getTotalRoomPlayers:vi.fn(),getTotalRoomParticipants:vi.fn(),updateGameRoom:vi.fn(),getGameRoomPlayersWithRank:vi.fn()}));
 vi.mock('@/services/v1/games',()=>games);
 vi.mock('@/services/helper',()=>({composeGameAnswer:({params}:any)=>params,getGameType:vi.fn(),getGameCatType:vi.fn()}));
 import gameSocketIo from '@/socketIo/gameSocketIo';
 import {GameEventEnum,GameActionEnum} from '@/types';
 let handlers:Record<string,Function>,socket:any,packetGuard:Function;
 beforeEach(()=>{
- vi.clearAllMocks(); games.refreshGamePresence.mockResolvedValue(true); handlers={};
+ vi.clearAllMocks(); games.refreshGamePresence.mockResolvedValue(true); games.updateGameRoom.mockResolvedValue(false); games.getGameRoom.mockResolvedValue(null); handlers={};
  socket={use:(fn:Function)=>{packetGuard=fn;},id:'socket',connected:true,join:vi.fn(),leave:vi.fn(),once:vi.fn(),off:vi.fn(),data:{user:{id:'user',name:'User'}},on:(event:string,fn:Function)=>{handlers[event]=fn;},emit:vi.fn()};
  const io={emit:vi.fn(),use:vi.fn(),on:(_event:string,fn:Function)=>fn(socket)};
  gameSocketIo({of:()=>io} as any);
@@ -104,9 +104,9 @@ it('cancels a join when the page leaves before the room lookup completes',async(
  let resolveLookup!:(value:any)=>void;
  games.checkGameRoom.mockImplementationOnce(()=>new Promise(resolve=>{resolveLookup=resolve;}));
  const ack=vi.fn();const pending=handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'MULTI'},ack);
- await Promise.resolve();await handlers.disconnected('room');
+ await Promise.resolve();const leaving=handlers.disconnected('room');
  resolveLookup({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
- await pending;expect(games.addGameRoomPlayer).not.toHaveBeenCalled();expect(ack).toHaveBeenCalledWith(expect.objectContaining({code:'JOIN_CANCELLED'}));
+ await pending;await leaving;expect(games.addGameRoomPlayer).not.toHaveBeenCalled();expect(ack).toHaveBeenCalledWith(expect.objectContaining({code:'JOIN_CANCELLED'}));
 });
 
 it('never replays prior room messages to clients requesting chat history', async () => {
@@ -149,4 +149,69 @@ it('rejects malformed lucky spin identities before charging',async()=>{
  await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:'5',spinId:'bad'});
  expect(games.deductGameCoins).not.toHaveBeenCalled();
  expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ACTION_REJECTED,'Invalid spin request');
+});
+
+
+it('queues a new join behind a leave that is still removing the previous presence',async()=>{
+ let finishLeave!:()=>void;
+ games.disconnectGameRoomPlayer.mockImplementationOnce(()=>new Promise<void>(resolve=>{finishLeave=resolve;}));
+ const leaving=handlers.disconnected('room');
+ await Promise.resolve();
+ const joining=handlers[GameEventEnum.PLAYER_JOINED]({roomId:'next-room',mode:'SINGLE'},vi.fn());
+ await Promise.resolve();
+ expect(games.checkGameRoom).not.toHaveBeenCalled();
+ finishLeave();await leaving;await joining;
+ expect(games.checkGameRoom).toHaveBeenCalledWith('next-room');
+});
+
+it('starts the countdown before acknowledging, even when delayed page initialization is cancelled',async()=>{
+ vi.useFakeTimers();
+ try {
+  games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
+  games.addGameRoomPlayer.mockResolvedValue({data:{room:{id:'room',generation:'generation',firstPlayer:false}}});
+  games.updateGameRoom.mockResolvedValue(true);
+  const ack=vi.fn(()=>expect(games.gameChatTime).toHaveBeenCalledWith('room',expect.anything(),true));
+  await handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'single'},ack);
+  expect(ack).toHaveBeenCalledWith({isError:false,message:'User joined room'});
+  expect(games.updateGameRoom).toHaveBeenCalledWith(expect.objectContaining({generation:'generation',status:'CHAT'}),true);
+  socket.data.cancelGameInitialization();
+  await vi.advanceTimersByTimeAsync(500);
+  expect(games.gameChatTime).toHaveBeenCalledOnce();
+  expect(games.getGameRoom).not.toHaveBeenCalled();
+ } finally {vi.useRealTimers();}
+});
+
+it('restores the live question and countdown when joining an already running room',async()=>{
+ vi.useFakeTimers();
+ try {
+  games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
+  games.addGameRoomPlayer.mockResolvedValue({data:{room:{id:'room',generation:'generation',firstPlayer:false}}});
+  games.getGameRoom.mockResolvedValue({status:'PLAY',timer:'8'});
+  games.getGameRoomPlayersWithRank.mockResolvedValue([]);
+  socket.broadcast={to:()=>({emit:vi.fn()})};
+  await handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'multi'},vi.fn());
+  await vi.advanceTimersByTimeAsync(500);
+  expect(games.gameChatTime).not.toHaveBeenCalled();
+  expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_QUESTION,expect.objectContaining({question:{id:'question',roundId:'server-round'}}));
+  expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,{status:'PLAY',countdown:8});
+ } finally {vi.useRealTimers();}
+});
+
+it('discards an old room snapshot that finishes after the player switches rooms',async()=>{
+ vi.useFakeTimers();
+ try {
+  games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
+  games.addGameRoomPlayer.mockImplementation(async (args:any)=>({data:{room:{id:args.roomId,generation:'generation',firstPlayer:false}}}));
+  let finishSnapshot!:(value:any)=>void;
+  games.getGameRoom.mockImplementationOnce(()=>new Promise(resolve=>{finishSnapshot=resolve;}));
+  socket.broadcast={to:()=>({emit:vi.fn()})};
+  await handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'multi'},vi.fn());
+  await vi.advanceTimersByTimeAsync(500);
+  expect(games.getGameRoom).toHaveBeenCalledWith('room');
+  await handlers[GameEventEnum.PLAYER_JOINED]({roomId:'next-room',mode:'multi'},vi.fn());
+  finishSnapshot({status:'PLAY',timer:'8'});
+  await vi.advanceTimersByTimeAsync(1);
+  expect(games.retrieveGameRoomQuestion).not.toHaveBeenCalled();
+  expect(socket.emit).not.toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,expect.anything());
+ } finally {vi.useRealTimers();}
 });
