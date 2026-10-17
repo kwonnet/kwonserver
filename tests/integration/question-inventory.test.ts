@@ -97,3 +97,17 @@ it.each(['TypeMania','Unscramble'])('persists and serves %s sentence inventory w
   await expect(getInventoryRoomQuestion(a,{roomId:`sentence-${category.id}`,catId:category.id} as any)).rejects.toThrow('inventory unavailable');
  } finally {await db.gameCategory.delete({where:{id:category.id}});}
 });
+it('replaces legacy overlong sentence inventory without removing eligible sentences',async()=>{
+ const category=await db.gameCategory.create({data:{gameId:game,name:'TypeMania',description:'Sentence limit test',topics:[]}});
+ try {
+  const old=await db.quizQuestion.create({data:{categoryId:category.id,question:'The small brown cat sleeps near the window.',answer:'The small brown cat sleeps near the window.',options:[],normalizedHash:'legacy-long'}});
+  const sentence='The small cat sleeps near the window.';
+  await a.insertBatch(category.id,[{question:sentence,answer:sentence,options:[]}]);
+  await redis.sadd(poolKey(category.id),old.id);
+  const candidates=await a.getCandidates(category.id);
+  expect(candidates).toHaveLength(1);expect(candidates[0].question).toBe(sentence);
+  expect(await db.quizQuestion.findUnique({where:{id:old.id}})).toBeNull();
+  expect(await redis.sismember(poolKey(category.id),old.id)).toBe(0);
+  expect(await a.count(category.id)).toBe(1);
+ } finally {await db.gameCategory.delete({where:{id:category.id}});}
+});

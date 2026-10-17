@@ -288,6 +288,7 @@ export enum GameCatType {
 
 export interface ThemedGameQuestion {
   acceptedAnswers?: string[];
+  hint?: string;
     roundId?: string;
   answerUntil?: number;
   voteUntil?: number;

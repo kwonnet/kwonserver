@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { englishDictionary, normalizeSentence, sentenceWords, wordBag, SentenceGame } from '@/utils/word-games';
+import { englishDictionary, normalizeSentence, sentenceWords, wordBag, SentenceGame, MAX_SENTENCE_WORDS } from '@/utils/word-games';
 export interface GeneratedQuestion { question: string; answer: string; options: string[] }
 export const normalizeQuestion = (text: string) => text.normalize('NFKC').toLowerCase()
   .replace(/[^\p{L}\p{N}\s]/gu, '').trim().replace(/\s+/g, ' ');
@@ -22,7 +22,7 @@ export function validateSentenceQuestion(input: unknown, kind: SentenceGame): Ge
   const q = input as Record<string, unknown>;
   if (typeof q.question !== 'string' || typeof q.answer !== 'string' || !Array.isArray(q.options)) return null;
   const words = sentenceWords(q.question);
-  if (q.question.length > 90 || words.length < 5 || words.length > (kind === 'UNSCRAMBLE' ? 10 : 12) || new Set(words).size < 3) return null;
+  if (q.question.length > 90 || words.length < 5 || words.length > MAX_SENTENCE_WORDS || new Set(words).size < 3) return null;
   // Use simple dictionary English so punctuation cannot change token boundaries.
   if (!/^[A-Za-z ,.!?;:\s]+$/.test(q.question) || !words.every(word => englishDictionary().has(word) || word === 'a' || word === 'i')) return null;
   if (normalizeSentence(q.answer) !== normalizeSentence(q.question)) return null;

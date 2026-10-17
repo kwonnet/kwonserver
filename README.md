@@ -1014,7 +1014,7 @@ these categories before rollout. No model requests run inside room countdowns.
 If inventory is empty, the room shows a preparation notice and retries automatically.
 
 The provider returns natural English sentences in bounded structured batches.
-Validation requires dictionary vocabulary, 5–12 words (5–10 for Unscramble),
+Validation requires dictionary vocabulary, 5–7 words for both games,
 at most 90 characters, and at least three distinct words. Unscramble stores one
 canonical sentence and up to five model-authored grammatical alternatives in the
 bank's options field. Every alternative must contain exactly the same words with
@@ -1024,7 +1024,10 @@ accepted answers stay server-side. Scores match only this finite validated answe
 set, ignoring case, whitespace and punctuation; arbitrary permutations receive no
 points. The generator is instructed to avoid ambiguity and list natural alternatives,
 but cannot guarantee an exhaustive list of every grammatical English arrangement.
-TypeMania uses the same normalization and existing speed-based scoring.
+TypeMania uses the same normalization and existing speed-based scoring. Both sentence
+games have 20-second rounds in solo and multiplayer modes. Unscramble always includes
+a short opening-word hint, computed on the server. Old sentences longer than seven
+words are removed from generated inventory on first use and replenished automatically.
 
 Hangman selects a common dictionary word, hides 1–4 letters (always leaving a
 visible letter) and supplies exactly four distinct, nonempty choices, including

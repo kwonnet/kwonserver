@@ -1,12 +1,12 @@
 import {beforeEach,expect,it,vi} from 'vitest';
-const deps=vi.hoisted(()=>({get:vi.fn(),hGetAll:vi.fn(),hSet:vi.fn(),exists:vi.fn(),del:vi.fn(),kind:vi.fn(),cat:vi.fn(),word:vi.fn()}));
+const deps=vi.hoisted(()=>({get:vi.fn(),hGetAll:vi.fn(),hSet:vi.fn(),exists:vi.fn(),del:vi.fn(),kind:vi.fn(),cat:vi.fn(),word:vi.fn(),set:vi.fn(),sCard:vi.fn(),generate:vi.fn()}));
 vi.mock('@/db',()=>({default:{}}));
-vi.mock('@/redis',()=>({default:{get:deps.get,hGetAll:deps.hGetAll,hSet:deps.hSet,exists:deps.exists,del:deps.del}}));
+vi.mock('@/redis',()=>({default:{get:deps.get,hGetAll:deps.hGetAll,hSet:deps.hSet,exists:deps.exists,del:deps.del,set:deps.set,sCard:deps.sCard}}));
 vi.mock('@/services/helper',()=>({getGameType:deps.kind,getGameCatType:deps.cat,calculateWordMakerPlayerScore:deps.word}));
 vi.mock('@/utils',async()=>({...await vi.importActual<typeof import('@/utils')>('@/utils'),clearRedisKeysByPattern:vi.fn()}));
 vi.mock('@/utils/webpush',()=>({default:{}}));
-vi.mock('@/utils/ai',()=>({generateRoomQuestion:vi.fn(),shuffleArray:vi.fn()}));
-import {calculateGameRoomPoints,gameChatTime,gamePlayTime} from '@/services/v1/games';
+vi.mock('@/utils/ai',()=>({generateRoomQuestion:deps.generate,shuffleArray:vi.fn()}));
+import {calculateGameRoomPoints,gameChatTime,gamePlayTime,checkGameNumPlayers} from '@/services/v1/games';
 import {GameEventEnum,GameCatType,GameType} from '@/types';
 const room:any={roomId:'room',mode:'MULTI',catId:'cat',gameName:'Trivia',catName:'General',status:'CHAT',timer:5};
 beforeEach(()=>{vi.clearAllMocks();deps.kind.mockReturnValue(GameType.TRIVIA);deps.cat.mockReturnValue(GameCatType.TYPEMANIA);deps.hSet.mockResolvedValue(1);deps.del.mockResolvedValue(1);});
@@ -55,4 +55,21 @@ it('broadcasts sentence puzzles without private accepted answers or an answer ke
   const sent=emit.mock.calls.find(([event])=>event===GameEventEnum.GAME_ROOM_QUESTION)?.[1];
   expect(sent.question.answer).toBe('');expect(sent.question).not.toHaveProperty('acceptedAnswers');
  } finally {vi.clearAllTimers();vi.useRealTimers();}
+});
+
+it.each([['SINGLE',GameCatType.TYPEMANIA],['MULTI',GameCatType.TYPEMANIA],['SINGLE',GameCatType.UNSCRAMBLE],['MULTI',GameCatType.UNSCRAMBLE]])('gives %s %s a twenty-second answer window and timer',async(mode,cat)=>{
+ vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-17T00:00:00Z'));
+ try {
+  deps.sCard.mockResolvedValue(2);deps.exists.mockResolvedValue(1);deps.cat.mockReturnValue(cat);deps.kind.mockReturnValue(GameType.MINDMASH);
+  deps.generate.mockResolvedValue({id:'sentence',question:'The small cat sleeps near the window.',answer:'answer',options:[]});
+  deps.hGetAll.mockResolvedValue({...room,mode,status:'PLAY',timer:'20'});
+  const emit=vi.fn();
+  await checkGameNumPlayers({...room,mode,catName:cat===GameCatType.TYPEMANIA?'Typing Mania':'Unscramble'}, {to:()=>({emit})} as any);
+  expect(deps.set).toHaveBeenCalledWith('room:room:question',expect.any(String));
+  const saved=JSON.parse(deps.set.mock.calls[0][1]);
+  expect(saved.answerUntil).toBe(Date.now()+20000);
+  expect(deps.hSet).toHaveBeenCalledWith('room:room',expect.objectContaining({timer:20,status:'PLAY'}));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,{status:'PLAY',countdown:19});
+ }finally{vi.clearAllTimers();vi.useRealTimers();}
 });

@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { inventoryConfig } from '@/services/questionInventory/config';
 import { validateQuestion, validateBatch, questionHash } from '@/services/questionInventory/validation';
 import { QuestionInventoryService, InventoryEmptyError, InventoryExhaustedError, generationJobId } from '@/services/questionInventory/service';
+import { getInventoryRoomQuestion } from '@/services/v1/games/questionInventory';
 import { generationProcessor } from '@/services/questionInventory/processor';
 const valid = { question: 'What is two plus two?', answer: '4', options: ['3','4','5','6'] };
 function fixture(count = 0) {
@@ -117,4 +118,28 @@ it('deduplicates Unscramble word sets even when the model changes the canonical 
   {question:second,answer:second,options:[second,first]},
  ],'UNSCRAMBLE');
  expect(result.valid).toHaveLength(1);expect(result.duplicateCount).toBe(1);
+});
+
+it('prunes old overlong sentences once, paginates safely after deletion, and requests replacement stock',async()=>{
+ const f=fixture();
+ f.db.gameCategory.findUnique.mockResolvedValue({id:'cat',name:'TypeMania',topics:[]});
+ f.db.quizQuestion.findMany.mockResolvedValueOnce([{id:'a',question:'The small brown cat sleeps near the window.'}] as any)
+  .mockResolvedValueOnce([{id:'b',question:'The small cat sleeps near the window.'}] as any).mockResolvedValueOnce([]);
+ const remove=vi.fn();const srem=vi.fn();
+ Object.assign(f.db.quizQuestion,{deleteMany:remove});Object.assign(f.redis,{srem});
+ await Promise.all([f.service.ensureInventory('cat'),f.service.ensureInventory('cat')]);
+ expect(remove).toHaveBeenCalledOnce();expect(remove).toHaveBeenCalledWith({where:{categoryId:'cat',id:{in:['a']}}});
+ expect(srem).toHaveBeenCalledWith('quiz:category:cat:pool','a');
+ expect(f.db.quizQuestion.findMany.mock.calls[1][0]).toMatchObject({where:{categoryId:'cat',id:{gt:'a'}}});
+ expect(f.queue.add).toHaveBeenCalled();
+ await f.service.ensureInventory('cat');expect(f.db.quizQuestion.findMany).toHaveBeenCalledTimes(3);
+});
+it('never serves an old sentence over seven words even if cleanup has not run on that replica',async()=>{
+ const sadd=vi.fn().mockResolvedValue(1);
+ const inventory:any={redis:{smembers:vi.fn().mockResolvedValue([]),sadd},recordDemand:vi.fn(),getCandidates:vi.fn().mockResolvedValue([
+  {id:'old',question:'The small brown cat sleeps near the window.',answer:'old',options:[]},
+  {id:'new',question:'The small cat sleeps near the window.',answer:'The small cat sleeps near the window.',options:[]},
+ ])};
+ const result=await getInventoryRoomQuestion(inventory,{roomId:'room',catId:'cat',catName:'TypeMania'} as any);
+ expect(result.id).toBe('new');expect(sadd).not.toHaveBeenCalledWith(expect.anything(),'old');
 });

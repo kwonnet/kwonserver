@@ -4,7 +4,7 @@ import type { Queue } from 'bullmq';
 import { createHash } from 'crypto';
 import { inventoryConfig, InventoryConfig } from './config';
 import { validateBatch } from './validation';
-import { sentenceGame } from '@/utils/word-games';
+import { sentenceGame, sentenceWords, MAX_SENTENCE_WORDS } from '@/utils/word-games';
 import {logServiceError} from '@/logger/events';
 
 export class InventoryEmptyError extends Error {
@@ -20,6 +20,7 @@ export type GenerationJob = { categoryId: string; target: number };
 type Log = { warn: (data: object, message: string) => void };
 
 export class QuestionInventoryService {
+  private sentencePruning = new Map<string, Promise<void>>();
   constructor(public db: PrismaClient, public redis: Redis, public queue: Queue<GenerationJob>,
     public config: InventoryConfig = inventoryConfig(), private log: Log = console) {}
 
@@ -75,8 +76,39 @@ export class QuestionInventoryService {
       failedReason: job?.failedReason ? 'Generation failed; inspect worker logs' : undefined };
   }
 
+  // Recheck legacy sentence banks once per process after a rules change. Remove
+  // generated content only; replacing it uses the normal replenishment worker.
+  private async pruneLongSentences(categoryId: string, name: string) {
+    if (!sentenceGame(name)) return;
+    const pending = this.sentencePruning.get(categoryId);
+    if (pending) return pending;
+    const prune = async () => {
+      let cursor: string | undefined;
+      for (;;) {
+        const rows: {id:string;question:string}[] = await this.db.quizQuestion.findMany({where:{categoryId,...(cursor ? {id:{gt:cursor}} : {})},
+          select:{id:true,question:true},orderBy:{id:'asc'},take:500});
+        if (!rows.length) break;
+        cursor = rows[rows.length - 1].id;
+        const ids = rows.filter(row => sentenceWords(row.question).length > MAX_SENTENCE_WORDS).map(row => row.id);
+        if (ids.length) {
+          await this.db.quizQuestion.deleteMany({where:{categoryId,id:{in:ids}}});
+          await this.redis.srem(poolKey(categoryId), ...ids);
+        }
+      }
+    };
+    const task = prune();
+    this.sentencePruning.set(categoryId,task);
+    try { await task; }
+    catch (error) {
+      logServiceError('questionInventory/service', 'pruneLongSentences', error);
+      this.sentencePruning.delete(categoryId);
+      throw error;
+    }
+  }
+
   async ensureInventory(categoryId: string, roomSeenCount = 0) {
-    await this.category(categoryId);
+    const category = await this.category(categoryId);
+    await this.pruneLongSentences(categoryId,category.name);
     const current = await this.count(categoryId);
     let peak = roomSeenCount;
     try { peak = Math.max(peak, (await this.demand(categoryId)).peakRoomConsumption); }

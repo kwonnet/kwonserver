@@ -54,6 +54,8 @@ it('shuffles stored Unscramble sentences and preserves private alternatives with
  const q=await generateUnscrambleQuestion({roomId:'room',catId:'cat'} as any);
  expect(wordBag(q.question)).toBe(wordBag(sentence));expect(q.options).toEqual([]);
  expect(q.acceptedAnswers).toEqual(stored.options);
+ expect(q.hint).toBe('The …');
+ expect(publicWordQuestion(q).hint).toBe('The …');
  expect(stored.options.map(normalizeSentence)).not.toContain(q.question);
  expect(publicWordQuestion(q)).not.toHaveProperty('acceptedAnswers');expect(publicWordQuestion(q).answer).toBe('');
  expect(deps.parse).not.toHaveBeenCalled();
@@ -86,4 +88,13 @@ it.each(['TYPEMANIA','UNSCRAMBLE'] as const)('requests a bounded structured batc
  expect(await generateSentenceBatch({categoryId:'cat',categoryName:kind,topics:['Nature'],count:25},kind)).toEqual([stored]);
  expect(deps.parse).toHaveBeenCalledWith(expect.objectContaining({input:expect.stringContaining('Create 25'),text:expect.any(Object)}),{timeout:90000,maxRetries:0});
  expect(deps.parse.mock.calls[0][0].input).toContain(kind);
+ expect(deps.parse.mock.calls[0][0].input).toContain('Use 5 to 7 words');
+});
+
+it.each(['TYPEMANIA','UNSCRAMBLE'] as const)('caps %s at seven words while allowing five-word sentences',kind=>{
+ for(const sentence of ['The cat sleeps near windows.','The small cat sleeps near the window.']){
+  expect(validateSentenceQuestion({question:sentence,answer:sentence,options:kind==='UNSCRAMBLE'?[sentence]:[]},kind)).not.toBeNull();
+ }
+ const sentence='The small brown cat sleeps near the window.';
+ expect(validateSentenceQuestion({question:sentence,answer:sentence,options:kind==='UNSCRAMBLE'?[sentence]:[]},kind)).toBeNull();
 });

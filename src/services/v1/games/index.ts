@@ -1479,7 +1479,7 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
 
   // mode
   const mode = getGameMode(room.mode)
-  const timerKey = (`${mode}_${room.catName}`).toLowerCase()
+  const timerKey = (`${mode}_${catType ?? room.catName}`).toLowerCase()
   const timers = {
     [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.LUCKYSPIN}`)]: 10,
     [composeTimerKey(`${GameMode.MULTI}_${GameCatType.LUCKYSPIN}`)]: 15,
@@ -1490,8 +1490,8 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
     [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.LUCKYWHIZ}`)]: 10,
     [composeTimerKey(`${GameMode.MULTI}_${GameCatType.LUCKYWHIZ}`)]: 15,
 
-    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.UNSCRAMBLE}`)]: 15,
-    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.UNSCRAMBLE}`)]: 15,
+    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.UNSCRAMBLE}`)]: 20,
+    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.UNSCRAMBLE}`)]: 20,
 
     [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.HANGMAN}`)]: 15,
     [composeTimerKey(`${GameMode.MULTI}_${GameCatType.HANGMAN}`)]: 15,
@@ -1499,8 +1499,8 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
     [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.WORDMAKER}`)]: 15,
     [composeTimerKey(`${GameMode.MULTI}_${GameCatType.WORDMAKER}`)]: 15,
 
-    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.TYPEMANIA}`)]: 15,
-    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.TYPEMANIA}`)]: 15,
+    [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.TYPEMANIA}`)]: 20,
+    [composeTimerKey(`${GameMode.MULTI}_${GameCatType.TYPEMANIA}`)]: 20,
 
     [composeTimerKey(`${GameMode.SINGLE}_${GameCatType.ANAGRAM}`)]: 15,
     [composeTimerKey(`${GameMode.MULTI}_${GameCatType.ANAGRAM}`)]: 15,

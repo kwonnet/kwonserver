@@ -1,3 +1,4 @@
+import { sentenceGame, sentenceWords, MAX_SENTENCE_WORDS } from '@/utils/word-games';
 import type { TempGameRoom, ThemedGameQuestion } from '@/types';
 import { GameType } from '@/types';
 import { InventoryExhaustedError, QuestionInventoryService } from '@/services/questionInventory/service';
@@ -16,6 +17,7 @@ export async function getInventoryRoomQuestion(inventory: QuestionInventoryServi
     while (candidates.length) {
       const index = Math.floor(Math.random() * candidates.length);
       const [question] = candidates.splice(index, 1);
+      if (sentenceGame(room.catName ?? '') && sentenceWords(question.question).length > MAX_SENTENCE_WORDS) continue;
       if (await inventory.redis.sadd(key, question.id)) {
         return { id: question.id, question: question.question, answer: question.answer,
           options: question.options, type: GameType.TRIVIA };
