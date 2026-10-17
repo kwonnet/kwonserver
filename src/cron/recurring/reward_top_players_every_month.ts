@@ -34,11 +34,11 @@ import logger from "@/logger";
 
 // Helper function to calculate reward participants based on count
 const getRewardParticipantCounts = (count: number) => {
-  if (count <= 50_000) return Math.floor(0.05 * count);
-  if (count <= 200_000) return Math.floor(0.07 * count);
-  if (count <= 500_000) return Math.floor(0.1 * count);
-  if (count <= 1_000_000) return Math.floor(0.12 * count);
-  return Math.floor(0.15 * count);
+  if(count <= 5_000_000) return Math.floor(0.20 * count);
+  if(count <= 10_000_000) return Math.floor(0.25 * count);
+  if(count <= 50_000_000) return Math.floor(0.30 * count);
+  if(count <= 100_000_000) return Math.floor(0.32 * count);
+  return Math.floor(0.35 * count);
 };
 
 // Helper function to calculate reward amounts

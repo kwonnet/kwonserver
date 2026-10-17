@@ -44,8 +44,8 @@ it('defaults unknown games and rejects unknown categories', () => {
 });
 it.each(['ACRONYM', 'TRIVIA'])('composes %s answers from authoritative room and player data', type => {
   const result = h.composeGameAnswer({ params: { gameType: type, playerId: 'spoofed', score: 999 } as any,
-    room: { id: 'room', name: 'Room', catId: 'cat', mode: 'MULTI' } as any, user: { id: 'u', name: 'Ada' } as any });
-  expect(result).toMatchObject({ playerId: 'u', roomId: 'room', catId: 'cat', name: 'Ada', mode: 'MULTI' });
+    room: { id: 'room', name: 'Room', catId: 'cat', mode: 'MULTI' } as any, user: { id: 'u', name: 'Ada', avatar:'https://images.test/ada.webp' } as any });
+  expect(result).toMatchObject({ playerId: 'u', roomId: 'room', catId: 'cat', name: 'Ada', avatar:'https://images.test/ada.webp', mode: 'MULTI' });
   if (type === 'ACRONYM') expect(result).toMatchObject({ score: 0, votes: [], voted: false, answerId: expect.any(String) });
 });
 it('scores only dictionary words that fit the base letter counts and exceed two letters', () => {

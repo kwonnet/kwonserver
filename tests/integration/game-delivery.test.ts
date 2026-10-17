@@ -198,3 +198,16 @@ it('redacts legacy message bodies while retaining the financial audit trail',asy
  expect((await db.transaction.findUniqueOrThrow({where:{id:txn.id}})).metadata).toEqual({action:'CHAT',gameActionId:result.actionId!});
  expect(Number((await wallet()).coins)).toBe(97);
 });
+
+it('keeps the latest spin, including repeated values, and refunds delayed older delivery',async()=>{
+ const spin=(answer:string,submittedAt:number)=>deliver('ANSWER',{isSpin:true,playerId:userId,answer,submittedAt});
+ const first=await charge('spin-1',spin('4',1000));await dispatchGameAction(first.actionId!);
+ const delayed=await charge('spin-delayed',spin('8',2000));
+ const latest=await charge('spin-3',spin('4',3000));await dispatchGameAction(latest.actionId!);
+ expect(JSON.parse((await redis.hGet(`room:${roomId}:answers`,userId))!)).toMatchObject({answer:'4',submittedAt:3000});
+ const before=await wallet();
+ expect((await dispatchGameAction(delayed.actionId!)).status).toBe('REFUNDED');
+ expect((await wallet()).coins.toNumber()).toBeGreaterThan(before.coins.toNumber());
+ expect(JSON.parse((await redis.hGet(`room:${roomId}:answers`,userId))!)).toMatchObject({answer:'4',submittedAt:3000});
+ expect((await dispatchGameAction(latest.actionId!)).status).toBe('DELIVERED');
+});

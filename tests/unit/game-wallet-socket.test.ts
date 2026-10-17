@@ -133,3 +133,20 @@ it('keeps chat failures nonfatal so the player can retry without leaving the roo
  expect(socket.emit).not.toHaveBeenCalledWith(GameEventEnum.GAME_ERROR_NOTIFY,expect.anything());
  expect(socket.leave).not.toHaveBeenCalled();
 });
+
+it('records each lucky spin separately while retries keep the same charge identity',async()=>{
+ socket.data.gameType='MINDMASH';socket.data.catType='LUCKYSPIN';
+ const args={qId:'question',roundId:'server-round',answer:'5',spinId:'00000000-0000-4000-8000-000000000001'};
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER](args);
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER](args);
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER]({...args,spinId:'00000000-0000-4000-8000-000000000002'});
+ expect(games.deductGameCoins.mock.calls[0][0].operationId).toBe(games.deductGameCoins.mock.calls[1][0].operationId);
+ expect(games.deductGameCoins.mock.calls[2][0].operationId).not.toBe(games.deductGameCoins.mock.calls[0][0].operationId);
+ expect(games.deductGameCoins.mock.calls[2][1]).toMatchObject({kind:'ANSWER',payload:{isSpin:true,answer:'5',submittedAt:expect.any(Number)}});
+});
+it('rejects malformed lucky spin identities before charging',async()=>{
+ socket.data.catType='LUCKYSPIN';
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:'5',spinId:'bad'});
+ expect(games.deductGameCoins).not.toHaveBeenCalled();
+ expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ACTION_REJECTED,'Invalid spin request');
+});

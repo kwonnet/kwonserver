@@ -5,6 +5,7 @@ import { moneyJson, requestKey } from '@/services/walletLedger';
 import redisClient from '@/redis';
 import {
   addGameRoomPlayer,
+  getGamePlayerIdentity,
   refreshGamePresence,
   sweepGamePresence,
   publishGamePresence,
@@ -73,7 +74,8 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
       // console.log("Authenticated Socket user ", user)
       if(!user) return next(new Error("Game Error: Unauthenticated user"));
       if (!await validateAuthSession(user)) return next(new Error("Session revoked or expired"));
-      socket.data.user = {...user, name: user.username};
+      const identity = await getGamePlayerIdentity(user.id);
+      socket.data.user = {...user, name: user.username, avatar: identity.avatar};
       logger.info(`Game Socket io Authenticated - ${socket.id}`)
       next();
     } catch (error) {
@@ -259,7 +261,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           socket.emit(
             GameEventEnum.MESSAGE,
             composeMessage({
-              playerName: "SWEM",
+              playerName: "SWEN",
               content: `${socket.data.user.name}, You're welcome to ${room.name} game room`,
             })
           );
@@ -267,7 +269,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         //   io.to(roomId).except(socket.id).emit(
         //     GameEventEnum.MESSAGE,
         //     composeMessage({
-        //       playerName: "SWEM",
+        //       playerName: "SWEN",
         //       content: `${socket.data.user.name}, has joined!`,
         //     })
         //   );
@@ -276,7 +278,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           socket.broadcast.to(roomId).emit(
             GameEventEnum.MESSAGE,
             composeMessage({
-              playerName: "SWEM",
+              playerName: "SWEN",
               content: `${socket.data.user.name}, has joined!`,
             })
           );
@@ -340,7 +342,12 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           socket.emit(GameEventEnum.GAME_ACTION_REJECTED, 'This question is no longer active');
           return;
         }
-        const operationId = createHash('sha256').update(JSON.stringify(['answer', room.id, question.roundId ?? question.id, args.answer.trim()])).digest('hex');
+        const isSpin = args.catType === GameCatType.LUCKYSPIN && args.spinId !== undefined;
+        if (isSpin && (typeof args.spinId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(args.spinId!))) {
+          socket.emit(GameEventEnum.GAME_ACTION_REJECTED, 'Invalid spin request');
+          return;
+        }
+        const operationId = createHash('sha256').update(JSON.stringify(['answer', room.id, question.roundId ?? question.id, isSpin ? args.spinId : args.answer.trim()])).digest('hex');
         const isEntries = args.catType === GameCatType.WORDMAKER
         args = {...args, answer:args.answer.trim(), timer:Math.max(0,Math.ceil(((question.answerUntil ?? Date.now())-Date.now())/1000))};
         const body = composeGameAnswer({params:args,room,user});
@@ -352,7 +359,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           gameId: room.gameId,
           catId: room.catId,
           qId: question.id, operationId
-        }, {kind:isEntries?'WORDMAKER':args.gameType===GameType.ACRONYM?'ACRONYM':'ANSWER',roomId:room.id,roundId:question.roundId,payload:body})
+        }, {kind:isEntries?'WORDMAKER':args.gameType===GameType.ACRONYM?'ACRONYM':'ANSWER',roomId:room.id,roundId:question.roundId,payload:{...body,isSpin,...(isSpin ? {submittedAt:Date.now()} : {})}})
         if(result.data) socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data);
         if(result.isError || !result.data){
           socket.emit('recoverable' in result && result.recoverable ? GameEventEnum.GAME_ACTION_REJECTED : GameEventEnum.GAME_ERROR_NOTIFY, result.message );

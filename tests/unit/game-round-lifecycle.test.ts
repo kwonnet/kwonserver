@@ -14,8 +14,8 @@ it.each(['trivia','acronym','wordmaker'])('takes %s score mode from the server r
  if(kind==='acronym')deps.kind.mockReturnValue(GameType.ACRONYM);
  if(kind==='wordmaker'){deps.cat.mockReturnValue(GameCatType.WORDMAKER);deps.word.mockReturnValue({score:5,answer:'test'});}
  deps.get.mockResolvedValue(JSON.stringify({question:'test',answer:'test'}));
- deps.hGetAll.mockImplementation(key=>Promise.resolve(key.endsWith(':answers')?{player:JSON.stringify({playerId:'player',roomId:'room',catId:'cat',answer:'test',timer:5,votes:[]})}:{}));
- const scores=await calculateGameRoomPoints(room);expect(scores).toHaveLength(1);expect(scores[0].mode).toBe('MULTI');
+ deps.hGetAll.mockImplementation(key=>Promise.resolve(key.endsWith(':answers')?{player:JSON.stringify({playerId:'player',avatar:'https://images.test/player.webp',roomId:'room',catId:'cat',answer:'test',timer:5,votes:[]})}:{}));
+ const scores=await calculateGameRoomPoints(room);expect(scores).toHaveLength(1);expect(scores[0].mode).toBe('MULTI');expect(scores[0].avatar).toBe('https://images.test/player.webp');
 });
 it('contains asynchronous timer failures and informs the affected room',async()=>{
  vi.useFakeTimers();

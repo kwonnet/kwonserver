@@ -109,7 +109,7 @@ export async function deductGameCoins(params: {
         if (action.status === 'REFUNDED') {
           const wallet=await prisma.wallet.findUniqueOrThrow({where:{userId:params.playerId}});
           return {message:action.reason || 'Action refunded',isError:true,
-            recoverable: ['Round closed', 'Answers closed', 'Voting closed'].includes(action.reason ?? ''),
+            recoverable: ['Round closed', 'Answers closed', 'Voting closed', 'A newer spin is already recorded'].includes(action.reason ?? ''),
             data:{amount:cents(wallet.coins,true)/100,bonus:cents(wallet.bonus,true)/100}};
         }
       } catch (error) {
@@ -463,6 +463,7 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
           score: finalScore,
           qId: item.qId,
           name: item.name,
+          avatar: item.avatar,
           roomId: item.roomId,
           catId: item.catId,
           playerId: item.playerId,
@@ -497,6 +498,7 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
           score: index === 0 ? 10 + score : score,
           qId: item.qId,
           name: item.name,
+          avatar: item.avatar,
           roomId: item.roomId,
           catId: item.catId,
           playerId: item.playerId,
@@ -702,6 +704,10 @@ export async function subscribeGamePresence(io: GameIoNamespace) {
     subscriber.destroy();
     throw error;
   }
+}
+
+export async function getGamePlayerIdentity(playerId: string) {
+  return await prisma.user.findUniqueOrThrow({where:{id:playerId},select:{avatar:true}});
 }
 
 export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
@@ -1428,7 +1434,7 @@ export const notifyGameRoomPlayers = ({roomId, io, mode, totalPlayers}:{roomId: 
   const minPlayers = 3 - totalPlayers;
   io.to(roomId).emit(
     GameEventEnum.NOTIFY_MESSAGE,
-    mode === GameMode.SINGLE ? `Swem says, get ready!` : `We have ${totalPlayers} ${
+    mode === GameMode.SINGLE ? `Swen says, get ready!` : `We have ${totalPlayers} ${
       totalPlayers === 1 ? "player" : "players"
     } & waiting for ${minPlayers} to start!`
   );
@@ -1814,6 +1820,7 @@ export const getGameCategories = async (gameId: string) => {
 export const getGameCategoryRooms = async (catId: string, mode: string) => {
   try {
     const rooms = await prisma.gameRoom.findMany({ where: { catId }, include: { category: { select: { thumbnail: true, game: { select: { name: true } } } } } });
+    rooms.sort((a,b) => (a.name ?? '').localeCompare(b.name ?? '', 'en', {numeric:true,sensitivity:'base'}) || a.id.localeCompare(b.id));
     // Fetch participant counts from Redis for each room
     const result = await Promise.all(
       rooms.map(async (room) => {

@@ -174,6 +174,7 @@ import { UserPublic } from "./user";
   };
 
 export interface User {
+    avatar?: string | null;
   sessionId?: string;
     id: string,
     name: string,
@@ -300,6 +301,7 @@ export interface ThemedGameQuestion {
 
 
 export interface ThemedGameAnswer {
+    avatar?: string | null;
     qId: number | string;
     name: string;
     roomId: string;
@@ -312,6 +314,7 @@ export interface ThemedGameAnswer {
 }
 
 export interface AcronymGameAnswer {
+    avatar?: string | null;
     qId: number | string;
     answer: string;
     answerId: string;
@@ -329,6 +332,7 @@ export interface AcronymGameAnswer {
 }
 
 export interface GameRoomAnswer {
+    spinId?: string;
     roundId?: string;
     timer:number; 
     answer: string, 
@@ -338,6 +342,7 @@ export interface GameRoomAnswer {
 }
 
 export interface ThemedGameScore {
+    avatar?: string | null;
     roomId: string;
     catId: string;
     playerId: string;

@@ -92,6 +92,11 @@ else
   local encoded=encode(p)
   if redis.call('HEXISTS',KEYS[4],d.userId)==0 then redis.call('HSET',KEYS[4],d.userId,encoded) end
   redis.call('HSET',KEYS[7],answer,guess)
+ elseif d.kind == 'ANSWER' and p.isSpin == true then
+  local oldRaw=redis.call('HGET',KEYS[4],d.userId)
+  local old=oldRaw and cjson.decode(oldRaw) or nil
+  if old and tonumber(old.submittedAt or 0) > tonumber(p.submittedAt or 0) then return reject('A newer spin is already recorded') end
+  redis.call('HSET',KEYS[4],d.userId,encode(p))
  else
   redis.call('HSET',KEYS[4],d.userId,encode(p))
  end

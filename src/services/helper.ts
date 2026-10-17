@@ -208,6 +208,7 @@ export const composeGameAnswer = ({
       ...params,
       votes: [],
       name: user.name,
+      avatar: user.avatar ?? null,
       room: room.name,
       roomId: room.id,
       catId: room.catId,
@@ -226,6 +227,7 @@ export const composeGameAnswer = ({
     catId: room.catId,
     playerId: user.id,
     name: user.name,
+    avatar: user.avatar ?? null,
     mode: room.mode
   };
   return body;

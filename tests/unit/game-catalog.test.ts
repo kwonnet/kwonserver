@@ -2,13 +2,18 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { resetMocks } from './fixtures';
 const deps = vi.hoisted(() => {
   const model = () => ({ create: vi.fn(), findMany: vi.fn(), findUniqueOrThrow: vi.fn() });
-  return { db: { game: model(), gameCategory: model(), gameRoom: model() }, redis: { eval:vi.fn(), get: vi.fn(), hGetAll: vi.fn(), del: vi.fn() } };
+  return { db: { game: model(), gameCategory: model(), gameRoom: model(), user: model() }, redis: { eval:vi.fn(), get: vi.fn(), hGetAll: vi.fn(), del: vi.fn() } };
 });
 vi.mock('@/db', () => ({ default: deps.db }));
 vi.mock('@/redis', () => ({ default: deps.redis }));
 vi.mock('@/services/helper', () => ({ calculateWordMakerPlayerScore: vi.fn(), getGameCatType: vi.fn(), getGameType: vi.fn(), syncPrismaUserWalletToRedis: vi.fn(), syncRedisUserWalletToPrisma: vi.fn() }));
 vi.mock('@/utils/ai', () => ({ generateRoomQuestion: vi.fn(), shuffleArray: vi.fn() }));
 import * as games from '@/services/v1/games';
+it('loads the game avatar from the player account rather than trusting token presentation fields',async()=>{
+  deps.db.user.findUniqueOrThrow.mockResolvedValue({avatar:'https://images.test/ada.webp'});
+  expect(await games.getGamePlayerIdentity('ada')).toEqual({avatar:'https://images.test/ada.webp'});
+  expect(deps.db.user.findUniqueOrThrow).toHaveBeenCalledWith({where:{id:'ada'},select:{avatar:true}});
+});
 beforeEach(() => resetMocks(deps));
 for (const [name, run, model, data] of [
   ['game', games.createGame, deps.db.game, { name: 'Words', description: 'Word game', userId: 'u' }],
@@ -55,4 +60,11 @@ it.each([{ value: {}, expected: null }, { value: { score: '12', name: 'Ada' }, e
 it('clears quiz room history only on room lifecycle cleanup',async()=>{
  await games.cleanUpGameRoom('r');
  expect(deps.redis.eval).toHaveBeenCalledWith(expect.stringContaining('SCARD'),expect.objectContaining({keys:expect.arrayContaining(['room:r:players','room:r:question-history','room:r:votes'])}));
+});
+
+it('sorts room names naturally instead of placing Room 10 before Room 2',async()=>{
+ deps.db.gameRoom.findMany.mockResolvedValue([{id:'r10',name:'Room 10'},{id:'r2',name:'Room 2'},{id:'r1',name:'Room 1'}]);
+ deps.redis.get.mockResolvedValue('0');
+ const result=await games.getGameCategoryRooms('cat','single');
+ expect(result.data?.map((room:any)=>room.name)).toEqual(['Room 1','Room 2','Room 10']);
 });
