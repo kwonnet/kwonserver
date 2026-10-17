@@ -2297,28 +2297,28 @@ const games: Game[] = [
       {
         name: "TypeMania",
         description:
-          "Race your fingers and show off your typing speed and accuracy! Every room uses the same category content and rules.",
+          "Race your fingers and show off your typing speed and accuracy!",
         topics: [],
         rooms: genericGameRooms("TypeMania", 30, true),
       },
       {
         name: "Hangman",
         description:
-          "Guess letters to reveal the hidden word before the hangman is complete! Every room uses the same category content and rules.",
+          "Guess letters to reveal the hidden word before the hangman is complete!",
         topics: [],
         rooms: genericGameRooms("Hangman", 30, true),
       },
       {
         name: "Anagram",
         description:
-          "Rearrange the letters to create new words and solve the puzzle! Every room uses the same category content and rules.",
+          "Rearrange the letters to create new words and solve the puzzle!",
         topics: [],
         rooms: genericGameRooms("Anagram", 30, true),
       },
       {
         name: "Unscramble",
         description:
-          "A fun and engaging game where players unscramble jumbled letters to discover the correct word or phrase. Every room uses the same category content and rules.",
+          "A fun and engaging game where players unscramble jumbled letters to discover the correct word or phrase.",
         topics: [],
         rooms: genericGameRooms("Unscramble", 30, true),
       },
@@ -2326,14 +2326,14 @@ const games: Game[] = [
       {
         name: "WordMaker",
         description:
-          "Given a base word, form as many smaller words as possible using its letters. A fun and challenging game to test your vocabulary skills! Every room uses the same category content and rules.",
+          "Given a base word, form as many smaller words as possible using its letters. A fun and challenging game to test your vocabulary skills!",
         topics: [],
         rooms: genericGameRooms("WordMaker", 30, true),
       },
       {
         name: "LuckyFlip",
         description:
-          "This game combines excitement with unpredictability, making it perfect for casual gamers and risk-takers alike. Every room uses the same category content and rules.",
+          "This game combines excitement with unpredictability, making it perfect for casual gamers and risk-takers alike.",
         topics: [],
         rooms: genericGameRooms("LuckyFlip", 30, true),
       },
@@ -2341,14 +2341,14 @@ const games: Game[] = [
       {
         name: "LuckyWhiz",
         description:
-          "A game of luck and logic, where you make quick decisions to win. Guess correctly and rise to the top! Every room uses the same category content and rules.",
+          "A game of luck and logic, where you make quick decisions to win. Guess correctly and rise to the top!",
         topics: [],
         rooms: genericGameRooms("LuckyWhiz", 30, true),
       },
       {
         name: "LuckySpin",
         description:
-          "Spin the wheel of fortune and guess the word or number! The more you play, the luckier you get! Every room uses the same category content and rules.",
+          "Spin the wheel of fortune and guess the word or number! The more you play, the luckier you get!",
         topics: [],
         rooms: genericGameRooms("LuckySpin", 30, true),
       },

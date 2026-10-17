@@ -54,8 +54,8 @@ it('shuffles stored Unscramble sentences and preserves private alternatives with
  const q=await generateUnscrambleQuestion({roomId:'room',catId:'cat'} as any);
  expect(wordBag(q.question)).toBe(wordBag(sentence));expect(q.options).toEqual([]);
  expect(q.acceptedAnswers).toEqual(stored.options);
- expect(q.hint).toBe('The …');
- expect(publicWordQuestion(q).hint).toBe('The …');
+ expect(q.hint).toBe('The small cat …');
+ expect(publicWordQuestion(q).hint).toBe('The small cat …');
  expect(stored.options.map(normalizeSentence)).not.toContain(q.question);
  expect(publicWordQuestion(q)).not.toHaveProperty('acceptedAnswers');expect(publicWordQuestion(q).answer).toBe('');
  expect(deps.parse).not.toHaveBeenCalled();

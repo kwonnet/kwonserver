@@ -52,3 +52,29 @@ it('migrates stored room names and enforces generic names on SQL writes while pr
     await client.end();
   }
 });
+
+it('removes shared-room rules from category descriptions only and is safe to reapply',async()=>{
+ const client=new Client({connectionString:process.env.DATABASE_URL});
+ await client.connect();
+ try {
+  await client.query('CREATE SCHEMA game_category_copy_probe');
+  await client.query('SET search_path TO game_category_copy_probe');
+  await client.query(`
+   CREATE TABLE "GameCategory" (id text PRIMARY KEY, description text NOT NULL);
+   CREATE TABLE "GameRoom" (id text PRIMARY KEY, description text NOT NULL);
+   INSERT INTO "GameCategory" VALUES
+    ('typing','Race your fingers! Every room uses the same category content and rules.'),
+    ('other','Original category description.'),
+    ('lowercase','Play puzzles. every room uses the same category content and rules');
+   INSERT INTO "GameRoom" VALUES ('room','Every room uses the same category content and rules.');
+  `);
+  const sql=readFileSync('prisma/migrations/20261017183000_remove_category_room_rules_copy/migration.sql','utf8');
+  await client.query(sql);await client.query(sql);
+  expect((await client.query('SELECT id,description FROM "GameCategory" ORDER BY id')).rows).toEqual([
+   {id:'lowercase',description:'Play puzzles.'},{id:'other',description:'Original category description.'},{id:'typing',description:'Race your fingers!'},
+  ]);
+  expect((await client.query('SELECT description FROM "GameRoom"')).rows[0].description).toBe('Every room uses the same category content and rules.');
+ }finally{
+  await client.query('DROP SCHEMA IF EXISTS game_category_copy_probe CASCADE');await client.end();
+ }
+});

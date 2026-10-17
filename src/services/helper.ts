@@ -241,7 +241,7 @@ export const calculateWordMakerPlayerScore = (baseWord: string, entries: {timer:
     const text = entry.text.trim().toLowerCase();
     if (text === baseWord.trim().toLowerCase() || !/^[a-z]{3,}$/.test(text) || seen.has(text) || !englishDictionary().has(text) || !canFormWord(baseWord,text)) return [];
     seen.add(text);
-    const timer = Number.isFinite(entry.timer) ? Math.max(0, Math.min(15, entry.timer)) : 0;
+    const timer = Number.isFinite(entry.timer) ? Math.max(0, Math.min(20, entry.timer)) : 0;
     return [{text,timer}];
   });
   return {score:valid.reduce((total,entry)=>total + entry.text.length * 5 + entry.timer,0),

@@ -66,7 +66,7 @@ it('normalizes and deduplicates WordMaker guesses while respecting repeated lett
   {text:' CAT ',timer:5},{text:'cat',timer:15},{text:'ACT',timer:3},
   {text:'tact',timer:15},{text:'dog',timer:15},{text:'act!',timer:15},
  ])).toEqual({score:38,answer:'cat,act'});
- expect(h.calculateWordMakerPlayerScore('c, a, t',[{text:'cat',timer:1000}]).score).toBe(30);
+ expect(h.calculateWordMakerPlayerScore('c, a, t',[{text:'cat',timer:1000}]).score).toBe(35);
  expect(h.calculateWordMakerPlayerScore('c, a, t',[{text:'cat',timer:-10}]).score).toBe(15);
 });
 
@@ -74,4 +74,8 @@ it('recognizes sentence game category names with spaces and the Typing Mania ali
  expect(h.getGameCatType('Typing Mania')).toBe(GameCatType.TYPEMANIA);
  expect(h.getGameCatType('Word Maker')).toBe(GameCatType.WORDMAKER);
  expect(h.calculateWordMakerPlayerScore('c, a, t',[{text:'cat',timer:NaN}]).score).toBe(15);
+});
+
+it('awards WordMaker the full twenty-second time bonus',()=>{
+ expect(h.calculateWordMakerPlayerScore('c, a, t',[{text:'cat',timer:20}]).score).toBe(35);
 });

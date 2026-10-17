@@ -2,7 +2,7 @@ import wordlist from 'wordlist-english';
 import { GameCatType, ThemedGameQuestion } from '@/types';
 
 export const MAX_SENTENCE_WORDS = 7;
-export const sentenceHint = (sentence: string) => `${sentence.trim().split(/\s+/)[0].replace(/[.,!?;:]/g, '')} …`;
+export const sentenceHint = (sentence: string) => `${sentence.trim().split(/\s+/).slice(0, 3).join(' ').replace(/[.,!?;:]/g, '')} …`;
 
 export type SentenceGame = 'TYPEMANIA' | 'UNSCRAMBLE';
 export function sentenceGame(name: string): SentenceGame | undefined {

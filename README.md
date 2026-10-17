@@ -1026,7 +1026,7 @@ points. The generator is instructed to avoid ambiguity and list natural alternat
 but cannot guarantee an exhaustive list of every grammatical English arrangement.
 TypeMania uses the same normalization and existing speed-based scoring. Both sentence
 games have 20-second rounds in solo and multiplayer modes. Unscramble always includes
-a short opening-word hint, computed on the server. Old sentences longer than seven
+a three-word opening hint, computed on the server. Old sentences longer than seven
 words are removed from generated inventory on first use and replenished automatically.
 
 Hangman selects a common dictionary word, hides 1–4 letters (always leaving a
@@ -1035,7 +1035,9 @@ the missing letters in reading order; its answer key stays server-side. WordMake
 least two shorter dictionary answers, or a shuffled rack made from those letters.
 Scoring normalizes and deduplicates guesses, enforces dictionary membership and
 letter counts, excludes copying a displayed base word, and retains the existing
-five-points-per-letter plus remaining-time formula. Letter racks may use all letters.
+five-points-per-letter plus remaining-time formula. WordMaker rounds last 20 seconds,
+including the full 20-second time bonus. LuckySpin rounds last 15 seconds in both
+solo and multiplayer modes. Letter racks may use all letters.
 
 ### Game failure diagnostics and reconnect causes
 

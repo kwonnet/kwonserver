@@ -57,19 +57,19 @@ it('broadcasts sentence puzzles without private accepted answers or an answer ke
  } finally {vi.clearAllTimers();vi.useRealTimers();}
 });
 
-it.each([['SINGLE',GameCatType.TYPEMANIA],['MULTI',GameCatType.TYPEMANIA],['SINGLE',GameCatType.UNSCRAMBLE],['MULTI',GameCatType.UNSCRAMBLE]])('gives %s %s a twenty-second answer window and timer',async(mode,cat)=>{
+it.each([['SINGLE',GameCatType.TYPEMANIA,20],['MULTI',GameCatType.TYPEMANIA,20],['SINGLE',GameCatType.UNSCRAMBLE,20],['MULTI',GameCatType.UNSCRAMBLE,20],['SINGLE',GameCatType.WORDMAKER,20],['MULTI',GameCatType.WORDMAKER,20],['SINGLE',GameCatType.LUCKYSPIN,15],['MULTI',GameCatType.LUCKYSPIN,15]])('gives %s %s a %i-second answer window and timer',async(mode,cat,seconds)=>{
  vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-17T00:00:00Z'));
  try {
   deps.sCard.mockResolvedValue(2);deps.exists.mockResolvedValue(1);deps.cat.mockReturnValue(cat);deps.kind.mockReturnValue(GameType.MINDMASH);
   deps.generate.mockResolvedValue({id:'sentence',question:'The small cat sleeps near the window.',answer:'answer',options:[]});
-  deps.hGetAll.mockResolvedValue({...room,mode,status:'PLAY',timer:'20'});
+  deps.hGetAll.mockResolvedValue({...room,mode,status:'PLAY',timer:String(seconds)});
   const emit=vi.fn();
-  await checkGameNumPlayers({...room,mode,catName:cat===GameCatType.TYPEMANIA?'Typing Mania':'Unscramble'}, {to:()=>({emit})} as any);
+  await checkGameNumPlayers({...room,mode,catName:cat===GameCatType.TYPEMANIA?'Typing Mania':String(cat)}, {to:()=>({emit})} as any);
   expect(deps.set).toHaveBeenCalledWith('room:room:question',expect.any(String));
   const saved=JSON.parse(deps.set.mock.calls[0][1]);
-  expect(saved.answerUntil).toBe(Date.now()+20000);
-  expect(deps.hSet).toHaveBeenCalledWith('room:room',expect.objectContaining({timer:20,status:'PLAY'}));
+  expect(saved.answerUntil).toBe(Date.now()+Number(seconds)*1000);
+  expect(deps.hSet).toHaveBeenCalledWith('room:room',expect.objectContaining({timer:seconds,status:'PLAY'}));
   await vi.advanceTimersByTimeAsync(1000);
-  expect(emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,{status:'PLAY',countdown:19});
+  expect(emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,{status:'PLAY',countdown:Number(seconds)-1});
  }finally{vi.clearAllTimers();vi.useRealTimers();}
 });
