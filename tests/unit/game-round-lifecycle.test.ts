@@ -6,7 +6,7 @@ vi.mock('@/services/helper',()=>({getGameType:deps.kind,getGameCatType:deps.cat,
 vi.mock('@/utils',async()=>({...await vi.importActual<typeof import('@/utils')>('@/utils'),clearRedisKeysByPattern:vi.fn()}));
 vi.mock('@/utils/webpush',()=>({default:{}}));
 vi.mock('@/utils/ai',()=>({generateRoomQuestion:vi.fn(),shuffleArray:vi.fn()}));
-import {calculateGameRoomPoints,gameChatTime} from '@/services/v1/games';
+import {calculateGameRoomPoints,gameChatTime,gamePlayTime} from '@/services/v1/games';
 import {GameEventEnum,GameCatType,GameType} from '@/types';
 const room:any={roomId:'room',mode:'MULTI',catId:'cat',gameName:'Trivia',catName:'General',status:'CHAT',timer:5};
 beforeEach(()=>{vi.clearAllMocks();deps.kind.mockReturnValue(GameType.TRIVIA);deps.cat.mockReturnValue(GameCatType.TYPEMANIA);deps.hSet.mockResolvedValue(1);deps.del.mockResolvedValue(1);});
@@ -33,4 +33,26 @@ it('does not overlap room timer ticks while Redis is slow',async()=>{
   await gameChatTime('room',{to:()=>({emit:vi.fn()})} as any);await vi.advanceTimersByTimeAsync(3000);expect(deps.exists).toHaveBeenCalledTimes(1);
   finish(1);await vi.advanceTimersByTimeAsync(1);
  }finally{vi.clearAllTimers();vi.useRealTimers();}
+});
+it('awards normal round points for accepted Unscramble alternatives and rejects an unapproved permutation',async()=>{
+ deps.kind.mockReturnValue(GameType.MINDMASH);deps.cat.mockReturnValue(GameCatType.UNSCRAMBLE);
+ deps.get.mockResolvedValue(JSON.stringify({question:'cat the near sleeps small window the',answer:'The small cat sleeps near the window.',acceptedAnswers:['The small cat sleeps near the window.','Near the window the small cat sleeps.'],options:[]}));
+ const answer=(playerId:string,answer:string,timer:number)=>JSON.stringify({playerId,roomId:'room',catId:'cat',answer,timer});
+ deps.hGetAll.mockImplementation(key=>Promise.resolve(key.endsWith(':answers')?{
+  correct:answer('correct',' NEAR THE WINDOW, THE SMALL CAT SLEEPS! ',10),
+  wrong:answer('wrong','cat the near sleeps small window the',9),
+ }:{}));
+ const scores=await calculateGameRoomPoints(room);
+ expect(scores.map(score=>({id:score.playerId,score:score.score}))).toEqual([{id:'correct',score:30},{id:'wrong',score:0}]);
+});
+
+it('broadcasts sentence puzzles without private accepted answers or an answer key',async()=>{
+ vi.useFakeTimers();
+ try {
+  deps.hGetAll.mockResolvedValue({...room,status:'PLAY'});
+  const emit=vi.fn();
+  await gamePlayTime('room',{to:()=>({emit})} as any,{id:'sentence',question:'window the near cat sleeps',answer:'The cat sleeps near the window.',acceptedAnswers:['The cat sleeps near the window.'],options:[],type:GameType.MINDMASH});
+  const sent=emit.mock.calls.find(([event])=>event===GameEventEnum.GAME_ROOM_QUESTION)?.[1];
+  expect(sent.question.answer).toBe('');expect(sent.question).not.toHaveProperty('acceptedAnswers');
+ } finally {vi.clearAllTimers();vi.useRealTimers();}
 });

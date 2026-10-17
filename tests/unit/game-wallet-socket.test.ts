@@ -215,3 +215,11 @@ it('discards an old room snapshot that finishes after the player switches rooms'
   expect(socket.emit).not.toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,expect.anything());
  } finally {vi.useRealTimers();}
 });
+it('deduplicates WordMaker case and whitespace variants before creating paid entry identities',async()=>{
+ socket.data.gameType='MINDMASH';socket.data.catType='WORDMAKER';
+ const args={qId:'question',roundId:'server-round',answer:' CAT '};
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER](args);
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER]({...args,answer:'cat'});
+ expect(games.deductGameCoins.mock.calls[0][0].operationId).toBe(games.deductGameCoins.mock.calls[1][0].operationId);
+ expect(games.deductGameCoins.mock.calls[0][1]).toMatchObject({kind:'WORDMAKER',payload:{answer:'cat'}});
+});

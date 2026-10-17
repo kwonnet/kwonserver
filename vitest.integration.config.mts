@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 export default defineConfig({
-  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  resolve: { alias: { 'wordlist-english': fileURLToPath(new URL('./node_modules/wordlist-english/index.js', import.meta.url)), '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   test: {
     environment: 'node', include: ['tests/integration/**/*.test.ts', 'tests/e2e/**/*.test.ts'],
     setupFiles: ['tests/integration/setup.ts'], fileParallelism: false, maxWorkers: 1,

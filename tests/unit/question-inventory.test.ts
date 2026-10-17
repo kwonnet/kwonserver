@@ -100,3 +100,21 @@ it('central config rejects invalid settings and allows target changes independen
  const f=fixture();f.service.config.defaultTarget=500;
  expect(f.service.calculateTargetInventory(130)).toBe(500);
 });
+it.each(['TypeMania','Unscramble'])('stores validated %s sentences through the existing durable inventory',async name=>{
+ const f=fixture();f.db.gameCategory.findUnique.mockResolvedValue({id:'cat',name,topics:[]});
+ const sentence='The small cat sleeps near the window.';
+ const question={question:sentence,answer:sentence,options:name==='Unscramble'?[sentence,'Near the window the small cat sleeps.']:[]};
+ const result=await f.service.insertBatch('cat',[question,{...question,answer:'A different answer'}]);
+ expect(result.insertedCount).toBe(1);expect(result.invalidCount).toBe(1);
+ expect(f.db.quizQuestion.createManyAndReturn).toHaveBeenCalledWith(expect.objectContaining({data:[expect.objectContaining(question)]}));
+});
+
+it('deduplicates Unscramble word sets even when the model changes the canonical order',()=>{
+ const first='The small cat sleeps near the window.';
+ const second='Near the window the small cat sleeps.';
+ const result=validateBatch([
+  {question:first,answer:first,options:[first,second]},
+  {question:second,answer:second,options:[second,first]},
+ ],'UNSCRAMBLE');
+ expect(result.valid).toHaveLength(1);expect(result.duplicateCount).toBe(1);
+});

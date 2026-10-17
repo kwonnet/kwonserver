@@ -1,3 +1,4 @@
+import { canFormWord, englishDictionary } from '@/utils/word-games';
 import prisma from "@/db";
 import redisClient from "@/redis";
 import {
@@ -18,7 +19,6 @@ import {
   parseStringNumbers,
 } from "@/utils";
 import { GameMode, Wallet } from "@prisma/client";
-import wordlist from 'wordlist-english';
 import {logServiceError,logServiceTrace} from '@/logger/events'; // ES Modules
 
 
@@ -182,10 +182,10 @@ export const getGameType = (gameName: string) => {
 };
 
 export const getGameCatType = (catName: string) => {
-  const name = catName.toLowerCase();
+  const name = catName.toLowerCase().replace(/[^a-z]/g, '');
   if (name.includes(GameCatType.ANAGRAM.toLowerCase())) return GameCatType.ANAGRAM;
   if (name.includes(GameCatType.HANGMAN.toLowerCase())) return GameCatType.HANGMAN;
-  if (name.includes(GameCatType.TYPEMANIA.toLowerCase())) return GameCatType.TYPEMANIA;
+  if (name.includes(GameCatType.TYPEMANIA.toLowerCase()) || name.includes('typingmania')) return GameCatType.TYPEMANIA;
   if (name.includes(GameCatType.UNSCRAMBLE.toLowerCase())) return GameCatType.UNSCRAMBLE;
   if (name.includes(GameCatType.LUCKYSPIN.toLowerCase())) return GameCatType.LUCKYSPIN;
   if (name.includes(GameCatType.LUCKYWHIZ.toLowerCase())) return GameCatType.LUCKYWHIZ;
@@ -233,56 +233,17 @@ export const composeGameAnswer = ({
   return body;
 };
 
-// Helper function to get the frequency of each letter in the word
-function getLetterFrequency(word: string): { [key: string]: number } {
-  const freq: { [key: string]: number } = {};
-
-  for (let char of word) {
-    freq[char] = (freq[char] || 0) + 1;
-  }
-
-  return freq;
-}
-function canFormFromBaseWord(baseWord: string, word: string): boolean {
-  const baseWordFreq = getLetterFrequency(baseWord);
-  const wordFreq = getLetterFrequency(word);
-  // Check if every letter in the word is present in baseWord with enough frequency
-  for (let letter in wordFreq) {
-    if (!baseWordFreq[letter] || baseWordFreq[letter] < wordFreq[letter]) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function filterWordsFromBaseWord(baseWord: string, guesses: { text: string, timer: number }[]) {
-  return guesses.filter(g => canFormFromBaseWord(baseWord, g.text));
-}
-
-export const calculateWordMakerPlayerScore = (baseWord:string,entries: {
-  timer: number;
-  text: string;
-}[]) => {
-    logServiceTrace("helper", "calculateWordMakerPlayerScore", "Base word: ");
-    const words:string[] = wordlist['english'];
-    // filter words with length greater than 2
-    const playerEntries = entries.filter(w => w.text.length > 2)
-    logServiceTrace("helper", "calculateWordMakerPlayerScore", "playerEntries: ");
-    // get valid words from base word
-    const validBaseWords =  filterWordsFromBaseWord(baseWord.toLocaleLowerCase(), playerEntries)
-    logServiceTrace("helper", "calculateWordMakerPlayerScore", "valid words ");
-    // check if english words exist
-    const validEnglishWords = validBaseWords.filter(w => words.includes(w.text))
-    logServiceTrace("helper", "calculateWordMakerPlayerScore", "englishWords: ");
-    // calculate score
-    const score =  validEnglishWords.reduce((total, item) => {
-      return total + (item.text.length * 5) + item.timer; // Sum up scores for all guesses
-    }, 0);
-
-    return {score, answer: validEnglishWords.map(i => i.text).join(",")};
-
-}
-
-
-
+// The delivery layer deduplicates guesses; normalize defensively here as well
+// so case/whitespace variants can never earn repeated points.
+export const calculateWordMakerPlayerScore = (baseWord: string, entries: {timer:number;text:string}[]) => {
+  const seen = new Set<string>();
+  const valid = entries.flatMap(entry => {
+    const text = entry.text.trim().toLowerCase();
+    if (text === baseWord.trim().toLowerCase() || !/^[a-z]{3,}$/.test(text) || seen.has(text) || !englishDictionary().has(text) || !canFormWord(baseWord,text)) return [];
+    seen.add(text);
+    const timer = Number.isFinite(entry.timer) ? Math.max(0, Math.min(15, entry.timer)) : 0;
+    return [{text,timer}];
+  });
+  return {score:valid.reduce((total,entry)=>total + entry.text.length * 5 + entry.timer,0),
+    answer:valid.map(entry=>entry.text).join(',')};
+};

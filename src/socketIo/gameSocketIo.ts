@@ -1,3 +1,4 @@
+import { publicWordQuestion } from '@/utils/word-games';
 import {validateAuthSession} from "@/services/v1/auth";
 import {registerAuthNamespace} from "@/utils/auth-session-sockets";
 import { createHash } from 'crypto';
@@ -267,7 +268,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
             if (currentRoom.status === GameStatusEnum.PLAY) {
               const question = await retrieveGameRoomQuestion(roomId);
               if (intent !== socket.data.gameJoinIntent || socket.data.room?.id !== roomId) return;
-              if (question) socket.emit(GameEventEnum.GAME_ROOM_QUESTION, {question, message: "Swen says, it's play time!"});
+              if (question) socket.emit(GameEventEnum.GAME_ROOM_QUESTION, {question:publicWordQuestion(question), message: "Swen says, it's play time!"});
             }
             socket.emit(GameEventEnum.GAME_ROOM_STATE, {status: currentRoom.status, countdown: Number(currentRoom.timer ?? 0)});
           }
@@ -361,6 +362,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           socket.emit(GameEventEnum.GAME_ACTION_REJECTED, 'Invalid spin request');
           return;
         }
+        if (args.catType === GameCatType.WORDMAKER) args = {...args,answer:args.answer.trim().toLowerCase()};
         const operationId = createHash('sha256').update(JSON.stringify(['answer', room.id, question.roundId ?? question.id, isSpin ? args.spinId : args.answer.trim()])).digest('hex');
         const isEntries = args.catType === GameCatType.WORDMAKER
         args = {...args, answer:args.answer.trim(), timer:Math.max(0,Math.ceil(((question.answerUntil ?? Date.now())-Date.now())/1000))};

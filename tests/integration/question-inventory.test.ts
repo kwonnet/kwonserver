@@ -82,3 +82,18 @@ it('room history prevents repeats atomically without consuming shared category i
  expect(await redis.scard(poolKey(cat))).toBe(1);
  }finally{await redis.del(questionHistoryKey(roomA.roomId),questionHistoryKey(roomB.roomId));}
 });
+it.each(['TypeMania','Unscramble'])('persists and serves %s sentence inventory with private answer variants',async name=>{
+ const category=await db.gameCategory.create({data:{gameId:game,name,description:'Sentence test',topics:['Everyday life']}});
+ try {
+  const sentence='The small cat sleeps near the window.';
+  const options=name==='Unscramble'?[sentence,'Near the window the small cat sleeps.']:[];
+  const result=await a.insertBatch(category.id,[{question:sentence,answer:sentence,options},
+   {question:sentence,answer:'Wrong answer',options}]);
+  expect(result.insertedCount).toBe(1);expect(result.invalidCount).toBe(1);
+  const current=await getInventoryRoomQuestion(a,{roomId:`sentence-${category.id}`,catId:category.id} as any);
+  expect(current.answer).toBe(sentence);expect(current.options).toEqual(options);
+  // Selection records room history and never decrements the shared sentence bank.
+  expect(await a.count(category.id)).toBe(1);
+  await expect(getInventoryRoomQuestion(a,{roomId:`sentence-${category.id}`,catId:category.id} as any)).rejects.toThrow('inventory unavailable');
+ } finally {await db.gameCategory.delete({where:{id:category.id}});}
+});

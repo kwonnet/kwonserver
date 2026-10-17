@@ -11,7 +11,9 @@ export interface QuestionGenerator {
 // Reuses the existing structured-output provider adapter; no provider in inventory/worker.
 export const questionGenerator: QuestionGenerator = {
   async generateBatch(input) {
-    const { generateTriviaBatch } = await import('@/utils/ai');
-    return generateTriviaBatch(input);
+    const { generateTriviaBatch, generateSentenceBatch } = await import('@/utils/ai');
+    const { sentenceGame } = await import('@/utils/word-games');
+    const kind = sentenceGame(input.categoryName);
+    return kind ? generateSentenceBatch(input, kind) : generateTriviaBatch(input);
   },
 };

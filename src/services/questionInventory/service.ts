@@ -4,6 +4,7 @@ import type { Queue } from 'bullmq';
 import { createHash } from 'crypto';
 import { inventoryConfig, InventoryConfig } from './config';
 import { validateBatch } from './validation';
+import { sentenceGame } from '@/utils/word-games';
 import {logServiceError} from '@/logger/events';
 
 export class InventoryEmptyError extends Error {
@@ -154,8 +155,8 @@ export class QuestionInventoryService {
   }
 
   async insertBatch(categoryId: string, batch: unknown[]) {
-    await this.category(categoryId);
-    const { valid, invalidCount, duplicateCount } = validateBatch(batch);
+    const category = await this.category(categoryId);
+    const { valid, invalidCount, duplicateCount } = validateBatch(batch, sentenceGame(category.name));
     // ON CONFLICT DO NOTHING: PostgreSQL, not the cache, is the final dedup authority.
     const inserted = valid.length ? await this.db.quizQuestion.createManyAndReturn({
       data: valid.map(q => ({ ...q, categoryId })), skipDuplicates: true, select: { id: true },

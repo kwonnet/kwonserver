@@ -982,7 +982,9 @@ for event names, retry guarantees and production inspection commands.
 never its topic text. Trivia & Quiz, Academia Adventure, Sports & Games, and
 Country Mania use the permanent quiz inventory. Subjects such as mathematics,
 biology, geography, or football do not change that routing. Acronym Arcade and
-MindMash retain their local generators even when topics mention sports or trivia.
+MindMash select their own game-specific generators even when topics mention sports or trivia.
+TypeMania and Unscramble use AI-generated sentence inventory; Hangman, WordMaker
+and the luck games use local dictionary or random generators.
 
 Live quiz rounds read stored PostgreSQL questions through the Redis category pool
 and track question history per room to avoid repeats. Low or empty inventory
@@ -999,6 +1001,38 @@ After building, inspect or request inventory for a category with
 original error/stack, category ID, job ID, and attempt in worker logs. Check these
 logs if status remains empty or failed; routing alone cannot repair unavailable
 provider credentials, Redis, or a stopped worker. No migration is required.
+
+### MindMash sentence and word games
+
+TypeMania and Unscramble reuse the permanent question bank and existing BullMQ
+worker, retries, category deduplication and room repeat prevention. No database
+migration or model hosting is needed. The worker prewarms these categories on
+startup; room demand replenishes them. Configure `WORD_GAME_GENERATION_MODEL`
+(optional; defaults to `QUIZ_GENERATION_MODEL` and then the existing model default).
+Use the same `quiz:inventory ensure/status <categoryId>` commands to seed or inspect
+these categories before rollout. No model requests run inside room countdowns.
+If inventory is empty, the room shows a preparation notice and retries automatically.
+
+The provider returns natural English sentences in bounded structured batches.
+Validation requires dictionary vocabulary, 5–12 words (5–10 for Unscramble),
+at most 90 characters, and at least three distinct words. Unscramble stores one
+canonical sentence and up to five model-authored grammatical alternatives in the
+bank's options field. Every alternative must contain exactly the same words with
+the same multiplicities. Equivalent word sets are deduplicated even if their
+canonical sentence orders differ. Room questions shuffle these words into an unsolved order;
+accepted answers stay server-side. Scores match only this finite validated answer
+set, ignoring case, whitespace and punctuation; arbitrary permutations receive no
+points. The generator is instructed to avoid ambiguity and list natural alternatives,
+but cannot guarantee an exhaustive list of every grammatical English arrangement.
+TypeMania uses the same normalization and existing speed-based scoring.
+
+Hangman selects a common dictionary word, hides 1–4 letters (always leaving a
+visible letter) and supplies exactly four distinct, nonempty choices, including
+the missing letters in reading order; its answer key stays server-side. WordMaker chooses a common word with at
+least two shorter dictionary answers, or a shuffled rack made from those letters.
+Scoring normalizes and deduplicates guesses, enforces dictionary membership and
+letter counts, excludes copying a displayed base word, and retains the existing
+five-points-per-letter plus remaining-time formula. Letter racks may use all letters.
 
 ### Game failure diagnostics and reconnect causes
 

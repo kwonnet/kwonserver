@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
-  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  resolve: { alias: { 'wordlist-english': fileURLToPath(new URL('./node_modules/wordlist-english/index.js', import.meta.url)), '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   test: {
     environment: 'node',
     env: { NODE_ENV: 'test', TZ: 'UTC' },

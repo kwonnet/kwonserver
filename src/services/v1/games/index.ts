@@ -1,3 +1,4 @@
+import { matchesSentenceAnswer, publicWordQuestion } from '@/utils/word-games';
 import { GameDelivery, dispatchGameAction } from '@/services/walletLedger/gameDelivery';
 import { randomUUID } from 'crypto';
 import { walletOperation, cents } from '@/services/walletLedger';
@@ -518,7 +519,7 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
   return roomAnswers
     .map((item, idx) => {
       const isCorrect =
-        item.answer.toLowerCase() === question.answer.toLowerCase();
+        matchesSentenceAnswer(question, item.answer, catType);
       const score = isLuckySpinFlip
         ? parseFloat(item.answer) * totalAnswers
         : isCorrect
@@ -1455,23 +1456,20 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
     await gameChatTime(room.roomId, io);
     return;
   }
-  // Persistent quiz inventory; existing local word/luck generators are unchanged.
+  // Quiz and sentence games use stored inventory; word/luck games generate locally.
   let gameQuestion: ThemedGameQuestion | undefined;
+  let preparingInventory = false;
   try { gameQuestion = await generateRoomQuestion(room); }
   catch (error) {
     logGameError('checkGameNumPlayers', error, room);
-    if (error instanceof InventoryEmptyError) {
-
-    } else {
-
-    }
+    preparingInventory = error instanceof InventoryEmptyError;
   }
   const gameType = getGameType(room.gameName);
   const catType = getGameCatType(room.catName);
   if (!gameQuestion) {
     io.to(room.roomId).emit(
       GameEventEnum.NOTIFY_MESSAGE,
-      "Swen says, you can chat now"
+      preparingInventory ? "Swen is preparing fresh questions. The next round will start automatically." : "Swen says, you can chat now"
     );
     await updateGameRoom({ ...room, status: GameStatusEnum.CHAT });
     await gameChatTime(room.roomId, io);
@@ -1595,7 +1593,7 @@ export const gamePlayTime = async (
   let countdown = room.timer ?? 1;
   io.to(roomId).emit(GameEventEnum.GAME_ROOM_QUESTION, {
     message: "Swen says, it's play time!",
-    question,
+    question: publicWordQuestion(question),
   });
   let ticking = false;
   const interval = setInterval(() => {

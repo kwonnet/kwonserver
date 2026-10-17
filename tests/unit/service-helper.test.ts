@@ -52,11 +52,26 @@ it('scores only dictionary words that fit the base letter counts and exceed two 
   expect(h.calculateWordMakerPlayerScore('CAT', [
     { text: 'cat', timer: 5 }, { text: 'act', timer: 2 }, { text: 'at', timer: 100 },
     { text: 'tact', timer: 100 }, { text: 'dog', timer: 100 }, { text: 'tac', timer: 100 },
-  ])).toEqual({ score: 37, answer: 'cat,act' });
+  ])).toEqual({ score: 17, answer: 'act' });
   expect(h.calculateWordMakerPlayerScore('cat', []).score).toBe(0);
 });
 
 it('invalidates both transfer participants without copying balances',async()=>{
  await h.syncPrismaSenderRecipientWalletToRedis({isSenderExists:true,isRecipientExists:true,senderWallet:{userId:'sender'} as any,recipientWallet:{userId:'recipient'} as any});
  expect(deps.del).toHaveBeenCalledWith('user:sender:wallet');expect(deps.del).toHaveBeenCalledWith('user:recipient:wallet');expect(deps.update).not.toHaveBeenCalled();
+});
+
+it('normalizes and deduplicates WordMaker guesses while respecting repeated letters and timer bounds',()=>{
+ expect(h.calculateWordMakerPlayerScore('c, a, t',[
+  {text:' CAT ',timer:5},{text:'cat',timer:15},{text:'ACT',timer:3},
+  {text:'tact',timer:15},{text:'dog',timer:15},{text:'act!',timer:15},
+ ])).toEqual({score:38,answer:'cat,act'});
+ expect(h.calculateWordMakerPlayerScore('c, a, t',[{text:'cat',timer:1000}]).score).toBe(30);
+ expect(h.calculateWordMakerPlayerScore('c, a, t',[{text:'cat',timer:-10}]).score).toBe(15);
+});
+
+it('recognizes sentence game category names with spaces and the Typing Mania alias',()=>{
+ expect(h.getGameCatType('Typing Mania')).toBe(GameCatType.TYPEMANIA);
+ expect(h.getGameCatType('Word Maker')).toBe(GameCatType.WORDMAKER);
+ expect(h.calculateWordMakerPlayerScore('c, a, t',[{text:'cat',timer:NaN}]).score).toBe(15);
 });

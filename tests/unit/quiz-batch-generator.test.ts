@@ -28,11 +28,12 @@ it('routes quizzes without topics using category context', async () => {
  await generateRoomQuestion({roomId:'room',catId:'cat',gameName:'Academia Adventure',catName:'Physics'} as TempGameRoom);
  expect(selectQuestion).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({topics:'Physics current affairs'}));
 });
-it.each(['Acronym Arcade','MindMash'])('keeps %s local even with trivia-related topics', async gameName => {
+it.each(['Acronym Arcade','MindMash'])('routes %s by category even with trivia-related topics', async gameName => {
  vi.mocked(getGameCatType).mockReturnValue(GameCatType.TYPEMANIA);
  const question=await generateRoomQuestion({gameName,catName:'Typing Mania',topics:'sports, country, trivia'} as TempGameRoom);
  expect(question?.type).toBe(gameName==='MindMash'?GameType.MINDMASH:GameType.ACRONYM);
- expect(selectQuestion).not.toHaveBeenCalled();
+ if (gameName === 'MindMash') expect(selectQuestion).toHaveBeenCalledOnce();
+ else expect(selectQuestion).not.toHaveBeenCalled();
  expect(parse).not.toHaveBeenCalled();
 });
 it('serves the live quiz path from inventory without contacting the provider',async()=>{
