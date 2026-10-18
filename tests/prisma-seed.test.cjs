@@ -136,7 +136,7 @@ test('fresh seed gives every non-country room a generic label without changing i
   for(const category of game.categories.create){
    categories++;rooms+=category.rooms.create.length;
    if(game.name==='MindMash')assert.doesNotMatch(category.description,/Every room uses the same category content and rules/);
-   else assert.match(category.description,/Every room/);
+   assert.doesNotMatch(category.description,/Every room draws questions from the full category pool/);
    assert.ok(Array.isArray(category.topics));
    category.rooms.create.forEach((room,index)=>{
     assert.equal(room.name,`Room ${index+1}`);

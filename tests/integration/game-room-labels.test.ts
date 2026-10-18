@@ -36,7 +36,7 @@ it('renames existing rooms in batches without changing their parent, content, ca
       const football = sports.categories[0];
       const updated = await tx.gameCategory.findUniqueOrThrow({where: {id: football.id}, include: {rooms: {orderBy: [{createdAt: 'asc'}, {id: 'asc'}]}}});
       expect(updated.topics).toEqual(football.topics);
-      expect(updated.description).toContain('full category pool');
+      expect(updated.description).not.toContain('Every room draws questions from the full category pool');
       expect(updated.rooms).toHaveLength(205);
       const labels = genericGameRooms('Football', 205);
       updated.rooms.forEach((room, index) => {

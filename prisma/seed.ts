@@ -1141,7 +1141,7 @@ const games: Game[] = [
     categories: [
       {
         name: "Themed Quest",
-        description: "Embark on a journey through themed challenges Every room draws questions from the full category pool.",
+        description: "Embark on a journey through themed challenges",
         topics: [
           "Olympic Games",
           "Famous Athletes",
@@ -1157,7 +1157,7 @@ const games: Game[] = [
       {
         name: "Science & Technology",
         description:
-          "Dive into the wonders of science and technological advancements. Every room draws questions from the full category pool.",
+          "Dive into the wonders of science and technological advancements.",
         topics: [
           "Space Exploration",
           "Scientific Discoveries",
@@ -1175,7 +1175,7 @@ const games: Game[] = [
       },
       {
         name: "History & Geography",
-        description: "Learn about historical events and geographic wonders. Every room draws questions from the full category pool.",
+        description: "Learn about historical events and geographic wonders.",
         topics: [
           "Ancient Civilizations",
           "World Wars",
@@ -1191,7 +1191,7 @@ const games: Game[] = [
       {
         name: "Pop Culture",
         description:
-          "Test your knowledge of movies, TV, music, and celebrities. Every room draws questions from the full category pool.",
+          "Test your knowledge of movies, TV, music, and celebrities.",
         topics: [
           "Movies & TV",
           "Famous Books",
@@ -1207,7 +1207,7 @@ const games: Game[] = [
       {
         name: "Culture & Lifestyle",
         description:
-          "Discover cultural traditions and lifestyle trends around the world. Every room draws questions from the full category pool.",
+          "Discover cultural traditions and lifestyle trends around the world.",
         topics: [
           "Famous Foods & Drinks",
           "World Festivals",
@@ -1221,7 +1221,7 @@ const games: Game[] = [
       },
       {
         name: "Literature & Language",
-        description: "Celebrate the beauty of words, literature, and language. Every room draws questions from the full category pool.",
+        description: "Celebrate the beauty of words, literature, and language.",
         topics: [
           "Famous Quotes",
           "Word Origins",
@@ -1237,7 +1237,7 @@ const games: Game[] = [
       {
         name: "Entertainment & Media",
         description:
-          "From Hollywood to the internet, dive into entertainment trivia. Every room draws questions from the full category pool.",
+          "From Hollywood to the internet, dive into entertainment trivia.",
         topics: [
           "Hollywood Trivia",
           "Iconic TV Shows",
@@ -1252,7 +1252,7 @@ const games: Game[] = [
       },
       {
         name: "Nature & Environment",
-        description: "Explore the beauty and challenges of the natural world. Every room draws questions from the full category pool.",
+        description: "Explore the beauty and challenges of the natural world.",
         topics: [
           "Endangered Species",
           "National Parks",
@@ -1268,7 +1268,7 @@ const games: Game[] = [
       {
         name: "Technology Trends",
         description:
-          "Keep up with the latest trends in technology and innovation. Every room draws questions from the full category pool.",
+          "Keep up with the latest trends in technology and innovation.",
         topics: [
           "Innovations of the 21st Century",
           "Famous Tech Companies",
@@ -1283,7 +1283,7 @@ const games: Game[] = [
       },
       {
         name: "World Cultures",
-        description: "Learn about global cultures, religions, and traditions. Every room draws questions from the full category pool.",
+        description: "Learn about global cultures, religions, and traditions.",
         topics: [
           "Global Religions",
           "Exotic Customs",
@@ -1298,7 +1298,7 @@ const games: Game[] = [
       },
       {
         name: "Fun & Riddles",
-        description: "Enjoy brain-teasing puzzles and entertaining trivia. Every room draws questions from the full category pool.",
+        description: "Enjoy brain-teasing puzzles and entertaining trivia.",
         topics: [
           "Brain Teasers",
           "Logical Puzzles",
@@ -1310,7 +1310,7 @@ const games: Game[] = [
       },
       {
         name: "Travel & Destinations",
-        description: "Discover iconic landmarks and hidden travel gems. Every room draws questions from the full category pool.",
+        description: "Discover iconic landmarks and hidden travel gems.",
         topics: [
           "Famous Landmarks",
           "Exotic Beaches",
@@ -1326,7 +1326,7 @@ const games: Game[] = [
       {
         name: "Myths & Legends",
         description:
-          "Uncover myths, legends, and folklore from around the world. Every room draws questions from the full category pool.",
+          "Uncover myths, legends, and folklore from around the world.",
         topics: [
           "Greek Mythology",
           "Folklore Tales",
@@ -1342,7 +1342,7 @@ const games: Game[] = [
       {
         name: "Health & Wellness",
         description:
-          "Trivia about health, wellness, and medical breakthroughs. Every room draws questions from the full category pool.",
+          "Trivia about health, wellness, and medical breakthroughs.",
         topics: [
           "Famous Medical Discoveries",
           "Fitness Trends",
@@ -1357,7 +1357,7 @@ const games: Game[] = [
       },
       {
         name: "Fashion & Trends",
-        description: "Explore the world of fashion, designers, and trends. Every room draws questions from the full category pool.",
+        description: "Explore the world of fashion, designers, and trends.",
         topics: [
           "Runway Hits",
           "Famous Designers",
@@ -1372,7 +1372,7 @@ const games: Game[] = [
       },
       {
         name: "Technology Innovations",
-        description: "Discover how technology shapes our world. Every room draws questions from the full category pool.",
+        description: "Discover how technology shapes our world.",
         topics: [
           "Space Technologies",
           "Breakthrough Gadgets",
@@ -1388,7 +1388,7 @@ const games: Game[] = [
       {
         name: "Business & Economy",
         description:
-          "Test your knowledge of global business and economic facts. Every room draws questions from the full category pool.",
+          "Test your knowledge of global business and economic facts.",
         topics: [
           "Stock Market Facts",
           "Global Trade",
@@ -1403,7 +1403,7 @@ const games: Game[] = [
       },
       {
         name: "Music & Arts",
-        description: "Trivia about music, arts, and cultural expression. Every room draws questions from the full category pool.",
+        description: "Trivia about music, arts, and cultural expression.",
         topics: [
           "Famous Composers",
           "Afrobeat",
@@ -1423,7 +1423,7 @@ const games: Game[] = [
       },
       {
         name: "Geography Facts",
-        description: "Expand your knowledge about Earth's geography. Every room draws questions from the full category pool.",
+        description: "Expand your knowledge about Earth's geography.",
         topics: [
           "Mountains & Peaks",
           "Deserts of the World",
@@ -1438,7 +1438,7 @@ const games: Game[] = [
       },
       {
         name: "Space Mysteries",
-        description: "Explore the mysteries of outer space. Every room draws questions from the full category pool.",
+        description: "Explore the mysteries of outer space.",
         topics: [
           "Black Holes",
           "The Milky Way",
@@ -1454,7 +1454,7 @@ const games: Game[] = [
       {
         name: "Historical Eras",
         description:
-          "Learn about key historical periods and their significance. Every room draws questions from the full category pool.",
+          "Learn about key historical periods and their significance.",
         topics: [
           "The Renaissance",
           "The Industrial Revolution",
@@ -1469,7 +1469,7 @@ const games: Game[] = [
       },
       {
         name: "Food & Drinks",
-        description: "Discover trivia about culinary delights and beverages. Every room draws questions from the full category pool.",
+        description: "Discover trivia about culinary delights and beverages.",
         topics: [
           "Culinary Styles",
           "Famous Cocktails",
@@ -1484,7 +1484,7 @@ const games: Game[] = [
       },
       {
         name: "Famous People",
-        description: "Trivia about influential figures throughout history. Every room draws questions from the full category pool.",
+        description: "Trivia about influential figures throughout history.",
         topics: [
           "World Leaders",
           "Influential Women",
@@ -1499,7 +1499,7 @@ const games: Game[] = [
       },
       {
         name: "Festivals & Celebrations",
-        description: "Trivia about global festivals and iconic celebrations. Every room draws questions from the full category pool.",
+        description: "Trivia about global festivals and iconic celebrations.",
         topics: [
           "Carnival Traditions",
           "Winter Festivals",
@@ -1514,7 +1514,7 @@ const games: Game[] = [
       },
       {
         name: "Quirky & Bizarre",
-        description: "Weird and quirky trivia to surprise and amaze. Every room draws questions from the full category pool.",
+        description: "Weird and quirky trivia to surprise and amaze.",
         topics: [
           "Odd Jobs",
           "Strange Laws",
@@ -1529,7 +1529,7 @@ const games: Game[] = [
       },
       {
         name: "Urban Life",
-        description: "Trivia about cities, urban development, and cultures. Every room draws questions from the full category pool.",
+        description: "Trivia about cities, urban development, and cultures.",
         topics: [
           "City Skylines",
           "Megacities",
@@ -1544,7 +1544,7 @@ const games: Game[] = [
       },
       {
         name: "Internet & Technology",
-        description: "Trivia about the internet and digital culture. Every room draws questions from the full category pool.",
+        description: "Trivia about the internet and digital culture.",
         topics: [
           "Evolution of Social Media",
           "Online Security Tips",
@@ -1559,7 +1559,7 @@ const games: Game[] = [
       },
       {
         name: "Time & Space",
-        description: "Learn about the mysteries of time and space. Every room draws questions from the full category pool.",
+        description: "Learn about the mysteries of time and space.",
         topics: [
           "Ancient Calendars",
           "Timekeeping Devices",
@@ -1574,7 +1574,7 @@ const games: Game[] = [
       },
       {
         name: "War & Conflict",
-        description: "Trivia about wars, battles, and historical conflicts. Every room draws questions from the full category pool.",
+        description: "Trivia about wars, battles, and historical conflicts.",
         topics: [
           "Revolutionary Wars",
           "Military Tactics",
@@ -1590,7 +1590,7 @@ const games: Game[] = [
       {
         name: "Psychology & Philosophy",
         description:
-          "Explore the depths of the mind and profound philosophical ideas. Every room draws questions from the full category pool.",
+          "Explore the depths of the mind and profound philosophical ideas.",
         topics: [
           "Famous Philosophers",
           "Cognitive Biases",
@@ -1606,7 +1606,7 @@ const games: Game[] = [
       {
         name: "Mythology Around the World",
         description:
-          "Delve into myths, legends, and deities from different cultures worldwide. Every room draws questions from the full category pool.",
+          "Delve into myths, legends, and deities from different cultures worldwide.",
         topics: [
           "Celtic Myths",
           "African Folklore",
@@ -1622,7 +1622,7 @@ const games: Game[] = [
       {
         name: "Inventions & Discoveries",
         description:
-          "Trivia about human ingenuity and scientific breakthroughs. Every room draws questions from the full category pool.",
+          "Trivia about human ingenuity and scientific breakthroughs.",
         topics: [
           "Famous Inventors",
           "Groundbreaking Patents",
@@ -1645,7 +1645,7 @@ const games: Game[] = [
       {
         name: "Pop Culture & Slang",
         description:
-          "Acronyms derived from movies, TV shows, music, internet trends, and common texting slang. Every room draws questions from the full category pool.",
+          "Acronyms derived from movies, TV shows, music, internet trends, and common texting slang.",
         topics: [
           "Movies",
           "TV Shows",
@@ -1658,7 +1658,7 @@ const games: Game[] = [
       {
         name: "Business & Corporate",
         description:
-          "Acronyms used in industries, corporate communication, and professional terminology. Every room draws questions from the full category pool.",
+          "Acronyms used in industries, corporate communication, and professional terminology.",
         topics: [
           "Corporate Titles",
           "Startup Terms",
@@ -1672,7 +1672,7 @@ const games: Game[] = [
       {
         name: "Science & Technology",
         description:
-          "Acronyms related to scientific discoveries, innovations, and technological concepts. Every room draws questions from the full category pool.",
+          "Acronyms related to scientific discoveries, innovations, and technological concepts.",
         topics: [
           "Physics",
           "Biology",
@@ -1686,7 +1686,7 @@ const games: Game[] = [
       {
         name: "Government, Politics & Law",
         description:
-          "Acronyms tied to government agencies, political terms, and legal systems. Every room draws questions from the full category pool.",
+          "Acronyms tied to government agencies, political terms, and legal systems.",
         topics: [
           "Government Agencies",
           "Political Parties",
@@ -1700,7 +1700,7 @@ const games: Game[] = [
       {
         name: "Sports & Gaming",
         description:
-          "Acronyms from sports leagues, teams, gaming culture, and esports. Every room draws questions from the full category pool.",
+          "Acronyms from sports leagues, teams, gaming culture, and esports.",
         topics: [
           "Football Leagues",
           "Video Games",
@@ -1713,7 +1713,7 @@ const games: Game[] = [
       {
         name: "Health & Wellness",
         description:
-          "Acronyms related to fitness, nutrition, medical terms, and wellness practices. Every room draws questions from the full category pool.",
+          "Acronyms related to fitness, nutrition, medical terms, and wellness practices.",
         topics: [
           "Fitness Techniques",
           "Nutrition Plans",
@@ -1727,7 +1727,7 @@ const games: Game[] = [
       {
         name: "Education & Academics",
         description:
-          "Acronyms from schools, universities, and academic research. Every room draws questions from the full category pool.",
+          "Acronyms from schools, universities, and academic research.",
         topics: [
           "Educational Degrees",
           "School Subjects",
@@ -1740,7 +1740,7 @@ const games: Game[] = [
       {
         name: "Travel & Geography",
         description:
-          "Acronyms associated with travel, locations, and geographical landmarks. Every room draws questions from the full category pool.",
+          "Acronyms associated with travel, locations, and geographical landmarks.",
         topics: [
           "Airports",
           "Country Codes",
@@ -1753,7 +1753,7 @@ const games: Game[] = [
       {
         name: "Historical & Cultural",
         description:
-          "Acronyms tied to historical events, cultural movements, and traditions. Every room draws questions from the full category pool.",
+          "Acronyms tied to historical events, cultural movements, and traditions.",
         topics: [
           "Historical Events",
           "Cultural Organizations",
@@ -1766,7 +1766,7 @@ const games: Game[] = [
       {
         name: "Entertainment & Media",
         description:
-          "Acronyms from the entertainment industry, including awards and productions. Every room draws questions from the full category pool.",
+          "Acronyms from the entertainment industry, including awards and productions.",
         topics: [
           "Award Shows",
           "Streaming Platforms",
@@ -1780,7 +1780,7 @@ const games: Game[] = [
       {
         name: "Finance & Economics",
         description:
-          "Acronyms used in banking, investments, and economic discussions. Every room draws questions from the full category pool.",
+          "Acronyms used in banking, investments, and economic discussions.",
         topics: [
           "Banking Terms",
           "Stock Market",
@@ -1794,7 +1794,7 @@ const games: Game[] = [
       {
         name: "Environment & Conservation",
         description:
-          "Acronyms about sustainability, environmental organizations, and conservation efforts. Every room draws questions from the full category pool.",
+          "Acronyms about sustainability, environmental organizations, and conservation efforts.",
         topics: [
           "Climate Change",
           "Sustainability Programs",
@@ -1807,7 +1807,7 @@ const games: Game[] = [
       {
         name: "Fashion & Lifestyle",
         description:
-          "Acronyms from fashion trends, lifestyle habits, and popular brands. Every room draws questions from the full category pool.",
+          "Acronyms from fashion trends, lifestyle habits, and popular brands.",
         topics: [
           "Fashion Trends",
           "Beauty Brands",
@@ -1820,7 +1820,7 @@ const games: Game[] = [
       {
         name: "Military & Defense",
         description:
-          "Acronyms related to military operations, strategies, and equipment. Every room draws questions from the full category pool.",
+          "Acronyms related to military operations, strategies, and equipment.",
         topics: [
           "Military Ranks",
           "Defense Strategies",
@@ -1833,7 +1833,7 @@ const games: Game[] = [
       {
         name: "Daily Life & General Knowledge",
         description:
-          "Acronyms encountered in everyday life and general trivia. Every room draws questions from the full category pool.",
+          "Acronyms encountered in everyday life and general trivia.",
         topics: [
           "Household Items",
           "Common Phrases",
@@ -1853,7 +1853,7 @@ const games: Game[] = [
       {
         name: "Mathematics",
         description:
-          "Test your skills in various branches of mathematics, from algebra to calculus. Every room draws questions from the full category pool.",
+          "Test your skills in various branches of mathematics, from algebra to calculus.",
         topics: [
           "Algebra",
           "Geometry",
@@ -1868,7 +1868,7 @@ const games: Game[] = [
       {
         name: "Science",
         description:
-          "Dive into the world of science and explore topics from biology to physics. Every room draws questions from the full category pool.",
+          "Dive into the world of science and explore topics from biology to physics.",
         topics: [
           "Physics",
           "Chemistry",
@@ -1883,7 +1883,7 @@ const games: Game[] = [
       {
         name: "History",
         description:
-          "Explore the past, from ancient civilizations to modern history. Every room draws questions from the full category pool.",
+          "Explore the past, from ancient civilizations to modern history.",
         topics: [
           "Ancient Civilizations",
           "World History",
@@ -1897,7 +1897,7 @@ const games: Game[] = [
       {
         name: "Literature",
         description:
-          "Test your knowledge of literature, from famous authors to literary terms. Every room draws questions from the full category pool.",
+          "Test your knowledge of literature, from famous authors to literary terms.",
         topics: [
           "Famous Authors",
           "Poetry",
@@ -1911,7 +1911,7 @@ const games: Game[] = [
       {
         name: "Geography",
         description:
-          "Learn about the world's countries, capitals, and geography. Every room draws questions from the full category pool.",
+          "Learn about the world's countries, capitals, and geography.",
         topics: [
           "Countries",
           "Capitals",
@@ -1925,7 +1925,7 @@ const games: Game[] = [
       {
         name: "Language Arts",
         description:
-          "Master the art of grammar, writing, and reading comprehension. Every room draws questions from the full category pool.",
+          "Master the art of grammar, writing, and reading comprehension.",
         topics: [
           "Grammar",
           "Vocabulary",
@@ -1940,7 +1940,7 @@ const games: Game[] = [
       {
         name: "Art & Music",
         description:
-          "Explore the worlds of art and music, from history to theory. Every room draws questions from the full category pool.",
+          "Explore the worlds of art and music, from history to theory.",
         topics: [
           "Famous Artists",
           "Art History",
@@ -1954,7 +1954,7 @@ const games: Game[] = [
       {
         name: "Physical Education",
         description:
-          "Learn about fitness, sports rules, and the importance of teamwork. Every room draws questions from the full category pool.",
+          "Learn about fitness, sports rules, and the importance of teamwork.",
         topics: [
           "Sports Rules",
           "Fitness",
@@ -1967,7 +1967,7 @@ const games: Game[] = [
       },
       {
         name: "Social Studies",
-        description: "Explore society, culture, government, and economics. Every room draws questions from the full category pool.",
+        description: "Explore society, culture, government, and economics.",
         topics: [
           "Government",
           "Economics",
@@ -1981,7 +1981,7 @@ const games: Game[] = [
       {
         name: "Technology",
         description:
-          "Test your knowledge of technology, from programming to innovations. Every room draws questions from the full category pool.",
+          "Test your knowledge of technology, from programming to innovations.",
         topics: [
           "Computers",
           "Programming",
@@ -1994,14 +1994,14 @@ const games: Game[] = [
       },
       {
         name: "Foreign Languages",
-        description: "Learn and test your skills in various foreign languages. Every room draws questions from the full category pool.",
+        description: "Learn and test your skills in various foreign languages.",
         topics: ["Spanish", "French", "German", "Latin", "Mandarin", "Italian"],
         rooms: genericGameRooms("Foreign Languages", 30, false),
       },
       {
         name: "Philosophy & Logic",
         description:
-          "Engage with thought-provoking topics in philosophy and logic. Every room draws questions from the full category pool.",
+          "Engage with thought-provoking topics in philosophy and logic.",
         topics: [
           "Famous Philosophers",
           "Logical Reasoning",
@@ -2015,7 +2015,7 @@ const games: Game[] = [
       {
         name: "Environmental Studies",
         description:
-          "Explore the wonders of nature and how we can protect our planet. Every room draws questions from the full category pool.",
+          "Explore the wonders of nature and how we can protect our planet.",
         topics: [
           "Conservation",
           "Ecology",
@@ -2029,7 +2029,7 @@ const games: Game[] = [
       {
         name: "Health Education",
         description:
-          "Jump into the world of health and wellness with fun and easy learning! Every room draws questions from the full category pool.",
+          "Jump into the world of health and wellness with fun and easy learning!",
         topics: [
           "Anatomy",
           "Nutrition",
@@ -2043,7 +2043,7 @@ const games: Game[] = [
       {
         name: "Current Events",
         description:
-          "Keep up with the buzz and test your knowledge on what's happening around the globe! Every room draws questions from the full category pool.",
+          "Keep up with the buzz and test your knowledge on what's happening around the globe!",
         topics: [
           "News",
           "Politics",
@@ -2064,7 +2064,7 @@ const games: Game[] = [
       {
         name: "Football",
         description:
-          "Kick off your knowledge and score big in the exciting world of football! Every room draws questions from the full category pool.",
+          "Kick off your knowledge and score big in the exciting world of football!",
         topics: [
           "FIFA World Cup",
           "Club Football",
@@ -2090,7 +2090,7 @@ const games: Game[] = [
       {
         name: "TeamSports",
         description:
-          "Get in the game and test your knowledge of all things team sports! Every room draws questions from the full category pool.",
+          "Get in the game and test your knowledge of all things team sports!",
         topics: [
           "Basketball",
           "Baseball",
@@ -2106,21 +2106,21 @@ const games: Game[] = [
       {
         name: "Racquets",
         description:
-          "Swing into action and test your knowledge of all things racquet sports! Every room draws questions from the full category pool.",
+          "Swing into action and test your knowledge of all things racquet sports!",
         topics: ["Tennis", "Badminton", "Table Tennis", "Squash", "Pickleball"],
         rooms: genericGameRooms("Racquets", 31, false),
       },
       {
         name: "Combat",
         description:
-          "Step into the ring and test your skills in the world of fighting sports! Every room draws questions from the full category pool.",
+          "Step into the ring and test your skills in the world of fighting sports!",
         topics: ["Boxing", "MMA", "Wrestling", "Fencing"],
         rooms: genericGameRooms("Combat", 30, false),
       },
       {
         name: "Water",
         description:
-          "Dive into the splashy world of water sports and make a big splash with your knowledge! Every room draws questions from the full category pool.",
+          "Dive into the splashy world of water sports and make a big splash with your knowledge!",
         topics: [
           "Swimming",
           "Surfing",
@@ -2134,13 +2134,13 @@ const games: Game[] = [
       {
         name: "Winter",
         description:
-          "Chill out and have fun with cool trivia about sports on snow and ice! Every room draws questions from the full category pool.",
+          "Chill out and have fun with cool trivia about sports on snow and ice!",
         topics: ["Skiing", "Snowboarding", "Ice Skating", "Speed Skating"],
         rooms: genericGameRooms("Winter", 30, false),
       },
       {
         name: "Adventure",
-        description: "Get ready for thrilling challenges and wild outdoor fun! Every room draws questions from the full category pool.",
+        description: "Get ready for thrilling challenges and wild outdoor fun!",
         topics: [
           "Rock Climbing",
           "Parkour",
@@ -2153,14 +2153,14 @@ const games: Game[] = [
       {
         name: "Motorsports",
         description:
-          "Feel the rush of speed and roar of engines in thrilling races! Every room draws questions from the full category pool.",
+          "Feel the rush of speed and roar of engines in thrilling races!",
         topics: ["Formula 1", "MotoGP", "Rally Racing", "NASCAR", "Go-Karting"],
         rooms: genericGameRooms("Motorsports", 30, false),
       },
       {
         name: "Strength",
         description:
-          "Flex your muscles and test your knowledge of power-packed sports! Every room draws questions from the full category pool.",
+          "Flex your muscles and test your knowledge of power-packed sports!",
         topics: [
           "Weightlifting",
           "Powerlifting",
@@ -2172,7 +2172,7 @@ const games: Game[] = [
       {
         name: "Individual",
         description:
-          "Show off your solo skills and master the game one play at a time! Every room draws questions from the full category pool.",
+          "Show off your solo skills and master the game one play at a time!",
         topics: [
           "Golf",
           "Tennis",
@@ -2187,14 +2187,14 @@ const games: Game[] = [
       {
         name: "Equestrian",
         description:
-          "Gallop into the exciting world of horse sports and riding skills! Every room draws questions from the full category pool.",
+          "Gallop into the exciting world of horse sports and riding skills!",
         topics: ["Horse Racing", "Polo", "Equestrian Jumping", "Dressage"],
         rooms: genericGameRooms("Equestrian", 30, false),
       },
       {
         name: "Extreme",
         description:
-          "Get ready for thrills, spills, and adrenaline-pumping action! Every room draws questions from the full category pool.",
+          "Get ready for thrills, spills, and adrenaline-pumping action!",
         topics: [
           "Skateboarding",
           "BMX",
@@ -2207,7 +2207,7 @@ const games: Game[] = [
       {
         name: "Ballgames",
         description:
-          "Get ready to bounce, throw, and score in all kinds of ball sports! Every room draws questions from the full category pool.",
+          "Get ready to bounce, throw, and score in all kinds of ball sports!",
         topics: [
           "Golf",
           "Tennis",
@@ -2222,35 +2222,35 @@ const games: Game[] = [
       {
         name: "Track",
         description:
-          "Dash, jump, and race your way through thrilling track events! Every room draws questions from the full category pool.",
+          "Dash, jump, and race your way through thrilling track events!",
         topics: ["Cycling", "Sprinting", "Hurdles", "Relay"],
         rooms: genericGameRooms("Track", 30, false),
       },
       {
         name: "Fitness",
         description:
-          "Get moving and have fun with all things fitness and exercise! Every room draws questions from the full category pool.",
+          "Get moving and have fun with all things fitness and exercise!",
         topics: ["Gymnastics", "Pilates", "Yoga", "Martial Arts", "Zumba"],
         rooms: genericGameRooms("Fitness", 30, false),
       },
       {
         name: "Boards",
         description:
-          "Ride the waves, slopes, and streets with board sports fun and excitement! Every room draws questions from the full category pool.",
+          "Ride the waves, slopes, and streets with board sports fun and excitement!",
         topics: ["Skateboarding", "Snowboarding", "Surfing", "Windsurfing"],
         rooms: genericGameRooms("Boards", 30, false),
       },
       {
         name: "WaterRacing",
         description:
-          "Race across waves and waterways with speed and skill in water-based racing! Every room draws questions from the full category pool.",
+          "Race across waves and waterways with speed and skill in water-based racing!",
         topics: ["Jet Skiing", "Canoeing", "Kayaking", "Sailing", "Rowing"],
         rooms: genericGameRooms("WaterRacing", 30, false),
       },
       {
         name: "Recreation",
         description:
-          "Enjoy casual games and fun sports perfect for friends, family, and good times! Every room draws questions from the full category pool.",
+          "Enjoy casual games and fun sports perfect for friends, family, and good times!",
         topics: [
           "Ultimate Frisbee",
           "Dodgeball",
@@ -2263,7 +2263,7 @@ const games: Game[] = [
       {
         name: "Social Sports",
         description:
-          "Casual sports that bring friends together for fun and friendly competition. Every room draws questions from the full category pool.",
+          "Casual sports that bring friends together for fun and friendly competition.",
         topics: [
           "Softball",
           "Cricket",
@@ -2277,7 +2277,7 @@ const games: Game[] = [
       {
         name: "Esports",
         description:
-          "Jump into the fast-paced world of competitive gaming and epic battles! Every room draws questions from the full category pool.",
+          "Jump into the fast-paced world of competitive gaming and epic battles!",
         topics: [
           "League of Legends",
           "Fortnite",
