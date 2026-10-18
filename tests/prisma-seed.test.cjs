@@ -150,3 +150,19 @@ test('fresh seed gives every non-country room a generic label without changing i
  const football=created.find(game=>game.name==='Sports & Games').categories.create.find(category=>category.name==='Football');
  assert.ok(football.topics.includes('National Teams'));
 });
+
+test('coin package bonuses are equal across currencies and increase to 150 without repricing', async () => {
+ const seed=load();let packages;
+ seed.tx.coinPackage.count=async()=>0;
+ seed.tx.coinPackage.createMany=async({data})=>{packages=data;return {count:data.length};};
+ await seed.main();
+ assert.equal(packages.length,15);
+ assert.equal(packages[0].name,'Starter Pack');
+ assert.equal(packages.at(-1).name,'Infinity Pack');
+ packages.forEach((pack,index)=>{
+  assert.equal(pack.bonus,(index+1)*10);
+  assert.equal(pack.ngnBonus,pack.bonus);
+ });
+ assert.deepEqual([packages[0].amount,packages[0].price,packages[0].ngnPrice],[30,0.42,560]);
+ assert.deepEqual([packages.at(-1).amount,packages.at(-1).price,packages.at(-1).ngnPrice],[205000,2605.3,3780000]);
+});
