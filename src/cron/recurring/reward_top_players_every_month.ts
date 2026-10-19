@@ -1,73 +1,16 @@
 import {createHash} from 'node:crypto';
-import {Prisma, GameMode, RewardTypeEnum, TxnCategoryEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum, TxnStatusEnum, TxnTypeEnum} from '@prisma/client';
-import {walletOperation, cents} from '@/services/walletLedger';
+import {Prisma, GameMode} from '@prisma/client';
+import {walletOperation} from '@/services/walletLedger';
 import {monthlyGameSpendExact} from '@/services/walletLedger/game';
 import {createMonthlyRewardCurve, monthlyRewardAtRank, monthlyRewardTier, monthlyRewardFunding, MONTHLY_REWARD_CAP, MonthlyRewardCurve} from '@/services/walletLedger/monthlyRewards';
-import {formatNumberWithCommas} from '@/utils/helpers';
 import redisClient from '@/redis';
 import {PromisePool} from '@supercharge/promise-pool';
 import prisma from '@/db';
-import {generateUniqueRef, getGameMode, getRankingRewardKeys, getStringMonth} from '@/utils';
+import {getGameMode, getRankingRewardKeys} from '@/utils';
 import {getRedisHashKey} from '@/services/helper';
 import logger from '@/logger';
-import {enqueueNotificationDelivery} from '@/services/v1/notifications';
-
-const distributeReward = async ({player, catId, rewardAmount, dateInfo, mode, auditId}: {
-  player: {id: string; rank: number; score: number}; catId: string; rewardAmount: number;
-  mode: GameMode; dateInfo: {year: number; month: number}; auditId: string;
-}) => {
-  cents(rewardAmount, true);
-  const [category, milestones] = await prisma.$transaction([
-    prisma.gameCategory.findFirst({where: {id: catId}}),
-    prisma.gameMilestone.findMany({where: {name: 'MONTH'}}),
-  ]);
-  if (!category) throw new Error('Monthly reward category missing');
-  const milestone = milestones.find(m => m.milestone === player.rank);
-  const receipt = await walletOperation('monthly-reward', `${catId}:${mode}:${dateInfo.year}:${dateInfo.month}:${player.id}:COINS`,
-    {playerId: player.id, rewardAmount, policy: 'monthly-90-v2'}, [player.id], async tx => {
-      let transactionId: string | undefined;
-      let notificationId: string | undefined;
-      if (rewardAmount > 0) {
-        const txnRef = generateUniqueRef();
-        const description = milestone
-          ? `Rewarded ${rewardAmount} COINS for achieving ${milestone.reason?.replace(/_/g, ' ').toLowerCase()} under ${category.name} category in ${getStringMonth(dateInfo.month)} ${dateInfo.year}.`
-          : `Rewarded ${rewardAmount} COINS for ranking ${formatNumberWithCommas(player.rank)}th under ${category.name} category in ${getStringMonth(dateInfo.month)} ${dateInfo.year}.`;
-        const achievement = milestone ? await tx.gameAchievement.create({data: {
-          reason: milestone.reason, playerId: player.id, catId, mode, amount: rewardAmount,
-          rewardType: RewardTypeEnum.COINS, milestoneId: milestone.id, description,
-          thumbnail: milestone.thumbnail, metadata: {txnRef, ...dateInfo},
-        }}) : undefined;
-        const wallet = await tx.wallet.update({where: {userId: player.id}, data: {coins: {increment: rewardAmount}}});
-        const txn = await tx.transaction.create({data: {
-          userId: player.id, recipientId: player.id, walletId: wallet.id, amount: rewardAmount,
-          gateway: TxnGatewayEnum.WALLET, source: TxnSourceEnum.COINS, type: TxnTypeEnum.CREDIT,
-          status: TxnStatusEnum.COMPLETED, currency: TxnCurrencyEnum.COINS,
-          category: TxnCategoryEnum.GAME_MONTHLY_REWARD, description, txnRef,
-          metadata: {...dateInfo, catId, mode, policy: 'monthly-90-v2', auditId, rank: player.rank, score: player.score},
-          achievementId: achievement?.id ?? null,
-        }});
-        transactionId = txn.id;
-        const notification = await tx.notification.create({data: {
-          sourceKey: `monthly-game-reward:${catId}:${mode}:${dateInfo.year}:${dateInfo.month}:${player.id}`,
-          recipientId: player.id, type: 'NONE', action: 'NONE', title: 'Monthly game reward',
-          message: `You earned ${formatNumberWithCommas(rewardAmount)} coins for ranking #${formatNumberWithCommas(player.rank)} in ${category.name} (${mode === GameMode.SINGLE ? 'Single player' : 'Multiplayer'}) for ${getStringMonth(dateInfo.month)} ${dateInfo.year}. Your wallet has been credited.`,
-          meta: {kind: 'monthly-game-reward', catId, categoryName: category.name, mode, ...dateInfo,
-            rank: player.rank, amount: rewardAmount, currency: 'COINS', transactionId: txn.id, auditId},
-        }});
-        notificationId = notification.id;
-        if (achievement) await tx.gameAchievement.update({where: {id: achievement.id}, data: {txnId: txn.id}});
-      }
-      // Progress commits with the wallet credit and receipt; replay cannot increment it twice.
-      await tx.gameMonthRewardStat.update({where: {id: auditId}, data: {
-        processedParticipants: {increment: 1}, coinsRewardParticipants: {increment: rewardAmount > 0 ? 1 : 0},
-        coinsShareAmount: {increment: rewardAmount}, pendingAmount: {decrement: rewardAmount},
-        unallocatedAmount: {decrement: rewardAmount}, balanceAfterPayout: {decrement: rewardAmount},
-        rewardParticipantsScore: {increment: player.score}, coinsParticipantsScore: {increment: player.score},
-      }});
-      return {auditId, transactionId: transactionId ?? null, notificationId: notificationId ?? null};
-    });
-  if (receipt.notificationId) await enqueueNotificationDelivery(receipt.notificationId);
-};
+import {enqueueNotificationDeliveries} from '@/services/v1/notifications';
+import {settleMonthlyRewardBatch, MONTHLY_REWARD_BATCH_SIZE, monthlyRewardCursorId} from '@/services/walletLedger/monthlyRewardSettlement';
 
 type SettlementPlan = {
   policy: string; snapshot: string; participantCount: number; qualifyingPercent: number; poolPercent: number;
@@ -138,16 +81,29 @@ const rewardMonthlyPlayers = async (item: {catId: string; gameId: string; mode: 
     if (await redisClient.zCard(plan.snapshot) !== plan.participantCount) throw new Error('Monthly reward snapshot changed');
     logger.info({catId, mode: item.mode, period, ...plan}, 'Monthly coin reward plan');
     if (plan.curve.unallocated) logger.warn({period, unallocatedMinorUnits: plan.curve.unallocated}, 'Pool exceeds winner payout capacity; excess remains unpaid');
-    const batchSize = 200;
-    for (let offset = 0; offset < plan.curve.winners; offset += batchSize) {
+    const category = await prisma.gameCategory.findUniqueOrThrow({where: {id: catId}});
+    const milestones = await prisma.gameMilestone.findMany({where: {name: 'MONTH'}});
+    const batchSize = MONTHLY_REWARD_BATCH_SIZE;
+    const started = performance.now();
+    let visitedParticipants = 0;
+    const cursor = await prisma.walletOperation.findUnique({where: {id: monthlyRewardCursorId(planKey)}});
+    const nextRank = (cursor?.result as {nextRank?: number})?.nextRank ?? 1;
+    if (!Number.isInteger(nextRank) || nextRank < 1 || nextRank > plan.curve.winners + 1) throw new Error('Invalid monthly reward cursor');
+    for (let offset = nextRank - 1; offset < plan.curve.winners; offset += batchSize) {
       const end = Math.min(offset + batchSize, plan.curve.winners) - 1;
       const participants = await redisClient.zRangeWithScores(plan.snapshot, offset, end, {REV: true});
       if (participants.length !== end - offset + 1) throw new Error('Incomplete monthly reward snapshot batch');
-      await Promise.all(participants.map(async (member, index) => {
-        const rank = offset + index + 1;
-        await distributeReward({player: {id: member.value, rank, score: member.score}, catId, mode: item.mode, auditId: planKey,
-          rewardAmount: monthlyRewardAtRank(plan.curve, rank) / 100, dateInfo: keys.dateInfo});
-      }));
+      const batchStarted = performance.now();
+      const result = await settleMonthlyRewardBatch({catId, categoryName: category.name, mode: item.mode,
+        dateInfo: keys.dateInfo, auditId: planKey, milestones,
+        players: participants.map((member, index) => ({id: member.value, rank: offset + index + 1,
+          score: member.score, rewardAmount: monthlyRewardAtRank(plan.curve, offset + index + 1) / 100})),
+      });
+      await enqueueNotificationDeliveries(result.notificationIds);
+      visitedParticipants += participants.length;
+      logger.info({event: 'monthly_reward_batch', catId, mode: item.mode, offset, end,
+        participants: participants.length, durationMs: Math.round(performance.now() - batchStarted),
+        elapsedMs: Math.round(performance.now() - started), visitedParticipants}, 'Monthly reward batch committed');
     }
     await walletOperation('monthly-reward-stat', period, {}, [], async tx => {
       const audit = await tx.gameMonthRewardStat.findUniqueOrThrow({where: {id: planKey}});

@@ -161,8 +161,8 @@ budget exactly. `cappedRanks` in the plan counts the initial ranks at the maximu
 **target**, which need not equal the 500,000-coin ceiling.
 
 Curve planning makes one O(N) pass to calculate rounding, using constant working
-memory. Payouts subsequently fetch recipient batches of 200. Categories/modes
-are processed with concurrency two.
+memory. Payouts subsequently fetch recipient batches of 500. Categories/modes
+are processed with concurrency two, with one active batch per category/mode.
 
 Many lower ranks may receive identical amounts after rounding. Tied scores retain
 the frozen Redis reverse sorted-set order; this implementation does not combine
@@ -202,12 +202,15 @@ order; personal spending does not directly determine that player's award.
    changes and late ledger entries do not alter an existing plan.
    An incomplete plan from `monthly-90-v1` is rejected for reconciliation rather
    than being silently repriced under the new funding rule.
-5. Credit winners through `walletOperation` scope `monthly-reward`, with identity
-   `<catId>:<MODE>:<year>:<month>:<playerId>:COINS`. Wallet credits, ledger entries,
-   applicable monthly milestone achievements, audit progress and receipts commit
-   atomically. Processed/paid counters and financial balances cannot advance twice
-   on a replay. Zero-value awards update processed progress without minting a
-   transaction.
+5. Credit winners in atomic batches of 500 using `monthly-reward-batch` receipts,
+   identified by audit ID and first/last rank. Each recipient retains the original
+   `monthly-reward` receipt identity
+   `<catId>:<MODE>:<year>:<month>:<playerId>:COINS` and fingerprint. Previously paid
+   recipients are skipped. Wallet credits, ledger entries, monthly milestone
+   achievements, notifications, audit progress, individual receipts, batch receipt
+   and resume cursor commit atomically. Zero-value awards update processed progress
+   without minting a transaction. Any error rolls back the entire current batch;
+   earlier committed batches remain paid.
 6. After all awards complete, finalize the audit through the `monthly-reward-stat`
    receipt. Finalization requires every qualifying position processed and zero
    pending amount. A partial failure records `FAILED` and `lastError` while
@@ -229,8 +232,9 @@ Its unique source is
 the credited amount, rank, category, mode, period, transaction ID and audit ID.
 Zero-amount positions are processed for audit but do not announce a payment.
 
-After commit, `enqueueNotificationDelivery` schedules an immediate job on the
-existing notification queue with a stable notification ID. The worker sends
+After each batch commits, `enqueueNotificationDeliveries` submits its jobs using
+one BullMQ `addBulk` call, without a separate Redis job lookup for each winner.
+Each job keeps a stable notification ID on the existing notification queue. The worker sends
 Web Push to the recipient's valid registered browser/device subscriptions and
 links to `/wallet`. Queue failures do not reverse a payment: the durable inbox is
 also the push outbox, and `deliver_push_notifications` retries due notifications
@@ -248,11 +252,107 @@ in the inbox and can receive device push if subscribed. Notification delivery do
 not itself refresh an already-open game room's wallet display.
 
 Financial idempotency is **per player, category, mode, year and month**, not once
-per player globally. `walletOperation` takes an advisory lock for that operation,
-checks its saved fingerprint/receipt, and locks the wallet row before crediting.
-A replay returns the saved result without repeating the credit, notification or
-audit increments. The unique notification source and stable queue job ID provide
+per player globally. A batch takes its own advisory lock, then acquires the
+original per-player advisory locks in sorted order. It checks saved fingerprints
+and receipts, and locks unpaid recipients' wallets in user-ID order using one
+query before crediting. This also coordinates with the former single-award path
+and with live game debits. A replay returns the saved result without repeating
+credits, notifications or audit increments. The unique notification source and stable queue job ID provide
 additional duplicate protection. Completed periods are skipped entirely.
+
+## Batch processing and throughput
+
+Implementation: [`monthlyRewardSettlement.ts`](../src/services/walletLedger/monthlyRewardSettlement.ts).
+Batch checkpoints use the existing wallet-operation receipts and audit table.
+Apply migration `20261019110000_monthly_reward_funding_index`: it creates a partial
+index for committed game debits by category, mode and timestamp, so funding queries
+can narrow directly to the relevant category/month instead of examining every
+category's monthly transactions. The index builds concurrently to preserve ledger
+writes; run this migration outside an explicit transaction (as Prisma normally
+runs PostgreSQL migrations). A large existing ledger may take time to index before
+the scheduled reward run. This change does not alter recorded financial values.
+
+- Shared category details and monthly milestones are fetched once per category/mode.
+- Funding totals use the category/mode/month expression index; the aggregate still
+  reads the matching committed debits, so a large monthly ledger adds planning time.
+- Each transaction handles at most 500 ranking positions. Wallets are updated in
+  one parameterized `UPDATE ... FROM VALUES`, preserving concurrent balance changes.
+  Transaction ledger entries, notifications, individual receipts and achievements
+  use bulk inserts. Transaction rows retain their wallet and achievement links.
+- The shared monthly audit row is updated once per batch instead of once per winner.
+- `WalletOperation` scope `monthly-reward-cursor` stores the next unvisited rank.
+  It advances only in the same transaction as a complete batch. After a failure,
+  resume starts there, rather than scanning all previously paid ranks. An older
+  in-progress settlement without a cursor starts at rank one and safely skips its
+  already-paid individual receipts while establishing batch checkpoints.
+- Batch boundaries stay fixed at 500. Category/mode concurrency remains two;
+  there are at most two active payout transactions in this job instance, rather
+  than hundreds of concurrent single-recipient tasks. Adding job replicas is not
+  a throughput tuning mechanism: duplicate runners coordinate and replay safely,
+  but generally perform redundant work.
+- A missing wallet fails the current batch for reconciliation. It is never silently
+  skipped or marked paid. Other category/mode jobs can continue independently.
+- Push submission occurs after commit and provider delivery remains independent.
+  If Redis submission fails or the process dies between commit and submission,
+  the durable notification outbox is recovered by the recurring dispatcher.
+  Recovery currently takes up to 100 due notifications per invocation; a prolonged
+  queue outage can therefore leave a substantial device-push backlog. Wallets and
+  inbox/SSE notifications are already committed and do not wait for that backlog.
+- `monthly_reward_batch` logs include category, mode, rank boundaries, batch elapsed
+  time and elapsed time for the current invocation. Use committed audit counts to
+  distinguish actual payment progress from concurrent replay logs.
+
+`tests/integration/monthly-reward-throughput.test.ts` verifies batch rollback,
+checkpoint resume, concurrent retries, older per-user receipts and concurrent
+wallet changes. It also measures 5,000 real wallet credits against disposable
+PostgreSQL/Redis. It writes `kwon-monthly-reward-benchmark.json` to the OS temporary
+directory. The timer includes planning, Redis ranking reads, database writes and
+push queue submission; excludes fixture setup, device delivery and assertion queries.
+
+Run using the existing isolated infrastructure runner:
+
+```sh
+node scripts/test-infrastructure.cjs tests/integration/monthly-game-rewards.test.ts tests/integration/monthly-reward-throughput.test.ts
+```
+
+Large-tier time projections use `qualifyingPlayers / measuredCreditsPerSecond`.
+They are estimates per category/mode, not a guaranteed production completion time.
+The disposable PostgreSQL database stores its data on tmpfs, and tests have no
+live-game traffic, existing large ledger or subscribed-device delivery load.
+Production storage, database/network latency, ledger aggregation, index growth,
+queue memory and gameplay contention can all change sustained throughput. The
+highest tier is unbounded, so its example needs an explicit participant count.
+For all categories combined, add their qualifying counts and divide by measured
+aggregate throughput under the same production workload; do not assume two workers
+will automatically double a one-category benchmark.
+
+### Measured example and tier projections (2026-10-19)
+
+The final isolated run credited 5,000 winners in 1,759 ms, or 2,841 credits/second.
+A preceding run measured 2,751/second. Both used a 10-connection pool, one active
+category/mode, PostgreSQL 17 on tmpfs, local Redis, and no device-push consumer or
+live-game traffic. These small runs do not establish sustained million-user capacity.
+
+For comparison, the following linear projections use a rounded-down **2,500
+credits/second**. They assume all qualifying positions have a positive award and
+show **one category/mode**, with the participant count at each band's upper edge;
+the open-ended highest band uses 200 million participants as an example.
+
+| Participants | Qualifying percentage | Qualifying winners | Projected payout time at 2,500/second |
+| ---: | ---: | ---: | ---: |
+| 5,000,000 | 20% | 1,000,000 | 6 minutes 40 seconds |
+| 10,000,000 | 25% | 2,500,000 | 16 minutes 40 seconds |
+| 50,000,000 | 30% | 15,000,000 | 1 hour 40 minutes |
+| 100,000,000 | 32% | 32,000,000 | 3 hours 33 minutes 20 seconds |
+| 200,000,000 (example) | 35% | 70,000,000 | 7 hours 46 minutes 40 seconds |
+
+These are extrapolations, not production promises or measurements at those sizes.
+Budget additional time for large-ledger aggregation, snapshots, production storage,
+network latency, existing table/index size, live-game contention and Redis queue
+capacity. Device-push delivery has its own rate and can finish later; inbox records
+commit with wallet credits. Keep payout concurrency bounded until production
+metrics show headroom. Measure audit progress over several minutes to calculate
+remaining time as `(qualifying − processed) / sustainedProcessedPerSecond`.
 
 ## Queryable financial audit
 

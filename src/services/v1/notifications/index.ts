@@ -227,6 +227,24 @@ export async function enqueueNotificationDelivery(notificationId: string) {
   }
 }
 
+/** One Redis pipeline per committed payout batch; stable IDs make retries harmless. */
+export async function enqueueNotificationDeliveries(notificationIds: string[]) {
+  if (!notificationIds.length) return;
+  try {
+    const {notificationQueue} = await import('@/cron/jobs/queue');
+    await notificationQueue.addBulk(notificationIds.map(notificationId => ({
+      name: 'notification', data: {notificationId}, opts: {
+        jobId: `notification-${notificationId}`, attempts: 3,
+        backoff: {type: 'exponential', delay: 5000},
+        removeOnComplete: {age: 86400, count: 1000}, removeOnFail: {age: 604800, count: 1000},
+      },
+    })));
+  } catch (err) {
+    logger.error({event: 'notification_batch_enqueue_deferred', count: notificationIds.length, err},
+      'Notifications saved; recurring push recovery will retry delivery');
+  }
+}
+
 export async function deliverNotification(notificationId: string) {
   if (!notificationId || typeof notificationId !== 'string') throw new Error('Notification job requires a notification ID');
   await deliverPendingPushNotifications(undefined, notificationId);

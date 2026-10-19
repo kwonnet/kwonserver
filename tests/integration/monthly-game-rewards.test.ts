@@ -18,13 +18,14 @@ import db from '@/db';
 import redis from '@/redis';
 import {getRankingRewardKeys} from '@/utils';
 import {run} from '@/cron/recurring/reward_top_players_every_month';
-let catId:string,gameId:string,key:string,snapshot:string;
+let catId:string,gameId:string,key:string,snapshot:string,milestoneId:string;
 const extraKeys:string[]=[];
 const ids=Array.from({length:50},(_,i)=>`monthly-policy-player-${i}`);
 beforeAll(async()=>{
  for(const id of ids) await db.user.create({data:{id,name:id,username:id,email:`${id}@test.invalid`,wallet:{create:{coins:0,bonus:10}}}});
  const game=await db.game.create({data:{name:'Monthly policy test',description:'test',modes:['MULTI'],categories:{create:{name:'Policy category',description:'test'}}},include:{categories:true}});
  gameId=game.id;catId=game.categories[0].id;
+ milestoneId=(await db.gameMilestone.create({data:{name:'MONTH',reason:'TOP_OF_THE_MONTH',milestone:1,reward:0,rewardType:'COINS'}})).id;
  vi.spyOn(db.gameCategory,'findMany').mockResolvedValue(game.categories.map(c=>({...c,game})) as any);
  const keys=getRankingRewardKeys(catId,'multi');key=keys.rewardMonth;snapshot=`${key}:settlement:monthly-90-v2`;
  await redis.zAdd(key,ids.map((value,i)=>({value,score:50-i})));
@@ -36,6 +37,7 @@ afterAll(async()=>{
  await redis.del([key,snapshot,...extraKeys]);
  await db.user.deleteMany({where:{id:{in:ids}}});
  await db.game.delete({where:{id:gameId}});
+ await db.gameMilestone.delete({where:{id:milestoneId}});
  await closeJobQueues();await redis.quit();await db.$disconnect();
 });
 it('offsets actual bonus spending before funding, pays every qualifying player coins only, and settles stats',async()=>{
@@ -54,6 +56,10 @@ it('offsets actual bonus spending before funding, pays every qualifying player c
  await Promise.all([run(),run(),run()]);
  const payouts=await db.transaction.findMany({where:{userId:{in:ids},category:'GAME_MONTHLY_REWARD'}});
  expect(payouts).toHaveLength(10);
+ const achievement=await db.gameAchievement.findFirstOrThrow({where:{catId,milestoneId}});
+ expect(achievement.playerId).toBe(ids[0]);
+ expect(payouts.find(p=>p.userId===ids[0])?.id).toBe(achievement.txnId);
+ expect(payouts.find(p=>p.userId===ids[0])?.achievementId).toBe(achievement.id);
  const notifications=await db.notification.findMany({where:{recipientId:{in:ids},sourceKey:{startsWith:'monthly-game-reward:'}}});
  expect(notifications).toHaveLength(10);
  for(const notification of notifications) {
