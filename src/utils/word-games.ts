@@ -31,8 +31,9 @@ export function canFormWord(base: string, word: string) {
 // Only the server keeps answer variants. Sentence and Hangman puzzles do not
 // need an answer key in their socket payload.
 export function publicWordQuestion(question: ThemedGameQuestion): ThemedGameQuestion {
-  const { acceptedAnswers, ...publicQuestion } = question;
-  return acceptedAnswers ? {...publicQuestion, answer: ''} : publicQuestion;
+  return {id: question.id, roundId: question.roundId, question: question.question,
+    options: question.options, type: question.type, answer: '', hint: question.hint,
+    answerUntil: question.answerUntil, voteUntil: question.voteUntil};
 }
 export function matchesSentenceAnswer(question: ThemedGameQuestion, answer: string, category: GameCatType | undefined) {
   if (category !== GameCatType.TYPEMANIA && category !== GameCatType.UNSCRAMBLE) {

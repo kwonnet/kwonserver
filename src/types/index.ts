@@ -204,6 +204,7 @@ export enum CoinPayTypeEnum {
 }
 
 export interface GameRoomPlayer {
+  capacity?: number;
     avatar?: string;
     playerId: string;
     gameId: string;
@@ -287,6 +288,7 @@ export enum GameCatType {
 }
 
 export interface ThemedGameQuestion {
+  startedAt?: number;
   acceptedAnswers?: string[];
   hint?: string;
     roundId?: string;

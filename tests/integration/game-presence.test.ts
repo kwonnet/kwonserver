@@ -12,7 +12,7 @@ it('stores the actual solo partition and removes it exactly once without touchin
  const result=await join('presence-user','socket-1','presence-room',GameMode.SINGLE);
  expect(result.firstPlayer).toBe(true);expect((await getGameRoomPlayer('presence-user'))?.roomId).toBe(result.roomId);
  await redis.set('wallet:presence-user','preserved');await redis.zAdd('ranking:presence-cat',{score:8,value:'presence-user'});
- for(const suffix of ['',':question',':answers',':u-answers',':votes',':streak',':question-history',':paid-messages'])await redis.set(`room:${result.roomId}${suffix}`,'temporary');
+ for(const suffix of [':question',':answers',':u-answers',':votes',':streak',':question-history',':paid-messages'])await redis.set(`room:${result.roomId}${suffix}`,'temporary');
  await redis.del(`room:${result.roomId}:answers`);
  await redis.hSet(`room:${result.roomId}:answers`,{'presence-user':'{"answer":"test"}'});
  await redis.hSet(`room:${result.roomId}:player:presence-user:guesses`,{test:'temporary'});
@@ -73,7 +73,7 @@ it('fences old timers after an emptied room is recreated',async()=>{
 
 it('refreshes local room rosters when another API replica publishes a presence change',async()=>{
  const emit=vi.fn();const io:any={emit,to:()=>({emit}),adapter:{rooms:new Map()},sockets:new Map()};
- const close=await subscribeGamePresence(io);
+ io.local=io;const close=await subscribeGamePresence(io);
  try {
   await redis.publish('game:presence:changed',JSON.stringify({origin:'another-api-replica',player:{roomId:'multi-presence-room',catId:'presence-cat',mode:'MULTI'}}));
   for(let i=0;i<50&&!emit.mock.calls.length;i++)await new Promise(resolve=>setTimeout(resolve,10));
@@ -94,4 +94,16 @@ it('initializes a room once even when several players arrive before the delayed 
  const first=await join('presence-first','socket-1');const second=await join('presence-second','socket-2');
  const params={roomId:first.roomId,generation:first.generation,status:'CHAT',mode:'MULTI',catId:'presence-cat',catName:'General',gameId:'presence-game',gameName:'Trivia',topics:''} as any;
  expect(await Promise.all([updateGameRoom(params,true),updateGameRoom({...params,generation:second.generation},true)])).toEqual([true,false]);
+});
+
+it('keeps solo accounts with the same ID suffix in separate rooms',async()=>{
+ const a=await join('first-0123456789','a','presence-room',GameMode.SINGLE);
+ const b=await join('second-0123456789','b','presence-room',GameMode.SINGLE);
+ expect(a.roomId).not.toBe(b.roomId);
+ expect(await redis.sMembers(`room:${a.roomId}:players`)).toEqual(['first-0123456789']);
+});
+it('uses the configured room capacity when allocating partitions',async()=>{
+ const rooms=await Promise.all(Array.from({length:7},(_,i)=>claimGamePresence({playerId:`capacity-${i}`,socketId:`s-${i}`,roomId:'presence-room',mode:GameMode.MULTI,catId:'presence-cat',gameId:'game',name:'Player',voteCount:0,capacity:3})));
+ expect(new Set(rooms.map(r=>r.roomId)).size).toBe(3);
+ for(const room of rooms)expect(await redis.sCard(`room:${room.roomId}:players`)).toBeLessThanOrEqual(3);
 });

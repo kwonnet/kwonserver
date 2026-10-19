@@ -1,3 +1,8 @@
+import {gameClock} from './clock';
+import {assertGameRuntimeLease} from './lease';
+import {scheduleGamePhase} from './runtime';
+import {getGameEnergy,refillGameEnergy} from './energy';
+import {captureRound,settleGameRound,RoundSnapshot,recordGameRound} from './rounds';
 import { matchesSentenceAnswer, publicWordQuestion } from '@/utils/word-games';
 import { GameDelivery, dispatchGameAction } from '@/services/walletLedger/gameDelivery';
 import { randomUUID } from 'crypto';
@@ -149,34 +154,7 @@ export const getUserData = async (userId: string, catId: string) => {
 };
 
 export const checkUserGameEnergy = async (userId: string, catId: string) => {
-  try {
-    // const playerKeys = getPlayerRedisKeys(userId, catId);
-    const uKey = `player:${userId}:cat:${catId}:energy`
-    // check redis
-    const energy = await getRedisHashKey<GameEnergy>(uKey);
-
-    if (energy) {
-      logServiceTrace("v1/games/index", "checkUserGameEnergy", "Join room - player energy - redis ");
-      return energy;
-    }
-    // check prisma
-    const result = await prisma.gameEnergy.findFirst({
-      where: { playerId: userId, catId },
-    });
-    if (result) {
-      logServiceTrace("v1/games/index", "checkUserGameEnergy", "Join room - player energy - prisma ");
-      return result;
-    }
-    // create energy
-    const gameEnergy = await prisma.gameEnergy.create({
-      data: { amount: 2500, gauge: 50, turbo: 50, playerId: userId, catId },
-    });
-    logServiceTrace("v1/games/index", "checkUserGameEnergy", "Join room - player energy - created ");
-    return gameEnergy;
-  } catch (error) {
-    logGameError('checkUserGameEnergy', error, {userId,catId});
-    return null;
-  }
+  return await getGameEnergy(userId,catId);
 };
 
 export const checkUserGameWallet = async (userId: string) => {
@@ -188,32 +166,9 @@ export const checkUserGameWallet = async (userId: string) => {
     logGameError('checkUserGameWallet', error, {userId}); return { message: "Wallet unavailable", isError: true, data: null }; }
 };
 
-async function syncUserRedisGameEnergyToPrisma(
-  playerId: string,
-  catId: string,
-  mode: "single" | "multi"
-) {
-  const playerKeys = getPlayerRedisKeys(playerId, catId, mode);
-  try {
-    const result = await getRedisHashKey<GameEnergy>(playerKeys.energy);
-    if (!result) return;
-    // perform prisma update
-    logServiceTrace("v1/games/index", "syncUserRedisGameEnergyToPrisma", "Player Energy ");
-    await prisma.gameEnergy.update({
-      where: { id: result.id },
-      data: {
-        amount: result.amount < 0 ? 2200 : result.amount,
-        gauge: result.gauge < 0 ? 10 : result.gauge,
-        turbo: result.turbo < 0 ? 10 : result.turbo,
-      },
-    });
-    logServiceTrace("v1/games/index", "syncUserRedisGameEnergyToPrisma", "User redis game energy synced to prisma successfully >>>");
-  } catch (error: any) {
-    logGameError('syncUserRedisGameEnergyToPrisma', error, {playerId,catId});
-
-  } finally {
-    await redisClient.del(playerKeys.energy);
-  }
+async function syncUserRedisGameEnergyToPrisma(playerId:string,catId:string,_mode:'single'|'multi') {
+  // PostgreSQL is authoritative; deleting a cache never discards an unsaved balance.
+  await redisClient.del(`player:${playerId}:cat:${catId}:energy`);
 }
 
 export async function syncUserRedisWalletToPrisma(userId: string) {
@@ -227,6 +182,7 @@ export const storeGameRoomQuestion = async (
   generation?: string
 ) => {
   try {
+    await assertGameRuntimeLease();
     const uniqueKey = `room:${roomId}:question`;
     const stored = { ...params, roundId: params.roundId ?? randomUUID() };
     if (generation) {
@@ -416,23 +372,18 @@ export async function retrieveGameRoomAnswers<T = any>(
   return userAnswers;
 }
 
-export const deleteGameRoomQuestionAndAnswers = async (roomId: string) => {
-  try {
-    await Promise.all([
-      redisClient.del(`room:${roomId}:question`),
-      redisClient.del(`room:${roomId}:answers`),
-      redisClient.del(`room:${roomId}:u-answers`),
-      redisClient.del(`room:${roomId}:votes`),
-    ]);
-    const pattern = `room:${roomId}:player:*`;
-    await clearRedisKeysByPattern(pattern);
-  } catch (error) {
-    logGameError('deleteGameRoomQuestionAndAnswers', error, {roomId});}
+export const deleteGameRoomQuestionAndAnswers = async (roomId:string,roundId?:string,generation?:string) => {
+  if(!roundId||!generation) return;
+  await redisClient.eval(`local raw=redis.call('GET',KEYS[1]);if not raw then return 0 end
+    local q=cjson.decode(raw);if q.roundId~=ARGV[1] or redis.call('HGET',KEYS[2],'generation')~=ARGV[2] then return 0 end
+    for _,id in ipairs(redis.call('HKEYS',KEYS[3])) do redis.call('UNLINK',KEYS[4]..id..':guesses') end
+    redis.call('UNLINK',KEYS[1],KEYS[3],KEYS[5],KEYS[6],KEYS[7]);return 1`,
+    {keys:[`room:${roomId}:question`,`room:${roomId}`,`room:${roomId}:answers`,`room:${roomId}:player:`,`room:${roomId}:u-answers`,`room:${roomId}:votes`,`room:${roomId}:round:${roundId}:actions`],arguments:[roundId,generation]});
 };
 
 // Function to retrieve all answers, check correctness, and assign points
-export async function calculateGameRoomPoints(room: TempGameRoom) {
-  const question = await retrieveGameRoomQuestion(room.roomId);
+export async function calculateGameRoomPoints(room: TempGameRoom, snapshot?: RoundSnapshot) {
+  const question = snapshot?.question ?? await retrieveGameRoomQuestion(room.roomId);
 
   if (!question) return [];
 
@@ -442,19 +393,19 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
 
   if (catType === GameCatType.WORDMAKER) {
     const arrAnswers: AcronymGameAnswer[] | ThemedGameAnswer[] =
-      await retrieveGameRoomAnswers(room.roomId, true);
+      snapshot?.answers ?? await retrieveGameRoomAnswers(room.roomId, true);
 
     const totalAnswers = arrAnswers.length;
 
     // delete game question & user answers
-    await deleteGameRoomQuestionAndAnswers(room.roomId);
+    // Round input cleanup follows durable settlement.
 
     // calculate score
     return arrAnswers
       .map((item) => {
         const calc = calculateWordMakerPlayerScore(
           question?.question,
-          item.answers ?? []
+          (item as ThemedGameAnswer).answers ?? []
         );
         const multiplier = parseFloat((totalAnswers / 10).toFixed(2));
         const finalScore = Math.floor(
@@ -477,14 +428,14 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
   }
 
   const arrAnswers: AcronymGameAnswer[] | ThemedGameAnswer[] =
-    await retrieveGameRoomAnswers(room.roomId, true);
+    snapshot?.answers ?? await retrieveGameRoomAnswers(room.roomId, true);
 
   const answers = arrAnswers.sort((a, b) => b.timer - a.timer);
 
   const totalAnswers = answers.length;
 
   // delete game question & user answers
-  await deleteGameRoomQuestionAndAnswers(room.roomId);
+  // Round input cleanup follows durable settlement.
 
   if (gameType === GameType.ACRONYM) {
     const roomAnswers = answers as AcronymGameAnswer[];
@@ -521,7 +472,7 @@ export async function calculateGameRoomPoints(room: TempGameRoom) {
       const isCorrect =
         matchesSentenceAnswer(question, item.answer, catType);
       const score = isLuckySpinFlip
-        ? parseFloat(item.answer) * totalAnswers
+        ? ((item as any).serverOutcome === true && question.options.includes(item.answer) && Number.isFinite(Number(item.answer)) ? Number(item.answer) * totalAnswers : 0)
         : isCorrect
         ? item?.timer * totalAnswers
         : 0;
@@ -551,6 +502,9 @@ end
 local function parent(room) return string.match(room,'^[^_]+') end
 local function empty(room)
  if redis.call('SCARD','room:'..room..':players') > 0 then return end
+ local phase=redis.call('HGET','room:'..room,'status')
+ if phase=='PLAY' or phase=='VOTE' or phase=='RESULT' then return end
+ local raw=redis.call('GET','room:'..room..':question');if raw then local ok,q=pcall(cjson.decode,raw);if ok and q.roundId then redis.call('UNLINK','room:'..room..':round:'..q.roundId..':actions') end end
  if redis.call('TYPE','room:'..room..':answers').ok == 'hash' then
   for _,id in ipairs(redis.call('HKEYS','room:'..room..':answers')) do redis.call('DEL','room:'..room..':player:'..id..':guesses') end
  end
@@ -627,10 +581,10 @@ elseif action == 'join' then
   redis.call('ZADD',leases,now+30000,uid)
   return cjson.encode({roomId=p.roomId,firstPlayer=not redis.call('HGET','room:'..p.roomId,'status'),generation=redis.call('HGET','room:'..p.roomId,'generation')})
  end
- if next.mode == 'SINGLE' then room = base..'_'..string.sub(uid,-10)
+ if next.mode == 'SINGLE' then room = base..'_'..uid
  elseif p.catalogRoomId == next.roomId and p.mode == next.mode then room = p.roomId
- elseif redis.call('SCARD','room:'..base..':players') >= 20 then
-  local partitions = redis.call('ZRANGEBYSCORE','room:'..base..':partitions',1,19,'LIMIT',0,1)
+ elseif redis.call('SCARD','room:'..base..':players') >= tonumber(next.capacity or 20) then
+  local partitions = redis.call('ZRANGEBYSCORE','room:'..base..':partitions',1,tonumber(next.capacity or 20)-1,'LIMIT',0,1)
   room = partitions[1] or base..'_'..ARGV[5]
  end
  local same = p.roomId == room
@@ -666,8 +620,9 @@ export async function sweepGamePresence(io: GameIoNamespace) {
 
 const presenceOrigin = randomUUID();
 export async function publishGamePresence(player: GameRoomPlayer, io: GameIoNamespace, localOnly = false) {
-  io.emit(GameEventEnum.GAME_ROOM_PARTICIPANTS,{roomId:player.roomId.split('_')[0],count:await getTotalRoomParticipants(player.roomId)});
-  io.to(player.roomId).emit(GameEventEnum.GAME_ROOM_PLAYERS,await getGameRoomPlayersWithRank(player.roomId,player.catId,player.mode));
+  const target=localOnly?io.local:io;
+  target.emit(GameEventEnum.GAME_ROOM_PARTICIPANTS,{roomId:player.roomId.split('_')[0],count:await getTotalRoomParticipants(player.roomId)});
+  target.to(player.roomId).emit(GameEventEnum.GAME_ROOM_PLAYERS,await getGameRoomPlayersWithRank(player.roomId,player.catId,player.mode));
   if (!localOnly) await redisClient.publish('game:presence:changed',JSON.stringify({origin:presenceOrigin,player:{roomId:player.roomId,catId:player.catId,mode:player.mode}}));
 }
 
@@ -716,16 +671,7 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
     const mode = getGameMode(params.mode)
     // current date
     const currDate = new Date().toISOString();
-    // get expiration
-    const expire = getMonthlyExpiration();
-    // get day after week expireAt
-    const remainingDays = getRemainingDaysInMonth();
-    const expireAt = getExpiryAtUTC(remainingDays < 7 ? remainingDays + 1 : 8);
-    const todayExpireAt = getExpiryAtUTC(1);
-    // get user keys
     const userKeys = getUserRedisKeys(params.playerId);
-    // get ranking keys
-    const rankingKeys = getRankingKeys(params.catId, mode);
     // player hash unique keys
     const playerKeys = getPlayerRedisKeys(params.playerId, params.catId, mode);
     // player infor
@@ -745,57 +691,11 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
     // check game energy
     const energy = await checkUserGameEnergy(params.playerId, params.catId);
     if (!energy) return { message: "Error: User info not found!", data: null };
-    // check player key exists in the players hashes
-    const exists = await redisClient.exists(playerKeys.info);
-    // if not exists, add to player hash and leaderboard
-    if (!exists) {
-      const score = { score: 0, numPlayed: 0 };
-      // add player to sorted set leaderboard and player's details hashes
-      await Promise.all([
-        // ranking
-        redisClient.zAdd(rankingKeys.month, {
-          score: 0,
-          value: params.playerId,
-        }),
-        redisClient.zAdd(rankingKeys.week, {
-          score: 0,
-          value: params.playerId,
-        }),
-        redisClient.zAdd(rankingKeys.today, {
-          score: 0,
-          value: params.playerId,
-        }),
-        // track user session
-        redisClient.set(userKeys.session, currDate),
-        // player info
-        redisClient.hSet(playerKeys.info, playerInfo),
-        // player tracking data
-        redisClient.hSet(playerKeys.month, score),
-        redisClient.hSet(playerKeys.week, score),
-        redisClient.hSet(playerKeys.today, score),
-        // temp room keys
-        // expire ranking keys
-        redisClient.expire(rankingKeys.month, expire),
-        redisClient.expireAt(rankingKeys.week, expireAt),
-        redisClient.expireAt(rankingKeys.today, todayExpireAt),
-        // expire player keys
-        redisClient.expire(playerKeys.info, expire),
-        redisClient.expire(playerKeys.month, expire),
-        redisClient.expireAt(playerKeys.week, expireAt),
-        redisClient.expireAt(playerKeys.today, todayExpireAt),
-      ]);
-    } else {
-      // update last login date, save player details in the hash & save the player id to the room players set
-      await Promise.all([
-        // update user session
-        redisClient.set(userKeys.session, currDate),
-        // update user details on join game
-        redisClient.hSet(playerKeys.info, "lastLoggedIn", currDate),
-        redisClient.hSet(playerKeys.info, "name", params.name),
-        redisClient.hSet(playerKeys.info, "avatar", params.avatar ?? ""),
-        // update current room data
-      ]);
-    }
+    await Promise.all([
+      redisClient.set(userKeys.session,currDate),
+      redisClient.hSet(playerKeys.info,playerInfo),
+      redisClient.expire(playerKeys.info,120*86400),
+    ]);
     // check user energy
     const isEnergyExists = await redisClient.exists(playerKeys.energy);
     if (!isEnergyExists) {
@@ -835,10 +735,10 @@ export const updatePlayerSession = async (params: {
   // player hash unique keys
   const playerKeys = getPlayerRedisKeys(params.playerId, params.catId, mode);
   // update user session on the game category - this is to track their last played date
-  redisClient.hSet(playerKeys.info, "lastLoggedIn", currDate);
+  await redisClient.hSet(playerKeys.info, "lastLoggedIn", currDate);
   // update user session
   const userKeys = getUserRedisKeys(params.playerId);
-  redisClient.set(userKeys.session, currDate);
+  await redisClient.set(userKeys.session, currDate);
 };
 
 // get parent room total number of participants
@@ -904,8 +804,8 @@ export const getGameRoomPlayersWithRank = async (
       const monthStat = await redisClient.hGetAll(playerKeys.month);
       return {
         ...player,
-        score: parseInt(monthStat.score) ?? 0,
-        numPlayed: parseInt(monthStat.numPlayed) ?? 0,
+        score: Number(monthStat.score) || 0,
+        numPlayed: Number(monthStat.numPlayed) || 0,
         rank: playerRank !== null ? playerRank + 1 : 0, // Convert to 1-based rank
       };
     })
@@ -985,8 +885,8 @@ export const getGameLeaderboard = async ({
       // provided "limit" will remain constant
       return {
         ...player,
-        score: parseInt(stat.score) ?? 0,
-        numPlayed: parseInt(stat.numPlayed) ?? 0,
+        score: Number(stat.score) || 0,
+        numPlayed: Number(stat.numPlayed) || 0,
         rank: playerRank !== null ? playerRank + 1 : 0,
       };
     })
@@ -1073,36 +973,17 @@ export const getGameRoom = async (roomId: string) => {
   }
 };
 
-function convertKeysToJSONKeys(
-  arr: Record<string, any>[]
-): Record<string, any>[] {
-  return arr.map((item) => {
-    const newItem: Record<string, any> = {};
-
-    for (const [key, value] of Object.entries(item)) {
-      // Replace invalid characters or normalize keys
-      const jsonKey = key
-        .replace(/\s+/g, "_") // Replace spaces with underscores
-        .replace(/[^a-zA-Z0-9_]/g, ""); // Remove invalid JSON key characters
-
-      newItem[jsonKey] = value;
-    }
-
-    return newItem;
-  });
-}
-
 async function updateWinningStreak(
   {
     catId,
     roomId,
     playerId,
-    mode
+    mode, roundId
   }: {
     catId: string;
     roomId: string;
     playerId: string;
-    mode: string
+    mode: string; roundId:string
   },
   io: GameIoNamespace
 ): Promise<void> {
@@ -1112,18 +993,12 @@ async function updateWinningStreak(
       return;
     }
     const streakKey = `room:${roomId}:streak`;
-    // Get the current leader and their streak
-    const currentLeader = await getRedisHashKey<{
-      playerId: string;
-      catId: string;
-      streak: number;
-    }>(streakKey);
-
-    if (currentLeader && currentLeader.playerId === playerId) {
-      // Increment the current leader's streak
-      const newStreak = await redisClient.hIncrBy(streakKey, "streak", 1);
-      // check if the new streak is ready for reward
-      if (newStreak > 4) {
+    const marker=`game:streak-effect:${roundId}`;
+    const newStreak=Number(await redisClient.eval(`local old=redis.call('GET',KEYS[2]);if old then return old end
+      local n=1;if redis.call('HGET',KEYS[1],'playerId')==ARGV[1] then n=tonumber(redis.call('HGET',KEYS[1],'streak') or '0')+1 end
+      redis.call('HSET',KEYS[1],'playerId',ARGV[1],'catId',ARGV[2],'streak',n);redis.call('SET',KEYS[2],n,'EX',10368000);return n`,
+      {keys:[streakKey,marker],arguments:[playerId,catId]}));
+    if(newStreak>4) {
         const [gameMilestones, category] = await prisma.$transaction([
           prisma.gameMilestone.findMany({ where: { name: "ROOM_STREAK" } }),
           prisma.gameCategory.findFirst({ where: { id: catId } }),
@@ -1215,192 +1090,20 @@ async function updateWinningStreak(
           // sync prisma wallet to redis
           await syncPrismaUserWalletToRedis(playerId, result.wallet);
         }
-      }
-    } else {
-      // Set the new leader and reset their streak to 1
-      await redisClient.hSet(streakKey, { playerId, catId, streak: 1 });
     }
   } catch (error) {
-    logGameError('updateWinningStreak', error, {catId,roomId,playerId,mode});}
+    logGameError('updateWinningStreak', error, {catId,roomId,playerId,mode}); throw error;}
 }
 
 async function resetRoomStreak(roomId: string): Promise<void> {
   await redisClient.del(`room:${roomId}:streak`);
 }
 
-async function backupGamePlayersScores(data: ThemedGameScoreStat[]) {
-  try {
-    const uniqueKey = "game:scores:backup";
-    const backup = convertKeysToJSONKeys(data);
-    const exists = await redisClient.exists(uniqueKey);
-    if (!exists) {
-      await redisClient.json.set(uniqueKey, "$", backup);
-    } else {
-      const [first, ...rest] = backup;
-      if (first !== undefined) await redisClient.json.arrAppend(uniqueKey, "$", first, ...rest);
-    }
-  } catch (error: any) {
-    logGameError('backupGamePlayersScores', error, {});
-
-  }
-}
-
-async function updateGamePlayersScoresDb(data: ThemedGameScoreStat[]) {
-  try {
-    // Attempt to save in Prisma within a transaction
-    await prisma.$transaction(
-      data.map(({ playerId, score, month, year, catId, mode }) =>
-        prisma.gameMonthStat.upsert({
-          where: {
-            playerId_catId_year_month_mode: { playerId, month, year, catId, mode },
-          },
-          update: {
-            score: { increment: score },
-            numPlayed: { increment: 1 },
-          },
-          create: {
-            playerId,
-            catId,
-            month,
-            year,
-            score,
-            numPlayed: 1,
-            mode
-          },
-        })
-      )
-    );
-  } catch (error) {
-    logGameError('updateGamePlayersScoresDb', error, {});
-    backupGamePlayersScores(data);
-  }
-}
-
-export const updateGamePlayersScores = async (scores: ThemedGameScore[]) => {
-  // get utc month & date to track player score by month, year and overall
-  if (!scores.length) return;
-  const mode = getGameMode(scores[0].mode)
-  const stat = getCurrentDataInfo();
-  const persistData: ThemedGameScoreStat[] = scores.map((item) => ({
-    score: item.score,
-    playerId: item.playerId,
-    catId: item.catId,
-    roomId: item.roomId,
-    mode: item.mode,
-    ...stat,
-  }));
-
-  const totalScore = persistData.reduce((acc, item) => acc + item.score, 0);
-
-  try {
-    // perform pipeline update
-    await Promise.all(
-      scores.map(async (item) => {
-        // get ranking keys
-        const rankingKeys = getRankingKeys(item.catId, mode);
-        // player hash unique keys
-        const playerKeys = getPlayerRedisKeys(item.playerId, item.catId, mode);
-        // update leaderboard sorted set
-        redisClient.zIncrBy(rankingKeys.month, item.score, item.playerId),
-          redisClient.zIncrBy(rankingKeys.week, item.score, item.playerId),
-          redisClient.zIncrBy(rankingKeys.today, item.score, item.playerId),
-          // update category total players score and num played
-          redisClient.hIncrBy(rankingKeys.monthStat, "score", totalScore),
-          redisClient.hIncrBy(rankingKeys.monthStat, "numPlayed", 1),
-          // update player stats
-          redisClient.hIncrBy(playerKeys.month, "score", item.score);
-        redisClient.hIncrBy(playerKeys.month, "numPlayed", 1);
-        redisClient.hIncrBy(playerKeys.week, "score", item.score);
-        redisClient.hIncrBy(playerKeys.week, "numPlayed", 1);
-        redisClient.hIncrBy(playerKeys.today, "score", item.score);
-        redisClient.hIncrBy(playerKeys.today, "numPlayed", 1);
-      })
-    );
-    // update db
-    updateGamePlayersScoresDb(persistData);
-  } catch (error) {
-    logGameError('updateGamePlayersScores', error, {});}
-};
-
-export const updatePlayerGameEnergy = async (
-  socket: Socket,
-  params: PlayerGameEnergy
-) => {
-  try {
-    logServiceTrace("v1/games/index", "updatePlayerGameEnergy", "Game energy incoming request ");
-    // const playerKeys = getPlayerRedisKeys(params.playerId, params.catId);
-    const uKey = `player:${params.playerId}:cat:${params.catId}:energy`
-    await Promise.all([
-      redisClient.hSet(uKey, "amount", params.amount),
-      redisClient.hSet(uKey, "gauge", params.gauge),
-      redisClient.hSet(uKey, "turbo", params.turbo),
-    ]);
-    // emit back
-    socket.emit(GameEventEnum.GAME_PLAYER_ENERGY, params);
-    logger.info(`Redis game room player's energy updated`);
-  } catch (error: any) {
-    logGameError('updatePlayerGameEnergy', error, params);
-
-  }
-};
-
-export const updatePlayersGameEnergy = async (
-  scores: ThemedGameScore[],
-  io: GameIoNamespace
-) => {
-  try {
-    const result = await Promise.all(
-      scores.map(async (item) => {
-        // get user keys
-        const mode = getGameMode(item.mode)
-        const playerKeys = getPlayerRedisKeys(item.playerId, item.catId, mode);
-        // get random amount number
-        const amount = getRandomNumber(150, 250, true);
-        // get random number to decrement energy gauge
-        const gauge = getRandomNumber(2, 4, true);
-        // get random number to decrement energy turbo
-        const turbo = getRandomNumber(2, 4, true);
-        // update player stats
-        const _amount = await redisClient.hIncrBy(
-          playerKeys.energy,
-          "amount",
-          amount
-        );
-        const _gauge = await redisClient.hIncrBy(
-          playerKeys.energy,
-          "gauge",
-          -gauge
-        );
-        const _turbo = await redisClient.hIncrBy(
-          playerKeys.energy,
-          "turbo",
-          -turbo
-        );
-        logServiceTrace("v1/games/index", "updatePlayersGameEnergy", "Generated energy");
-        return {
-          playerId: item.playerId,
-          catId: item.catId,
-          amount: _amount,
-          gauge: _gauge,
-          turbo: _turbo,
-        };
-      })
-    );
-    //
-    logServiceTrace("v1/games/index", "updatePlayersGameEnergy", "Updated players game energy after game round");
-    logServiceTrace("v1/games/index", "updatePlayersGameEnergy", "Service diagnostic");
-    // emit to game players
-    await Promise.all(
-      result.map((item) => {
-        io.in(item.playerId).emit(GameEventEnum.GAME_PLAYER_ENERGY, item);
-      })
-    );
-
-    logger.info(`Redis game room players' energy updated`);
-  } catch (error: any) {
-    logGameError('updatePlayersGameEnergy', error, {});
-
-  }
+export const updatePlayerGameEnergy = async (socket:Socket, params:PlayerGameEnergy & {field?:'gauge'|'turbo';operationId?:string}) => {
+  if(!params.field||!params.operationId) throw new Error('Send a refill action, not energy balances');
+  const energy=await refillGameEnergy(socket.data.user.id,socket.data.room.catId,params.field,params.operationId);
+  socket.emit(GameEventEnum.GAME_PLAYER_ENERGY,energy);
+  return energy;
 };
 
 export const isGameRoomExists = async (roomId: string, generation?: string) => {
@@ -1512,9 +1215,11 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
 
   const timer = timers[timerKey] ?? 15 //gameType === GameType.ACRONYM ? 25 : initTimer
 
+  const now=await gameClock();
   const storedQuestion = await storeGameRoomQuestion(room.roomId, {...gameQuestion,
-    answerUntil:Date.now()+timer*1000, voteUntil:Date.now()+(timer+12)*1000},room.generation);
+    startedAt:now, answerUntil:now+timer*1000, voteUntil:now+(timer+12)*1000},room.generation);
   if (!storedQuestion) return;
+  await recordGameRound(room,storedQuestion);
   await updateGameRoom({
     ...room,
     status: GameStatusEnum.PLAY,
@@ -1539,9 +1244,11 @@ export const getGameResult = async (roomId: string, io: GameIoNamespace) => {
   }
   // // get all the game answers for a particular room when answering is done
   // calculate players points
-  const gameRoomScore = await calculateGameRoomPoints(room);
+  const captured = await captureRound(room);
+  const settled = await settleGameRound(captured.id,snapshot=>calculateGameRoomPoints(room,snapshot));
+  const gameRoomScore = settled.scores as unknown as ThemedGameScore[];
   // persuade users to play when no game answers are available
-  if (gameRoomScore.length === 0) {
+  if (gameRoomScore.length === 0 && settled.effectsPending) {
     io.to(roomId).emit(
       GameEventEnum.MESSAGE,
       composeMessage({ content: "Please don't forget to always play!" })
@@ -1552,24 +1259,26 @@ export const getGameResult = async (roomId: string, io: GameIoNamespace) => {
   if (gameRoomScore.length > 0) {
     // update game room streak and game achievement or set game room streak
     const item = gameRoomScore[0];
-    if(item.score > 0){
-      await updateWinningStreak({...item, mode: room.mode}, io)
-    }else{
-      await resetRoomStreak(item.roomId);
+    if(settled.effectsPending) {
+      if(item.score>0) await updateWinningStreak({...item,mode:room.mode,roundId:settled.id},io);
+      else await resetRoomStreak(item.roomId);
     } 
     // update players game energy
-    await updatePlayersGameEnergy(gameRoomScore, io);
+    for (const score of gameRoomScore) {
+      const energy = await prisma.gameEnergy.findUnique({where:{playerId_catId:{playerId:score.playerId,catId:score.catId}}});
+      if(energy) io.to(score.playerId).emit(GameEventEnum.GAME_PLAYER_ENERGY,energy);
+    }
     //   emit event to client
     io.to(roomId).emit(GameEventEnum.GAME_ROOM_SCORE, gameRoomScore);
     // update game points
-    await updateGamePlayersScores(gameRoomScore);
+    // Scores and energy already committed with the round receipt.
     //   send in game room players
     const players = await getGameRoomPlayersWithRank(roomId, room.catId, room.mode);
     io.to(roomId).emit(GameEventEnum.GAME_ROOM_PLAYERS, players);
-  } else {
-    // reset game room streak
+  } else if(settled.effectsPending) {
     await resetRoomStreak(room.roomId);
   }
+  await prisma.gameRoundRecord.update({where:{id:settled.id},data:{effectsPending:false}});
   // chat again
   await gameChatTime(roomId, io, true);
   // if(room.mode === GameMode.MULTI){
@@ -1582,169 +1291,25 @@ export const getGameResult = async (roomId: string, io: GameIoNamespace) => {
 };
 
 // when it's play time
-export const gamePlayTime = async (
-  roomId: string,
-  io: GameIoNamespace,
-  question: ThemedGameQuestion
-) => {
-  const room = await getGameRoom(roomId);
-  if (!room) return;
-  const status = room.status;
-  let countdown = room.timer ?? 1;
-  io.to(roomId).emit(GameEventEnum.GAME_ROOM_QUESTION, {
-    message: "Swen says, it's play time!",
-    question: publicWordQuestion(question),
-  });
-  let ticking = false;
-  const interval = setInterval(() => {
-    if (ticking) return;
-    ticking = true;
-    void (async () => {
-    --countdown;
-    const isExists = await isGameRoomExists(roomId,room.generation);
-    if (!isExists) return clearInterval(interval);
-    await updateGameRoom({
-      ...room,
-      status,
-      roomId,
-      catId: room.catId,
-      timer: countdown,
-    });
-    io.to(roomId).emit(GameEventEnum.GAME_ROOM_STATE, { status, countdown });
-    if (countdown < 1) {
-      clearInterval(interval);
-      const gameType = getGameType(room.gameName);
-      if (gameType === GameType.ACRONYM) {
-        await updateGameRoom({
-          ...room,
-          status: GameStatusEnum.VOTE,
-          roomId,
-          catId: room.catId,
-        });
-        await gameVoteTime({ ...room, status: GameStatusEnum.VOTE }, io);
-      } else {
-        await updateGameRoom({
-          ...room,
-          status: GameStatusEnum.CHAT,
-          roomId,
-          catId: room.catId,
-        });
-        await getGameResult(roomId, io);
-      }
-    }
-    })().catch(error => {
-      logGameError('gamePlayTime', error, {roomId});
-      clearInterval(interval);
-
-      io.to(room.roomId).emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This round could not continue. Please rejoin the room.');
-    }).finally(() => {ticking = false;});
-  }, 1000);
+export const gamePlayTime = async (roomId:string,io:GameIoNamespace,question:ThemedGameQuestion) => {
+  const room=await getGameRoom(roomId);if(!room)return;
+  await recordGameRound(room,question);
+  await scheduleGamePhase(room,'PLAY',question.answerUntil!,question.roundId);
+  io.to(roomId).emit(GameEventEnum.GAME_ROOM_QUESTION,{message:"Swen says, it's play time!",question:publicWordQuestion(question)});
 };
-
-export const gameChatTime = async (
-  roomId: string,
-  io: GameIoNamespace,
-  notify?: boolean
-) => {
-  const room = await getGameRoom(roomId);
-  if (!room) return;
-  const status = room.status;
-  const isSolo = room.mode === GameMode.SINGLE
-  let countdown = isSolo  ? 5 : room.timer ?? 1;
-  // emit initial message
-  if (notify) {
-    io.to(roomId).emit(GameEventEnum.NOTIFY_MESSAGE, isSolo ? "Get ready!" : "You can chat now!");
-  }
-  // set interval
-  let ticking = false;
-  const interval = setInterval(() => {
-    if (ticking) return;
-    ticking = true;
-    void (async () => {
-    --countdown;
-    const isExists = await isGameRoomExists(roomId,room.generation);
-    if (!isExists) return clearInterval(interval);
-    // emit to the client side
-    io.to(roomId).emit(GameEventEnum.GAME_ROOM_STATE, { status, countdown });
-    // update game timer
-    await updateGameRoom({
-      ...room,
-      roomId,
-      catId: room.catId,
-      status,
-      timer: countdown,
-    });
-    if (countdown < 1) {
-      clearInterval(interval);
-      // delete any previous game question & user answers
-      await deleteGameRoomQuestionAndAnswers(room.roomId);
-      await checkGameNumPlayers(room, io);
-    }
-    })().catch(error => {
-      logGameError('gameChatTime', error, {roomId});
-      clearInterval(interval);
-
-      io.to(room.roomId).emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This round could not continue. Please rejoin the room.');
-    }).finally(() => {ticking = false;});
-  }, 1000);
+export const gameChatTime = async (roomId:string,io:GameIoNamespace,notify?:boolean) => {
+  const room=await getGameRoom(roomId);if(!room)return;
+  const q=await retrieveGameRoomQuestion(roomId);
+  await scheduleGamePhase(room,'CHAT',await gameClock()+(room.mode==='SINGLE'?5:10)*1000,q?.roundId);
+  if(notify)io.to(roomId).emit(GameEventEnum.NOTIFY_MESSAGE,room.mode==='SINGLE'?'Get ready!':'You can chat now!');
 };
-
-// this function signifies time for voting
-const gameVoteTime = async (room: TempGameRoom, io: GameIoNamespace) => {
-  // get all the game answers for a particular room when answering is done
-  const answers = await retrieveGameRoomAnswers<AcronymGameAnswer>(room.roomId);
-  if (answers.length === 0) {
-    await updateGameRoom({
-      ...room,
-      status: GameStatusEnum.CHAT,
-    });
-    await getGameResult(room.roomId, io);
-    return;
-  }
-  io.to(room.roomId).emit(
-    GameEventEnum.NOTIFY_MESSAGE,
-    "It's voting time now!"
-  );
-  const status = room.status;
-  let countdown = 12;
-  // emit to the client side
-  io.to(room.roomId).emit(GameEventEnum.GAME_ROOM_STATE, { status, countdown });
-  //   emit event to client
-  const roomAnswers = answers.sort((a, b) => b.timer - a.timer);
-  io.to(room.roomId).emit(GameEventEnum.GAME_ROOM_ANSWERS, roomAnswers);
-  // interval
-  let ticking = false;
-  const interval = setInterval(() => {
-    if (ticking) return;
-    ticking = true;
-    void (async () => {
-    countdown--;
-    if (!await isGameRoomExists(room.roomId,room.generation)) return clearInterval(interval);
-    // emit to the client side
-    io.to(room.roomId).emit(GameEventEnum.GAME_ROOM_STATE, {
-      status,
-      countdown,
-    });
-    await updateGameRoom({
-      ...room,
-      status,
-      timer: countdown,
-    });
-    if (countdown < 1) {
-      clearInterval(interval);
-      await updateGameRoom({
-        ...room,
-        status: GameStatusEnum.CHAT,
-      });
-      await getGameResult(room.roomId, io);
-    }
-    })().catch(error => {
-      logGameError('gameVoteTime', error, room);
-      clearInterval(interval);
-
-      io.to(room.roomId).emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This round could not continue. Please rejoin the room.');
-    }).finally(() => {ticking = false;});
-  }, 1000);
+export const gameVoteTime = async (room:TempGameRoom,io:GameIoNamespace) => {
+  const answers=await retrieveGameRoomAnswers<AcronymGameAnswer>(room.roomId);
+  if(!answers.length){await getGameResult(room.roomId,io);return;}
+  const q=await retrieveGameRoomQuestion(room.roomId);if(!q)return;
+  await scheduleGamePhase(room,'VOTE',q.voteUntil!,q.roundId);
+  io.to(room.roomId).emit(GameEventEnum.NOTIFY_MESSAGE,"It's voting time now!");
+  io.to(room.roomId).emit(GameEventEnum.GAME_ROOM_ANSWERS,answers.sort((a,b)=>b.timer-a.timer));
 };
 
 export const createGame = async (args: {
@@ -1875,10 +1440,8 @@ export const getGamePlayerRankings = async (
         ? keyPatterns.week
         : keyPatterns.month;
     // Use SCAN to fetch a batch of keys
-    const { keys } = await redisClient.scan('0', {
-      COUNT: 50000,
-      MATCH: pattern,
-    });
+    const keys:string[]=[];
+    for await(const batch of redisClient.scanIterator({COUNT:250,MATCH:pattern})) keys.push(...batch);
     // ranking store
     const rankings = [];
     // loop through keys and get player rank for each category
@@ -2073,10 +1636,8 @@ export const getGameCategoriesRankings = async (
         : keyPatterns.month;
      logServiceTrace("v1/games/index", "getGameCategoriesRankings", "ranking key patterns ");
     // Use SCAN to fetch a batch of keys
-    const { keys } = await redisClient.scan('0', {
-      COUNT: 50000,
-      MATCH: pattern,
-    });
+    const keys:string[]=[];
+    for await(const batch of redisClient.scanIterator({COUNT:250,MATCH:pattern})) keys.push(...batch);
     logServiceTrace("v1/games/index", "getGameCategoriesRankings", "found keys ");
     // ranking store
     const rankings = [];
@@ -2283,36 +1844,6 @@ export const getUserGameRankingArchiveData = async ({
   }
 };
 
-
-
-async function clearRedisKeysByPattern(pattern: string) {
-  try {
-    // clear players stats redis keys
-    let cursor = '0'; // Initial cursor
-    let keyCounts = 0;
-    do {
-      // Use SCAN to fetch a batch of keys
-      const { cursor: newCursor, keys } = await redisClient.scan(cursor, {
-        COUNT: 50000,
-        MATCH: pattern,
-      });
-      cursor = newCursor;
-      keyCounts += keys.length;
-      logger.info(`cursor: ${cursor}`);
-      logger.info(`First key : ${keys[0]}`);
-      logger.info(`Found ${keys.length} keys in this batch`);
-      if (keys.length > 0) {
-        await Promise.all(keys.map((key) => redisClient.del(key)));
-        logger.info(`Deleted ${keys.length} keys in this batch`);
-      }
-    } while (cursor !== '0'); // SCAN stops when cursor is back to '0'
-
-    logger.info(`All matching ${keyCounts} keys have been deleted.`);
-  } catch (error: any) {
-    logGameError('clearRedisKeysByPattern', error, {});
-
-  }
-}
 
 
 /** Log failures with operation/IDs only; never serialize game answers, chat or user payloads. */

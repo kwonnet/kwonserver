@@ -1,7 +1,7 @@
 import { GameDelivery, gameActionId } from './gameDelivery';
 import { GameActionEnum } from '@/types';
 import { TxnCategoryEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum, TxnStatusEnum, TxnTypeEnum } from '@prisma/client';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomInt } from 'crypto';
 import { cents, WalletError, walletOperation } from './index';
 
 export async function chargeGameAction(params: { playerId: string; action: GameActionEnum; [key: string]: any }, high: number, fallback: number, delivery?: GameDelivery) {
@@ -18,8 +18,23 @@ export async function chargeGameAction(params: { playerId: string; action: GameA
     const bonusDebit = Math.min(bonus, charge), coinDebit = charge - bonusDebit;
     await tx.wallet.update({ where: { id: wallet.id }, data: { coins: (coins - coinDebit) / 100, bonus: (bonus - bonusDebit) / 100 } });
     const actionId = delivery ? gameActionId(params.playerId,key!) : undefined;
-    if (delivery) await tx.gameWalletAction.create({data:{id:actionId!,userId:params.playerId,roomId:delivery.roomId,roundId:delivery.roundId,
-      kind:delivery.kind,payload:delivery.kind === 'CHAT' ? {id: delivery.payload.id} : delivery.payload,deductedCoins:coinDebit/100,deductedBonus:bonusDebit/100}});
+    let outcome: string | undefined;
+    let acceptedDelivery = delivery;
+    if (delivery?.payload.serverLuck === true) {
+      const options: unknown = delivery.payload.luckOptions;
+      if (!Array.isArray(options) || !options.length || options.length > 30 || options.some(n => typeof n !== 'string' || !/^\d{1,3}$/.test(n))) throw new WalletError('Invalid luck game options');
+      const latest = await tx.gameWalletAction.findFirst({where: {userId: params.playerId, roomId: delivery.roomId,
+        roundId: delivery.roundId, kind: 'ANSWER', status: {not: 'REFUNDED'}}, orderBy: {createdAt: 'desc'}});
+      if (latest && delivery.payload.luckKind === 'LUCKYSPIN' && Date.now()-latest.createdAt.getTime()<2500) throw new WalletError('Wait for the current spin to finish');
+      const used = await tx.gameWalletAction.count({where: {userId: params.playerId, roomId: delivery.roomId,
+        roundId: delivery.roundId, kind: 'ANSWER', status: {not: 'REFUNDED'}}});
+      if (delivery.payload.luckKind === 'LUCKYFLIP' && used >= options.length) throw new WalletError('All cards have been flipped');
+      outcome = options[randomInt(options.length)];
+      const {luckOptions, ...payload} = delivery.payload;
+      acceptedDelivery = {...delivery, payload: {...payload, answer: outcome, serverOutcome: true}};
+    }
+    if (acceptedDelivery) await tx.gameWalletAction.create({data:{id:actionId!,userId:params.playerId,roomId:acceptedDelivery.roomId,roundId:acceptedDelivery.roundId,
+      kind:acceptedDelivery.kind,payload:acceptedDelivery.kind === 'CHAT' ? {id: acceptedDelivery.payload.id} : acceptedDelivery.payload,deductedCoins:coinDebit/100,deductedBonus:bonusDebit/100}});
     await tx.transaction.create({ data: {
       userId: params.playerId, senderId: params.playerId, walletId: wallet.id,
       txnRef: randomUUID(), amount: charge / 100, currency: TxnCurrencyEnum.COINS,
@@ -28,7 +43,7 @@ export async function chargeGameAction(params: { playerId: string; action: GameA
       type: TxnTypeEnum.DEBIT, status: TxnStatusEnum.COMPLETED,
       description: 'Game action charge', metadata: { ...storedParams, gameActionId:actionId, deductedBonus: bonusDebit / 100, deductedCoins: coinDebit / 100 },
     } });
-    return { ...(actionId ? {actionId} : {}), amount: (coins - coinDebit) / 100, bonus: (bonus - bonusDebit) / 100,
+    return { ...(outcome !== undefined ? {outcome} : {}), ...(actionId ? {actionId} : {}), amount: (coins - coinDebit) / 100, bonus: (bonus - bonusDebit) / 100,
       deductedBonus: bonusDebit / 100, deductedCoins: coinDebit / 100 };
   });
 }

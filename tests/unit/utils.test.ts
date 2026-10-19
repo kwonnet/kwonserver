@@ -50,12 +50,12 @@ it('uses UTC for current dates, week numbers and expiration boundaries', () => {
   expect(u.getMonthlyExpiration()).toBe(Math.floor((Date.parse('2026-11-01T00:00:00Z') - 1 - Date.now()) / 1000));
 });
 it('namespaces ranking and player keys by user, category, mode and period', () => {
-  expect(u.getRankingKeys('cat', 'single').today).toBe('ranking:cat:cat:mode:single:2026:10:today:1');
+  expect(u.getRankingKeys('cat', 'single').today).toBe('ranking:v2:cat:cat:mode:single:day:2026-10-01');
   const player = u.getPlayerRedisKeys('u', 'cat', 'multi');
   for (const ranking of ['today', 'week', 'month']) expect(u.getPlayerRankingKey({ playerId: 'u', catId: 'cat', mode: 'multi', ranking })).toBe(player[ranking as keyof typeof player]);
   expect(u.getUserRedisKeys('u')).toEqual({ session: 'user:u:session', wallet: 'user:u:wallet', txn: 'user:u:transactions' });
-  expect(u.getRankingRewardKeys('cat', 'single').rewardMonth).toContain(':2026:9:month:9');
-  expect(u.getPlayerRewardKeys('u', 'cat', 'single').month).toContain(':2026:9:month:9');
+  expect(u.getRankingRewardKeys('cat', 'single').rewardMonth).toContain(':month:2026-09');
+  expect(u.getPlayerRewardKeys('u', 'cat', 'single').month).toContain(':month:2026-09');
   expect(u.getSpentCoinsKey({ gameId: 'g', catId: 'cat', mode: 'SINGLE' as any })).toBe('game:g:category:cat:single:2026:10:spent');
   expect(u.getSpentCoinsKey({ gameId: 'g', catId: 'cat', mode: 'MULTI' as any, dateInfo: { year: 2025, month: 2 } })).toBe('game:g:category:cat:multi:2025:2:spent');
 });
@@ -111,8 +111,8 @@ it('refresh accepts expired signed tracked identities but never expired legacy o
 
 it('pins recovered monthly reward keys to their original period after rollover', () => {
   expect(u.getRankingRewardKeys('cat', 'multi', {year: 2025, month: 12})).toMatchObject({
-    dateInfo: {year: 2025, month: 12}, rewardMonth: 'ranking:cat:cat:mode:multi:2025:12:month:12',
-    rewardMonthStat: 'ranking:cat:cat:mode:multi:2025:12:stat',
+    dateInfo: {year: 2025, month: 12}, rewardMonth: 'ranking:v2:cat:cat:mode:multi:month:2025-12',
+    rewardMonthStat: 'ranking:v2:cat:cat:mode:multi:month:2025-12:stat',
   });
   expect(() => u.getRankingRewardKeys('cat', 'multi', {year: 2025, month: 13})).toThrow('Invalid monthly');
 });

@@ -20,6 +20,7 @@ datasource db {
 }
 
 model User {
+  gamePeriodStats GamePeriodStat[]
   messagingRecovery E2Recovery?
   messagingBackups E2HistoryBackup[]
   twoFactor UserTwoFactor?
@@ -1352,6 +1353,7 @@ model QuizQuestion {
 }
 
 model GameCategory {
+  gamePeriodStats GamePeriodStat[]
   monthlyRewardSettlements MonthlyRewardSettlement[]
   questions            QuizQuestion[]
   id                   String                @id @default(cuid())
@@ -1532,6 +1534,8 @@ model GameEnergy {
   category  GameCategory? @relation(fields: [catId], references: [id])
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
+  @@unique([playerId, catId])
+
 }
 
 model Task {
@@ -1957,6 +1961,7 @@ model WalletOperation {
 
 // A charge and its pending game action commit together. Redis delivery is retryable.
 model GameWalletAction {
+  sequence BigInt @unique @default(autoincrement())
   id             String   @id
   userId         String
   roomId         String
@@ -1966,10 +1971,14 @@ model GameWalletAction {
   deductedCoins  Decimal  @db.Decimal(20, 2)
   deductedBonus  Decimal  @db.Decimal(20, 2)
   status         String   @default("PENDING")
+  nextAttemptAt DateTime @default(now())
+  failures Int @default(0)
   reason         String?
   createdAt      DateTime @default(now())
   settledAt      DateTime?
   @@index([status, createdAt])
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([userId, roomId, roundId, createdAt])
 }
 
 // Deployment-owned cursor; not application data or a writable public model.
@@ -2596,4 +2605,57 @@ model GameMilestoneRewardTask {
   @@index([status, nextAttemptAt])
   @@index([cachePending, nextAttemptAt])
   @@index([kind, year, week])
+}
+
+// Immutable round inputs/results. Score and energy writes commit with completion.
+model GameRoundRecord {
+  id String @id
+  roomId String
+  generation String
+  catId String
+  mode GameMode
+  playedAt DateTime
+  question Json
+  snapshot Json?
+  scores Json?
+  status String @default("PENDING")
+  projectionPending Boolean @default(true)
+  effectsPending Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, projectionPending, updatedAt])
+  @@index([catId, mode, playedAt])
+  @@index([roomId, playedAt])
+}
+
+model GameRoomRuntime {
+  id String @id
+  generation String
+  config Json
+  phase String
+  deadline DateTime
+  roundId String?
+  active Boolean @default(true)
+  revision Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([active, updatedAt])
+}
+
+model GamePeriodStat {
+  id String @id
+  playerId String
+  player User @relation(fields:[playerId],references:[id],onDelete:Cascade)
+  catId String
+  category GameCategory @relation(fields:[catId],references:[id],onDelete:Cascade)
+  mode GameMode
+  kind String
+  periodStart DateTime
+  score Int @default(0)
+  numPlayed Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([playerId,catId,mode,kind,periodStart])
+  @@index([catId,mode,kind,periodStart,score(sort:Desc),playerId(sort:Desc)])
+  @@index([playerId])
 }

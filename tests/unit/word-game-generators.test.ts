@@ -4,7 +4,7 @@ vi.mock('@/config',()=>({openai:{responses:{parse:deps.parse}},deepSeekAi:{},axi
 vi.mock('@/services/helper',()=>({getGameCatType:(name:string)=>name.toUpperCase()}));
 vi.mock('@/services/questionInventory/runtime',()=>({getQuestionInventory:()=>({})}));
 vi.mock('@/services/v1/games/questionInventory',()=>({getInventoryRoomQuestion:deps.select}));
-import {generateHangmanQuestion,generateWordMakerQuestion,generateTypingManiaQuestion,generateUnscrambleQuestion,generateSentenceBatch,scrambleSentence} from '@/utils/ai';
+import {generateAnagramQuestion,generateHangmanQuestion,generateWordMakerQuestion,generateTypingManiaQuestion,generateUnscrambleQuestion,generateSentenceBatch,scrambleSentence} from '@/utils/ai';
 import {canFormWord,englishDictionary,matchesSentenceAnswer,normalizeSentence,publicWordQuestion,wordBag} from '@/utils/word-games';
 import {validateSentenceQuestion} from '@/services/questionInventory/validation';
 import {GameCatType} from '@/types';
@@ -97,4 +97,10 @@ it.each(['TYPEMANIA','UNSCRAMBLE'] as const)('caps %s at seven words while allow
  }
  const sentence='The small brown cat sleeps near the window.';
  expect(validateSentenceQuestion({question:sentence,answer:sentence,options:kind==='UNSCRAMBLE'?[sentence]:[]},kind)).toBeNull();
+});
+
+it('provides an Anagram prefix hint without sending its complete answer key',()=>{
+ const q=generateAnagramQuestion(),pub=publicWordQuestion(q);
+ expect(pub.hint).toBeTruthy();expect(q.answer.startsWith(pub.hint!.replace(/\.\.\.$/,''))).toBe(true);
+ expect(pub.hint).not.toContain(q.answer);expect(pub.answer).toBe('');
 });

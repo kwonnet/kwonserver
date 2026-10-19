@@ -625,6 +625,7 @@ export function generateAnagramQuestion() {
   const obj: ThemedGameQuestion = {
     question,
     answer: word,
+    hint: `${word.slice(0,word.length<=4?2:word.length<=6?3:word.length<=9?5:word.length<=13?7:word.length<=20?10:14)}...`,
     options: [],
     id: generateID(),
     type: GameType.MINDMASH,
@@ -713,7 +714,7 @@ function generateLuckyWhizQuestion() {
   const validWords = words.filter((word) => word.length >= 3);
   // Select a random word from the valid words array
   const word1 = validWords[Math.floor(Math.random() * validWords.length)];
-  const word2 = validWords[Math.floor(Math.random() * validWords.length - 1)];
+  const word2 = validWords[Math.floor(Math.random() * validWords.length)];
   const answer = shuffleArray([word1, word2, word1, word2])[0].toString();
   // return
   const obj: ThemedGameQuestion = {

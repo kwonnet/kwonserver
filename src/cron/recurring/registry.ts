@@ -1,4 +1,5 @@
 export const recurringJobs = [
+  {name:'recover_game_rounds',pattern:'* * * * *',load:()=>import('./recover_game_rounds')},
   {name:'recover_monthly_rewards',pattern:'* * * * *',load:()=>import('./recover_monthly_rewards')},
   {name:"settle_quiz_rewards",pattern:"* * * * *",load:()=>import("./settle_quiz_rewards")},
   {name:"reconcile_coin_withdrawals",pattern:"*/5 * * * *",load:()=>import("./reconcile_coin_withdrawals")},

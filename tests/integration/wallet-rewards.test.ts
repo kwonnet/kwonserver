@@ -18,6 +18,7 @@ import {processMilestoneRewardTask} from '@/services/walletLedger/milestoneRewar
 import {processMilestoneRewardJob} from '@/cron/milestoneRewards';
 import {milestoneRewardQueue, notificationQueue, closeJobQueues} from '@/cron/jobs/queue';
 import {getRankingRewardKeys, getRewardDateInfo} from '@/utils';
+import {isoWeekStart} from '@/utils/game-periods';
 import {getNotificationStreamSnapshot} from '@/services/v1/notifications';
 const prefix = 'milestone-reward-';
 const ids = Array.from({length: 4}, (_, i) => `${prefix}${i}`);
@@ -38,7 +39,9 @@ beforeAll(async () => {
  ]});
  milestones = created.map(m => m.id);
  for (const c of categories) for (const mode of ['single','multi'] as const) {
-  const key = getRankingRewardKeys(c.id, mode).rewardWeek; keys.push(key);
+  const start=isoWeekStart(period.weeklyRewardYear,period.weeklyRewardWeek);
+  const key=`ranking:cat:${c.id}:mode:${mode}:${start.getUTCFullYear()}:${start.getUTCMonth()+1}:week:${period.weeklyRewardWeek}`;
+  keys.push(key,getRankingRewardKeys(c.id,mode).rewardWeek);
   await redis.zAdd(key, ids.slice(0,3).map((value,i) => ({value, score: 30-i})));
  }
  await db.gameMonthStat.createMany({data: [
@@ -61,6 +64,7 @@ afterAll(async () => {
   });
   await db.gameMilestoneRewardTask.deleteMany({where: {id: {in: tasks.map(t => t.id)}}});
   await db.walletOperation.deleteMany({where: {id: {in: [...operations,...receipts]}}});
+  await db.walletOperation.deleteMany({where:{scope:'reward_top_players_every_week',fingerprint:{in:ids.map(recipient=>createHash('sha256').update(JSON.stringify({recipient})).digest('hex'))}}});
   await db.notification.deleteMany({where: {recipientId: {in: ids}}});
   await db.transaction.deleteMany({where: {userId: {in: ids}}});
   await db.game.delete({where: {id: gameId}});
@@ -103,7 +107,8 @@ it('rolls back a whole failed payout and retries concurrent jobs using frozen wi
 });
 it('honors old per-player receipts during migration and retries only cache invalidation after commit', async () => {
  const task = await db.gameMilestoneRewardTask.findFirstOrThrow({where: {kind: 'WEEK', scopeId: categories[1].id, mode: 'MULTI'}});
- const scope = 'reward_top_players_every_week', key = `${task.rankingKey}:${ids[0]}`;
+ const legacyRanking=keys.find(key=>key.startsWith(`ranking:cat:${categories[1].id}:mode:multi:`))!;
+ const scope = 'reward_top_players_every_week', key = `${legacyRanking}:${ids[0]}`;
  operations.push(createHash('sha256').update(`${scope}:${key}`).digest('hex'));
  await walletOperation(scope, key, {recipient: ids[0]}, [ids[0]], async tx => {
   await tx.wallet.update({where: {userId: ids[0]}, data: {coins: {increment: 25}}});

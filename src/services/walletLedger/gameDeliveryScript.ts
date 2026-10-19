@@ -9,14 +9,15 @@ local function reject(reason)
  return result
 end
 -- Preflight types before writes: Redis Lua errors do not roll back earlier commands.
-local types = {'string','string','hash','hash','set','hash','hash'}
+local types = {'string','string','hash','hash','set','hash','hash',false,'set'}
 for i=2,#types do
  local t = redis.call('TYPE', KEYS[i]).ok
- if t ~= 'none' and t ~= types[i] then return redis.error_reply('Invalid game storage type') end
+ if i ~= 8 and t ~= 'none' and t ~= types[i] then return redis.error_reply('Invalid game storage type') end
 end
 local d = cjson.decode(ARGV[1])
 local p = d.payload
-local now = tonumber(redis.call('TIME')[1]) * 1000
+local clock = redis.call('TIME')
+local now = tonumber(clock[1])*1000 + math.floor(tonumber(clock[2])/1000)
 local roomExists = redis.call('EXISTS', KEYS[3])
 if roomExists == 0 then return reject('Room closed') end
 if d.kind == 'CHAT' then
@@ -95,12 +96,13 @@ else
  elseif d.kind == 'ANSWER' and p.isSpin == true then
   local oldRaw=redis.call('HGET',KEYS[4],d.userId)
   local old=oldRaw and cjson.decode(oldRaw) or nil
-  if old and tonumber(old.submittedAt or 0) > tonumber(p.submittedAt or 0) then return reject('A newer spin is already recorded') end
+  if old and ((old.sequence and old.sequence > p.sequence) or (not old.sequence and tonumber(old.submittedAt or 0) > tonumber(p.submittedAt or 0))) then return reject('A newer spin is already recorded') end
   redis.call('HSET',KEYS[4],d.userId,encode(p))
  else
   redis.call('HSET',KEYS[4],d.userId,encode(p))
  end
 end
+if d.kind ~= 'CHAT' then redis.call('SADD',KEYS[9],d.id) end
 local result=cjson.encode({state='APPLIED'})
 redis.call('SET',KEYS[1],result)
 return result

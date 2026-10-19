@@ -1,3 +1,6 @@
+import {gameClock} from '@/services/v1/games/clock';
+import {attachGameAdapter} from './gameAdapter';
+import {startGameRuntimes,ensureGameRuntime} from '@/services/v1/games/runtime';
 import { publicWordQuestion } from '@/utils/word-games';
 import {validateAuthSession} from "@/services/v1/auth";
 import {registerAuthNamespace} from "@/utils/auth-session-sockets";
@@ -38,18 +41,28 @@ import { DefaultEventsMap, Server } from "socket.io";
 const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) => {
   const io = _io.of("/games");
   registerAuthNamespace(io);
+  let runtimeReady:Promise<void>=Promise.resolve();
   if (_io.httpServer) {
+    let closeRuntime: (()=>Promise<void>) | undefined;
+    let closeAdapter: (()=>Promise<void>) | undefined;
     let closeSubscription: (() => Promise<void>) | undefined;
     let closed = false;
+    let ready!:()=>void,unavailable!:(error:Error)=>void;
+    runtimeReady=new Promise<void>((resolve,reject)=>{ready=resolve;unavailable=reject;});
+    // Observe early startup rejection even before the first handshake.
+    runtimeReady.catch(()=>{});
     _io.httpServer.once('listening',async () => {
       try {
+        closeAdapter = await attachGameAdapter(_io);
         closeSubscription = await subscribeGamePresence(io);
-        if (closed) await closeSubscription();
-      } catch(error) { logger.error({event:'game_presence_subscription_failed',error:error instanceof Error?error.message:'Unknown failure'}); }
+        closeRuntime = await startGameRuntimes(io);
+        if (closed) {await closeRuntime();await closeSubscription();await closeAdapter();}
+        ready();
+      } catch(error) { unavailable(new Error('Games are temporarily unavailable'));logger.error({event:'game_presence_subscription_failed',error:error instanceof Error?error.message:'Unknown failure'}); }
     });
     _io.httpServer.once('close',async () => {
       closed = true;
-      try { await closeSubscription?.(); }
+      try { await closeRuntime?.();await closeSubscription?.();await closeAdapter?.(); }
       catch(error) { logger.error({event:'game_presence_subscription_close_failed',error:error instanceof Error?error.message:'Unknown failure'}); }
     });
   }
@@ -70,6 +83,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
 
   io.use(async (socket, next) => {
     try {
+      await runtimeReady;
       const token = socket.handshake.auth?.token
       if (!token) return next(new Error("Game Unauthenticated user"));
       const user = getAuthTokenUser(token)
@@ -147,10 +161,8 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         }
         // get room details
         // const roomId = args.roomId
-        const shortPlayerId = socket.data.user.id.slice(-10)
         const mode = args.mode.toUpperCase() as GameMode
         let roomId = args.roomId
-        // let roomId = mode === GameMode.MULTI_PLAYER ? args.roomId : `${args.roomId}:${shortPlayerId}`
         // perform checks
         // check if the room exists
         const room = await checkGameRoom(args.roomId);
@@ -161,6 +173,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
             code: "ER-1",
           });
         }
+        if (!room.category.game.modes.includes(mode)) return respond({isError:true,message:'This game does not support that mode',code:'INVALID_MODE'});
         if (!socket.connected || intent !== socket.data.gameJoinIntent) return respond({isError:true,message:"Game join cancelled",code:"JOIN_CANCELLED"});
         socket.data.cancelGameInitialization?.();
         // add player to the room
@@ -173,6 +186,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           name: socket.data.user.name,
           avatar: socket.data.user.avatar ?? "",
           voteCount: 0,
+          capacity: room.capacity,
           mode
         });
         if (!result?.data) {
@@ -230,6 +244,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           generation: result.data.room.generation,
         }, true);
         if (started) await gameChatTime(roomId, io, true);
+        else {const current=await getGameRoom(roomId);if(current)await ensureGameRuntime(current);}
         // acknowledge
         respond({ isError: false, message: "User joined room" });
         // count players
@@ -344,28 +359,36 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
     });
 
     // listen to emitted answers
-    socket.on(GameEventEnum.GAME_ROOM_ANSWER, async(args:GameRoomAnswer) => {
+    socket.on(GameEventEnum.GAME_ROOM_ANSWER, async(args:GameRoomAnswer, ack?: (result: any) => void) => {
       try {
-        console.log("answer args ", args)
+        const reply = (value: unknown) => { if (typeof ack === 'function') ack(value); };
         const user:User = socket.data.user
         const room:SocketGameRoom = socket.data.room
-        if (!room || !socket.data.gameType || typeof args?.answer !== 'string' || !args.answer.trim()) return;
+        if (!room || !socket.data.gameType || typeof args?.answer !== 'string' || !args.answer.trim() || args.answer.length>2000) {reply({isError:true,message:'Invalid game answer'});return;}
         // Pricing and answer handling come from the joined catalog, never client labels.
         args = { ...args, gameType: socket.data.gameType, catType: socket.data.catType };
         const question = await retrieveGameRoomQuestion(room.id);
         if (!question?.roundId || args.roundId !== question.roundId || String(question.id) !== String(args.qId)) {
+          reply({isError:true,message:'This question is no longer active'});
           socket.emit(GameEventEnum.GAME_ACTION_REJECTED, 'This question is no longer active');
           return;
         }
-        const isSpin = args.catType === GameCatType.LUCKYSPIN && args.spinId !== undefined;
+        const isLuck = args.catType === GameCatType.LUCKYSPIN || args.catType === GameCatType.LUCKYFLIP;
+        const isSpin = isLuck;
+        if(isLuck && args.answer!=='spin') {
+          const message='Please reload this page to use the latest luck-game controls';
+          reply({isError:true,message});socket.emit(GameEventEnum.GAME_ACTION_REJECTED,message);return;
+        }
         if (isSpin && (typeof args.spinId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(args.spinId!))) {
+          reply({isError:true, message:'Invalid spin request'});
           socket.emit(GameEventEnum.GAME_ACTION_REJECTED, 'Invalid spin request');
           return;
         }
         if (args.catType === GameCatType.WORDMAKER) args = {...args,answer:args.answer.trim().toLowerCase()};
         const operationId = createHash('sha256').update(JSON.stringify(['answer', room.id, question.roundId ?? question.id, isSpin ? args.spinId : args.answer.trim()])).digest('hex');
         const isEntries = args.catType === GameCatType.WORDMAKER
-        args = {...args, answer:args.answer.trim(), timer:Math.max(0,Math.ceil(((question.answerUntil ?? Date.now())-Date.now())/1000))};
+        const now=await gameClock();
+        args = {...args, answer:args.answer.trim(), timer:Math.max(0,Math.ceil(((question.answerUntil ?? now)-now)/1000))};
         const body = composeGameAnswer({params:args,room,user});
         const result = await deductGameCoins({
           action: isEntries ? GameActionEnum.ENTRIES : GameActionEnum.ANSWER,
@@ -375,7 +398,8 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           gameId: room.gameId,
           catId: room.catId,
           qId: question.id, operationId
-        }, {kind:isEntries?'WORDMAKER':args.gameType===GameType.ACRONYM?'ACRONYM':'ANSWER',roomId:room.id,roundId:question.roundId,payload:{...body,isSpin,...(isSpin ? {submittedAt:Date.now()} : {})}})
+        }, {kind:isEntries?'WORDMAKER':args.gameType===GameType.ACRONYM?'ACRONYM':'ANSWER',roomId:room.id,roundId:question.roundId,payload:{...body,serverOutcome:false,serverLuck:isLuck, ...(isLuck ? {luckKind:args.catType,luckOptions:question.options} : {}),isSpin,...(isSpin ? {submittedAt:Date.now()} : {})}})
+        reply({isError:result.isError, message:result.message, ...result.data});
         if(result.data) socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data);
         if(result.isError || !result.data){
           socket.emit('recoverable' in result && result.recoverable ? GameEventEnum.GAME_ACTION_REJECTED : GameEventEnum.GAME_ERROR_NOTIFY, result.message );
@@ -385,7 +409,8 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         // update player session for the category
         await updatePlayerSession({playerId: body.playerId, catId: body.catId, mode: room.mode})
       } catch (error: any) {
-        console.log(error?.message);
+        logger.error({event:'game_answer_failed',error});
+        if (typeof ack === 'function') ack({isError:true,message:'Unable to accept this answer'});
       }
 
     });
@@ -425,10 +450,15 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
     });
 
     // listen to game energy events
-    socket.on(GameEventEnum.GAME_PLAYER_ENERGY, async (params: PlayerGameEnergy) => {
-      if (!socket.data.room || params?.playerId !== socket.data.user.id || params?.catId !== socket.data.room.catId) return;
-      await updatePlayerGameEnergy(socket,params);
-    })
+    socket.on(GameEventEnum.GAME_PLAYER_ENERGY, async (params: PlayerGameEnergy, ack?:Function) => {
+      try {
+        if (!socket.data.room || params?.playerId !== socket.data.user.id || params?.catId !== socket.data.room.catId) throw new Error('Rejoin before refilling energy');
+        const energy=await updatePlayerGameEnergy(socket,params);
+        if(typeof ack==='function') ack({isError:false,energy});
+      } catch(error) {
+        if(typeof ack==='function') ack({isError:true,message:error instanceof Error?error.message:'Refill unavailable'});
+      }
+    });
 
     socket.on("disconnect", async (reason) => {
       clearInterval(presenceTimer);

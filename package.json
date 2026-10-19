@@ -47,7 +47,8 @@
     "db:seed:tips": "npm run build:seed && prisma db seed -- --tips",
     "start:reward-worker": "node -r ./scripts/register-paths.cjs dist/cron/monthlyRewardWorker.js",
     "dev:reward-worker": "ts-node -r tsconfig-paths/register src/cron/monthlyRewardWorker.ts",
-    "rewards:status": "node -r ./scripts/register-paths.cjs dist/cron/monthlyRewards/status.js"
+    "rewards:status": "node -r ./scripts/register-paths.cjs dist/cron/monthlyRewards/status.js",
+    "games:repair-rankings": "node -r ./scripts/register-paths.cjs dist/services/v1/games/repairCli.js"
   },
   "keywords": [],
   "author": "",
@@ -80,6 +81,7 @@
     "@keyv/redis": "^5.1.6",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "@supercharge/promise-pool": "3.3.0",
     "@types/crypto-js": "^4.2.2",
     "axios": "1.20.0",

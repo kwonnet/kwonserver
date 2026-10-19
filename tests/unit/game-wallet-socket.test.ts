@@ -1,3 +1,5 @@
+vi.mock('@/services/v1/games/clock',()=>({gameClock:async()=>Date.now()}));
+vi.mock('@/services/v1/games/runtime',()=>({ensureGameRuntime:vi.fn()}));
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 const games = vi.hoisted(() => ({getGameRoom:vi.fn(),gameChatTime:vi.fn(),getCountGamePlayers:vi.fn(),notifyGameRoomPlayers:vi.fn(),refreshGamePresence:vi.fn(),sweepGamePresence:vi.fn(),publishGamePresence:vi.fn(),disconnectGameRoomPlayer:vi.fn(),deductGameCoins:vi.fn(),retrieveGameRoomQuestion:vi.fn(),saveGameRoomPlayerAnswer:vi.fn(),insertWordMakerGameRoomAnswer:vi.fn(),updatePlayerSession:vi.fn(),checkGameRoom:vi.fn(),getGameRoomPlayer:vi.fn(),addGameRoomPlayer:vi.fn(),getTotalRoomPlayers:vi.fn(),getTotalRoomParticipants:vi.fn(),updateGameRoom:vi.fn(),getGameRoomPlayersWithRank:vi.fn()}));
 vi.mock('@/services/v1/games',()=>games);
@@ -77,7 +79,7 @@ it('handles room lookup failures through an acknowledgement instead of a rejecte
 it('normalizes valid modes and owns delayed initialization failures',async()=>{
  vi.useFakeTimers();
  try{
-  games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
+  games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia',modes:['SINGLE','MULTI']},name:'General',topics:[]}});
   games.getGameRoomPlayer.mockResolvedValue(null);games.addGameRoomPlayer.mockResolvedValue({data:{room:{id:'room'}}});
   games.getTotalRoomPlayers.mockResolvedValue(2);games.getTotalRoomParticipants.mockResolvedValue(2);games.getGameRoomPlayersWithRank.mockRejectedValue(new Error('redis unavailable'));
   socket.data.user.avatar='https://images.example/player.webp';
@@ -105,7 +107,7 @@ it('cancels a join when the page leaves before the room lookup completes',async(
  games.checkGameRoom.mockImplementationOnce(()=>new Promise(resolve=>{resolveLookup=resolve;}));
  const ack=vi.fn();const pending=handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'MULTI'},ack);
  await Promise.resolve();const leaving=handlers.disconnected('room');
- resolveLookup({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
+ resolveLookup({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia',modes:['SINGLE','MULTI']},name:'General',topics:[]}});
  await pending;await leaving;expect(games.addGameRoomPlayer).not.toHaveBeenCalled();expect(ack).toHaveBeenCalledWith(expect.objectContaining({code:'JOIN_CANCELLED'}));
 });
 
@@ -136,17 +138,17 @@ it('keeps chat failures nonfatal so the player can retry without leaving the roo
 
 it('records each lucky spin separately while retries keep the same charge identity',async()=>{
  socket.data.gameType='MINDMASH';socket.data.catType='LUCKYSPIN';
- const args={qId:'question',roundId:'server-round',answer:'5',spinId:'00000000-0000-4000-8000-000000000001'};
+ const args={qId:'question',roundId:'server-round',answer:'spin',spinId:'00000000-0000-4000-8000-000000000001'};
  await handlers[GameEventEnum.GAME_ROOM_ANSWER](args);
  await handlers[GameEventEnum.GAME_ROOM_ANSWER](args);
  await handlers[GameEventEnum.GAME_ROOM_ANSWER]({...args,spinId:'00000000-0000-4000-8000-000000000002'});
  expect(games.deductGameCoins.mock.calls[0][0].operationId).toBe(games.deductGameCoins.mock.calls[1][0].operationId);
  expect(games.deductGameCoins.mock.calls[2][0].operationId).not.toBe(games.deductGameCoins.mock.calls[0][0].operationId);
- expect(games.deductGameCoins.mock.calls[2][1]).toMatchObject({kind:'ANSWER',payload:{isSpin:true,answer:'5',submittedAt:expect.any(Number)}});
+ expect(games.deductGameCoins.mock.calls[2][1]).toMatchObject({kind:'ANSWER',payload:{isSpin:true,serverLuck:true,answer:'spin',submittedAt:expect.any(Number)}});
 });
 it('rejects malformed lucky spin identities before charging',async()=>{
  socket.data.catType='LUCKYSPIN';
- await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:'5',spinId:'bad'});
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:'spin',spinId:'bad'});
  expect(games.deductGameCoins).not.toHaveBeenCalled();
  expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ACTION_REJECTED,'Invalid spin request');
 });
@@ -167,7 +169,7 @@ it('queues a new join behind a leave that is still removing the previous presenc
 it('starts the countdown before acknowledging, even when delayed page initialization is cancelled',async()=>{
  vi.useFakeTimers();
  try {
-  games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
+  games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia',modes:['SINGLE','MULTI']},name:'General',topics:[]}});
   games.addGameRoomPlayer.mockResolvedValue({data:{room:{id:'room',generation:'generation',firstPlayer:false}}});
   games.updateGameRoom.mockResolvedValue(true);
   const ack=vi.fn(()=>expect(games.gameChatTime).toHaveBeenCalledWith('room',expect.anything(),true));
@@ -184,7 +186,7 @@ it('starts the countdown before acknowledging, even when delayed page initializa
 it('restores the live question and countdown when joining an already running room',async()=>{
  vi.useFakeTimers();
  try {
-  games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
+  games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia',modes:['SINGLE','MULTI']},name:'General',topics:[]}});
   games.addGameRoomPlayer.mockResolvedValue({data:{room:{id:'room',generation:'generation',firstPlayer:false}}});
   games.getGameRoom.mockResolvedValue({status:'PLAY',timer:'8'});
   games.getGameRoomPlayersWithRank.mockResolvedValue([]);
@@ -192,7 +194,7 @@ it('restores the live question and countdown when joining an already running roo
   await handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'multi'},vi.fn());
   await vi.advanceTimersByTimeAsync(500);
   expect(games.gameChatTime).not.toHaveBeenCalled();
-  expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_QUESTION,expect.objectContaining({question:{id:'question',roundId:'server-round'}}));
+  expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_QUESTION,expect.objectContaining({question:expect.objectContaining({id:'question',roundId:'server-round',answer:''})}));
   expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,{status:'PLAY',countdown:8});
  } finally {vi.useRealTimers();}
 });
@@ -200,10 +202,10 @@ it('restores the live question and countdown when joining an already running roo
 it('discards an old room snapshot that finishes after the player switches rooms',async()=>{
  vi.useFakeTimers();
  try {
-  games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia'},name:'General',topics:[]}});
+  games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia',modes:['SINGLE','MULTI']},name:'General',topics:[]}});
   games.addGameRoomPlayer.mockImplementation(async (args:any)=>({data:{room:{id:args.roomId,generation:'generation',firstPlayer:false}}}));
   let finishSnapshot!:(value:any)=>void;
-  games.getGameRoom.mockImplementationOnce(()=>new Promise(resolve=>{finishSnapshot=resolve;}));
+  games.getGameRoom.mockResolvedValueOnce({status:'CHAT'}).mockImplementationOnce(()=>new Promise(resolve=>{finishSnapshot=resolve;}));
   socket.broadcast={to:()=>({emit:vi.fn()})};
   await handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'multi'},vi.fn());
   await vi.advanceTimersByTimeAsync(500);
@@ -222,4 +224,17 @@ it('deduplicates WordMaker case and whitespace variants before creating paid ent
  await handlers[GameEventEnum.GAME_ROOM_ANSWER]({...args,answer:'cat'});
  expect(games.deductGameCoins.mock.calls[0][0].operationId).toBe(games.deductGameCoins.mock.calls[1][0].operationId);
  expect(games.deductGameCoins.mock.calls[0][1]).toMatchObject({kind:'WORDMAKER',payload:{answer:'cat'}});
+});
+
+it('rejects unsupported catalog modes before claiming presence or charging',async()=>{
+ games.checkGameRoom.mockResolvedValue({category:{game:{modes:['MULTI']}}});
+ const ack=vi.fn();await handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'SINGLE'},ack);
+ expect(ack).toHaveBeenCalledWith(expect.objectContaining({isError:true,code:'INVALID_MODE'}));
+ expect(games.addGameRoomPlayer).not.toHaveBeenCalled();expect(games.deductGameCoins).not.toHaveBeenCalled();
+});
+
+it('rejects an old client-selected luck outcome before charging and asks the client to reload',async()=>{
+ socket.data.catType='LUCKYSPIN';const ack=vi.fn();
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:'999',spinId:'00000000-0000-4000-8000-000000000001'},ack);
+ expect(games.deductGameCoins).not.toHaveBeenCalled();expect(ack).toHaveBeenCalledWith(expect.objectContaining({isError:true,message:expect.stringContaining('reload')}));
 });

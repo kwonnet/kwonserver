@@ -1,3 +1,6 @@
+vi.mock('@/services/v1/games/runtime',()=>({scheduleGamePhase:vi.fn()}));
+vi.mock('@/services/v1/games/rounds',()=>({recordGameRound:vi.fn()}));
+vi.mock('@/services/v1/games/clock',()=>({gameClock:async()=>Date.now()}));
 import {beforeEach,expect,it,vi} from 'vitest';
 const deps=vi.hoisted(()=>({get:vi.fn(),hGetAll:vi.fn(),hSet:vi.fn(),exists:vi.fn(),del:vi.fn(),kind:vi.fn(),cat:vi.fn(),word:vi.fn(),set:vi.fn(),sCard:vi.fn(),generate:vi.fn()}));
 vi.mock('@/db',()=>({default:{}}));
@@ -16,23 +19,6 @@ it.each(['trivia','acronym','wordmaker'])('takes %s score mode from the server r
  deps.get.mockResolvedValue(JSON.stringify({question:'test',answer:'test'}));
  deps.hGetAll.mockImplementation(key=>Promise.resolve(key.endsWith(':answers')?{player:JSON.stringify({playerId:'player',avatar:'https://images.test/player.webp',roomId:'room',catId:'cat',answer:'test',timer:5,votes:[]})}:{}));
  const scores=await calculateGameRoomPoints(room);expect(scores).toHaveLength(1);expect(scores[0].mode).toBe('MULTI');expect(scores[0].avatar).toBe('https://images.test/player.webp');
-});
-it('contains asynchronous timer failures and informs the affected room',async()=>{
- vi.useFakeTimers();
- try{
-  deps.hGetAll.mockResolvedValue(room);deps.exists.mockResolvedValue(1);
-  const emit=vi.fn().mockImplementationOnce(()=>{throw new Error('tick failed');});const io:any={to:()=>({emit})};
-  await gameChatTime('room',io);await vi.advanceTimersByTimeAsync(1000);
-  expect(emit).toHaveBeenCalledWith(GameEventEnum.GAME_ERROR_NOTIFY,expect.stringContaining('rejoin'));expect(vi.getTimerCount()).toBe(0);
- }finally{vi.useRealTimers();}
-});
-it('does not overlap room timer ticks while Redis is slow',async()=>{
- vi.useFakeTimers();
- try{
-  let finish:(value:number)=>void=()=>{};deps.hGetAll.mockResolvedValue(room);deps.exists.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
-  await gameChatTime('room',{to:()=>({emit:vi.fn()})} as any);await vi.advanceTimersByTimeAsync(3000);expect(deps.exists).toHaveBeenCalledTimes(1);
-  finish(1);await vi.advanceTimersByTimeAsync(1);
- }finally{vi.clearAllTimers();vi.useRealTimers();}
 });
 it('awards normal round points for accepted Unscramble alternatives and rejects an unapproved permutation',async()=>{
  deps.kind.mockReturnValue(GameType.MINDMASH);deps.cat.mockReturnValue(GameCatType.UNSCRAMBLE);
@@ -69,7 +55,7 @@ it.each([['SINGLE',GameCatType.TYPEMANIA,20],['MULTI',GameCatType.TYPEMANIA,20],
   const saved=JSON.parse(deps.set.mock.calls[0][1]);
   expect(saved.answerUntil).toBe(Date.now()+Number(seconds)*1000);
   expect(deps.hSet).toHaveBeenCalledWith('room:room',expect.objectContaining({timer:seconds,status:'PLAY'}));
-  await vi.advanceTimersByTimeAsync(1000);
-  expect(emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,{status:'PLAY',countdown:Number(seconds)-1});
+  const {scheduleGamePhase}=await import('@/services/v1/games/runtime');
+  expect(scheduleGamePhase).toHaveBeenCalledWith(expect.objectContaining({mode}), 'PLAY', Date.now()+Number(seconds)*1000,saved.roundId);
  }finally{vi.clearAllTimers();vi.useRealTimers();}
 });

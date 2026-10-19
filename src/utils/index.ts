@@ -1,3 +1,4 @@
+import {gamePeriod, rankingKeysAt, playerKeysAt, isoWeekStart} from './game-periods';
 import jwt, { SignOptions } from "jsonwebtoken"
 import { encrytionKey, jwtKey } from "@/config"
 import CryptoJS from "crypto-js"
@@ -311,13 +312,8 @@ function getISOWeek(date: Date): { year: number; week: number } {
 }
 
 export function getCurrentDataInfo(){
-  const date = new Date()
-  const year = date.getUTCFullYear();
-  const month = date.getUTCMonth() + 1; // Month is 1-indexed for the key
-  const day = date.getUTCDate();
-  const { week } = getISOWeek(date);
-
-  return { year, month, week, day}
+  const {year,month,day,week} = gamePeriod();
+  return {year,month,day,week};
 }
 
 export const getRewardDateInfo = () => {
@@ -355,14 +351,8 @@ export const getRewardDateInfo = () => {
   };
 }
 
-export function getRankingKeys(catId: string, mode: "single" | "multi"){
-  const { day, month, week, year } = getCurrentDataInfo()
-  return {
-    month: `ranking:cat:${catId}:mode:${mode}:${year}:${month}:month:${month}`,
-    monthStat:`ranking:cat:${catId}:mode:${mode}:${year}:${month}:stat`,
-    week:  `ranking:cat:${catId}:mode:${mode}:${year}:${month}:week:${week}`,
-    today: `ranking:cat:${catId}:mode:${mode}:${year}:${month}:today:${day}`
-  }
+export function getRankingKeys(catId: string, mode: 'single' | 'multi') {
+  return rankingKeysAt(catId,mode);
 }
 
 export function getRankingRewardKeys(catId: string, mode: "single" | "multi", monthlyPeriod?: {year: number; month: number}) {
@@ -375,35 +365,20 @@ export function getRankingRewardKeys(catId: string, mode: "single" | "multi", mo
   const monthlyYear = monthlyPeriod?.year ?? info.monthlyRewardYear;
   const monthlyMonth = monthlyPeriod?.month ?? info.monthlyRewardMonth;
 
-  return {
-    dateInfo: {
-      year: monthlyYear,
-      month: monthlyMonth,
-    },
-    rewardMonth: `ranking:cat:${catId}:mode:${mode}:${monthlyYear}:${monthlyMonth}:month:${monthlyMonth}`,
-
-    rewardMonthStat: `ranking:cat:${catId}:mode:${mode}:${monthlyYear}:${monthlyMonth}:stat`,
-
-    rewardWeek:  `ranking:cat:${catId}:mode:${mode}:${info.weeklyRewardYear}:${info.weeklyRewardMonth}:week:${info.weeklyRewardWeek}`,
-
-    rewardDay: `ranking:cat:${catId}:mode:${mode}:${info.dailyRewardYear}:${info.dailyRewardMonth}:today:${info.dailyRewardDay}`,
-
-  }
+  const monthKeys = rankingKeysAt(catId,mode,new Date(Date.UTC(monthlyYear,monthlyMonth-1,15)));
+  const weeklyKeys = rankingKeysAt(catId,mode,isoWeekStart(info.weeklyRewardYear,info.weeklyRewardWeek));
+  const dailyKeys = rankingKeysAt(catId,mode,new Date(Date.UTC(info.dailyRewardYear,info.dailyRewardMonth-1,info.dailyRewardDay)));
+  return {dateInfo:{year:monthlyYear,month:monthlyMonth},rewardMonth:monthKeys.month,
+    rewardMonthStat:monthKeys.monthStat,rewardWeek:weeklyKeys.week,rewardDay:dailyKeys.today};
 }
 
 export function getPlayerRewardKeys(playerId: string, catId: string, mode: "single" | "multi") {
 
   const info = getRewardDateInfo()
 
-  return {
-    month: `player:${playerId}:cat:${catId}:mode:${mode}:${info.monthlyRewardYear}:${info.monthlyRewardMonth}:month:${info.monthlyRewardMonth}`,
-
-
-    week:  `player:${playerId}:cat:${catId}:mode:${mode}:${info.weeklyRewardYear}:${info.weeklyRewardMonth}:week:${info.weeklyRewardWeek}`,
-
-
-    day: `player:${playerId}:cat:${catId}:mode:${mode}:${info.dailyRewardYear}:${info.dailyRewardMonth}:today:${info.dailyRewardDay}`
-  }
+  return {month:playerKeysAt(playerId,catId,mode,new Date(Date.UTC(info.monthlyRewardYear,info.monthlyRewardMonth-1,15))).month,
+    week:playerKeysAt(playerId,catId,mode,isoWeekStart(info.weeklyRewardYear,info.weeklyRewardWeek)).week,
+    day:playerKeysAt(playerId,catId,mode,new Date(Date.UTC(info.dailyRewardYear,info.dailyRewardMonth-1,info.dailyRewardDay))).today};
 }
 
 
@@ -417,15 +392,8 @@ export function getUserRedisKeys(userId: string){
 
 
 
-export function getPlayerRedisKeys(playerId: string, catId: string, mode: "single" | "multi"){
-  const { day, month, week, year } = getCurrentDataInfo()
-  return {
-    energy: `player:${playerId}:cat:${catId}:energy`,
-    info: `player:${playerId}:cat:${catId}:mode:${mode}:${year}`,
-    month: `player:${playerId}:cat:${catId}:mode:${mode}:${year}:${month}:month:${month}`,
-    week:  `player:${playerId}:cat:${catId}:mode:${mode}:${year}:${month}:week:${week}`,
-    today: `player:${playerId}:cat:${catId}:mode:${mode}:${year}:${month}:today:${day}`
-  }
+export function getPlayerRedisKeys(playerId: string, catId: string, mode: 'single' | 'multi') {
+  return playerKeysAt(playerId,catId,mode);
 }
 
 export function getSpentCoinsKey({gameId, catId, mode, dateInfo}:{gameId: string, catId: string, mode: GameMode, dateInfo?: { year: number, month: number}}){

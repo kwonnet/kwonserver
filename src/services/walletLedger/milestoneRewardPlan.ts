@@ -1,3 +1,4 @@
+import {ensureRewardRanking} from '@/services/v1/games/periodRecovery';
 import {GameMilestoneRewardTask, Prisma, RewardReasonEnum, RewardTypeEnum} from '@prisma/client';
 import prisma from '@/db';
 import redis from '@/redis';
@@ -15,7 +16,8 @@ export async function prepareMilestonePlan(task: GameMilestoneRewardTask): Promi
     const category = await prisma.gameCategory.findUniqueOrThrow({where: {id: task.scopeId}});
     label = `${category.name} (${task.mode}) — week ${task.week}, ${task.year}`;
     if (!task.rankingKey) throw new Error('Missing weekly ranking key');
-    const ranked = await redis.zRangeWithScores(task.rankingKey, 0, 2, {REV: true});
+    const key=await ensureRewardRanking(task.scopeId,task.mode!,{kind:'week',year:task.year,week:task.week});
+    const ranked = await redis.zRangeWithScores(key, 0, 2, {REV: true});
     players = ranked.map(p => ({playerId: p.value, score: String(p.score)}));
   } else {
     let filter = Prisma.sql`gms.year = ${task.year}`;
