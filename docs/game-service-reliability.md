@@ -66,17 +66,18 @@ renews every four seconds, and is released only by its owning token. Room
 generation and phase revisions fence superseded work. Scheduler ticks run every
 500 ms, and normal room updates are due approximately once per second.
 
-Capturing a round closes Redis admission and freezes the accepted inputs at the
-same serialization point. PostgreSQL confirms captured action receipts and
-stores the snapshot before scoring. A refund cannot race a captured action into
-both credited score and refunded payment: refund handling locks the action row;
-conflicting input is left for durable reconciliation rather than scored blindly.
+Live results now follow the Redis-first path documented in `game-live-results.md`.
+Closing admission freezes an immutable Redis snapshot, computes server scores,
+and projects rankings with an atomic round marker. Results are emitted before
+PostgreSQL settlement. A Redis outbox and the `game-round-results` BullMQ worker
+then confirm action receipts and commit stats/energy with the durable COMPLETED
+receipt. Monthly and milestone reward planning waits for pending rounds in its
+period; it cannot freeze an incomplete PostgreSQL ranking.
 
-Scoring locks the round row. Monthly/daily/weekly stats and energy commit with
-its COMPLETED status. Concurrent retries read the completed result. Redis updates
-and their projection marker are atomic; a failure after the database commit
-leaves `projectionPending` for recovery. Cleanup follows settlement and never
-scans unrelated rooms.
+Normal timer ticks use the Redis phase/deadline cache. PostgreSQL remains the
+recovery source on cache loss and the durable checkpoint for phase transitions.
+Round/action receipts remain available to reconstruct unprocessed results after
+Redis loss. Room input cleanup cannot delete the separate pending result snapshot.
 
 The existing recurring worker runs `recover_game_rounds` every minute. It
 reconciles pending rounds older than two minutes, reconstructing missing inputs

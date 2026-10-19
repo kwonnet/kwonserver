@@ -1,3 +1,4 @@
+import {assertGameRoundsSynced} from '@/services/v1/games/rounds';
 import {ensureRewardRanking} from '@/services/v1/games/periodRecovery';
 import {createHash} from 'node:crypto';
 import {Prisma, GameMode, GameMilestone} from '@prisma/client';
@@ -63,6 +64,7 @@ export const processMonthlyRewardStep = async (settlementId: string) => {
     const previous = await prisma.walletOperation.findUnique({where: {id: planKey}});
     let plan = previous?.result as SettlementPlan | undefined;
     if (!plan) {
+      await assertGameRoundsSynced({catId,mode:item.mode,playedAt:{gte:new Date(Date.UTC(task.year,task.month-1,1)),lt:new Date(Date.UTC(task.year,task.month,1))}});
       await ensureRewardRanking(catId,item.mode,{kind:'month',...keys.dateInfo});
       // COPY without REPLACE freezes identity, scores and tie order for retries.
       const snapshot = `${keys.rewardMonth}:settlement:monthly-90-v2`;

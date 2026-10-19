@@ -3,6 +3,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import prisma from "@/db";
 import redis from "@/redis";
 import logger from "@/logger";
+import {gameRuntimeLease,assertGameRuntimeLease} from "./lease";
 import {
   rankingKeysAt,
   playerKeysAt,
@@ -38,6 +39,8 @@ export async function recordGameRound(
 // Closing admission and capturing answers share the same Redis serialization point.
 // Inputs remain until the completed result has a durable PostgreSQL receipt.
 const captureScript = `
+if ARGV[3] and ARGV[3]~='' and redis.call('GET',KEYS[7])~=ARGV[3] then return '' end
+local cached=redis.call('GET',KEYS[6]);if cached then return cached end
 local q=redis.call('GET',KEYS[1]); if not q then return '' end
 local question=cjson.decode(q)
 if question.roundId~=ARGV[1] or redis.call('HGET',KEYS[2],'generation')~=ARGV[2] then return '' end
@@ -48,9 +51,9 @@ for i=1,#values,2 do
  local entries={}; for _,guess in ipairs(guesses) do table.insert(entries,cjson.decode(guess)) end
  answer.answers=entries; table.insert(answers,answer)
 end
-return cjson.encode({question=question,answers=answers,actionIds=redis.call('SMEMBERS',KEYS[5])})`;
-export async function captureRound(room: TempGameRoom) {
-  const qraw = await redis.get(`room:${room.roomId}:question`);
+local snapshot=cjson.encode({question=question,answers=answers,actionIds=redis.call('SMEMBERS',KEYS[5])});redis.call('SET',KEYS[6],snapshot);return snapshot`;
+export async function captureRound(room: TempGameRoom, input?: RoundSnapshot & {actionIds?: string[]}) {
+  const qraw = input ? JSON.stringify(input.question) : await redis.get(`room:${room.roomId}:question`);
   if (!qraw)
     throw new Error("Round question missing; recovery must restore it");
   const q = JSON.parse(qraw) as ThemedGameQuestion;
@@ -61,13 +64,14 @@ export async function captureRound(room: TempGameRoom) {
     await expireCapturedReceipts(record);
     return record;
   }
-  const raw = await redis.eval(captureScript, {
+  const raw = input ? JSON.stringify(input) : await redis.eval(captureScript, {
     keys: [
       `room:${room.roomId}:question`,
       `room:${room.roomId}`,
       `room:${room.roomId}:answers`,
       `room:${room.roomId}:player:`,
       `room:${room.roomId}:round:${q.roundId}:actions`,
+      `game:round-snapshot:${q.roundId}`,
     ],
     arguments: [q.roundId!, room.generation ?? "legacy"],
   });
@@ -118,13 +122,11 @@ async function expireCapturedReceipts(record: {
   snapshot: unknown;
 }) {
   const snapshot = record.snapshot as { actionIds?: string[] } | null;
-  if (Array.isArray(snapshot?.actionIds))
-    for (const id of snapshot.actionIds)
-      await redis.expire(`wallet-action:${id}`, 7 * 86400);
-  await redis.expire(
-    `room:${record.roomId}:round:${record.id}:actions`,
-    7 * 86400,
-  );
+  const pipeline=redis.multi();
+  for (const id of snapshot?.actionIds??[]) pipeline.expire(`wallet-action:${id}`,7*86400);
+  pipeline.expire(`room:${record.roomId}:round:${record.id}:actions`,7*86400);
+  pipeline.expire(`game:round-snapshot:${record.id}`,7*86400);
+  await pipeline.exec();
 }
 
 export async function settleGameRound(
@@ -140,19 +142,7 @@ export async function settleGameRound(
     record.status === "COMPLETED"
       ? (record.scores as unknown as ThemedGameScore[])
       : await calculate(snapshot);
-  if (
-    !Array.isArray(candidate) ||
-    candidate.length > 100 ||
-    new Set(candidate.map((s) => s.playerId)).size !== candidate.length ||
-    candidate.some(
-      (s) =>
-        !Number.isSafeInteger(s.score) ||
-        Math.abs(s.score) > 1_000_000 ||
-        s.catId !== record.catId ||
-        s.roomId !== record.roomId,
-    )
-  )
-    throw new Error("Invalid round score");
+  assertGameRoundScores(record,candidate);
   const date = gamePeriod(record.playedAt);
   await prisma.$transaction(
     async (tx) => {
@@ -199,6 +189,22 @@ export async function settleGameRound(
   });
 }
 
+export function assertGameRoundScores(record:{catId:string;roomId:string},scores:ThemedGameScore[]) {
+  if (
+    !Array.isArray(scores) ||
+    scores.length > 100 ||
+    new Set(scores.map((s) => s.playerId)).size !== scores.length ||
+    scores.some(
+      (s) =>
+        !Number.isSafeInteger(s.score) ||
+        Math.abs(s.score) > 1_000_000 ||
+        s.catId !== record.catId ||
+        s.roomId !== record.roomId,
+    )
+  )
+    throw new Error("Invalid round score");
+ }
+
 const projectScript = `
 if redis.call('EXISTS',KEYS[1])==1 then return 0 end
 local data=cjson.decode(ARGV[1]); local ttl=tonumber(ARGV[2]); local total=0
@@ -233,6 +239,16 @@ export async function projectGameRound(id: string) {
   });
   if (record.status !== "COMPLETED" || !record.projectionPending) return;
   const scores = record.scores as unknown as ThemedGameScore[];
+  await projectLiveGameScores({...record, playedAt:new Date(record.playedAt)}, scores);
+  // Keep receipt through retry windows; no score increments precede the marker.
+  await prisma.gameRoundRecord.update({
+    where: { id },
+    data: { projectionPending: false },
+  });
+  if (scores.length) await redis.del(scores.map(p=>`player:${p.playerId}:cat:${record.catId}:energy`));
+}
+/** Same marker prevents a later PostgreSQL retry from incrementing live ranks twice. */
+export async function projectLiveGameScores(record: {id:string;catId:string;mode:string;playedAt:Date}, scores:ThemedGameScore[]) {
   const mode = record.mode === "SINGLE" ? "single" : "multi";
   const rankings = rankingKeysAt(record.catId, mode, record.playedAt);
   const players = scores.map((score) => {
@@ -252,7 +268,7 @@ export async function projectGameRound(id: string) {
       stats: [keys.month, keys.week, keys.today],
     };
   });
-  const marker = `game:round-projection:${id}`;
+  const marker = `game:round-projection:${record.id}`;
   await redis.eval(projectScript, {
     keys: [marker],
     arguments: [
@@ -260,17 +276,24 @@ export async function projectGameRound(id: string) {
       String(GAME_PERIOD_RETENTION_SECONDS),
     ],
   });
-  // Keep receipt through retry windows; no score increments precede the marker.
-  await prisma.gameRoundRecord.update({
-    where: { id },
-    data: { projectionPending: false },
-  });
-  await redis.expire(marker, GAME_PERIOD_RETENTION_SECONDS);
-  if (players.length)
-    await redis.del(
-      players.map((p) => `player:${p.id}:cat:${record.catId}:energy`),
-    );
+  await redis.expire(`game:round-projection:${record.id}`, GAME_PERIOD_RETENTION_SECONDS);
 }
+
+export async function captureLiveGameRound(room:TempGameRoom) {
+  await assertGameRuntimeLease();
+  const lease=gameRuntimeLease.getStore();
+  const qraw=await redis.get(`room:${room.roomId}:question`);
+  if(!qraw) throw new Error('Round question missing');
+  const question=JSON.parse(qraw) as ThemedGameQuestion;
+  const raw=await redis.eval(captureScript,{
+    keys:[`room:${room.roomId}:question`,`room:${room.roomId}`,`room:${room.roomId}:answers`,
+      `room:${room.roomId}:player:`,`room:${room.roomId}:round:${question.roundId}:actions`,`game:round-snapshot:${question.roundId}`,lease?.key??'game:no-runtime-lease'],
+    arguments:[question.roundId!,room.generation??'legacy',lease?.token??''],
+  });
+  if(!raw) throw new Error('Round ownership changed during capture');
+  return JSON.parse(String(raw)) as RoundSnapshot & {actionIds:string[]};
+}
+
 export async function recoverRoundProjections() {
   const rows = await prisma.gameRoundRecord.findMany({
     where: { status: "COMPLETED", projectionPending: true },
@@ -287,4 +310,10 @@ export async function recoverRoundProjections() {
       );
     }
   }
+}
+
+/** Never freeze a reward ranking while this period still has queued round writes. */
+export async function assertGameRoundsSynced(where:Prisma.GameRoundRecordWhereInput) {
+  const pending=await prisma.gameRoundRecord.findFirst({where:{...where,status:'PENDING'},select:{id:true}});
+  if(pending)throw new Error('Game results are still syncing for this reward period; retry after settlement');
 }

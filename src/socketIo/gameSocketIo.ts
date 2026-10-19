@@ -230,6 +230,14 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         // join the player id to a room to receive personal messages
         await socket.join(socket.data.user.id);
         if (!socket.connected) { await disconnectGameRoomPlayer(socket,io); return; }
+        // emitting a welcome message to a new player
+        socket.emit(
+          GameEventEnum.MESSAGE,
+          composeMessage({
+            playerName: "SWEN",
+            content: `${socket.data.user.name}, You're welcome to ${room.name} game room`,
+          })
+        );
         // Start the room before acknowledging navigation. A cancelled page initializer
         // must never strand a claimed room without a running countdown.
         const started = await updateGameRoom({
@@ -293,14 +301,6 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
               ...(Number.isFinite(deadline) ? {deadline, serverNow} : {}),
             });
           }
-          // emitting a welcome message to a new player
-          socket.emit(
-            GameEventEnum.MESSAGE,
-            composeMessage({
-              playerName: "SWEN",
-              content: `${socket.data.user.name}, You're welcome to ${room.name} game room`,
-            })
-          );
           // broadcasting to the room that a player has joined
         //   io.to(roomId).except(socket.id).emit(
         //     GameEventEnum.MESSAGE,

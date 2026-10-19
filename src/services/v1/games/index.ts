@@ -1,8 +1,9 @@
+import {finishLiveGameRound,enqueueGameResult} from './liveResults';
 import {gameClock} from './clock';
 import {assertGameRuntimeLease} from './lease';
 import {scheduleGamePhase,beginGameRound} from './runtime';
 import {getGameEnergy,refillGameEnergy} from './energy';
-import {captureRound,settleGameRound,RoundSnapshot} from './rounds';
+import type {RoundSnapshot} from './rounds';
 import { matchesSentenceAnswer, publicWordQuestion } from '@/utils/word-games';
 import { GameDelivery, dispatchGameAction } from '@/services/walletLedger/gameDelivery';
 import { randomUUID } from 'crypto';
@@ -626,6 +627,17 @@ export async function publishGamePresence(player: GameRoomPlayer, io: GameIoName
   if (!localOnly) await redisClient.publish('game:presence:changed',JSON.stringify({origin:presenceOrigin,player:{roomId:player.roomId,catId:player.catId,mode:player.mode}}));
 }
 
+/** A queued energy refresh must not overwrite another category after a room switch. */
+export function forwardGamePlayerEvent(io:GameIoNamespace,event:{target:string;event:GameEventEnum;payload:any}) {
+  if(typeof event.target!=='string')return;
+  if(event.event===GameEventEnum.GAME_ROOM_ACHIEVEMENT){io.local.to(event.target).emit(event.event,event.payload);return;}
+  if(event.event!==GameEventEnum.GAME_PLAYER_ENERGY || typeof event.payload?.catId!=='string')return;
+  for(const id of io.adapter.rooms.get(event.target)??[]) {
+    const socket=io.sockets.get(id);
+    if(socket && socket.data.room?.catId===event.payload.catId)socket.emit(event.event,event.payload);
+  }
+}
+
 export async function subscribeGamePresence(io: GameIoNamespace) {
   const subscriber = redisClient.duplicate();
   subscriber.on('error',error=>logGameError('gamePresenceSubscriber',error,{}));
@@ -653,6 +665,12 @@ export async function subscribeGamePresence(io: GameIoNamespace) {
         if (typeof event.roomId !== 'string' || typeof event.message?.id !== 'string' || typeof event.message?.content !== 'string') return;
         io.local.to(event.roomId).emit(GameEventEnum.MESSAGE, event.message);
       } catch (error) { logGameError('gameChatSubscriber', error, {}); }
+    });
+    await subscriber.subscribe('game:events:live',raw=>{
+      try {
+        const event=JSON.parse(raw);
+        forwardGamePlayerEvent(io,event);
+      }catch(error){logGameError('gameEventSubscriber',error,{});}
     });
     return async () => { await subscriber.unsubscribe(); await subscriber.quit(); };
   } catch(error) {
@@ -973,7 +991,7 @@ export const getGameRoom = async (roomId: string) => {
   }
 };
 
-async function updateWinningStreak(
+export async function updateWinningStreak(
   {
     catId,
     roomId,
@@ -1095,9 +1113,6 @@ async function updateWinningStreak(
     logGameError('updateWinningStreak', error, {catId,roomId,playerId,mode}); throw error;}
 }
 
-async function resetRoomStreak(roomId: string): Promise<void> {
-  await redisClient.del(`room:${roomId}:streak`);
-}
 
 export const updatePlayerGameEnergy = async (socket:Socket, params:PlayerGameEnergy & {field?:'gauge'|'turbo';operationId?:string}) => {
   if(!params.field||!params.operationId) throw new Error('Send a refill action, not energy balances');
@@ -1239,52 +1254,18 @@ export const getGameResult = async (roomId: string, io: GameIoNamespace) => {
     io.to(roomId).emit(GameEventEnum.GAME_ERROR_NOTIFY, 'This room has invalid game settings. Please rejoin.');
     return;
   }
-  // // get all the game answers for a particular room when answering is done
-  // calculate players points
-  const captured = await captureRound(room);
-  const settled = await settleGameRound(captured.id,snapshot=>calculateGameRoomPoints(room,snapshot));
-  const gameRoomScore = settled.scores as unknown as ThemedGameScore[];
-  // persuade users to play when no game answers are available
-  if (gameRoomScore.length === 0 && settled.effectsPending) {
-    io.to(roomId).emit(
-      GameEventEnum.MESSAGE,
-      composeMessage({ content: "Please don't forget to always play!" })
-    );
-    await resetRoomStreak(room.roomId);
-  }
-  // check if gamePoints is not empty
-  if (gameRoomScore.length > 0) {
-    // update game room streak and game achievement or set game room streak
-    const item = gameRoomScore[0];
-    if(settled.effectsPending) {
-      if(item.score>0) await updateWinningStreak({...item,mode:room.mode,roundId:settled.id},io);
-      else await resetRoomStreak(item.roomId);
-    } 
-    // update players game energy
-    for (const score of gameRoomScore) {
-      const energy = await prisma.gameEnergy.findUnique({where:{playerId_catId:{playerId:score.playerId,catId:score.catId}}});
-      if(energy) io.to(score.playerId).emit(GameEventEnum.GAME_PLAYER_ENERGY,energy);
-    }
-    //   emit event to client
-    io.to(roomId).emit(GameEventEnum.GAME_ROOM_SCORE, gameRoomScore);
-    // update game points
-    // Scores and energy already committed with the round receipt.
-    //   send in game room players
-    const players = await getGameRoomPlayersWithRank(roomId, room.catId, room.mode);
-    io.to(roomId).emit(GameEventEnum.GAME_ROOM_PLAYERS, players);
-  } else if(settled.effectsPending) {
-    await resetRoomStreak(room.roomId);
-  }
-  await prisma.gameRoundRecord.update({where:{id:settled.id},data:{effectsPending:false}});
-  // chat again
-  await gameChatTime(roomId, io, true);
-  // if(room.mode === GameMode.MULTI){
-
-  // }
-  // else{
-  //   checkGameNumPlayers(room, io);
-  // }
-
+  const live=await finishLiveGameRound(room);
+  await assertGameRuntimeLease();
+  const scores=live.scores;
+  io.to(roomId).emit(GameEventEnum.GAME_ROOM_SCORE,scores);
+  if(!scores.length)io.to(roomId).emit(GameEventEnum.MESSAGE,composeMessage({content:"Please don't forget to always play!"}));
+  // Rankings are already projected atomically in Redis. Database settlement is queued.
+  const serverNow=await gameClock();
+  io.to(roomId).emit(GameEventEnum.GAME_ROOM_STATE,{status:GameStatusEnum.CHAT,deadline:live.chatDeadline,serverNow,countdown:Math.max(0,Math.ceil((live.chatDeadline-serverNow)/1000)),roundId:live.snapshot.question.roundId});
+  io.to(roomId).emit(GameEventEnum.NOTIFY_MESSAGE,room.mode==='SINGLE'?'Get ready!':'You can chat now!');
+  io.to(roomId).emit(GameEventEnum.GAME_ROOM_PLAYERS,await getGameRoomPlayersWithRank(roomId,room.catId,room.mode));
+  try {await enqueueGameResult(live.snapshot.question.roundId!);}
+  catch(error){logger.error({event:'game_result_enqueue_failed',error},'Round remains in Redis outbox');}
 };
 
 // when it's play time
@@ -1296,7 +1277,10 @@ export const gamePlayTime = async (roomId:string,io:GameIoNamespace,question:The
 export const gameChatTime = async (roomId:string,io:GameIoNamespace,notify?:boolean) => {
   const room=await getGameRoom(roomId);if(!room)return;
   const q=await retrieveGameRoomQuestion(roomId);
-  await scheduleGamePhase(room,'CHAT',await gameClock()+(room.mode==='SINGLE'?5:10)*1000,q?.roundId);
+  const deadline=await gameClock()+(room.mode==='SINGLE'?5:10)*1000;
+  if(!await scheduleGamePhase(room,'CHAT',deadline,q?.roundId))return;
+  const serverNow=await gameClock();
+  io.to(roomId).emit(GameEventEnum.GAME_ROOM_STATE,{status:GameStatusEnum.CHAT,deadline,serverNow,countdown:Math.max(0,Math.ceil((deadline-serverNow)/1000)),roundId:q?.roundId});
   if(notify)io.to(roomId).emit(GameEventEnum.NOTIFY_MESSAGE,room.mode==='SINGLE'?'Get ready!':'You can chat now!');
 };
 export const gameVoteTime = async (room:TempGameRoom,io:GameIoNamespace) => {

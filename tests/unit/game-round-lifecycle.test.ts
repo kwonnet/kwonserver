@@ -9,7 +9,7 @@ vi.mock('@/services/helper',()=>({getGameType:deps.kind,getGameCatType:deps.cat,
 vi.mock('@/utils',async()=>({...await vi.importActual<typeof import('@/utils')>('@/utils'),clearRedisKeysByPattern:vi.fn()}));
 vi.mock('@/utils/webpush',()=>({default:{}}));
 vi.mock('@/utils/ai',()=>({generateRoomQuestion:deps.generate,shuffleArray:vi.fn()}));
-import {calculateGameRoomPoints,gameChatTime,gamePlayTime,checkGameNumPlayers} from '@/services/v1/games';
+import {forwardGamePlayerEvent,calculateGameRoomPoints,gameChatTime,gamePlayTime,checkGameNumPlayers} from '@/services/v1/games';
 import {GameEventEnum,GameCatType,GameType} from '@/types';
 const room:any={roomId:'room',mode:'MULTI',catId:'cat',gameName:'Trivia',catName:'General',status:'CHAT',timer:5};
 beforeEach(()=>{vi.clearAllMocks();deps.kind.mockReturnValue(GameType.TRIVIA);deps.cat.mockReturnValue(GameCatType.TYPEMANIA);deps.hSet.mockResolvedValue(1);deps.del.mockResolvedValue(1);});
@@ -55,4 +55,15 @@ it.each([['SINGLE',GameCatType.TYPEMANIA,20],['MULTI',GameCatType.TYPEMANIA,20],
   expect(beginGameRound).toHaveBeenCalledWith(expect.objectContaining({mode}),expect.objectContaining({id:'sentence'}),seconds);
   expect(emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,expect.objectContaining({status:'PLAY',countdown:seconds,deadline:Date.now()+Number(seconds)*1000}));
  }finally{vi.clearAllTimers();vi.useRealTimers();}
+});
+
+it('does not apply a delayed energy refresh to a player who switched categories',()=>{
+ const old=vi.fn(),current=vi.fn(),broadcast=vi.fn();
+ const io:any={adapter:{rooms:new Map([['player',new Set(['old','current'])]])},sockets:new Map([
+  ['old',{data:{room:{catId:'other'}},emit:old}],['current',{data:{room:{catId:'cat'}},emit:current}],
+ ]),local:{to:()=>({emit:broadcast})}};
+ const payload={catId:'cat',gauge:40};
+ forwardGamePlayerEvent(io,{target:'player',event:GameEventEnum.GAME_PLAYER_ENERGY,payload});
+ expect(current).toHaveBeenCalledWith(GameEventEnum.GAME_PLAYER_ENERGY,payload);
+ expect(old).not.toHaveBeenCalled();expect(broadcast).not.toHaveBeenCalled();
 });

@@ -1,3 +1,5 @@
+import {assertGameRoundsSynced} from '@/services/v1/games/rounds';
+import {isoWeekStart} from '@/utils/game-periods';
 import {ensureRewardRanking} from '@/services/v1/games/periodRecovery';
 import {GameMilestoneRewardTask, Prisma, RewardReasonEnum, RewardTypeEnum} from '@prisma/client';
 import prisma from '@/db';
@@ -10,6 +12,12 @@ export type MilestonePlan = {version: 1; label: string; awards: MilestoneAward[]
 
 /** Only the first committed plan is paid. Queries read IDs/scores, never player hashes. */
 export async function prepareMilestonePlan(task: GameMilestoneRewardTask): Promise<MilestonePlan> {
+  const start=task.kind==='WEEK'?isoWeekStart(task.year,task.week):new Date(Date.UTC(task.year,0,1));
+  const end=task.kind==='WEEK'?new Date(start.getTime()+7*86400000):new Date(Date.UTC(task.year+1,0,1));
+  const categoryIds=task.kind==='CHAMP'?(await prisma.gameCategory.findMany({where:{gameId:task.scopeId},select:{id:true}})).map(c=>c.id):undefined;
+  await assertGameRoundsSynced({playedAt:{gte:start,lt:end},
+    ...(task.mode?{mode:task.mode}:{}),
+    ...(['WEEK','YEAR'].includes(task.kind)?{catId:task.scopeId}:categoryIds?{catId:{in:categoryIds}}:{})});
   let label: string;
   let players: {playerId: string; score: string}[];
   if (task.kind === 'WEEK') {

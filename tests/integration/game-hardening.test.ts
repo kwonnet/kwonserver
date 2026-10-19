@@ -4,6 +4,8 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Server } from "socket.io";
 import { io as client } from "socket.io-client";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
+const queueMocks=vi.hoisted(()=>({add:vi.fn(async()=>({})),getJob:vi.fn(async()=>undefined)}));
+vi.mock('@/cron/jobs/queue',()=>({gameResultQueue:queueMocks}));
 vi.mock("@/db", async () => {
   const { PrismaClient } = await import("@prisma/client");
   return {
@@ -32,11 +34,14 @@ vi.mock("@/services/helper", () => ({
   syncRedisUserWalletToPrisma: async () => {},
   syncPrismaUserWalletToRedis: async () => {},
 }));
+import {gameRuntimeLease} from "@/services/v1/games/lease";
 import db from "@/db";
+import {finishLiveGameRound,settleQueuedGameRound,recoverLiveGameResults} from '@/services/v1/games/liveResults';
 import redis from "@/redis";
 import {
   recordGameRound,
   captureRound,
+  assertGameRoundsSynced,
   settleGameRound,
   projectGameRound,
 } from "@/services/v1/games/rounds";
@@ -44,6 +49,7 @@ import {
   calculateGameRoomPoints,
   deleteGameRoomQuestionAndAnswers,
   addGameRoomPlayer,
+  getGameResult,
 } from "@/services/v1/games";
 import {
   rankingKeysAt,
@@ -62,7 +68,7 @@ import {
   tickGameRuntimes,
   startGameRuntimes,
 } from "@/services/v1/games/runtime";
-import { GameActionEnum, GameCatType, GameType } from "@/types";
+import { GameActionEnum, GameCatType, GameType, GameEventEnum } from "@/types";
 const prefix = "hardening-",
   users = [0, 1, 2].map((n) => `${prefix}${n}`),
   rounds: string[] = [],
@@ -450,7 +456,9 @@ it("resumes a phase after its original process stopped and uses persisted deadli
   expect(
     (await db.gameRoundRecord.findUniqueOrThrow({ where: { id: q.roundId } }))
       .status,
-  ).toBe("COMPLETED");
+  ).toBe("PENDING");
+  await settleQueuedGameRound(q.roundId);
+  expect((await db.gameRoundRecord.findUniqueOrThrow({where:{id:q.roundId}})).status).toBe("COMPLETED");
   expect(
     (await db.gameRoomRuntime.findUniqueOrThrow({ where: { id: roomId } }))
       .phase,
@@ -560,4 +568,71 @@ it("starts a round with matching durable and live category deadlines", async () 
   expect((record.question as any).answerUntil).toBe(question!.answerUntil);
   expect(JSON.parse(live!)).toEqual(question);
   expect(await redis.hGet(`room:${roomId}`,"timer")).toBe("10");
+});
+
+it("projects live results with PostgreSQL unavailable then settles once without duplicating ranks", async () => {
+  const q=await round();
+  keys.push(`game:round-snapshot:${q.roundId}`,`game:result:${q.roundId}`,`game:round-projection:${q.roundId}`,`game:streak-effect:${q.roundId}`);
+  const key=playerKeysAt(users[0],catId,'multi',new Date(q.startedAt)).month;
+  const before=Number(await redis.hGet(key,'numPlayed')??0);
+  const reads=vi.spyOn(db.gameRoundRecord,'findUniqueOrThrow').mockRejectedValue(new Error('PostgreSQL unavailable'));
+  let live;
+  try {
+    live=await finishLiveGameRound(room);
+    expect(reads).not.toHaveBeenCalled();
+    expect(live.scores).toHaveLength(3);
+    expect(Number(await redis.hGet(key,'numPlayed'))).toBe(before+1);
+    await finishLiveGameRound(room);
+    expect(Number(await redis.hGet(key,'numPlayed'))).toBe(before+1);
+  } finally {reads.mockRestore();}
+  expect((await db.gameRoundRecord.findUniqueOrThrow({where:{id:q.roundId}})).status).toBe('PENDING');
+  await settleQueuedGameRound(q.roundId);
+  await settleQueuedGameRound(q.roundId);
+  expect(Number(await redis.hGet(key,'numPlayed'))).toBe(before+1);
+  expect((await db.gameRoundRecord.findUniqueOrThrow({where:{id:q.roundId}})).status).toBe('COMPLETED');
+  expect(await redis.zScore('game:results:pending',q.roundId)).toBeNull();
+});
+it("uses cached Redis runtime for normal countdown ticks without querying PostgreSQL",async()=>{
+  const q=await round();await scheduleGamePhase(room,'PLAY',Date.now()+20000,q.roundId);
+  const reads=vi.spyOn(db.gameRoomRuntime,'findUnique').mockRejectedValue(new Error('PostgreSQL unavailable'));
+  try {await tickGameRuntimes(io);expect(reads).not.toHaveBeenCalled();}
+  finally {reads.mockRestore();}
+});
+
+it("retains a result in the Redis outbox when queue publication fails",async()=>{
+ const q=await round();
+ keys.push(`game:round-snapshot:${q.roundId}`,`game:result:${q.roundId}`,`game:round-projection:${q.roundId}`,`game:streak-effect:${q.roundId}`);
+ await finishLiveGameRound(room);
+ queueMocks.add.mockRejectedValueOnce(new Error('Queue unavailable'));
+ await recoverLiveGameResults();
+ expect(await redis.get(`game:result:${q.roundId}`)).toBeTruthy();
+ expect(await redis.zScore('game:results:pending',q.roundId)).not.toBeNull();
+ await recoverLiveGameResults();
+ await settleQueuedGameRound(q.roundId);
+ expect(await redis.zScore('game:results:pending',q.roundId)).toBeNull();
+});
+
+it("publishes scores and advances CHAT while PostgreSQL result writes are unavailable",async()=>{
+ const q=await round();
+ keys.push(`game:round-snapshot:${q.roundId}`,`game:result:${q.roundId}`,`game:round-projection:${q.roundId}`,`game:streak-effect:${q.roundId}`);
+ const transaction=vi.spyOn(db,'$transaction').mockRejectedValue(new Error('PostgreSQL unavailable'));
+ const emit=vi.fn();
+ try {
+  await getGameResult(roomId,{to:()=>({emit})} as any);
+  expect(transaction).not.toHaveBeenCalled();
+  expect(emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_SCORE,expect.anything());
+  expect(await redis.hGet(`room:${roomId}`,'status')).toBe('CHAT');
+ }finally{transaction.mockRestore();}
+ await expect(assertGameRoundsSynced({id:q.roundId})).rejects.toThrow('still syncing');
+ await settleQueuedGameRound(q.roundId);
+ await expect(assertGameRoundsSynced({id:q.roundId})).resolves.toBeUndefined();
+});
+
+it("does not close or publish a round from a replaced runtime lease",async()=>{
+ const q=await round(),lock=`game:test-lease:${q.roundId}`;
+ keys.push(lock,`game:round-snapshot:${q.roundId}`);
+ await redis.set(lock,'replacement');
+ await expect(gameRuntimeLease.run({key:lock,token:'stale'},async()=>finishLiveGameRound(room))).rejects.toThrow('lease was replaced');
+ expect(await redis.hGet(`room:${roomId}`,'status')).toBe('PLAY');
+ expect(await redis.get(`game:round-snapshot:${q.roundId}`)).toBeNull();
 });

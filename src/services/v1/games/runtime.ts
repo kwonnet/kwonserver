@@ -55,8 +55,8 @@ async function persistGamePhase(room: TempGameRoom, phase: string, deadline: num
   if (!saved)
     return false;
   await assertGameRuntimeLease();
-  const changed = await redis.eval("if redis.call('HGET',KEYS[1],'generation')~=ARGV[1] then return 0 end;redis.call('HSET',KEYS[1],'status',ARGV[2],'timer',ARGV[3],'deadline',ARGV[4]);if ARGV[5]~='' then redis.call('SET',KEYS[2],ARGV[5]) end;redis.call('ZADD',KEYS[3],ARGV[6],ARGV[7]);return 1", { keys: [`room:${room.roomId}`, `room:${room.roomId}:question`, dueKey],
-    arguments: [room.generation, phase, String(config.timer), String(deadline), question ? JSON.stringify(question) : '', String(now), room.roomId] });
+  const changed = await redis.eval("if redis.call('HGET',KEYS[1],'generation')~=ARGV[1] then return 0 end;redis.call('HSET',KEYS[1],'status',ARGV[2],'timer',ARGV[3],'deadline',ARGV[4],'roundId',ARGV[8],'revision',ARGV[9]);if ARGV[5]~='' then redis.call('SET',KEYS[2],ARGV[5]) end;redis.call('ZADD',KEYS[3],ARGV[6],ARGV[7]);return 1", { keys: [`room:${room.roomId}`, `room:${room.roomId}:question`, dueKey],
+    arguments: [room.generation, phase, String(config.timer), String(deadline), question ? JSON.stringify(question) : '', String(now), room.roomId, roundId??'', String(previous?previous.revision+1:0)] });
   return changed ? { question } : false;
 }
 
@@ -115,22 +115,20 @@ async function stepRoom(roomId: string, io: Namespace) {
   }, 4000);
   try {
     await gameRuntimeLease.run({ key: lock, token }, async () => {
-      const runtime = await prisma.gameRoomRuntime.findUnique({
-        where: { id: roomId },
-      });
-      if (!runtime?.active) {
-        await redis.zRem(dueKey, roomId);
-        return;
-      }
       const {
-        getGameRoom,
-        checkGameNumPlayers,
-        getGameResult,
-        gameVoteTime,
-        getTotalRoomPlayers,
-        deleteGameRoomQuestionAndAnswers,
+        getGameRoom, checkGameNumPlayers, getGameResult, gameVoteTime,
+        getTotalRoomPlayers, deleteGameRoomQuestionAndAnswers,
       } = await import("./index");
       const room = await getGameRoom(roomId);
+      // Live timers use Redis. PostgreSQL is consulted only for a missing legacy cache.
+      const runtime = room && Number.isFinite(Number(room.deadline)) ? {
+        active:true, generation:room.generation, phase:room.status,
+        deadline:new Date(Number(room.deadline)), roundId:room.roundId||null, revision:Number(room.revision??0),
+      } : await prisma.gameRoomRuntime.findUnique({where:{id:roomId}});
+      if (!runtime?.active) {await redis.zRem(dueKey,roomId);return;}
+      if(room && !Number.isFinite(Number(room.deadline)))await redis.hSet(`room:${roomId}`,{
+        deadline:String(runtime.deadline.getTime()),roundId:runtime.roundId??'',revision:String(runtime.revision),status:runtime.phase,
+      });
       if (!room || room.generation !== runtime.generation) {
         await prisma.gameRoomRuntime.updateMany({
           where: { id: roomId, generation: runtime.generation },
@@ -178,7 +176,7 @@ async function stepRoom(roomId: string, io: Namespace) {
           keys: [lock, `room:${roomId}`],
           arguments: [
             token,
-            runtime.generation,
+            runtime.generation!,
             String(countdown),
             runtime.phase,
             String(runtime.deadline.getTime()),
@@ -200,7 +198,7 @@ async function stepRoom(roomId: string, io: Namespace) {
           await deleteGameRoomQuestionAndAnswers(
             roomId,
             runtime.roundId,
-            runtime.generation,
+            runtime.generation!,
           );
         await checkGameNumPlayers(
           { ...room, status: "CHAT" as GameStatusEnum },

@@ -1,3 +1,4 @@
+import {settleQueuedGameRound} from '@/services/v1/games/liveResults';
 import {prepareGameIntegrityReview} from '@/services/v1/games/integrity';
 import {deliverPostPublicationNotification, deliverNotification} from '@/services/v1/notifications';
 import {deliverEmailMessage} from '@/services/email';
@@ -12,7 +13,7 @@ import { PostStatus, SubStatusEnum } from "@prisma/client";
 import IORedis from "ioredis";
 import logger from "@/logger";
 import { insertSubscriptionJob } from "../utils";
-import { GAME_INTEGRITY_QUEUE, NOTIFICATION_DELIVERY_QUEUE, EMAIL_DELIVERY_QUEUE, APP_SUBSCRIPTION_QUEUE, APP_SUBSCRIPTION_REMINDER_QUEUE, POST_EMBEDDING_QUEUE, POST_KEYWORDS_QUEUE, POST_LABELS, POST_TOPIC_QUEUE } from "../helpers";
+import { GAME_RESULT_QUEUE, GAME_INTEGRITY_QUEUE, NOTIFICATION_DELIVERY_QUEUE, EMAIL_DELIVERY_QUEUE, APP_SUBSCRIPTION_QUEUE, APP_SUBSCRIPTION_REMINDER_QUEUE, POST_EMBEDDING_QUEUE, POST_KEYWORDS_QUEUE, POST_LABELS, POST_TOPIC_QUEUE } from "../helpers";
 import { cleanTextContent, generateEmbedding } from "@/utils/helpers";
 import { kwonrecClient } from "@/services/kwonrec";
 
@@ -213,3 +214,5 @@ export const notificationDeliveryWorker = new Worker(NOTIFICATION_DELIVERY_QUEUE
 export const gameIntegrityWorker = new Worker(GAME_INTEGRITY_QUEUE,async job=>{
   await prepareGameIntegrityReview(job.data?.caseId);
 },{connection:workerConnection,autorun:false,concurrency:2});
+
+export const gameResultWorker=new Worker(GAME_RESULT_QUEUE,async job=>{await settleQueuedGameRound(job.data.roundId);},{connection:workerConnection,autorun:false,concurrency:4});

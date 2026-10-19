@@ -25,8 +25,9 @@ export async function startCronJobs() {
     await queues.emailQueue.setGlobalConcurrency(2);
     await queues.notificationQueue.setGlobalConcurrency(2);
     await queues.gameIntegrityQueue.setGlobalConcurrency(2);
+    await queues.gameResultQueue.setGlobalConcurrency(4);
     workers = await import('./jobs/workers');
-    activeWorkers = [workers.gameIntegrityWorker, workers.appSubscriptionWorker, workers.appSubReminderWorker,
+    activeWorkers = [workers.gameResultWorker, workers.gameIntegrityWorker, workers.appSubscriptionWorker, workers.appSubReminderWorker,
       workers.emailDeliveryWorker, workers.notificationDeliveryWorker, workers.postEmbeddingWorker, workers.postTopicWorker, workers.postKeywordsWorker];
     for (const worker of activeWorkers) {
       logWorkerLifecycle(worker);

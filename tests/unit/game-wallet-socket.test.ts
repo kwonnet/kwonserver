@@ -246,3 +246,14 @@ it('normalizes numeric luck selections and only forwards server-owned options',a
  await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:40,options:['40'],spinId:'00000000-0000-4000-8000-000000000001'});
  expect(games.deductGameCoins).toHaveBeenCalledWith(expect.objectContaining({luckSelection:'40'}),expect.objectContaining({payload:expect.objectContaining({answer:'40',luckOptions:['10','17','0'],serverOutcome:false})}));
 });
+
+it('welcomes the accepted player before room runtime initialization finishes',async()=>{
+ games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room 1',category:{gameId:'game',game:{name:'Trivia',modes:['SINGLE','MULTI']},name:'General',topics:[]}});
+ games.addGameRoomPlayer.mockResolvedValue({data:{room:{id:'room',generation:'generation',firstPlayer:false}}});
+ games.updateGameRoom.mockImplementationOnce(async()=>{
+  expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.MESSAGE,expect.objectContaining({content:expect.stringContaining("welcome to Room 1")}));
+  return false;
+ });
+ await handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'single'},vi.fn());
+ socket.data.cancelGameInitialization?.();
+});
