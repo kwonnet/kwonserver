@@ -58,6 +58,7 @@ import { recoverGameRounds } from "@/services/v1/games/recovery";
 import { attachGameAdapter } from "@/socketIo/gameAdapter";
 import {
   scheduleGamePhase,
+  beginGameRound,
   tickGameRuntimes,
   startGameRuntimes,
 } from "@/services/v1/games/runtime";
@@ -541,3 +542,22 @@ it("delivers questions, timers, scores and host messages across two API replicas
     ]);
   }
 }, 30000);
+
+it("starts a round with matching durable and live category deadlines", async () => {
+  await redis.hSet(`room:${roomId}`, {...room, generation:room.generation});
+  const question = await beginGameRound(room, {
+    id:"luckyflip-duration", question:"Flip", answer:"0", options:["0","10"], type:GameType.MINDMASH,
+  }, 10);
+  expect(question?.roundId).toBeTruthy();
+  rounds.push(question!.roundId!);
+  const [record, runtime, live] = await Promise.all([
+    db.gameRoundRecord.findUniqueOrThrow({where:{id:question!.roundId}}),
+    db.gameRoomRuntime.findUniqueOrThrow({where:{id:roomId}}),
+    redis.get(`room:${roomId}:question`),
+  ]);
+  expect(question!.answerUntil! - (question as any).startedAt).toBe(10000);
+  expect(runtime.deadline.getTime()).toBe(question!.answerUntil);
+  expect((record.question as any).answerUntil).toBe(question!.answerUntil);
+  expect(JSON.parse(live!)).toEqual(question);
+  expect(await redis.hGet(`room:${roomId}`,"timer")).toBe("10");
+});

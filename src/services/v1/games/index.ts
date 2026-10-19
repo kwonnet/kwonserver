@@ -1,8 +1,8 @@
 import {gameClock} from './clock';
 import {assertGameRuntimeLease} from './lease';
-import {scheduleGamePhase} from './runtime';
+import {scheduleGamePhase,beginGameRound} from './runtime';
 import {getGameEnergy,refillGameEnergy} from './energy';
-import {captureRound,settleGameRound,RoundSnapshot,recordGameRound} from './rounds';
+import {captureRound,settleGameRound,RoundSnapshot} from './rounds';
 import { matchesSentenceAnswer, publicWordQuestion } from '@/utils/word-games';
 import { GameDelivery, dispatchGameAction } from '@/services/walletLedger/gameDelivery';
 import { randomUUID } from 'crypto';
@@ -1215,22 +1215,19 @@ export const checkGameNumPlayers = async (room: TempGameRoom, io: GameIoNamespac
 
   const timer = timers[timerKey] ?? 15 //gameType === GameType.ACRONYM ? 25 : initTimer
 
-  const now=await gameClock();
-  const storedQuestion = await storeGameRoomQuestion(room.roomId, {...gameQuestion,
-    startedAt:now, answerUntil:now+timer*1000, voteUntil:now+(timer+12)*1000},room.generation);
+  // Publish the question and its initial timer together, after durable setup.
+  // The configured per-category durations above remain unchanged.
+  const storedQuestion = await beginGameRound(room, gameQuestion, timer);
   if (!storedQuestion) return;
-  await recordGameRound(room,storedQuestion);
-  await updateGameRoom({
-    ...room,
-    status: GameStatusEnum.PLAY,
-    timer,
+  const serverNow = await gameClock();
+  io.to(room.roomId).emit(GameEventEnum.GAME_ROOM_QUESTION, {
+    message: "Swen says, it's play time!", question: publicWordQuestion(storedQuestion),
   });
-  //   store in redis based on the game room
-  io.to(room.roomId).emit(
-    GameEventEnum.NOTIFY_MESSAGE,
-    "Swen says, get ready!"
-  );
-  await gamePlayTime(room.roomId, io, storedQuestion);
+  io.to(room.roomId).emit(GameEventEnum.GAME_ROOM_STATE, {
+    status: GameStatusEnum.PLAY,
+    countdown: Math.max(0, Math.ceil((storedQuestion.answerUntil!-serverNow)/1000)),
+    deadline: storedQuestion.answerUntil, serverNow, roundId: storedQuestion.roundId,
+  });
 };
 
 // this function signifies time for voting
@@ -1293,7 +1290,6 @@ export const getGameResult = async (roomId: string, io: GameIoNamespace) => {
 // when it's play time
 export const gamePlayTime = async (roomId:string,io:GameIoNamespace,question:ThemedGameQuestion) => {
   const room=await getGameRoom(roomId);if(!room)return;
-  await recordGameRound(room,question);
   await scheduleGamePhase(room,'PLAY',question.answerUntil!,question.roundId);
   io.to(roomId).emit(GameEventEnum.GAME_ROOM_QUESTION,{message:"Swen says, it's play time!",question:publicWordQuestion(question)});
 };

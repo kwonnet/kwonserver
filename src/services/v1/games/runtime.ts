@@ -6,73 +6,58 @@ import { Prisma } from "@prisma/client";
 import prisma from "@/db";
 import redis from "@/redis";
 import logger from "@/logger";
-import { TempGameRoom, GameStatusEnum, GameEventEnum } from "@/types";
+import { TempGameRoom, GameStatusEnum, GameEventEnum, ThemedGameQuestion } from "@/types";
 import { publicWordQuestion } from "@/utils/word-games";
 import { recoverRoundProjections } from "./rounds";
 const dueKey = "game:runtime:due";
 
-export async function scheduleGamePhase(
-  room: TempGameRoom,
-  phase: string,
-  deadline: number,
-  roundId?: string,
-) {
+export async function scheduleGamePhase(room: TempGameRoom, phase: string, deadline: number, roundId?: string) {
+  return Boolean(await persistGamePhase(room, phase, deadline, roundId));
+}
+/** Prepare first, then start the configured answer window as late as possible. */
+export async function beginGameRound(room: TempGameRoom, question: ThemedGameQuestion, seconds: number) {
+  const result = await persistGamePhase(room, "PLAY", 0, randomUUID(), { question, seconds });
+  return result ? result.question : undefined;
+}
+async function persistGamePhase(room: TempGameRoom, phase: string, deadline: number, roundId?: string, round?: {
+  question: ThemedGameQuestion;
+  seconds: number;
+}) {
   await assertGameRuntimeLease();
   if (!room.generation || !Number.isFinite(deadline))
     throw new Error("Room generation and deadline are required");
-  if (
-    (await redis.hGet(`room:${room.roomId}`, "generation")) !== room.generation
-  )
+  if ((await redis.hGet(`room:${room.roomId}`, "generation")) !== room.generation)
     return false;
-  const config = {
-    ...room,
-    status: phase,
-    timer: Math.max(0, Math.ceil((deadline - (await gameClock())) / 1000)),
+  const previous = await prisma.gameRoomRuntime.findUnique({ where: { id: room.roomId } });
+  // Catalog/question generation and runtime lookup must not consume play time.
+  const now = await gameClock();
+  if (round)
+    deadline = now + round.seconds * 1000;
+  const question = round ? { ...round.question, roundId, startedAt: now,
+    answerUntil: deadline, voteUntil: deadline + 12000 } : undefined;
+  const config = { ...room, status: phase, timer: Math.max(0, Math.ceil((deadline - now) / 1000)) };
+  const data = { generation: room.generation, config: config as unknown as Prisma.InputJsonValue,
+    phase, deadline: new Date(deadline), roundId: roundId ?? null, active: true };
+  const persist = async (db: Prisma.TransactionClient) => {
+    const changed = previous
+      ? await db.gameRoomRuntime.updateMany({ where: { id: room.roomId, generation: previous.generation, revision: previous.revision }, data: { ...data, revision: { increment: 1 } } })
+      : await db.gameRoomRuntime.createMany({ data: [{ id: room.roomId, ...data }], skipDuplicates: true });
+    if (!changed.count)
+      return false;
+    if (question)
+      await db.gameRoundRecord.create({ data: { id: roundId!, roomId: room.roomId,
+          generation: room.generation!, catId: room.catId, mode: room.mode, playedAt: new Date(now),
+          question: { ...question, context: config } as unknown as Prisma.InputJsonValue } });
+    return true;
   };
-  const previous = await prisma.gameRoomRuntime.findUnique({
-    where: { id: room.roomId },
-  });
-  const data = {
-    generation: room.generation,
-    config: config as unknown as Prisma.InputJsonValue,
-    phase,
-    deadline: new Date(deadline),
-    roundId: roundId ?? null,
-    active: true,
-  };
-  if (previous) {
-    const changed = await prisma.gameRoomRuntime.updateMany({
-      where: {
-        id: room.roomId,
-        generation: previous.generation,
-        revision: previous.revision,
-      },
-      data: { ...data, revision: { increment: 1 } },
-    });
-    if (!changed.count) return false;
-  } else {
-    const created = await prisma.gameRoomRuntime.createMany({
-      data: [{ id: room.roomId, ...data }],
-      skipDuplicates: true,
-    });
-    if (!created.count) return false;
-  }
+  // The round receipt and phase become durable together, with no duplicate upsert.
+  const saved = question ? await prisma.$transaction(persist) : await persist(prisma);
+  if (!saved)
+    return false;
   await assertGameRuntimeLease();
-  const changed = await redis.eval(
-    "if redis.call('HGET',KEYS[1],'generation')~=ARGV[1] then return 0 end;redis.call('HSET',KEYS[1],'status',ARGV[2],'timer',ARGV[3],'deadline',ARGV[4]);return 1",
-    {
-      keys: [`room:${room.roomId}`],
-      arguments: [
-        room.generation,
-        phase,
-        String(config.timer),
-        String(deadline),
-      ],
-    },
-  );
-  if (!changed) return false;
-  await redis.zAdd(dueKey, { value: room.roomId, score: await gameClock() });
-  return true;
+  const changed = await redis.eval("if redis.call('HGET',KEYS[1],'generation')~=ARGV[1] then return 0 end;redis.call('HSET',KEYS[1],'status',ARGV[2],'timer',ARGV[3],'deadline',ARGV[4]);if ARGV[5]~='' then redis.call('SET',KEYS[2],ARGV[5]) end;redis.call('ZADD',KEYS[3],ARGV[6],ARGV[7]);return 1", { keys: [`room:${room.roomId}`, `room:${room.roomId}:question`, dueKey],
+    arguments: [room.generation, phase, String(config.timer), String(deadline), question ? JSON.stringify(question) : '', String(now), room.roomId] });
+  return changed ? { question } : false;
 }
 
 /** Resume any occupied Redis room whose old process had only an in-memory timer. */

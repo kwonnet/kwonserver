@@ -1,4 +1,4 @@
-vi.mock('@/services/v1/games/runtime',()=>({scheduleGamePhase:vi.fn()}));
+vi.mock('@/services/v1/games/runtime',()=>({scheduleGamePhase:vi.fn(),beginGameRound:vi.fn(async(_room,question,seconds)=>({...question,roundId:'new-round',answerUntil:Date.now()+seconds*1000,voteUntil:Date.now()+(seconds+12)*1000}))}));
 vi.mock('@/services/v1/games/rounds',()=>({recordGameRound:vi.fn()}));
 vi.mock('@/services/v1/games/clock',()=>({gameClock:async()=>Date.now()}));
 import {beforeEach,expect,it,vi} from 'vitest';
@@ -43,7 +43,7 @@ it('broadcasts sentence puzzles without private accepted answers or an answer ke
  } finally {vi.clearAllTimers();vi.useRealTimers();}
 });
 
-it.each([['SINGLE',GameCatType.TYPEMANIA,20],['MULTI',GameCatType.TYPEMANIA,20],['SINGLE',GameCatType.UNSCRAMBLE,20],['MULTI',GameCatType.UNSCRAMBLE,20],['SINGLE',GameCatType.WORDMAKER,20],['MULTI',GameCatType.WORDMAKER,20],['SINGLE',GameCatType.LUCKYSPIN,15],['MULTI',GameCatType.LUCKYSPIN,15]])('gives %s %s a %i-second answer window and timer',async(mode,cat,seconds)=>{
+it.each([['SINGLE',GameCatType.TYPEMANIA,20],['MULTI',GameCatType.TYPEMANIA,20],['SINGLE',GameCatType.UNSCRAMBLE,20],['MULTI',GameCatType.UNSCRAMBLE,20],['SINGLE',GameCatType.WORDMAKER,20],['MULTI',GameCatType.WORDMAKER,20],['SINGLE',GameCatType.LUCKYSPIN,15],['MULTI',GameCatType.LUCKYSPIN,15],['SINGLE',GameCatType.LUCKYFLIP,10],['MULTI',GameCatType.LUCKYFLIP,15],['SINGLE',GameCatType.LUCKYWHIZ,10],['MULTI',GameCatType.LUCKYWHIZ,15],['SINGLE',GameCatType.HANGMAN,15],['MULTI',GameCatType.HANGMAN,15],['SINGLE',GameCatType.ANAGRAM,15],['MULTI',GameCatType.ANAGRAM,15]])('gives %s %s a %i-second answer window and timer',async(mode,cat,seconds)=>{
  vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-17T00:00:00Z'));
  try {
   deps.sCard.mockResolvedValue(2);deps.exists.mockResolvedValue(1);deps.cat.mockReturnValue(cat);deps.kind.mockReturnValue(GameType.MINDMASH);
@@ -51,11 +51,8 @@ it.each([['SINGLE',GameCatType.TYPEMANIA,20],['MULTI',GameCatType.TYPEMANIA,20],
   deps.hGetAll.mockResolvedValue({...room,mode,status:'PLAY',timer:String(seconds)});
   const emit=vi.fn();
   await checkGameNumPlayers({...room,mode,catName:cat===GameCatType.TYPEMANIA?'Typing Mania':String(cat)}, {to:()=>({emit})} as any);
-  expect(deps.set).toHaveBeenCalledWith('room:room:question',expect.any(String));
-  const saved=JSON.parse(deps.set.mock.calls[0][1]);
-  expect(saved.answerUntil).toBe(Date.now()+Number(seconds)*1000);
-  expect(deps.hSet).toHaveBeenCalledWith('room:room',expect.objectContaining({timer:seconds,status:'PLAY'}));
-  const {scheduleGamePhase}=await import('@/services/v1/games/runtime');
-  expect(scheduleGamePhase).toHaveBeenCalledWith(expect.objectContaining({mode}), 'PLAY', Date.now()+Number(seconds)*1000,saved.roundId);
+  const {beginGameRound}=await import('@/services/v1/games/runtime');
+  expect(beginGameRound).toHaveBeenCalledWith(expect.objectContaining({mode}),expect.objectContaining({id:'sentence'}),seconds);
+  expect(emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,expect.objectContaining({status:'PLAY',countdown:seconds,deadline:Date.now()+Number(seconds)*1000}));
  }finally{vi.clearAllTimers();vi.useRealTimers();}
 });
