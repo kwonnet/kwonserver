@@ -34,19 +34,25 @@ export async function chargeGameAction(params: { playerId: string; action: GameA
 }
 
 // Aggregate committed charges only; Redis counters cannot authorize payouts.
-export async function monthlyGameSpend(catId: string, mode: string, year: number, month: number) {
+export async function monthlyGameSpendExact(catId: string, mode: string, year: number, month: number) {
   const { default: db } = await import('@/db');
   const start = new Date(Date.UTC(year, month - 1, 1)), end = new Date(Date.UTC(year, month, 1));
-  const [row] = await db.$queryRaw<{ coins: number; bonus: number; unknown: number }[]>`
+  const [row] = await db.$queryRaw<{ coins: string; bonus: string; unknown: number }[]>`
     SELECT COALESCE(SUM(CASE WHEN metadata ? 'deductedCoins' THEN (metadata->>'deductedCoins')::numeric
-        WHEN source = 'COINS' THEN amount ELSE 0 END), 0)::float8 AS coins,
+        WHEN source = 'COINS' THEN amount ELSE 0 END), 0)::text AS coins,
       COUNT(*) FILTER (WHERE source = 'COINS_BONUS' AND NOT COALESCE((metadata ? 'deductedCoins' AND metadata ? 'deductedBonus'), false))::int AS unknown,
       COALESCE(SUM(CASE WHEN metadata ? 'deductedBonus' THEN (metadata->>'deductedBonus')::numeric
-        WHEN source = 'BONUS' THEN amount ELSE 0 END), 0)::float8 AS bonus
+        WHEN source = 'BONUS' THEN amount ELSE 0 END), 0)::text AS bonus
     FROM "Transaction" WHERE category = 'GAME_DEDUCTION' AND status = 'COMPLETED'
       AND "createdAt" >= ${start} AND "createdAt" < ${end}
       AND (metadata->>'gameActionId' IS NULL OR EXISTS (SELECT 1 FROM "GameWalletAction" a WHERE a.id = metadata->>'gameActionId' AND a.status = 'DELIVERED'))
       AND type = 'DEBIT' AND metadata->>'catId' = ${catId} AND metadata->>'mode' = ${mode}`;
   if (row.unknown) throw new Error('Mixed legacy game spending requires reconciliation before rewards');
   return { coins: row.coins, bonus: row.bonus };
+}
+
+// Numeric boundary retained for existing callers; settlement uses exact decimal strings.
+export async function monthlyGameSpend(catId: string, mode: string, year: number, month: number) {
+  const spend = await monthlyGameSpendExact(catId, mode, year, month);
+  return {coins: Number(spend.coins), bonus: Number(spend.bonus)};
 }

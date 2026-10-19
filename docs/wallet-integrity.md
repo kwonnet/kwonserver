@@ -39,6 +39,13 @@ cannot authorize, reverse, or overwrite a payment.
   imported references, and removes only exact committed members. Equal timestamps
   no longer cause unprocessed records to be deleted.
 
+## Monthly leaderboard reward policy
+
+Monthly category/mode rewards now use actual coin spending, tier-based funding,
+a protected minimum and a 500,000-coin ceiling. All qualifying awards settle in
+coins; bonus spending remains audit-only. See [monthly game rewards](monthly-game-rewards.md)
+for the formulas, qualification bands, rounding, snapshots, retry handling and tests.
+
 ## Required production cutover
 
 This changes the source of truth. **Do not push this change into the automatic
