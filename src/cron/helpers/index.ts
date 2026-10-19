@@ -23,3 +23,7 @@ export const POST_TOPIC_SESSION_OPTIONS = {intraOpNumThreads: 2, interOpNumThrea
 export const EMAIL_DELIVERY_QUEUE = "emailDeliveryQueue";
 
 export const NOTIFICATION_DELIVERY_QUEUE = "notificationDeliveryQueue";
+
+export const MONTHLY_REWARD_QUEUE = "monthlyRewardQueue";
+
+export const MONTHLY_REWARD_NOTIFICATION_QUEUE = "monthlyRewardNotificationQueue";

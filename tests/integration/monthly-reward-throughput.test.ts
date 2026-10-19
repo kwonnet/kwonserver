@@ -15,7 +15,11 @@ vi.mock('@/services/helper', () => ({getRedisHashKey: async () => ({score: 1, nu
 import db from '@/db';
 import redis from '@/redis';
 import {closeJobQueues} from '@/cron/jobs/queue';
-import {run} from '@/cron/recurring/reward_top_players_every_month';
+import {settleMonthlyRewards as run} from './monthly-reward-harness';
+import {run as dispatch} from '@/cron/recurring/reward_top_players_every_month';
+import {Worker} from 'bullmq';
+import {monthlyRewardQueue} from '@/cron/jobs/queue';
+import {processMonthlyRewardJob} from '@/cron/monthlyRewards';
 import {getRankingRewardKeys} from '@/utils';
 import {walletOperation} from '@/services/walletLedger';
 import {monthlyRewardAtRank, MonthlyRewardCurve} from '@/services/walletLedger/monthlyRewards';
@@ -25,6 +29,9 @@ const keys: string[] = [];
 const games: string[] = [];
 afterAll(async () => {
   if (keys.length) await redis.del(keys);
+  await db.notification.deleteMany({where: {recipientId: {startsWith: prefix}}});
+  await db.transaction.deleteMany({where: {userId: {startsWith: prefix}}});
+  await db.wallet.deleteMany({where: {userId: {startsWith: prefix}}});
   await db.user.deleteMany({where: {id: {startsWith: prefix}}});
   await db.game.deleteMany({where: {id: {in: games}}});
   await closeJobQueues(); await redis.quit(); await db.$disconnect();
@@ -49,7 +56,7 @@ async function fixture(label: string, participants: number) {
     currency: 'COINS', source: 'COINS', gateway: 'WALLET', type: 'DEBIT', status: 'COMPLETED',
     category: 'GAME_DEDUCTION', description: 'Benchmark spending',
     createdAt: new Date(Date.UTC(period.dateInfo.year, period.dateInfo.month - 1, 15)), metadata: {catId, mode: 'MULTI'}}});
-  return {ids, catId, period};
+  return {ids, catId, period, category: game.categories[0], game};
 }
 it('resumes at the committed cursor, rolls back a failed batch, and preserves concurrent wallet changes', async () => {
   const {ids, catId, period} = await fixture('resume', 7500);
@@ -96,15 +103,48 @@ it('resumes at the committed cursor, rolls back a failed batch, and preserves co
 
 it('measures end-to-end settlement throughput with 5,000 real wallet credits', async () => {
   const {ids, catId} = await fixture('throughput', 25000);
-  const started = performance.now(); await run(); const elapsedMs = performance.now() - started;
+  const started = performance.now(); await dispatch();
+  await drainQueuedRewards();
+  const elapsedMs = performance.now() - started;
   const stat = await db.gameMonthRewardStat.findFirstOrThrow({where: {catId}});
   expect(stat.processedParticipants).toBe(5000); expect(stat.status).toBe('COMPLETED');
   expect(await db.notification.count({where: {recipientId: {in: ids}}})).toBe(5000);
   expect(await db.transaction.count({where: {category: 'GAME_MONTHLY_REWARD', metadata: {path: ['catId'], equals: catId}}})).toBe(5000);
   const measurement = {participants: 25000, winners: 5000,
-    batchSize: 500, databasePool: 10, concurrentCategories: 1, elapsedMs: Math.round(elapsedMs),
+    batchSize: 500, databasePool: 10, concurrentCategories: 1, queueGlobalConcurrency: 4, elapsedMs: Math.round(elapsedMs),
     creditsPerSecond: Math.floor(5000 * 1000 / elapsedMs),
     includes: 'plan, Redis ranking, wallet/ledger/receipt/inbox/audit writes, push queue submission; excludes device delivery and fixture setup'};
   writeFileSync(join(tmpdir(), 'kwon-monthly-reward-benchmark.json'), JSON.stringify(measurement, null, 2));
   process.stdout.write(`MONTHLY_REWARD_BENCHMARK ${JSON.stringify(measurement)}\n`);
+}, 120000);
+
+async function drainQueuedRewards() {
+  await monthlyRewardQueue.setGlobalConcurrency(4);
+  const worker = new Worker(monthlyRewardQueue.name, processMonthlyRewardJob,
+    {connection: {host: '127.0.0.1', port: 16379}, concurrency: 4});
+  try {
+    const deadline = Date.now() + 110000;
+    while (await db.monthlyRewardSettlement.count({where: {status: {not: 'COMPLETED'}}})) {
+      const failed = await db.monthlyRewardSettlement.findFirst({where: {status: 'FAILED'}});
+      if (failed) throw new Error(failed.lastError ?? 'Reward job failed');
+      if (Date.now() > deadline) throw new Error('Reward queue did not drain');
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  } finally { await worker.close(); }
+}
+
+it('benchmarks four concurrent categories using real queued workers', async () => {
+  const fixtures = [];
+  for (let i = 0; i < 4; i++) fixtures.push(await fixture(`parallel-${i}`, 25000));
+  vi.spyOn(db.gameCategory, 'findMany').mockResolvedValue(fixtures.map(f => ({...f.category, game: f.game})) as any);
+  const started = performance.now(); await dispatch(); await drainQueuedRewards();
+  const elapsedMs = performance.now() - started;
+  const rows = await db.gameMonthRewardStat.findMany({where: {catId: {in: fixtures.map(f => f.catId)}}});
+  expect(rows).toHaveLength(4); expect(rows.every(r => r.status === 'COMPLETED' && r.processedParticipants === 5000)).toBe(true);
+  const measurement = {categories: 4, participants: 100000, winners: 20000, batchSize: 500,
+    databasePool: 10, queueGlobalConcurrency: 4, elapsedMs: Math.round(elapsedMs),
+    creditsPerSecond: Math.floor(20000 * 1000 / elapsedMs),
+    includes: 'durable dispatch, real BullMQ workers, funding, payment/inbox/audit/outbox writes and batch notification queue pointers; excludes provider delivery'};
+  writeFileSync(join(tmpdir(), 'kwon-monthly-reward-parallel-benchmark.json'), JSON.stringify(measurement, null, 2));
+  process.stdout.write(`MONTHLY_REWARD_PARALLEL_BENCHMARK ${JSON.stringify(measurement)}\n`);
 }, 120000);

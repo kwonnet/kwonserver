@@ -1352,6 +1352,7 @@ model QuizQuestion {
 }
 
 model GameCategory {
+  monthlyRewardSettlements MonthlyRewardSettlement[]
   questions            QuizQuestion[]
   id                   String                @id @default(cuid())
   name                 String
@@ -2526,4 +2527,41 @@ model E2HistoryBackup {
   discardedAt DateTime?
   createdAt DateTime @default(now())
   @@index([userId,deviceId,finalizedAt])
+}
+
+// Durable work registry. Queue entries are disposable pointers to this state.
+model MonthlyRewardSettlement {
+  id String @id
+  catId String
+  category GameCategory @relation(fields: [catId], references: [id], onDelete: Cascade)
+  mode GameMode
+  year Int
+  month Int
+  status String @default("PENDING")
+  failures Int @default(0)
+  lastError String?
+  nextAttemptAt DateTime @default(now())
+  startedAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deliveries MonthlyRewardDelivery[]
+  @@unique([catId, mode, year, month])
+  @@index([status, nextAttemptAt])
+  @@index([year, month])
+}
+
+// Created atomically with a payment batch and its WalletOperation receipt.
+// The receipt contains recipient IDs; Redis jobs carry only this small pointer.
+model MonthlyRewardDelivery {
+  id String @id
+  settlementId String
+  settlement MonthlyRewardSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  status String @default("PENDING")
+  nextAttemptAt DateTime @default(now())
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, nextAttemptAt])
+  @@index([settlementId])
 }

@@ -12,12 +12,13 @@ vi.mock('@/redis',async()=>{
 vi.mock('@/services/helper',()=>({getRedisHashKey:async()=>({score:1275,numPlayed:50})}));
 const pushSend=vi.hoisted(()=>vi.fn().mockResolvedValue({statusCode:201}));
 vi.mock('@/utils/webpush',()=>({default:{sendNotification:pushSend}}));
-import {notificationQueue,closeJobQueues} from '@/cron/jobs/queue';
+import {monthlyRewardNotificationQueue,closeJobQueues} from '@/cron/jobs/queue';
 import {deliverNotification,getNotificationStreamSnapshot} from '@/services/v1/notifications';
 import db from '@/db';
 import redis from '@/redis';
 import {getRankingRewardKeys} from '@/utils';
-import {run} from '@/cron/recurring/reward_top_players_every_month';
+import {settleMonthlyRewards as run} from './monthly-reward-harness';
+import {processMonthlyRewardNotificationJob} from '@/cron/monthlyRewards';
 let catId:string,gameId:string,key:string,snapshot:string,milestoneId:string;
 const extraKeys:string[]=[];
 const ids=Array.from({length:50},(_,i)=>`monthly-policy-player-${i}`);
@@ -64,8 +65,9 @@ it('offsets actual bonus spending before funding, pays every qualifying player c
  expect(notifications).toHaveLength(10);
  for(const notification of notifications) {
   expect(notification.meta).toMatchObject({kind:'monthly-game-reward',catId,mode:'MULTI',auditId:partial.id,currency:'COINS'});
-  const job=await notificationQueue.getJob(`notification-${notification.id}`);
-  expect(job?.data.notificationId).toBe(notification.id);
+  const delivery=await db.monthlyRewardDelivery.findFirstOrThrow({where:{settlementId:partial.id}});
+  const job=await monthlyRewardNotificationQueue.getJob(`monthly-reward-notifications-${delivery.id}`);
+  expect(job?.data.batchId).toBe(delivery.id);
  }
  expect(await getNotificationStreamSnapshot(ids[0])).toMatchObject({totalUnseenCount:1,latestNotificationId:expect.any(String)});
  expect(await getNotificationStreamSnapshot(ids[49])).toMatchObject({totalUnseenCount:0,latestNotificationId:null});
@@ -109,10 +111,11 @@ it('pushes an award once to subscribed devices and retains the SSE inbox',async(
  const config={endpoint:'https://fcm.googleapis.com/fcm/send/monthly-award-fixture',keys:{p256dh:Buffer.alloc(65,4).toString('base64url'),auth:Buffer.alloc(16,1).toString('base64url')}};
  const subscription=await db.pushNotification.create({data:{userId:ids[0],endpoint:config.endpoint,config}});
  const connection={host:'127.0.0.1',port:16379};
- const events=new QueueEvents(notificationQueue.name,{connection});await events.waitUntilReady();
- const worker=new Worker(notificationQueue.name,job=>deliverNotification(job.data.notificationId),{connection,concurrency:2});
+ const events=new QueueEvents(monthlyRewardNotificationQueue.name,{connection});await events.waitUntilReady();
+ const worker=new Worker(monthlyRewardNotificationQueue.name,processMonthlyRewardNotificationJob,{connection,concurrency:2});
  try {
-  const job=await notificationQueue.getJob(`notification-${notification.id}`);
+  const delivery=await db.monthlyRewardDelivery.findFirstOrThrow({where:{settlementId:(notification.meta as any).auditId}});
+  const job=await monthlyRewardNotificationQueue.getJob(`monthly-reward-notifications-${delivery.id}`);
   await job!.waitUntilFinished(events,10000);
   await deliverNotification(notification.id);
   expect(pushSend).toHaveBeenCalledOnce();

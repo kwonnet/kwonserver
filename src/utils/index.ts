@@ -365,18 +365,24 @@ export function getRankingKeys(catId: string, mode: "single" | "multi"){
   }
 }
 
-export function getRankingRewardKeys(catId: string, mode: "single" | "multi") {
+export function getRankingRewardKeys(catId: string, mode: "single" | "multi", monthlyPeriod?: {year: number; month: number}) {
 
   const info = getRewardDateInfo()
+  if (monthlyPeriod && (!Number.isInteger(monthlyPeriod.year) || !Number.isInteger(monthlyPeriod.month) ||
+    monthlyPeriod.year < 1970 || monthlyPeriod.year > 9999 || monthlyPeriod.month < 1 || monthlyPeriod.month > 12)) {
+    throw new Error('Invalid monthly reward period');
+  }
+  const monthlyYear = monthlyPeriod?.year ?? info.monthlyRewardYear;
+  const monthlyMonth = monthlyPeriod?.month ?? info.monthlyRewardMonth;
 
   return {
     dateInfo: {
-      year: info.monthlyRewardYear,
-      month: info.monthlyRewardMonth,
+      year: monthlyYear,
+      month: monthlyMonth,
     },
-    rewardMonth: `ranking:cat:${catId}:mode:${mode}:${info.monthlyRewardYear}:${info.monthlyRewardMonth}:month:${info.monthlyRewardMonth}`,
+    rewardMonth: `ranking:cat:${catId}:mode:${mode}:${monthlyYear}:${monthlyMonth}:month:${monthlyMonth}`,
 
-    rewardMonthStat: `ranking:cat:${catId}:mode:${mode}:${info.monthlyRewardYear}:${info.monthlyRewardMonth}:stat`,
+    rewardMonthStat: `ranking:cat:${catId}:mode:${mode}:${monthlyYear}:${monthlyMonth}:stat`,
 
     rewardWeek:  `ranking:cat:${catId}:mode:${mode}:${info.weeklyRewardYear}:${info.weeklyRewardMonth}:week:${info.weeklyRewardWeek}`,
 

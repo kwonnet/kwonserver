@@ -108,3 +108,11 @@ it('refresh accepts expired signed tracked identities but never expired legacy o
  expect(u.getRefreshAuthTokenUser(u.generateToken({id:'legacy'},{expiresIn:'1h'}))).toEqual({id:'legacy'});
  expect(()=>u.getRefreshAuthTokenUser(expired+'tampered')).toThrow();
 });
+
+it('pins recovered monthly reward keys to their original period after rollover', () => {
+  expect(u.getRankingRewardKeys('cat', 'multi', {year: 2025, month: 12})).toMatchObject({
+    dateInfo: {year: 2025, month: 12}, rewardMonth: 'ranking:cat:cat:mode:multi:2025:12:month:12',
+    rewardMonthStat: 'ranking:cat:cat:mode:multi:2025:12:stat',
+  });
+  expect(() => u.getRankingRewardKeys('cat', 'multi', {year: 2025, month: 13})).toThrow('Invalid monthly');
+});

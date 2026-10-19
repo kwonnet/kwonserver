@@ -8,6 +8,7 @@ import { startRecurringJobs } from './recurring';
 import { startQuizGeneration } from './quizGeneration';
 import { closeQuestionInventory } from '@/services/questionInventory/runtime';
 
+let monthlyRewards: Awaited<ReturnType<typeof import('./monthlyRewards').startMonthlyRewardWorkers>> | undefined;
 let workers: typeof import('./jobs/workers') | undefined;
 let activeWorkers: import('bullmq').Worker[] = [];
 let started = false;
@@ -30,6 +31,10 @@ export async function startCronJobs() {
       // run() lasts for the worker lifetime; never await workers sequentially.
       if (!worker.isRunning()) void worker.run().catch(err => logger.error({event:'queue_stopped',queue:worker.name,err},'BullMQ worker stopped'));
     }
+    if (process.env.RUN_MONTHLY_REWARD_WORKERS !== 'false') {
+      const {startMonthlyRewardWorkers} = await import('./monthlyRewards');
+      monthlyRewards = await startMonthlyRewardWorkers();
+    }
     recurring = await startRecurringJobs();
     quiz = await startQuizGeneration();
   } catch (error) { await stopCronJobs(); throw error; }
@@ -39,6 +44,7 @@ export function stopCronJobs() {
   return closing ??= closeCronJobs();
 }
 async function closeCronJobs() {
+  if (monthlyRewards) await monthlyRewards.close();
   await Promise.all(activeWorkers.map(worker => worker.close()));
   if (recurring) await recurring.close();
   if (quiz) await quiz.close();

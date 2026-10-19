@@ -44,7 +44,10 @@
     "auth:cleanup": "node scripts/auth-retention.cjs",
     "topics:evaluate": "node scripts/evaluate-post-topics.cjs",
     "test:messaging:load": "node scripts/test-infrastructure.cjs --messaging-load",
-    "db:seed:tips": "npm run build:seed && prisma db seed -- --tips"
+    "db:seed:tips": "npm run build:seed && prisma db seed -- --tips",
+    "start:reward-worker": "node -r ./scripts/register-paths.cjs dist/cron/monthlyRewardWorker.js",
+    "dev:reward-worker": "ts-node -r tsconfig-paths/register src/cron/monthlyRewardWorker.ts",
+    "rewards:status": "node -r ./scripts/register-paths.cjs dist/cron/monthlyRewards/status.js"
   },
   "keywords": [],
   "author": "",

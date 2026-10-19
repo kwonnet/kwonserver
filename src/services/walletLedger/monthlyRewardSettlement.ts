@@ -8,9 +8,10 @@ import {getStringMonth} from '@/utils';
 export const MONTHLY_REWARD_BATCH_SIZE = 500;
 type Player = {id: string; rank: number; score: number; rewardAmount: number};
 type Input = {catId: string; categoryName: string; mode: GameMode; auditId: string;
-  dateInfo: {year: number; month: number}; milestones: GameMilestone[]; players: Player[]};
+  dateInfo: {year: number; month: number}; milestones: Pick<GameMilestone, 'id' | 'reason' | 'milestone' | 'thumbnail'>[]; players: Player[]; queueNotifications?: boolean};
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const policy = 'monthly-90-v2';
+export const monthlyRewardBatchId = (auditId: string, first: number, last: number) => hash(`monthly-reward-batch:${auditId}:${first}:${last}`);
 export const monthlyRewardCursorId = (auditId: string) => hash(`monthly-reward-cursor:${auditId}`);
 
 /** Bulk credits, per-user receipts and one audit increment commit or roll back together. */
@@ -124,6 +125,11 @@ export async function settleMonthlyRewardBatch(input: Input) {
         VALUES (${cursorId}, 'monthly-reward-cursor', ${policy}, ${JSON.stringify({nextRank})}::jsonb, NOW())
         ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result
         WHERE ("WalletOperation".result->>'nextRank')::int < ${nextRank}`;
+      if (input.queueNotifications && notificationIds.length) {
+        await tx.monthlyRewardDelivery.create({data: {
+          id: monthlyRewardBatchId(auditId, players[0].rank, players.at(-1)!.rank), settlementId: auditId,
+        }});
+      }
       return {processed: fresh.length, notificationIds};
     });
 }
