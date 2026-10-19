@@ -265,3 +265,7 @@ millions of players. There is no automatic fourfold speedup from four workers.
 Disk-backed production storage, ledger/index size, network latency, snapshots,
 game activity and device delivery can change the result substantially. Use the
 live status command and load tests for operational completion targets.
+
+Weekly/yearly/champion rewards now use their own bounded payout queue; see
+[Queued weekly and annual game rewards](game-milestone-rewards.md) for rollout,
+legacy receipt compatibility, concurrency and audit queries.

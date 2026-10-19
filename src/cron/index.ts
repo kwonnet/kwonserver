@@ -8,6 +8,7 @@ import { startRecurringJobs } from './recurring';
 import { startQuizGeneration } from './quizGeneration';
 import { closeQuestionInventory } from '@/services/questionInventory/runtime';
 
+let milestoneRewards: Awaited<ReturnType<typeof import('./milestoneRewards').startMilestoneRewardWorkers>> | undefined;
 let monthlyRewards: Awaited<ReturnType<typeof import('./monthlyRewards').startMonthlyRewardWorkers>> | undefined;
 let workers: typeof import('./jobs/workers') | undefined;
 let activeWorkers: import('bullmq').Worker[] = [];
@@ -35,6 +36,10 @@ export async function startCronJobs() {
       const {startMonthlyRewardWorkers} = await import('./monthlyRewards');
       monthlyRewards = await startMonthlyRewardWorkers();
     }
+    if (process.env.RUN_MILESTONE_REWARD_WORKERS !== 'false') {
+      const {startMilestoneRewardWorkers} = await import('./milestoneRewards');
+      milestoneRewards = await startMilestoneRewardWorkers();
+    }
     recurring = await startRecurringJobs();
     quiz = await startQuizGeneration();
   } catch (error) { await stopCronJobs(); throw error; }
@@ -44,6 +49,7 @@ export function stopCronJobs() {
   return closing ??= closeCronJobs();
 }
 async function closeCronJobs() {
+  if (milestoneRewards) await milestoneRewards.close();
   if (monthlyRewards) await monthlyRewards.close();
   await Promise.all(activeWorkers.map(worker => worker.close()));
   if (recurring) await recurring.close();

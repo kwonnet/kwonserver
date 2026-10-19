@@ -49,8 +49,8 @@ export async function registerRecurringJobs(queue: {
     }
     await queue.upsertJobScheduler(job.name, { pattern: job.pattern, tz: "tz" in job ? job.tz : tz }, {
       name: job.name, data: {},
-      // Reward routines are not guaranteed idempotent after partial success.
-      // Retain failures for inspection; do not automatically repeat payouts.
+      // Generic schedules retain failures for inspection. Game reward dispatchers
+      // persist tasks whose dedicated workers and watchdog handle payout retries.
       opts: { attempts: 1, removeOnComplete: { count: 1000 }, removeOnFail: { count: 1000 } },
     });
   }

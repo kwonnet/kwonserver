@@ -61,8 +61,8 @@ it('reports missing VAPID configuration before falsely claiming notifications ar
  expect(deps.subscriptions.upsert).not.toHaveBeenCalled();
 });
 
-it('delivers only the requested monthly award and links the device to the wallet',async()=>{
- deps.notifications.findMany.mockResolvedValue([{id:'monthly-award',recipientId:'owner',title:'Monthly game reward',message:'Coins credited',meta:{kind:'monthly-game-reward'}}]);
+it.each(['monthly-game-reward','game-milestone-reward'])('delivers only the requested %s award and links the device to the wallet',async(kind)=>{
+ deps.notifications.findMany.mockResolvedValue([{id:'monthly-award',recipientId:'owner',title:'Monthly game reward',message:'Coins credited',meta:{kind}}]);
  await deliverNotification('monthly-award');
  expect(deps.notifications.findMany).toHaveBeenCalledWith(expect.objectContaining({where:expect.objectContaining({id:'monthly-award'})}));
  expect(JSON.parse(deps.send.mock.calls[0][1])).toMatchObject({title:'Monthly game reward',tag:'monthly-award',url:'/wallet'});

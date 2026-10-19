@@ -12,6 +12,7 @@ export function publicationNotificationVisibility(userId: string): Prisma.Notifi
     { sourceKey: { startsWith: 'gift-received:' } },
     { sourceKey: { startsWith: 'quiz-reward:' } },
     { sourceKey: { startsWith: 'monthly-game-reward:' } },
+    { sourceKey: { startsWith: 'game-milestone:' } },
     { sourceKey: { startsWith: 'post-published:' },
       sender: { postNotificationSubscribers: { some: { subscriberId: userId } } },
       AND: [{sender: {followers: {some: {followerId: userId, status: 'ACCEPTED'}}}}],
@@ -129,7 +130,7 @@ export async function deliverPendingPushNotifications(postId?: string, notificat
     if (!claim.count) return;
     let target = '/notifications';
     const giftMeta = notification.meta as {kind?:string;recipientUsername?:string} | null;
-    if (giftMeta?.kind === 'monthly-game-reward') target = '/wallet';
+    if (giftMeta?.kind === 'monthly-game-reward' || giftMeta?.kind === 'game-milestone-reward') target = '/wallet';
     if (giftMeta?.kind === 'gift' && giftMeta.recipientUsername) target = `/@${encodeURIComponent(giftMeta.recipientUsername)}/gifts`;
     if (notification.sourceKey?.startsWith('post-published:')) {
       const current = await prisma.notification.findFirst({where: {id: notification.id,

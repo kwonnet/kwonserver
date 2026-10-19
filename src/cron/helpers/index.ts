@@ -27,3 +27,5 @@ export const NOTIFICATION_DELIVERY_QUEUE = "notificationDeliveryQueue";
 export const MONTHLY_REWARD_QUEUE = "monthlyRewardQueue";
 
 export const MONTHLY_REWARD_NOTIFICATION_QUEUE = "monthlyRewardNotificationQueue";
+
+export const MILESTONE_REWARD_QUEUE = 'gameMilestoneRewardQueue';

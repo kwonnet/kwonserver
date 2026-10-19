@@ -1404,6 +1404,7 @@ model GameMonthStat {
 
   gameAchievements GameAchievement[]
 
+  @@index([year, mode, catId, playerId])
   @@unique([playerId, catId, year, month, mode]) // Unique entry for each player in a category for a given month
   @@index([catId, year, month, mode]) // Index for queries by category and time period
 }
@@ -2564,4 +2565,35 @@ model MonthlyRewardDelivery {
   updatedAt DateTime @updatedAt
   @@index([status, nextAttemptAt])
   @@index([settlementId])
+}
+
+// Durable, bounded milestone payouts (weekly/yearly/category/game/global).
+model GameMilestoneRewardTask {
+  id String @id
+  kind String
+  scopeId String
+  mode GameMode?
+  year Int
+  week Int @default(0)
+  rankingKey String?
+  status String @default("PENDING")
+  plan Json?
+  processed Int @default(0)
+  previouslyPaid Int @default(0)
+  coinsPaid Decimal @default(0) @db.Decimal(20, 2)
+  bonusPaid Decimal @default(0) @db.Decimal(20, 2)
+  notificationIds String[] @default([])
+  cachePending Boolean @default(false)
+  failures Int @default(0)
+  lastError String?
+  nextAttemptAt DateTime @default(now())
+  startedAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([kind, scopeId, mode, year, week])
+  @@index([status, nextAttemptAt])
+  @@index([cachePending, nextAttemptAt])
+  @@index([kind, year, week])
 }

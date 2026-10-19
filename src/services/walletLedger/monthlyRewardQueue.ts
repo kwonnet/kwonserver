@@ -18,7 +18,7 @@ export function monthlyRewardConfig(env: NodeJS.ProcessEnv = process.env) {
 }
 
 // Job IDs deduplicate queue entries, but database receipts are the payment authority.
-async function ensureJob(queue: Queue, name: string, jobId: string, data: Record<string, unknown>) {
+export async function ensureRewardJob(queue: Queue, name: string, jobId: string, data: Record<string, unknown>) {
   const existing = await queue.getJob(jobId);
   if (existing) {
     const state = await existing.getState();
@@ -48,7 +48,7 @@ export async function enqueueMonthlyRewardTask(settlementId: string) {
   const nextRank = (cursor?.result as {nextRank?: number})?.nextRank ?? 1;
   if (!Number.isSafeInteger(nextRank) || nextRank < 1) throw new Error('Invalid monthly reward cursor');
   const {monthlyRewardQueue} = await import('@/cron/jobs/queue');
-  await ensureJob(monthlyRewardQueue, 'monthly-reward-step', `monthly-reward-${task.id}-${nextRank}`, {settlementId: task.id});
+  await ensureRewardJob(monthlyRewardQueue, 'monthly-reward-step', `monthly-reward-${task.id}-${nextRank}`, {settlementId: task.id});
   await prisma.monthlyRewardSettlement.updateMany({where: {id: task.id, status: {not: 'COMPLETED'}},
     data: {nextAttemptAt: new Date(Date.now() + 60000)}});
 }
@@ -62,7 +62,7 @@ export async function enqueueMonthlyRewardDelivery(batchId: string) {
     // Bound pending notification jobs; the database outbox holds the remaining work.
     const counts = await notificationQueue.getJobCounts('waiting', 'active', 'delayed');
     if (Object.values(counts).reduce((sum, count) => sum + count, 0) >= 1000) return;
-    await ensureJob(notificationQueue, 'monthly-reward-notifications', `monthly-reward-notifications-${batchId}`, {batchId});
+    await ensureRewardJob(notificationQueue, 'monthly-reward-notifications', `monthly-reward-notifications-${batchId}`, {batchId});
     await prisma.monthlyRewardDelivery.updateMany({where: {id: batchId, status: 'PENDING'},
       data: {nextAttemptAt: new Date(Date.now() + 60000)}});
   } catch (error) {
