@@ -2659,3 +2659,32 @@ model GamePeriodStat {
   @@index([catId,mode,kind,periodStart,score(sort:Desc),playerId(sort:Desc)])
   @@index([playerId])
 }
+
+// Suspected input manipulation; this is evidence for human review, not a verdict.
+model GameIntegrityCase {
+ id String @id
+ userId String
+ gameId String
+ catId String
+ roomId String
+ roundId String
+ questionId String
+ mode GameMode
+ gameKind String
+ submittedValue String
+ allowedValues Json
+ awardedPoints Int @default(0)
+ reason String @default("INVALID_LUCK_SELECTION")
+ requestDetails Json
+ status String @default("PENDING")
+ queuedAt DateTime?
+ reviewReadyAt DateTime?
+ reviewedAt DateTime?
+ resolution String?
+ nextAttemptAt DateTime @default(now())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([status,nextAttemptAt])
+ @@index([userId,createdAt])
+ @@index([catId,roundId])
+}

@@ -29,3 +29,5 @@ export const MONTHLY_REWARD_QUEUE = "monthlyRewardQueue";
 export const MONTHLY_REWARD_NOTIFICATION_QUEUE = "monthlyRewardNotificationQueue";
 
 export const MILESTONE_REWARD_QUEUE = 'gameMilestoneRewardQueue';
+
+export const GAME_INTEGRITY_QUEUE = 'game-integrity-review';

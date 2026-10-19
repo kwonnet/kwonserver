@@ -23,15 +23,22 @@ export async function chargeGameAction(params: { playerId: string; action: GameA
     if (delivery?.payload.serverLuck === true) {
       const options: unknown = delivery.payload.luckOptions;
       if (!Array.isArray(options) || !options.length || options.length > 30 || options.some(n => typeof n !== 'string' || !/^\d{1,3}$/.test(n))) throw new WalletError('Invalid luck game options');
+      const submitted=String(delivery.payload.answer);
+      const legacy=submitted==='spin';
+      const invalid=!legacy&&!options.includes(submitted);
       const latest = await tx.gameWalletAction.findFirst({where: {userId: params.playerId, roomId: delivery.roomId,
         roundId: delivery.roundId, kind: 'ANSWER', status: {not: 'REFUNDED'}}, orderBy: {createdAt: 'desc'}});
-      if (latest && delivery.payload.luckKind === 'LUCKYSPIN' && Date.now()-latest.createdAt.getTime()<2500) throw new WalletError('Wait for the current spin to finish');
+      if (!invalid && latest && delivery.payload.luckKind === 'LUCKYSPIN' && Date.now()-latest.createdAt.getTime()<2500) throw new WalletError('Wait for the current spin to finish');
       const used = await tx.gameWalletAction.count({where: {userId: params.playerId, roomId: delivery.roomId,
         roundId: delivery.roundId, kind: 'ANSWER', status: {not: 'REFUNDED'}}});
-      if (delivery.payload.luckKind === 'LUCKYFLIP' && used >= options.length) throw new WalletError('All cards have been flipped');
-      outcome = options[randomInt(options.length)];
-      const {luckOptions, ...payload} = delivery.payload;
-      acceptedDelivery = {...delivery, payload: {...payload, answer: outcome, serverOutcome: true}};
+      if (!invalid && delivery.payload.luckKind === 'LUCKYFLIP' && used >= options.length) throw new WalletError('All cards have been flipped');
+      const priorInvalid=await tx.gameWalletAction.findFirst({where:{userId:params.playerId,roomId:delivery.roomId,roundId:delivery.roundId,status:{not:'REFUNDED'},payload:{path:['luckInvalid'],equals:true}},select:{id:true}});
+      const zeroRound=invalid||!!priorInvalid;
+      outcome=zeroRound?'0':legacy?options[randomInt(options.length)]:submitted;
+      if(invalid)await tx.gameIntegrityCase.create({data:{id:actionId!,userId:params.playerId,gameId:String(params.gameId??''),catId:String(params.catId),roomId:delivery.roomId,roundId:delivery.roundId!,questionId:String(params.qId??''),mode:params.mode,gameKind:delivery.payload.luckKind,
+        submittedValue:submitted.slice(0,2000),allowedValues:options,requestDetails:{...delivery.payload.requestDetails,operationId:key}}});
+      const {luckOptions,requestDetails,...payload} = delivery.payload;
+      acceptedDelivery = {...delivery, payload: {...payload, answer: outcome, serverOutcome: true, luckInvalid:zeroRound}};
     }
     if (acceptedDelivery) await tx.gameWalletAction.create({data:{id:actionId!,userId:params.playerId,roomId:acceptedDelivery.roomId,roundId:acceptedDelivery.roundId,
       kind:acceptedDelivery.kind,payload:acceptedDelivery.kind === 'CHAT' ? {id: acceptedDelivery.payload.id} : acceptedDelivery.payload,deductedCoins:coinDebit/100,deductedBonus:bonusDebit/100}});

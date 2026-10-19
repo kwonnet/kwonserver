@@ -138,7 +138,8 @@ afterAll(async () => {
     if (remove.length) await redis.del(remove);
     await db.gameRoundRecord.deleteMany({ where: { id: { in: rounds } } });
     await db.gameRoomRuntime.deleteMany({ where: { id: roomId } });
-    await db.gameWalletAction.deleteMany({ where: { userId: { in: users } } });
+    await db.gameIntegrityCase.deleteMany({where:{userId:{in:users}}});
+  await db.gameWalletAction.deleteMany({ where: { userId: { in: users } } });
     await db.transaction.deleteMany({ where: { userId: { in: users } } });
     await db.walletOperation.deleteMany({
       where: {
@@ -400,7 +401,7 @@ it("records server luck outcomes once and rejects fabricated numeric scores", as
       { ...params, operationId: "too-fast-spin" },
       1,
       1,
-      delivery,
+      {...delivery,payload:{...delivery.payload,answer:"20"}},
     ),
   ).rejects.toThrow("Wait for the current spin");
   // Keep this test's unfinished record out of later closed-period recovery checks.

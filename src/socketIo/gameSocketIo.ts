@@ -364,6 +364,7 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         const reply = (value: unknown) => { if (typeof ack === 'function') ack(value); };
         const user:User = socket.data.user
         const room:SocketGameRoom = socket.data.room
+        if(args && [GameCatType.LUCKYSPIN,GameCatType.LUCKYFLIP].includes(socket.data.catType) && typeof args.answer==='number')args={...args,answer:String(args.answer)};
         if (!room || !socket.data.gameType || typeof args?.answer !== 'string' || !args.answer.trim() || args.answer.length>2000) {reply({isError:true,message:'Invalid game answer'});return;}
         // Pricing and answer handling come from the joined catalog, never client labels.
         args = { ...args, gameType: socket.data.gameType, catType: socket.data.catType };
@@ -375,10 +376,6 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
         }
         const isLuck = args.catType === GameCatType.LUCKYSPIN || args.catType === GameCatType.LUCKYFLIP;
         const isSpin = isLuck;
-        if(isLuck && args.answer!=='spin') {
-          const message='Please reload this page to use the latest luck-game controls';
-          reply({isError:true,message});socket.emit(GameEventEnum.GAME_ACTION_REJECTED,message);return;
-        }
         if (isSpin && (typeof args.spinId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(args.spinId!))) {
           reply({isError:true, message:'Invalid spin request'});
           socket.emit(GameEventEnum.GAME_ACTION_REJECTED, 'Invalid spin request');
@@ -397,8 +394,8 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
           mode: room.mode,
           gameId: room.gameId,
           catId: room.catId,
-          qId: question.id, operationId
-        }, {kind:isEntries?'WORDMAKER':args.gameType===GameType.ACRONYM?'ACRONYM':'ANSWER',roomId:room.id,roundId:question.roundId,payload:{...body,serverOutcome:false,serverLuck:isLuck, ...(isLuck ? {luckKind:args.catType,luckOptions:question.options} : {}),isSpin,...(isSpin ? {submittedAt:Date.now()} : {})}})
+          qId: question.id, operationId, ...(isLuck?{luckSelection:args.answer}:{})
+        }, {kind:isEntries?'WORDMAKER':args.gameType===GameType.ACRONYM?'ACRONYM':'ANSWER',roomId:room.id,roundId:question.roundId,payload:{...body,serverOutcome:false,serverLuck:isLuck, ...(isLuck ? {luckKind:args.catType,luckOptions:question.options,requestDetails:{socketId:socket.id,address:socket.handshake?.address??'',userAgent:String(socket.handshake?.headers?.['user-agent']??'').slice(0,512)}} : {}),isSpin,...(isSpin ? {submittedAt:Date.now()} : {})}})
         reply({isError:result.isError, message:result.message, ...result.data});
         if(result.data) socket.emit(GameEventEnum.GAME_PLAYER_WALLET_UPDATE, result.data);
         if(result.isError || !result.data){

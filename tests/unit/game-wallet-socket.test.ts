@@ -233,8 +233,15 @@ it('rejects unsupported catalog modes before claiming presence or charging',asyn
  expect(games.addGameRoomPlayer).not.toHaveBeenCalled();expect(games.deductGameCoins).not.toHaveBeenCalled();
 });
 
-it('rejects an old client-selected luck outcome before charging and asks the client to reload',async()=>{
+it('passes client selections with server-owned options for validation',async()=>{
  socket.data.catType='LUCKYSPIN';const ack=vi.fn();
  await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:'999',spinId:'00000000-0000-4000-8000-000000000001'},ack);
- expect(games.deductGameCoins).not.toHaveBeenCalled();expect(ack).toHaveBeenCalledWith(expect.objectContaining({isError:true,message:expect.stringContaining('reload')}));
+ expect(games.deductGameCoins).toHaveBeenCalledWith(expect.objectContaining({luckSelection:'999'}),expect.objectContaining({payload:expect.objectContaining({answer:'999',serverLuck:true,serverOutcome:false})}));
+});
+
+it('normalizes numeric luck selections and only forwards server-owned options',async()=>{
+ socket.data.catType='LUCKYSPIN';socket.data.gameType='MINDMASH';
+ games.retrieveGameRoomQuestion.mockResolvedValue({id:'question',roundId:'server-round',options:['10','17','0']});
+ await handlers[GameEventEnum.GAME_ROOM_ANSWER]({qId:'question',roundId:'server-round',answer:40,options:['40'],spinId:'00000000-0000-4000-8000-000000000001'});
+ expect(games.deductGameCoins).toHaveBeenCalledWith(expect.objectContaining({luckSelection:'40'}),expect.objectContaining({payload:expect.objectContaining({answer:'40',luckOptions:['10','17','0'],serverOutcome:false})}));
 });

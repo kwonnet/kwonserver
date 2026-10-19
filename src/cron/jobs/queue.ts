@@ -1,7 +1,7 @@
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import logger from '@/logger';
-import { MILESTONE_REWARD_QUEUE, MONTHLY_REWARD_NOTIFICATION_QUEUE, MONTHLY_REWARD_QUEUE, NOTIFICATION_DELIVERY_QUEUE, EMAIL_DELIVERY_QUEUE, APP_SUBSCRIPTION_QUEUE, APP_SUBSCRIPTION_REMINDER_QUEUE, POST_EMBEDDING_QUEUE, POST_KEYWORDS_QUEUE, POST_TOPIC_QUEUE } from '../helpers';
+import { GAME_INTEGRITY_QUEUE, MILESTONE_REWARD_QUEUE, MONTHLY_REWARD_NOTIFICATION_QUEUE, MONTHLY_REWARD_QUEUE, NOTIFICATION_DELIVERY_QUEUE, EMAIL_DELIVERY_QUEUE, APP_SUBSCRIPTION_QUEUE, APP_SUBSCRIPTION_REMINDER_QUEUE, POST_EMBEDDING_QUEUE, POST_KEYWORDS_QUEUE, POST_TOPIC_QUEUE } from '../helpers';
 
 export const queueConnection = new IORedis(String(process.env.REDIS_URL), {
   maxRetriesPerRequest: 1,
@@ -34,16 +34,17 @@ export const emailQueue = new Queue(EMAIL_DELIVERY_QUEUE,{connection:queueConnec
 export const monthlyRewardNotificationQueue = new Queue(MONTHLY_REWARD_NOTIFICATION_QUEUE, {connection: queueConnection});
 export const milestoneRewardQueue = new Queue(MILESTONE_REWARD_QUEUE, {connection: queueConnection});
 export const monthlyRewardQueue = new Queue(MONTHLY_REWARD_QUEUE, {connection: queueConnection});
+export const gameIntegrityQueue = new Queue(GAME_INTEGRITY_QUEUE,{connection:queueConnection});
 export const notificationQueue = new Queue(NOTIFICATION_DELIVERY_QUEUE, {connection: queueConnection});
 // Never log raw Redis errors: AUTH command arguments may contain credentials.
 queueConnection.on('ready',()=>logger.info({event:'queue_connection_ready'},'Redis queue connection ready'));
 queueConnection.on('error', err => logger.error({event:'queue_connection_error',err},'Redis queue connection unavailable'));
-for (const queue of [appSubscriptionQueue, appSubReminderQueue, postEmbeddingQueue, postTopicQueue, postKeywordsQueue, emailQueue, notificationQueue, monthlyRewardQueue, monthlyRewardNotificationQueue, milestoneRewardQueue]) {
+for (const queue of [gameIntegrityQueue, appSubscriptionQueue, appSubReminderQueue, postEmbeddingQueue, postTopicQueue, postKeywordsQueue, emailQueue, notificationQueue, monthlyRewardQueue, monthlyRewardNotificationQueue, milestoneRewardQueue]) {
   queue.on('error', err => logger.error({event:'queue_error',queue:queue.name,err},'Redis queue unavailable'));
   queue.on('waiting', job => logger.info({event:'job_queued',queue:queue.name,job:job.name,jobId:job.id},'Queue job queued'));
 }
 
 export async function closeJobQueues() {
-  await Promise.all([appSubscriptionQueue, appSubReminderQueue, postEmbeddingQueue, postTopicQueue, postKeywordsQueue, emailQueue, notificationQueue, monthlyRewardQueue, monthlyRewardNotificationQueue, milestoneRewardQueue].map(queue => queue.close()));
+  await Promise.all([gameIntegrityQueue, appSubscriptionQueue, appSubReminderQueue, postEmbeddingQueue, postTopicQueue, postKeywordsQueue, emailQueue, notificationQueue, monthlyRewardQueue, monthlyRewardNotificationQueue, milestoneRewardQueue].map(queue => queue.close()));
   await queueConnection.quit();
 }

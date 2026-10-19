@@ -8,7 +8,7 @@ fixed milestone reward amounts. Both `kwonserver` and `kwonweb2` must be deploye
 
 | Finding | Implemented behavior |
 | --- | --- |
-| Client-selected LuckySpin/LuckyFlip points | The wallet transaction selects an outcome with cryptographic randomness from the stored question's options. The persisted action and acknowledgement carry that outcome. The UI requests it before revealing the wheel/card. Client point values never authorize scores. |
+| Client-selected LuckySpin/LuckyFlip points | The UI selects and animates immediately. The wallet transaction validates the selection against the stored round options. An invalid selection scores zero for that player's entire round and creates durable evidence for review. See `game-luck-integrity.md` for this updated policy. |
 | Exposed answer keys | All public questions use an explicit field whitelist. `answer` is blank, accepted alternatives and internal context stay private. Anagram receives a partial prefix hint. |
 | Month-end leaderboard expiry | Version 2 period keys retain data for 120 days after writes. Reward snapshots remain independently frozen. Closed-period ranks can be rebuilt from PostgreSQL. |
 | Weekly keys split at month/year boundaries | Weekly keys use the ISO week-year and week only. Migration merges the legacy pieces of a boundary-crossing week once. |
@@ -94,11 +94,19 @@ winning-streak effects remain idempotent while the room exists; a complete loss
 of Redis streak history cannot recreate the previous streak sequence. Financial
 score recovery does not invent that history.
 
-The UI fences delayed outcome responses when the round changes or the component
-unmounts. An acknowledgement retry reuses its original spin identity. A new
-intent has a new identity; LuckySpin enforces a 2.5-second server cooldown and
-LuckyFlip limits accepted flips to the number of cards. The existing score
-multiplier and latest-outcome-wins rule remain intact.
+The UI fences delayed responses when the round changes or the component unmounts.
+New clients select locally, start the wheel/card animation immediately, and submit
+that selection at animation start without awaiting the acknowledgement. Retries
+reuse the same identity and selected value. LuckySpin retains its server cooldown;
+LuckyFlip limits accepted flips to the number of cards. Valid choices follow the
+existing score multiplier and latest-outcome rule. Invalid choices permanently
+zero that user's accepted round and create `GameIntegrityCase` evidence.
+Legacy clients submitting the `spin` command retain server-selected outcomes.
+
+Membership validation alone cannot establish random selection: a modified client
+can select the largest allowed value. This policy deliberately prioritizes instant
+local animation with range validation; it does not provide the previous server RNG
+guarantee for new clients.
 
 ## Deployment and legacy migration
 
@@ -125,7 +133,7 @@ keys and luck/energy protocols.
    continues across bounded migration passes automatically. Rerun after fixing
    any reported data problem; do not delete progress or payment receipts.
 4. Deploy the matching web client, start the new API and workers, and reconnect
-   game clients. Old luck clients cannot supply arbitrary points; old energy
+   game clients. Unlisted luck values cannot earn points; old energy
    replacement payloads are rejected. They must reload to use the new protocol.
 5. Check pending rounds, Redis projections, runtime lag and existing reward job
    status before reopening normal game traffic.

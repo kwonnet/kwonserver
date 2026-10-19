@@ -126,7 +126,7 @@ export async function deductGameCoins(params: {
     return { message: "success", isError: false, data };
   } catch (error: any) {
     logGameError('deductGameCoins', error, params);
-    return { message: error?.message || 'Game charge failed', isError: true, data: null };
+    return { message: error?.message || 'Game charge failed', isError: true, recoverable:['Wait for the current spin to finish','All cards have been flipped'].includes(error?.message), data: null };
   }
 }
 
@@ -472,7 +472,7 @@ export async function calculateGameRoomPoints(room: TempGameRoom, snapshot?: Rou
       const isCorrect =
         matchesSentenceAnswer(question, item.answer, catType);
       const score = isLuckySpinFlip
-        ? ((item as any).serverOutcome === true && question.options.includes(item.answer) && Number.isFinite(Number(item.answer)) ? Number(item.answer) * totalAnswers : 0)
+        ? ((item as any).luckInvalid !== true && (item as any).serverOutcome === true && question.options.includes(item.answer) && Number.isFinite(Number(item.answer)) ? Number(item.answer) * totalAnswers : 0)
         : isCorrect
         ? item?.timer * totalAnswers
         : 0;
