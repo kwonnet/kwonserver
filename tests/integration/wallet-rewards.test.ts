@@ -3,13 +3,15 @@ import {moneyJson} from '@/services/walletLedger';
 import { beforeAll, afterAll, expect, it, vi } from 'vitest';
 vi.mock('@/db',async()=>{const {PrismaClient}=await import('@prisma/client');return {default:new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})})};});
 vi.mock('@/redis',()=>({default:{exists:async()=>1}}));
-vi.mock('@/services/helper',()=>({getRewardTopRankingPlayers:async()=>[{id:'reward-player',rank:1}],syncRedisUserWalletToPrisma:async()=>({isError:false}),syncPrismaUserWalletToRedis:async()=>({isError:false})}));
+const leaderboard = vi.hoisted(() => ({catId: ''}));
+vi.mock('@/services/helper',()=>({getRewardTopRankingPlayers:async({catId}:{catId:string})=>catId===leaderboard.catId?[{id:'reward-player',rank:1}]:[],syncRedisUserWalletToPrisma:async()=>({isError:false}),syncPrismaUserWalletToRedis:async()=>({isError:false})}));
 import db from '@/db';
 import {run} from '@/cron/recurring/reward_top_players_every_week';
 let gameId:string,milestoneId:string;
 beforeAll(async()=>{
  await db.user.create({data:{emailVerifiedAt: new Date(), id:'reward-player',name:'Reward test',email:'reward@test.invalid',username:'reward-test',wallet:{create:{coins:0}}}});
- gameId=(await db.game.create({data:{name:'Reward game',description:'test',modes:['MULTI'],categories:{create:{name:'test',description:'test'}}}})).id;
+ const game=await db.game.create({data:{name:'Reward game',description:'test',modes:['MULTI'],categories:{create:[{name:'test',description:'test'},{name:'Unranked category',description:'No weekly participants'}]}},include:{categories:true}});
+ gameId=game.id;leaderboard.catId=game.categories[0].id;
  milestoneId=(await db.gameMilestone.create({data:{name:'WEEK',milestone:1,reward:25,rewardType:'COINS',reason:'TOP_OF_THE_WEEK'}})).id;
 });
 afterAll(async()=>{

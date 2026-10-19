@@ -86,23 +86,27 @@ beforeAll(async () => {
       },
     });
 });
+// The scale test creates 50,000 accounts; await their FK cascades on CI.
 afterAll(async () => {
-  const where = { quiz: { post: { userId: owner } } };
-  await db.quizReward.deleteMany({ where });
-  await db.quizParticipant.deleteMany({ where });
-  await db.quizOption.deleteMany({ where });
-  await db.quiz.deleteMany({ where: { post: { userId: owner } } });
-  await db.transaction.deleteMany({ where: { post: { userId: owner } } });
-  await db.notification.deleteMany({
-    where: { recipientId: { startsWith: prefix } },
-  });
-  await db.post.deleteMany({ where: { userId: owner } });
-  await db.walletOperation.deleteMany({
-    where: { scope: { startsWith: "quiz-create:" + owner } },
-  });
-  await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
-  await db.$disconnect();
-});
+  try {
+    const where = { quiz: { post: { userId: owner } } };
+    await db.quizReward.deleteMany({ where });
+    await db.quizParticipant.deleteMany({ where });
+    await db.quizOption.deleteMany({ where });
+    await db.quiz.deleteMany({ where: { post: { userId: owner } } });
+    await db.transaction.deleteMany({ where: { post: { userId: owner } } });
+    await db.notification.deleteMany({
+      where: { recipientId: { startsWith: prefix } },
+    });
+    await db.post.deleteMany({ where: { userId: owner } });
+    await db.walletOperation.deleteMany({
+      where: { scope: { startsWith: "quiz-create:" + owner } },
+    });
+    await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
+  } finally {
+    await db.$disconnect();
+  }
+}, 120000);
 it("charges pool plus dynamic fee once across concurrent creation retries and retains the original snapshot", async () => {
   await db.wallet.update({ where: { userId: owner }, data: { coins: 5000 } });
   const payload = body(),

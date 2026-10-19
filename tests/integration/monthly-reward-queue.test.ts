@@ -50,15 +50,24 @@ beforeAll(async () => {
     category: 'GAME_DEDUCTION', description: 'Queue funding', metadata: {catId: c.id, mode: 'MULTI'},
     createdAt: new Date(Date.UTC(period.year, period.month - 1, 15))}))});
 }, 90000);
+// Bulk fixtures exercise real FK cascades; account deletion can exceed the
+// default 30-second hook budget on CI. Keep cleanup awaited before the next file.
 afterAll(async () => {
-  if (keys.length) await redis.del(keys);
-  await db.notification.deleteMany({where: {recipientId: {in: ids}}});
-  await db.transaction.deleteMany({where: {userId: {in: ids}}});
-  await db.wallet.deleteMany({where: {userId: {in: ids}}});
-  await db.user.deleteMany({where: {id: {in: ids}}});
-  await db.game.delete({where: {id: gameId}});
-  await closeJobQueues(); await redis.quit(); await db.$disconnect();
-});
+  try {
+    if (keys.length) await redis.del(keys);
+    await db.notification.deleteMany({where: {recipientId: {in: ids}}});
+    await db.transaction.deleteMany({where: {userId: {in: ids}}});
+    await db.wallet.deleteMany({where: {userId: {in: ids}}});
+    await db.user.deleteMany({where: {id: {in: ids}}});
+    await db.game.delete({where: {id: gameId}});
+  } finally {
+    try { await closeJobQueues(); }
+    finally {
+      try { await redis.quit(); }
+      finally { await db.$disconnect(); }
+    }
+  }
+}, 120000);
 async function drain(expectParallel = true) {
   await monthlyRewardQueue.setGlobalConcurrency(2);
   let running = 0, maximum = 0;

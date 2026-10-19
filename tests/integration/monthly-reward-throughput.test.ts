@@ -27,15 +27,24 @@ import {monthlyRewardCursorId} from '@/services/walletLedger/monthlyRewardSettle
 const prefix = 'monthly-throughput-';
 const keys: string[] = [];
 const games: string[] = [];
+// Bulk fixtures exercise real FK cascades; account deletion can exceed the
+// default 30-second hook budget on CI. Keep cleanup awaited before the next file.
 afterAll(async () => {
-  if (keys.length) await redis.del(keys);
-  await db.notification.deleteMany({where: {recipientId: {startsWith: prefix}}});
-  await db.transaction.deleteMany({where: {userId: {startsWith: prefix}}});
-  await db.wallet.deleteMany({where: {userId: {startsWith: prefix}}});
-  await db.user.deleteMany({where: {id: {startsWith: prefix}}});
-  await db.game.deleteMany({where: {id: {in: games}}});
-  await closeJobQueues(); await redis.quit(); await db.$disconnect();
-});
+  try {
+    if (keys.length) await redis.del(keys);
+    await db.notification.deleteMany({where: {recipientId: {startsWith: prefix}}});
+    await db.transaction.deleteMany({where: {userId: {startsWith: prefix}}});
+    await db.wallet.deleteMany({where: {userId: {startsWith: prefix}}});
+    await db.user.deleteMany({where: {id: {startsWith: prefix}}});
+    await db.game.deleteMany({where: {id: {in: games}}});
+  } finally {
+    try { await closeJobQueues(); }
+    finally {
+      try { await redis.quit(); }
+      finally { await db.$disconnect(); }
+    }
+  }
+}, 120000);
 async function fixture(label: string, participants: number) {
   const winners = Math.floor(participants * 0.2);
   const ids = Array.from({length: winners}, (_, i) => `${prefix}${label}-${i.toString().padStart(6, '0')}`);
