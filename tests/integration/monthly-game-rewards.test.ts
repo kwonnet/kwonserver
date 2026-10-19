@@ -14,28 +14,33 @@ import redis from '@/redis';
 import {getRankingRewardKeys} from '@/utils';
 import {run} from '@/cron/recurring/reward_top_players_every_month';
 let catId:string,gameId:string,key:string,snapshot:string;
+const extraKeys:string[]=[];
 const ids=Array.from({length:50},(_,i)=>`monthly-policy-player-${i}`);
 beforeAll(async()=>{
  for(const id of ids) await db.user.create({data:{id,name:id,username:id,email:`${id}@test.invalid`,wallet:{create:{coins:0,bonus:10}}}});
  const game=await db.game.create({data:{name:'Monthly policy test',description:'test',modes:['MULTI'],categories:{create:{name:'Policy category',description:'test'}}},include:{categories:true}});
  gameId=game.id;catId=game.categories[0].id;
  vi.spyOn(db.gameCategory,'findMany').mockResolvedValue(game.categories.map(c=>({...c,game})) as any);
- const keys=getRankingRewardKeys(catId,'multi');key=keys.rewardMonth;snapshot=`${key}:settlement:monthly-90-v1`;
+ const keys=getRankingRewardKeys(catId,'multi');key=keys.rewardMonth;snapshot=`${key}:settlement:monthly-90-v2`;
  await redis.zAdd(key,ids.map((value,i)=>({value,score:50-i})));
  const createdAt=new Date(Date.UTC(keys.dateInfo.year,keys.dateInfo.month-1,15));
  await db.transaction.create({data:{userId:ids[0],txnRef:'monthly-real-spend',amount:2000,currency:'COINS',source:'COINS_BONUS',gateway:'WALLET',type:'DEBIT',status:'COMPLETED',category:'GAME_DEDUCTION',description:'Committed mixed spend',createdAt,metadata:{catId,mode:'MULTI',deductedCoins:1200,deductedBonus:800}}});
  await db.transaction.create({data:{userId:ids[0],txnRef:'monthly-pending-spend',amount:999,currency:'COINS',source:'COINS',gateway:'WALLET',type:'DEBIT',status:'PENDING',category:'GAME_DEDUCTION',description:'Not spent',createdAt,metadata:{catId,mode:'MULTI'}}});
 });
 afterAll(async()=>{
- await redis.del([key,snapshot]);
+ await redis.del([key,snapshot,...extraKeys]);
  await db.user.deleteMany({where:{id:{in:ids}}});
  await db.game.delete({where:{id:gameId}});
  await redis.quit();await db.$disconnect();
 });
-it('funds from actual coin debits, pays every qualifying player coins only, and settles stats',async()=>{
+it('offsets actual bonus spending before funding, pays every qualifying player coins only, and settles stats',async()=>{
  // A missing wallet forces a partial failure; already committed awards must replay safely.
  await db.wallet.delete({where:{userId:ids[0]}});
  await expect(run()).rejects.toThrow('Wallet not found');
+ const partial=await db.gameMonthRewardStat.findFirstOrThrow({where:{catId}});
+ expect(partial.status).toBe('FAILED');expect(partial.fullyAllocated).toBe(false);
+ expect(Number(partial.pendingAmount)).toBeGreaterThan(0);
+ expect(Number(partial.rewardPoolAmount)).toBe(100);
  await redis.del(snapshot);
  await expect(run()).rejects.toThrow('snapshot missing');
  await redis.copy(key,snapshot);
@@ -43,19 +48,29 @@ it('funds from actual coin debits, pays every qualifying player coins only, and 
  await run();
  const payouts=await db.transaction.findMany({where:{userId:{in:ids},category:'GAME_MONTHLY_REWARD'}});
  expect(payouts).toHaveLength(10);
- expect(payouts.reduce((sum,row)=>sum+Number(row.amount),0)).toBeCloseTo(300,8);
+ expect(payouts.reduce((sum,row)=>sum+Number(row.amount),0)).toBeCloseTo(100,8);
  expect(payouts.every(row=>row.currency==='COINS'&&row.source==='COINS')).toBe(true);
  const wallets=await db.wallet.findMany({where:{userId:{in:ids}}});
  expect(wallets.every(w=>Number(w.bonus)===10)).toBe(true);
  expect(wallets.filter(w=>Number(w.coins)>0)).toHaveLength(10);
  const ordered=ids.slice(0,10).map(id=>Number(wallets.find(w=>w.userId===id)!.coins));
  expect(ordered).toEqual([...ordered].sort((a,b)=>b-a));
- expect(ordered.at(-1)).toBeGreaterThanOrEqual(27);
+ expect(ordered.at(-1)).toBeGreaterThanOrEqual(9);
  const stat=await db.gameMonthRewardStat.findFirstOrThrow({where:{catId}});
- expect(Number(stat.coinsShareAmount)).toBe(300);
+ expect(Number(stat.coinsShareAmount)).toBe(100);
  expect(Number(stat.coinsSpent)).toBe(1200);expect(Number(stat.bonusSpent)).toBe(800);
- expect(stat.coinsRewardParticipants).toBe(10);expect(stat.bonusRewardParticipants).toBe(0);
- expect(Number(stat.bonusShareAmount)).toBe(0);expect(stat.rewardParticipantsScore).toBe(455);
+ expect(stat.coinsRewardParticipants).toBe(10);expect(stat.processedParticipants).toBe(10);
+ expect(stat.rewardParticipantsScore).toBe(455);
+ expect(stat.status).toBe('COMPLETED');expect(stat.fullyAllocated).toBe(true);
+ expect(Number(stat.grossSpent)).toBe(2000);expect(Number(stat.fundingBalance)).toBe(400);
+ expect(stat.rewardPercentage).toBe(25);expect(stat.qualifyingPercentage).toBe(20);
+ expect(Number(stat.rewardPoolAmount)).toBe(100);expect(Number(stat.distributableAmount)).toBe(100);
+ expect(Number(stat.retainedBalance)).toBe(300);expect(Number(stat.balanceAfterPayout)).toBe(300);
+ expect(Number(stat.unallocatedAmount)).toBe(0);expect(Number(stat.pendingAmount)).toBe(0);
+ expect(Number(stat.capUnallocatedAmount)).toBe(0);expect(stat.completedAt).not.toBeNull();
+ expect(stat.lastError).toBeNull();
+ // The database rejects summaries that no longer match the pool/paid identities.
+ await expect(db.gameMonthRewardStat.update({where:{id:stat.id},data:{coinsShareAmount:{increment:1}}})).rejects.toThrow();
 });
 it('replays concurrent settlements from the frozen plan despite changed original ranks and spending',async()=>{
  const before=await db.transaction.findMany({where:{userId:{in:ids},category:'GAME_MONTHLY_REWARD'},orderBy:{userId:'asc'}});
@@ -71,4 +86,32 @@ it('does not need a retained snapshot after the period has fully settled',async(
  await redis.del(snapshot);
  await expect(run()).resolves.toBeUndefined();
  expect(await db.transaction.count({where:{userId:{in:ids},category:'GAME_MONTHLY_REWARD'}})).toBe(10);
+});
+
+it.each([
+ {name:'no-activity',count:0,coins:0,bonus:0,pool:0,paid:0,unallocated:0,qualified:0,fully:true},
+ {name:'zero-pool',count:50,coins:50,bonus:50,pool:0,paid:0,unallocated:0,qualified:10,fully:true},
+ {name:'cap-excess',count:5,coins:4_000_000,bonus:0,pool:1_000_000,paid:500_000,unallocated:500_000,qualified:1,fully:false},
+ {name:'no-qualifiers',count:4,coins:400,bonus:0,pool:100,paid:0,unallocated:100,qualified:0,fully:false},
+])('records complete funding and allocation for $name',async scenario=>{
+ const category=await db.gameCategory.create({data:{gameId,name:scenario.name,description:'Audit scenario'}});
+ const game=await db.game.findUniqueOrThrow({where:{id:gameId}});
+ vi.spyOn(db.gameCategory,'findMany').mockResolvedValue([{...category,game}] as any);
+ const keys=getRankingRewardKeys(category.id,'multi');
+ extraKeys.push(keys.rewardMonth,`${keys.rewardMonth}:settlement:monthly-90-v2`);
+ if(scenario.count) await redis.zAdd(keys.rewardMonth,ids.slice(0,scenario.count).map((value,i)=>({value,score:50-i})));
+ await db.transaction.create({data:{userId:ids[0],txnRef:`audit-${scenario.name}`,amount:scenario.coins+scenario.bonus,
+ currency:'COINS',source:'COINS_BONUS',gateway:'WALLET',type:'DEBIT',status:'COMPLETED',category:'GAME_DEDUCTION',description:'Audit probe',
+ createdAt:new Date(Date.UTC(keys.dateInfo.year,keys.dateInfo.month-1,15)),
+ metadata:{catId:category.id,mode:'MULTI',deductedCoins:scenario.coins,deductedBonus:scenario.bonus}}});
+ await run();
+ const stat=await db.gameMonthRewardStat.findFirstOrThrow({where:{catId:category.id}});
+ expect(stat.status).toBe('COMPLETED');expect(stat.fullyAllocated).toBe(scenario.fully);
+ expect(stat.rewardParticipants).toBe(scenario.qualified);expect(stat.processedParticipants).toBe(scenario.qualified);
+ expect(Number(stat.rewardPoolAmount)).toBe(scenario.pool);
+ expect(Number(stat.coinsShareAmount)).toBe(scenario.paid);expect(Number(stat.unallocatedAmount)).toBe(scenario.unallocated);
+ expect(Number(stat.capUnallocatedAmount)).toBe(scenario.unallocated);expect(Number(stat.pendingAmount)).toBe(0);
+ expect(Number(stat.fundingBalance)).toBe(Math.max(0,scenario.coins-scenario.bonus));
+ expect(Number(stat.retainedBalance)).toBe(Number(stat.fundingBalance)-scenario.pool);
+ expect(Number(stat.balanceAfterPayout)).toBe(Number(stat.fundingBalance)-scenario.paid);
 });

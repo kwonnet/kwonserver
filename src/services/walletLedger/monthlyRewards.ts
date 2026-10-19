@@ -1,3 +1,5 @@
+import {Prisma} from '@prisma/client';
+
 /** Monthly category policy. All amounts are integer hundredths of a coin. */
 export const MONTHLY_REWARD_CAP = 50_000_000;
 export function monthlyRewardTier(count: number) {
@@ -77,4 +79,16 @@ export function monthlyRewardAtRank(plan: MonthlyRewardCurve, rank: number): num
   if (!Number.isSafeInteger(rank) || rank < 1 || rank > plan.winners) throw new Error('Invalid reward rank');
   const extra = rank > plan.cappedRanks && rank <= plan.cappedRanks + plan.remainder ? 1 : 0;
   return floorReward(plan, rank) + extra;
+}
+
+/** Bonus spending is explicitly offset against actual coin spending for funding. */
+export function monthlyRewardFunding(coins: string, bonus: string, poolPercent: number) {
+  const actualCoins = new Prisma.Decimal(coins), bonusSpent = new Prisma.Decimal(bonus);
+  if (!actualCoins.isFinite() || actualCoins.isNegative() || !bonusSpent.isFinite() || bonusSpent.isNegative()
+    || !Number.isInteger(poolPercent) || poolPercent < 0 || poolPercent > 100) throw new Error('Invalid monthly reward funding');
+  const fundingBalance = Prisma.Decimal.max(0, actualCoins.minus(bonusSpent));
+  const pool = fundingBalance.mul(100).mul(poolPercent).div(100).floor();
+  if (pool.gt(Number.MAX_SAFE_INTEGER)) throw new Error('Monthly reward pool exceeds exact integer capacity');
+  return {coinsSpent: actualCoins.toFixed(2), bonusSpent: bonusSpent.toFixed(2),
+    fundingBalance: fundingBalance.toFixed(2), poolMinor: pool.toNumber()};
 }

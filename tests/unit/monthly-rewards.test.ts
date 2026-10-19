@@ -1,5 +1,5 @@
 import {expect, it} from 'vitest';
-import {createMonthlyRewardCurve, monthlyRewardAtRank, monthlyRewardTier, MONTHLY_REWARD_CAP} from '@/services/walletLedger/monthlyRewards';
+import {createMonthlyRewardCurve, monthlyRewardAtRank, monthlyRewardTier, MONTHLY_REWARD_CAP, monthlyRewardFunding} from '@/services/walletLedger/monthlyRewards';
 
 it.each([
  [0,20,25,0], [4,20,25,0], [5,20,25,1], [5_000_000,20,25,1_000_000],
@@ -55,4 +55,19 @@ it('rejects invalid ranks and noninteger budgets',()=>{
  const curve=createMonthlyRewardCurve(100,5);
  expect(()=>monthlyRewardAtRank(curve,0)).toThrow();
  expect(()=>monthlyRewardAtRank(curve,6)).toThrow();
+});
+
+it.each([
+ ['50000','10000',25,1_000_000,'40000.00'],
+ ['1200','800',25,10_000,'400.00'],
+ ['100','100',40,0,'0.00'],
+ ['100','150',40,0,'0.00'],
+ ['100','0',25,2_500,'100.00'],
+ ['0.05','0.01',25,1,'0.04'],
+ ['0.05','0.02',25,0,'0.03'],
+])('funds coins=%s bonus=%s at %s percent from their nonnegative difference',(coins,bonus,rate,poolMinor,fundingBalance)=>{
+ expect(monthlyRewardFunding(coins,bonus,rate)).toMatchObject({poolMinor,fundingBalance});
+});
+it.each([['-1','0',25],['10','-1',25],['NaN','0',25],['10','0',101]] as const)('rejects invalid funding %s/%s/%s',(coins,bonus,rate)=>{
+ expect(()=>monthlyRewardFunding(coins,bonus,rate)).toThrow();
 });

@@ -41,9 +41,10 @@ cannot authorize, reverse, or overwrite a payment.
 
 ## Monthly leaderboard reward policy
 
-Monthly category/mode rewards now use actual coin spending, tier-based funding,
+Monthly category/mode rewards now offset actual bonus spending against actual
+coin spending before tier-based funding, with
 a protected minimum and a 500,000-coin ceiling. All qualifying awards settle in
-coins; bonus spending remains audit-only. See [monthly game rewards](monthly-game-rewards.md)
+coins; bonus spending is preserved for audit and deducted for funding. See [monthly game rewards](monthly-game-rewards.md)
 for the formulas, qualification bands, rounding, snapshots, retry handling and tests.
 
 ## Required production cutover

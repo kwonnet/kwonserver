@@ -1,10 +1,11 @@
 # Monthly game coin rewards
 
-Implemented policy: `monthly-90-v1`.
+Implemented policy: `monthly-90-v2`.
 
 Monthly leaderboard rewards are paid in **coins only**. The reward pool uses
-actual committed coin spending from PostgreSQL. Bonus spending is recorded for
-reconciliation but neither funds the pool nor becomes a bonus payout.
+actual committed spending from PostgreSQL. Recorded bonus spending is deducted
+from actual coin spending before funding is calculated; winners still receive
+coins only.
 
 ## Entry points and scope
 
@@ -27,7 +28,7 @@ changing the scheduler timezone does not change those accounting boundaries.
 `participantCount` is the cardinality of the frozen monthly leaderboard, not
 registered accounts, room entries or the number of rounds played.
 
-| Category/mode participants | Qualifying percentage | Pool percentage of actual coin spending |
+| Category/mode participants | Qualifying percentage | Pool percentage of net funding balance |
 | --- | ---: | ---: |
 | Up to and including 5,000,000 | 20% | 25% |
 | Above 5,000,000 through 10,000,000 | 25% | 30% |
@@ -42,12 +43,15 @@ both winner count and funding abruptly.
 
 ```text
 N = floor(participantCount × qualifyingPercentage / 100)
-poolMinor = floor(actualCoinSpending × 100 × poolPercentage / 100)
+fundingBalance = max(0, actualCoinSpending − bonusSpending)
+poolMinor = floor(fundingBalance × 100 × poolPercentage / 100)
 ```
 
 Players outside the first `N` positions receive no monthly leaderboard reward.
-The job skips absent/empty leaderboards and categories with zero qualifying
-players. In particular, fewer than five participants produce zero winners.
+Absent/empty leaderboards and categories with zero qualifying players still
+produce audit rows. In particular, fewer than five participants produce zero
+winners; any calculated pool remains unallocated. Zero-activity categories
+complete with zero spending, zero pool and zero paid recipients.
 
 ### Actual coin and bonus accounting
 
@@ -63,13 +67,29 @@ Coin spending comes from `metadata.deductedCoins`; bonus spending comes from
 amount for their corresponding source. Mixed legacy transactions without both
 split fields stop settlement for reconciliation.
 
-The returned `coins` total **already excludes bonus debits**. Do not subtract
-`bonus` again, divide it by an assumed conversion factor, or apply a fixed bonus
-percentage. The earlier 15% discussion was an illustrative assumption only.
+The returned `coins` and `bonus` totals represent separate debit sources.
+The funding policy deliberately offsets bonus spending against actual coin
+spending, even though the ledger already stores those sources separately:
 
-Example: actual coin debits of 1,200 and bonus debits of 800 produce a 300-coin
-pool in the first band: `1,200 × 25%`. The bonus fraction happens to be 40% in
-that example, but the job never needs an assumed fraction.
+```text
+fundingBalance = max(0, coins − bonus)
+rewardPool = fundingBalance × poolPercentage / 100
+```
+
+Examples in the first band (25% pool):
+
+| Actual coins spent | Bonus spent | Net funding balance | Reward pool |
+| --- | ---: | ---: | ---: |
+| 50,000 | 10,000 | 40,000 | 10,000 |
+| 1,200 | 800 | 400 | 100 |
+| 100 | 150 | 0 | 0 |
+
+This is a funding reserve rule, not a reclassification of the ledger. Statistics
+retain the original source totals. The persisted settlement plan also records
+`fundingBalance`. There is no fixed bonus percentage or conversion factor; the
+15% used in earlier discussions was an illustrative assumption only. When bonus
+spending equals or exceeds actual coin spending, this category/mode has no funded
+pool and no player receives a negative credit or a bonus settlement.
 
 PostgreSQL returns aggregate amounts as decimal strings. Pool arithmetic uses
 `Prisma.Decimal`, then safe integer minor units. One minor unit is **0.01 coin**.
@@ -156,10 +176,11 @@ Suppose a category/mode has 50,000 participants, recorded coin spending of
 | Calculation | Result |
 | --- | ---: |
 | Qualifying players: 20% | 10,000 |
-| Pool: 25% of actual coin spending | 743,750,000 coins |
-| Affordable average | 74,375 coins |
-| Normal minimum: 90% of average | 66,937.50 coins |
-| First-place target: 5 × average | 371,875 coins |
+| Net funding: actual coins minus bonus | 2,450,000,000 coins |
+| Pool: 25% of net funding | 612,500,000 coins |
+| Affordable average | 61,250 coins |
+| Normal minimum: 90% of average | 55,125 coins |
+| First-place target: 5 × average | 306,250 coins |
 | Individual ceiling | 500,000 coins |
 
 The curve distributes the pool between these endpoints, with final cent rounding.
@@ -168,20 +189,29 @@ order; personal spending does not directly determine that player's award.
 
 ## Settlement, retries and audit
 
-1. Skip a category/mode/month with an existing `GameMonthRewardStat`. This also
-   protects periods completed under the previous reward policy.
+1. Skip a category/mode/month whose audit status is `COMPLETED` or
+   `LEGACY_COMPLETED`. `PROCESSING` and `FAILED` records resume; their existence
+   alone must not suppress unpaid awards.
 2. Freeze the previous month's sorted set using Redis `COPY` without replacement.
-   Snapshot key: `<monthly-ranking-key>:settlement:monthly-90-v1`.
-3. Read actual spending, calculate the curve and save the plan through
+   Snapshot key: `<monthly-ranking-key>:settlement:monthly-90-v2`.
+3. Read actual spending, offset bonus spending, calculate the curve and save the plan through
    `walletOperation` scope `monthly-reward-plan`. The period key is
-   `<catId>:<MODE>:<year>:<month>`.
+   `<catId>:<MODE>:<year>:<month>`. The same database transaction creates the
+   `GameMonthRewardStat` audit row before any award is attempted.
 4. On retry, use the persisted plan and frozen ranking. Original leaderboard
    changes and late ledger entries do not alter an existing plan.
+   An incomplete plan from `monthly-90-v1` is rejected for reconciliation rather
+   than being silently repriced under the new funding rule.
 5. Credit winners through `walletOperation` scope `monthly-reward`, with identity
    `<catId>:<MODE>:<year>:<month>:<playerId>:COINS`. Wallet credits, ledger entries,
-   applicable monthly milestone achievements and receipts commit atomically.
-6. After all awards complete, create statistics through the `monthly-reward-stat`
-   receipt. A partial failure does not mark the period fully settled.
+   applicable monthly milestone achievements, audit progress and receipts commit
+   atomically. Processed/paid counters and financial balances cannot advance twice
+   on a replay. Zero-value awards update processed progress without minting a
+   transaction.
+6. After all awards complete, finalize the audit through the `monthly-reward-stat`
+   receipt. Finalization requires every qualifying position processed and zero
+   pending amount. A partial failure records `FAILED` and `lastError` while
+   retaining the actual paid amounts.
 7. Retain an incomplete run's snapshot without expiry. After settlement, give the
    snapshot a seven-day inspection window; completed-period replay no longer
    needs it. PostgreSQL plan/payment receipts remain durable.
@@ -190,16 +220,154 @@ All payout transactions use source/currency `COINS`, credit `wallet.coins`, and
 carry the period, category, mode and policy in metadata. No payout increments
 `wallet.bonus`.
 
-For compatibility, existing statistics fields remain in the schema:
+## Queryable financial audit
 
-- `coinsShareAmount` contains the complete distributed coin budget.
-- `coinsRewardParticipants` contains all qualifying positions.
-- `coinsParticipantsScore` and `rewardParticipantsScore` contain their score sum.
-- `topCoinsShareAmount`, `bonusShareAmount`, their participant counts and score
-  fields are zero; there are no longer separate top-coin or bonus settlement groups.
-- `coinsSpent` and `bonusSpent` preserve the actual ledger split for audit.
-- The plan retains the pool, capped budget, unallocated amount, endpoints,
-  shape and rounding information.
+The existing `GameMonthRewardStat` table is the category/mode/month settlement
+audit. No separate summary table is needed. New rows use the deterministic plan
+receipt ID, and a partial unique index enforces one new-policy row per category,
+mode, year and month. Legacy duplicates remain intact for reconciliation.
+
+| Field | Meaning |
+| --- | --- |
+| `catId`, `mode`, `year`, `month` | Category, game mode and accounting period |
+| `policyVersion`, `status` | Applied policy and processing state |
+| `coinsSpent`, `bonusSpent` | Actual source-specific ledger spending |
+| `grossSpent` | Coins spent plus bonus spent; not cash revenue |
+| `bonusOffsetApplied` | Lesser of coins spent and bonus spent |
+| `bonusOffsetShortfall` | Bonus spending exceeding actual coin spending, otherwise zero |
+| `fundingBalance` | Available after bonus offset: `max(0, coinsSpent - bonusSpent)` |
+| `qualifyingPercentage`, `rewardPercentage` | Participant and funding percentages, stored as 20/25/etc. |
+| `rewardPoolAmount` | Total calculated reward pool, before the payout-cap restriction |
+| `distributableAmount` | Amount the payout curve can allocate under the ceiling |
+| `retainedBalance` | Funding balance after reserving the entire pool |
+| `coinsShareAmount` | Coins actually credited so far, not merely promised |
+| `pendingAmount` | Distributable budget not yet credited |
+| `capUnallocatedAmount` | Pool that cannot be allocated because of total winner capacity |
+| `unallocatedAmount` | Entire pool not paid yet: pending awards plus cap excess |
+| `balanceAfterPayout` | Funding balance less actual paid coins |
+| `fullyAllocated` | True only after completion when no pool coins remain unallocated |
+| `totalParticipants`, `rewardParticipants` | Population and qualifying positions |
+| `processedParticipants`, `coinsRewardParticipants` | Positions processed and recipients actually credited positive coins |
+| `rewardParticipantsScore`, `coinsParticipantsScore` | Processed qualifying score totals |
+| `minimumReward`, `maximumReward`, `rewardCap` | Applied floor, first-place target and absolute ceiling |
+| `snapshotKey`, `payoutPlan` | Frozen ranking reference and curve/rounding parameters |
+| `startedAt`, `completedAt`, `lastError` | Processing timing and most recent failure |
+| `legacyBreakdown` | Preserved historical split data from removed columns |
+
+Financial identities hold during partial payment as well as after completion:
+
+```text
+rewardPoolAmount = coinsShareAmount + unallocatedAmount
+rewardPoolAmount = distributableAmount + capUnallocatedAmount
+distributableAmount = coinsShareAmount + pendingAmount
+fundingBalance = retainedBalance + rewardPoolAmount
+balanceAfterPayout = retainedBalance + unallocatedAmount
+```
+
+The database migration adds reconciliation checks for new-policy amounts.
+`status = COMPLETED` means processing finished; it does not necessarily mean the
+whole pool was paid. A cap-constrained settlement can be completed with
+`fullyAllocated = false`. A zero pool can complete with `fullyAllocated = true`
+and zero paid recipients. A category with participants but zero qualifying
+positions records its whole pool as cap/capacity-unallocated.
+
+### Worked audit example
+
+For actual coin spending of 50,000 and bonus spending of 10,000 in the first
+band, the funding balance is 40,000 and the 25% pool is 10,000 coins.
+Assume enough qualifying capacity to distribute all 10,000:
+
+| Audit field | Fully paid | Temporarily failed after paying 6,000 |
+| --- | ---: | ---: |
+| `coinsSpent` | 50,000 | 50,000 |
+| `bonusSpent` | 10,000 | 10,000 |
+| `fundingBalance` | 40,000 | 40,000 |
+| `rewardPercentage` | 25 | 25 |
+| `rewardPoolAmount` | 10,000 | 10,000 |
+| `retainedBalance` | 30,000 | 30,000 |
+| `coinsShareAmount` | 10,000 | 6,000 |
+| `pendingAmount` | 0 | 4,000 |
+| `unallocatedAmount` | 0 | 4,000 |
+| `balanceAfterPayout` | 30,000 | 34,000 |
+| `status` | COMPLETED | FAILED |
+| `fullyAllocated` | true | false |
+
+The pool-reservation balance and the actual-payout balance answer different
+questions. Neither should be confused with gross spending, which includes bonus.
+
+### Query a category and period
+
+Use parameters for the category ID, year and month. Keep `mode` visible because
+SINGLE and MULTI are independent settlements.
+
+```sql
+SELECT s.id, s."catId", c.name AS category, s.mode, s.year, s.month,
+       s.status, s."policyVersion", s."coinsSpent", s."bonusSpent",
+       s."grossSpent", s."bonusOffsetApplied", s."bonusOffsetShortfall",
+       s."fundingBalance", s."qualifyingPercentage", s."rewardPercentage",
+       s."rewardPoolAmount", s."distributableAmount", s."retainedBalance",
+       s."coinsShareAmount" AS "paidCoins", s."pendingAmount",
+       s."capUnallocatedAmount", s."unallocatedAmount", s."balanceAfterPayout",
+       s."fullyAllocated", s."totalParticipants", s."rewardParticipants",
+       s."processedParticipants", s."coinsRewardParticipants",
+       s."minimumReward", s."maximumReward", s."rewardCap",
+       s."startedAt", s."completedAt", s."lastError"
+FROM "GameMonthRewardStat" s
+JOIN "GameCategory" c ON c.id = s."catId"
+WHERE s."catId" = $1 AND s.year = $2 AND s.month = $3
+ORDER BY s.mode, s."createdAt";
+```
+
+### Category totals across modes
+
+Only combine new-policy records with known financial fields. Group by category
+and period; summing percentages across modes is not meaningful.
+
+```sql
+SELECT "catId", year, month,
+       SUM("coinsSpent") AS "actualCoinsSpent",
+       SUM("bonusSpent") AS "actualBonusSpent",
+       SUM("fundingBalance") AS "availableAfterOffset",
+       SUM("rewardPoolAmount") AS "totalRewardPool",
+       SUM("coinsShareAmount") AS "paidCoins",
+       SUM("retainedBalance") AS "balanceAfterPoolReserved",
+       SUM("pendingAmount") AS "pendingCoins",
+       SUM("unallocatedAmount") AS "unallocatedCoins",
+       SUM("balanceAfterPayout") AS "balanceAfterActualPayout",
+       BOOL_AND(status = 'COMPLETED' AND "fullyAllocated") AS "everythingAllocated"
+FROM "GameMonthRewardStat"
+WHERE year = $1 AND month = $2 AND "policyVersion" IS NOT NULL
+GROUP BY "catId", year, month;
+```
+
+Investigate rows with `status = 'FAILED'`, nonzero `pendingAmount`, or completed
+rows with nonzero `capUnallocatedAmount`. Every new payout transaction includes
+its audit row ID in `metadata.auditId`, allowing recipient-level reconciliation:
+
+```sql
+SELECT "user_id", amount, status, "txnRef", metadata
+FROM "Transaction"
+WHERE category = 'GAME_MONTHLY_REWARD'
+  AND metadata->>'auditId' = $1
+ORDER BY "createdAt", id;
+```
+
+### Historical migration
+
+Migration `20261019100000_monthly_reward_audit` removes the six obsolete top-coin
+and bonus settlement columns. It first archives their amounts/counts/scores,
+including the original ordinary-coin values, into `legacyBreakdown`.
+Historical `coinsShareAmount`, coin recipient counts and coin score totals then
+include both former coin groups. Historical bonus payments remain in the archive
+and original transaction ledger; they are not relabelled as coin payments.
+
+Deploy the schema migration and the updated API/worker together: old workers
+reference columns that this migration removes. Existing rows receive
+`LEGACY_COMPLETED`. Unknown funding percentages, pool
+balances, allocation flags and new audit dates stay NULL rather than being
+invented. Financial analytics should handle those rows separately. No historical
+rows are deleted or repaid. A pre-audit incomplete plan is rejected for explicit
+reconciliation rather than creating zero paid counters over existing payouts.
 
 A missing snapshot for an incomplete plan, changed snapshot cardinality,
 incomplete batch, unreconciled mixed spending, missing recipient wallet, invalid
@@ -218,13 +386,14 @@ payments automatically.
 npx vitest run tests/unit/monthly-rewards.test.ts
 
 # Database/Redis integration and wallet invariants, using disposable infrastructure
-node scripts/test-infrastructure.cjs tests/integration/monthly-game-rewards.test.ts tests/integration/wallet-integrity.test.ts
+node scripts/test-infrastructure.cjs tests/integration/monthly-game-rewards.test.ts tests/integration/monthly-reward-audit-migration.test.ts tests/integration/wallet-integrity.test.ts
 
 npm run test:typecheck
 ```
 
 The integration tests exercise actual mixed spending, pending-charge exclusion,
-coins-only settlement, recovery after a partial payout failure, concurrent retry,
-frozen-plan reuse, missing-snapshot protection and completed-period replay.
+the explicit bonus offset, coins-only settlement, recovery after a partial payout failure, concurrent retry,
+frozen-plan reuse, missing-snapshot protection, partial audit progress, cap excess,
+zero funding, no qualifying players, historical migration and completed-period replay.
 
 See also [wallet integrity and rollout](wallet-integrity.md).
