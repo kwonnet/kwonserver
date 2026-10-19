@@ -167,11 +167,6 @@ export const checkUserGameWallet = async (userId: string) => {
     logGameError('checkUserGameWallet', error, {userId}); return { message: "Wallet unavailable", isError: true, data: null }; }
 };
 
-async function syncUserRedisGameEnergyToPrisma(playerId:string,catId:string,_mode:'single'|'multi') {
-  // PostgreSQL is authoritative; deleting a cache never discards an unsaved balance.
-  await redisClient.del(`player:${playerId}:cat:${catId}:energy`);
-}
-
 export async function syncUserRedisWalletToPrisma(userId: string) {
   // Compatibility hook: game debits now commit directly to PostgreSQL.
   return syncRedisUserWalletToPrisma(userId);
@@ -714,22 +709,7 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
       redisClient.hSet(playerKeys.info,playerInfo),
       redisClient.expire(playerKeys.info,120*86400),
     ]);
-    // check user energy
-    const isEnergyExists = await redisClient.exists(playerKeys.energy);
-    if (!isEnergyExists) {
-      await redisClient.hSet(playerKeys.energy, {
-        id: energy.id,
-        amount: energy.amount,
-        gauge: energy.gauge,
-        turbo: energy.turbo,
-        playerId: energy.playerId,
-        catId: energy.catId,
-      });
-    }
     const presence = await claimGamePresence(params);
-    if (presence.previous?.catId && presence.previous.catId !== params.catId) {
-      await syncUserRedisGameEnergyToPrisma(params.playerId,presence.previous.catId,getGameMode(presence.previous.mode));
-    }
     return {
       data: { energy, wallet, room: { id: presence.roomId, firstPlayer: presence.firstPlayer, generation: presence.generation }, previous: presence.previous },
       message: "success",
@@ -970,7 +950,6 @@ export const disconnectGameRoomPlayer = async (socket: Socket, io: GameIoNamespa
     }
     io.to(room.id).emit(GameEventEnum.MESSAGE,composeMessage({playerName:'SWEN',content:`${user.name}, has left!`}));
     await publishGamePresence(removed,io);
-    await syncUserRedisGameEnergyToPrisma(user.id,room.catId,getGameMode(room.mode));
     await syncUserRedisWalletToPrisma(user.id);
   } catch (error) {
     logGameError('disconnectGameRoomPlayer',error,{roomId:room.id,playerId:user.id});

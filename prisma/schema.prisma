@@ -1524,6 +1524,7 @@ model GameAchievement {
 }
 
 model GameEnergy {
+  version   Int           @default(0)
   id        String        @id @default(cuid())
   amount    Int
   gauge     Int

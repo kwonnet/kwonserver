@@ -88,3 +88,8 @@ worker from the same server image. The worker must have `RUN_BACKGROUND_JOBS=tru
   database connections and worker capacity before increasing concurrency.
 - Live result latency and durable sync latency are separate measurements. No
   fixed production latency is guaranteed by local tests.
+
+Energy refills and round energy changes now share a versioned Redis authority;
+see [Live game energy and refills](game-energy-refills.md). Round workers publish
+current Redis energy rather than stale PostgreSQL snapshots, and no longer
+invalidate energy after settlement.

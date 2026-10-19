@@ -1,5 +1,5 @@
 import { Prisma, GameMode } from "@prisma/client";
-import { randomInt, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import prisma from "@/db";
 import redis from "@/redis";
 import logger from "@/logger";
@@ -12,6 +12,7 @@ import {
   isoWeekStart,
 } from "@/utils/game-periods";
 import { TempGameRoom, ThemedGameQuestion, ThemedGameScore } from "@/types";
+import { applyRoundGameEnergy, syncGameEnergy } from "./energy";
 export type RoundSnapshot = { question: ThemedGameQuestion; answers: any[] };
 
 export async function recordGameRound(
@@ -168,10 +169,6 @@ export async function settleGameRound(
         await tx.$executeRaw(Prisma.sql`INSERT INTO "GamePeriodStat" (id,"playerId","catId",mode,kind,"periodStart",score,"numPlayed","updatedAt") VALUES
         ${Prisma.join(rows.flatMap((s) => periods.map((p) => Prisma.sql`(${randomUUID()},${s.playerId},${record.catId},${record.mode}::"GameMode",${p.kind},${p.start},${s.score},1,NOW())`)))}
         ON CONFLICT("playerId","catId",mode,kind,"periodStart") DO UPDATE SET score="GamePeriodStat".score+EXCLUDED.score,"numPlayed"="GamePeriodStat"."numPlayed"+1,"updatedAt"=NOW()`);
-        await tx.$executeRaw(Prisma.sql`INSERT INTO "GameEnergy" (id,"playerId","cat_id",amount,gauge,turbo,"updatedAt") VALUES
-        ${Prisma.join(rows.map((s) => Prisma.sql`(${randomUUID()},${s.playerId},${record.catId},2500,50,50,NOW())`))} ON CONFLICT("playerId","cat_id") DO NOTHING`);
-        await tx.$executeRaw(Prisma.sql`UPDATE "GameEnergy" e SET amount=e.amount+v.amount,gauge=GREATEST(0,e.gauge-v.gauge),turbo=GREATEST(0,e.turbo-v.turbo),"updatedAt"=NOW()
-        FROM(VALUES ${Prisma.join(rows.map((s) => Prisma.sql`(${s.playerId}::text,${randomInt(150, 251)}::int,${randomInt(2, 5)}::int,${randomInt(2, 5)}::int)`))})v(id,amount,gauge,turbo) WHERE e."playerId"=v.id AND e."cat_id"=${record.catId}`);
       }
       await tx.gameRoundRecord.update({
         where: { id: recordId },
@@ -239,13 +236,14 @@ export async function projectGameRound(id: string) {
   });
   if (record.status !== "COMPLETED" || !record.projectionPending) return;
   const scores = record.scores as unknown as ThemedGameScore[];
+  await Promise.all(scores.map(score=>applyRoundGameEnergy(score.playerId,record.catId,id)));
+  await syncGameEnergy(1000,scores.map(score=>({playerId:score.playerId,catId:record.catId})));
   await projectLiveGameScores({...record, playedAt:new Date(record.playedAt)}, scores);
   // Keep receipt through retry windows; no score increments precede the marker.
   await prisma.gameRoundRecord.update({
     where: { id },
     data: { projectionPending: false },
   });
-  if (scores.length) await redis.del(scores.map(p=>`player:${p.playerId}:cat:${record.catId}:energy`));
 }
 /** Same marker prevents a later PostgreSQL retry from incrementing live ranks twice. */
 export async function projectLiveGameScores(record: {id:string;catId:string;mode:string;playedAt:Date}, scores:ThemedGameScore[]) {

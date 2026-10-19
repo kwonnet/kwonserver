@@ -12,14 +12,14 @@ fixed milestone reward amounts. Both `kwonserver` and `kwonweb2` must be deploye
 | Exposed answer keys | All public questions use an explicit field whitelist. `answer` is blank, accepted alternatives and internal context stay private. Anagram receives a partial prefix hint. |
 | Month-end leaderboard expiry | Version 2 period keys retain data for 120 days after writes. Reward snapshots remain independently frozen. Closed-period ranks can be rebuilt from PostgreSQL. |
 | Weekly keys split at month/year boundaries | Weekly keys use the ISO week-year and week only. Migration merges the legacy pieces of a boundary-crossing week once. |
-| Unawaited score persistence | A round's player stats, period stats, energy changes and completion receipt commit in one awaited PostgreSQL transaction. Redis projection is awaited and recoverable. |
+| Unawaited score persistence | A round's player stats, period stats and completion receipt commit in one awaited PostgreSQL transaction. Energy uses versioned Redis updates with retryable snapshot persistence. Redis projection is awaited and recoverable. |
 | Category scores multiplied by player count | One atomic projection adds the sum of player scores once and increments category round count once. |
 | Inputs deleted before scoring; duplicate scoring | Admission closes atomically with snapshot capture. Inputs remain until durable settlement. A locked unique round receipt prevents score and energy duplication. Scoped cleanup checks round ID and room generation. |
 | Process-local timers | Room phase, deadline, generation and revision live in `GameRoomRuntime`. Redis schedules due rooms; another API process resumes them after a crash. |
 | Missing cross-server game broadcasts | The `/games` namespace uses the Socket.IO Redis adapter. Questions, countdowns, scores and Swen broadcasts reach players on other API instances. Existing transient paid-chat delivery remains local per subscriber to avoid duplicate relays. |
 | Profile-cache miss resets scores | Joining only refreshes profile/session/presence. It does not initialize or overwrite period scores. |
 | Drifting countdown; second-only clock | Redis TIME with millisecond precision controls deadlines and admission. Countdown is recomputed from the persisted deadline; missed ticks do not extend a round. |
-| Client energy replacement; lossy energy synchronization | PostgreSQL owns energy. A refill is an idempotent action with a server-calculated cost, amount and bounds. Cached balances never overwrite PostgreSQL. Round energy updates share the score transaction. |
+| Client energy replacement; lossy energy synchronization | Redis owns live energy. Refills and round consumption are atomic, idempotent mutations with server-calculated amounts and bounds. Conditional versioned snapshots synchronize PostgreSQL without stale overwrites. See game-energy-refills.md. |
 | Truncated solo IDs, fixed capacity, unsupported modes | Solo room partitions use the full account ID; multiplayer partition allocation uses catalog capacity; join validates the game's supported modes. |
 | Joining creates reward participants | A join never inserts a leaderboard member. Scoring an accepted answer creates a participant, including a genuine zero-score answer. Migration removes legacy zero-score members without evidence of play. |
 | Global cleanup scans and starving recovery | Round cleanup uses its question/answer/action manifest, not a database-wide SCAN. Terminal action acknowledgements expire after seven days; pending ones do not. Recovery claims 200 due actions with SKIP LOCKED, processes eight concurrently, and backs off individual failures. Ranking discovery follows every SCAN cursor with COUNT 250. |
@@ -70,7 +70,7 @@ Live results now follow the Redis-first path documented in `game-live-results.md
 Closing admission freezes an immutable Redis snapshot, computes server scores,
 and projects rankings with an atomic round marker. Results are emitted before
 PostgreSQL settlement. A Redis outbox and the `game-round-results` BullMQ worker
-then confirm action receipts and commit stats/energy with the durable COMPLETED
+then confirm action receipts and commit stats with the durable COMPLETED
 receipt. Monthly and milestone reward planning waits for pending rounds in its
 period; it cannot freeze an incomplete PostgreSQL ranking.
 

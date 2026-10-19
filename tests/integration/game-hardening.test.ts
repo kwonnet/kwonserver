@@ -57,7 +57,7 @@ import {
   isoWeekStart,
 } from "@/utils/game-periods";
 import { ensureRewardRanking } from "@/services/v1/games/periodRecovery";
-import { refillGameEnergy } from "@/services/v1/games/energy";
+import { refillGameEnergy, getGameEnergy, syncGameEnergy, applyRoundGameEnergy } from "@/services/v1/games/energy";
 import { chargeGameAction } from "@/services/walletLedger/game";
 import { dispatchGameAction } from "@/services/walletLedger/gameDelivery";
 import { recoverGameRounds } from "@/services/v1/games/recovery";
@@ -142,7 +142,7 @@ afterAll(async () => {
       ...player3,
       ...keys,
     ];
-    if (remove.length) await redis.del(remove);
+    if (remove.length) { await redis.zRem("game:energy:dirty", remove); await redis.del(remove); }
     await db.gameRoundRecord.deleteMany({ where: { id: { in: rounds } } });
     await db.gameRoomRuntime.deleteMany({ where: { id: roomId } });
     await db.gameIntegrityCase.deleteMany({where:{userId:{in:users}}});
@@ -418,14 +418,19 @@ it("records server luck outcomes once and rejects fabricated numeric scores", as
   );
 });
 it("charges one server-computed energy refill under concurrent replay", async () => {
-  const before = await db.gameEnergy.findUniqueOrThrow({
-    where: { playerId_catId: { playerId: users[0], catId } },
-  });
+  const before = await getGameEnergy(users[0],catId);
+  const noDatabase=vi.spyOn(db.gameEnergy,"findUniqueOrThrow").mockRejectedValue(new Error("Database unavailable"));
   await Promise.all(
     Array.from({ length: 5 }, () =>
       refillGameEnergy(users[0], catId, "gauge", "refill-once"),
     ),
   );
+  noDatabase.mockRestore();
+  const live=await getGameEnergy(users[0],catId);
+  expect(live.gauge-before.gauge).toBe(10);
+  expect(before.amount-live.amount).toBe(100);
+  await expect(refillGameEnergy(users[0],catId,"turbo","refill-once")).rejects.toThrow("different parameters");
+  await syncGameEnergy();
   const after = await db.gameEnergy.findUniqueOrThrow({
     where: { playerId_catId: { playerId: users[0], catId } },
   });
@@ -434,6 +439,49 @@ it("charges one server-computed energy refill under concurrent replay", async ()
   await expect(
     refillGameEnergy(users[0], catId, "amount" as any, "bad-refill"),
   ).rejects.toThrow("Invalid");
+});
+it("retains refill updates during database failure and interleaved round consumption", async()=>{
+  const playerId=users[1];
+  const before=await getGameEnergy(playerId,catId);
+  const once=await applyRoundGameEnergy(playerId,catId,"energy-interleave-test");
+  const refilled=await refillGameEnergy(playerId,catId,"turbo","interleave-refill");
+  const replay=await applyRoundGameEnergy(playerId,catId,"energy-interleave-test");
+  expect(replay).toEqual(refilled);
+  expect(once.amount-before.amount).toBeGreaterThanOrEqual(150);
+  expect(refilled.amount).toBe(once.amount-100);
+  expect(refilled.turbo).toBe(once.turbo+10);
+  const offline=vi.spyOn(db,"$executeRaw").mockRejectedValueOnce(new Error("offline"));
+  await expect(syncGameEnergy()).rejects.toThrow("offline");
+  offline.mockRestore();
+  expect(await redis.zScore("game:energy:dirty",`player:${playerId}:cat:${catId}:energy`)).not.toBeNull();
+  await Promise.all([syncGameEnergy(),syncGameEnergy()]);
+  const persisted=await db.gameEnergy.findUniqueOrThrow({where:{playerId_catId:{playerId,catId}}});
+  expect(persisted.amount).toBe(refilled.amount);
+  expect(persisted.turbo).toBe(refilled.turbo);
+  expect(persisted.version).toBe(refilled.version);
+  expect(await redis.zScore("game:energy:dirty",`player:${playerId}:cat:${catId}:energy`)).toBeNull();
+});
+it("never lets a delayed database snapshot overwrite a newer refill",async()=>{
+  const playerId=users[2], key=`player:${playerId}:cat:${catId}:energy`;
+  await getGameEnergy(playerId,catId);
+  await refillGameEnergy(playerId,catId,"gauge","snapshot-first");
+  const execute=db.$executeRaw.bind(db);
+  let captured!:()=>void, release!:()=>void;
+  const started=new Promise<void>(resolve=>{captured=resolve;});
+  const gate=new Promise<void>(resolve=>{release=resolve;});
+  const pause=vi.spyOn(db,"$executeRaw").mockImplementationOnce((async(query:any)=>{
+    captured();await gate;return execute(query);
+  }) as typeof db.$executeRaw);
+  const older=syncGameEnergy(1,[{playerId,catId}]);
+  await started;
+  const newest=await refillGameEnergy(playerId,catId,"turbo","snapshot-newer");
+  await syncGameEnergy(1,[{playerId,catId}]);
+  release();await older;pause.mockRestore();
+  const persisted=await db.gameEnergy.findUniqueOrThrow({where:{playerId_catId:{playerId,catId}}});
+  expect(persisted.version).toBe(newest.version);
+  expect(persisted.amount).toBe(newest.amount);
+  expect(persisted.turbo).toBe(newest.turbo);
+  expect(await redis.zScore("game:energy:dirty",key)).toBeNull();
 });
 it("preserves newer round data when stale cleanup runs", async () => {
   const q = await round();

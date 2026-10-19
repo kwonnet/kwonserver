@@ -1,3 +1,4 @@
+import {getGameEnergy} from "./energy";
 import redis from '@/redis';
 import prisma from '@/db';
 import logger from '@/logger';
@@ -85,8 +86,8 @@ export async function settleQueuedGameRound(id: string) {
     const { updateWinningStreak } = await import('./index');
     await updateWinningStreak({ ...scores[0], mode: room.mode, roundId: id }, target as any);
   }
-  // One batch query replaces a separate database read per player.
-  const energies = scores.length ? await prisma.gameEnergy.findMany({ where: { catId: room.catId, playerId: { in: scores.map(p => p.playerId) } } }) : [];
+  // Publish live versions, including refills newer than the persisted snapshot.
+  const energies = scores.length ? await Promise.all(scores.map(p=>getGameEnergy(p.playerId,room.catId))) : [];
   for (const energy of energies)
     events.push({ target: energy.playerId, event: GameEventEnum.GAME_PLAYER_ENERGY, payload: energy });
   for (const event of events)
