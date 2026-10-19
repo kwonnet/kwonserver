@@ -41,3 +41,17 @@ it('delivers quiz author and winner inbox updates to their own SSE connections o
  expect(JSON.stringify(streams[1].write.mock.calls)).not.toContain('quiz-expired-author');
  streams.forEach(stream=>stream.emit('close'));expect(vi.getTimerCount()).toBe(0);
 });
+
+it('signals a new monthly reward on the awarded account SSE stream only',async()=>{
+ const inbox:Record<string,any>={};
+ deps.snapshot.mockImplementation(async id=>inbox[id]??{userId:id,latestNotificationId:null,totalUnseenCount:0});
+ const winner=response(),other=response();
+ notificationStreamController({user:{id:'winner'}} as any,winner as any);
+ notificationStreamController({user:{id:'other'}} as any,other as any);
+ await vi.advanceTimersByTimeAsync(0);winner.write.mockClear();other.write.mockClear();
+ inbox.winner={userId:'winner',latestNotificationId:'monthly-reward',totalUnseenCount:1};
+ await vi.advanceTimersByTimeAsync(5000);
+ expect(winner.write).toHaveBeenCalledWith(expect.stringContaining('monthly-reward'));
+ expect(other.write).not.toHaveBeenCalled();
+ winner.emit('close');other.emit('close');expect(vi.getTimerCount()).toBe(0);
+});

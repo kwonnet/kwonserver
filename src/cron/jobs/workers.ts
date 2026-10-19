@@ -1,4 +1,4 @@
-import {deliverPostPublicationNotification} from '@/services/v1/notifications';
+import {deliverPostPublicationNotification, deliverNotification} from '@/services/v1/notifications';
 import {deliverEmailMessage} from '@/services/email';
 import { inferPostTopic } from '@/services/v1/posts';
 import prisma from "@/db";
@@ -204,4 +204,7 @@ export const postKeywordsWorker = new Worker(
 
 export const emailDeliveryWorker = new Worker(EMAIL_DELIVERY_QUEUE, async job=>{await deliverEmailMessage(job.data.id);},{connection:workerConnection,autorun:false,concurrency:2});
 
-export const notificationDeliveryWorker = new Worker(NOTIFICATION_DELIVERY_QUEUE, async job => {await deliverPostPublicationNotification(job.data.postId);}, {connection: workerConnection, autorun: false, concurrency: 2});
+export const notificationDeliveryWorker = new Worker(NOTIFICATION_DELIVERY_QUEUE, async job => {
+  if (job.name === 'notification') await deliverNotification(job.data.notificationId);
+  else await deliverPostPublicationNotification(job.data.postId);
+}, {connection: workerConnection, autorun: false, concurrency: 2});

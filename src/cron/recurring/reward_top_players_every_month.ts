@@ -10,6 +10,7 @@ import prisma from '@/db';
 import {generateUniqueRef, getGameMode, getRankingRewardKeys, getStringMonth} from '@/utils';
 import {getRedisHashKey} from '@/services/helper';
 import logger from '@/logger';
+import {enqueueNotificationDelivery} from '@/services/v1/notifications';
 
 const distributeReward = async ({player, catId, rewardAmount, dateInfo, mode, auditId}: {
   player: {id: string; rank: number; score: number}; catId: string; rewardAmount: number;
@@ -22,9 +23,10 @@ const distributeReward = async ({player, catId, rewardAmount, dateInfo, mode, au
   ]);
   if (!category) throw new Error('Monthly reward category missing');
   const milestone = milestones.find(m => m.milestone === player.rank);
-  await walletOperation('monthly-reward', `${catId}:${mode}:${dateInfo.year}:${dateInfo.month}:${player.id}:COINS`,
+  const receipt = await walletOperation('monthly-reward', `${catId}:${mode}:${dateInfo.year}:${dateInfo.month}:${player.id}:COINS`,
     {playerId: player.id, rewardAmount, policy: 'monthly-90-v2'}, [player.id], async tx => {
       let transactionId: string | undefined;
+      let notificationId: string | undefined;
       if (rewardAmount > 0) {
         const txnRef = generateUniqueRef();
         const description = milestone
@@ -45,6 +47,14 @@ const distributeReward = async ({player, catId, rewardAmount, dateInfo, mode, au
           achievementId: achievement?.id ?? null,
         }});
         transactionId = txn.id;
+        const notification = await tx.notification.create({data: {
+          sourceKey: `monthly-game-reward:${catId}:${mode}:${dateInfo.year}:${dateInfo.month}:${player.id}`,
+          recipientId: player.id, type: 'NONE', action: 'NONE', title: 'Monthly game reward',
+          message: `You earned ${formatNumberWithCommas(rewardAmount)} coins for ranking #${formatNumberWithCommas(player.rank)} in ${category.name} (${mode === GameMode.SINGLE ? 'Single player' : 'Multiplayer'}) for ${getStringMonth(dateInfo.month)} ${dateInfo.year}. Your wallet has been credited.`,
+          meta: {kind: 'monthly-game-reward', catId, categoryName: category.name, mode, ...dateInfo,
+            rank: player.rank, amount: rewardAmount, currency: 'COINS', transactionId: txn.id, auditId},
+        }});
+        notificationId = notification.id;
         if (achievement) await tx.gameAchievement.update({where: {id: achievement.id}, data: {txnId: txn.id}});
       }
       // Progress commits with the wallet credit and receipt; replay cannot increment it twice.
@@ -54,8 +64,9 @@ const distributeReward = async ({player, catId, rewardAmount, dateInfo, mode, au
         unallocatedAmount: {decrement: rewardAmount}, balanceAfterPayout: {decrement: rewardAmount},
         rewardParticipantsScore: {increment: player.score}, coinsParticipantsScore: {increment: player.score},
       }});
-      return {auditId, transactionId: transactionId ?? null};
+      return {auditId, transactionId: transactionId ?? null, notificationId: notificationId ?? null};
     });
+  if (receipt.notificationId) await enqueueNotificationDelivery(receipt.notificationId);
 };
 
 type SettlementPlan = {

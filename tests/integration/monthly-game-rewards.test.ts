@@ -1,4 +1,5 @@
 import {PrismaPg} from '@prisma/adapter-pg';
+import {Worker,QueueEvents} from 'bullmq';
 import {beforeAll, afterAll, expect, it, vi} from 'vitest';
 vi.mock('@/db',async()=>{
  const {PrismaClient}=await import('@prisma/client');
@@ -9,6 +10,10 @@ vi.mock('@/redis',async()=>{
  const client=createClient({url:process.env.REDIS_URL});await client.connect();return {default:client};
 });
 vi.mock('@/services/helper',()=>({getRedisHashKey:async()=>({score:1275,numPlayed:50})}));
+const pushSend=vi.hoisted(()=>vi.fn().mockResolvedValue({statusCode:201}));
+vi.mock('@/utils/webpush',()=>({default:{sendNotification:pushSend}}));
+import {notificationQueue,closeJobQueues} from '@/cron/jobs/queue';
+import {deliverNotification,getNotificationStreamSnapshot} from '@/services/v1/notifications';
 import db from '@/db';
 import redis from '@/redis';
 import {getRankingRewardKeys} from '@/utils';
@@ -31,13 +36,14 @@ afterAll(async()=>{
  await redis.del([key,snapshot,...extraKeys]);
  await db.user.deleteMany({where:{id:{in:ids}}});
  await db.game.delete({where:{id:gameId}});
- await redis.quit();await db.$disconnect();
+ await closeJobQueues();await redis.quit();await db.$disconnect();
 });
 it('offsets actual bonus spending before funding, pays every qualifying player coins only, and settles stats',async()=>{
  // A missing wallet forces a partial failure; already committed awards must replay safely.
  await db.wallet.delete({where:{userId:ids[0]}});
  await expect(run()).rejects.toThrow('Wallet not found');
  const partial=await db.gameMonthRewardStat.findFirstOrThrow({where:{catId}});
+ expect(await db.notification.count({where:{recipientId:ids[0],sourceKey:{startsWith:'monthly-game-reward:'}}})).toBe(0);
  expect(partial.status).toBe('FAILED');expect(partial.fullyAllocated).toBe(false);
  expect(Number(partial.pendingAmount)).toBeGreaterThan(0);
  expect(Number(partial.rewardPoolAmount)).toBe(100);
@@ -45,9 +51,18 @@ it('offsets actual bonus spending before funding, pays every qualifying player c
  await expect(run()).rejects.toThrow('snapshot missing');
  await redis.copy(key,snapshot);
  await db.wallet.create({data:{userId:ids[0],coins:0,bonus:10}});
- await run();
+ await Promise.all([run(),run(),run()]);
  const payouts=await db.transaction.findMany({where:{userId:{in:ids},category:'GAME_MONTHLY_REWARD'}});
  expect(payouts).toHaveLength(10);
+ const notifications=await db.notification.findMany({where:{recipientId:{in:ids},sourceKey:{startsWith:'monthly-game-reward:'}}});
+ expect(notifications).toHaveLength(10);
+ for(const notification of notifications) {
+  expect(notification.meta).toMatchObject({kind:'monthly-game-reward',catId,mode:'MULTI',auditId:partial.id,currency:'COINS'});
+  const job=await notificationQueue.getJob(`notification-${notification.id}`);
+  expect(job?.data.notificationId).toBe(notification.id);
+ }
+ expect(await getNotificationStreamSnapshot(ids[0])).toMatchObject({totalUnseenCount:1,latestNotificationId:expect.any(String)});
+ expect(await getNotificationStreamSnapshot(ids[49])).toMatchObject({totalUnseenCount:0,latestNotificationId:null});
  expect(payouts.reduce((sum,row)=>sum+Number(row.amount),0)).toBeCloseTo(100,8);
  expect(payouts.every(row=>row.currency==='COINS'&&row.source==='COINS')).toBe(true);
  const wallets=await db.wallet.findMany({where:{userId:{in:ids}}});
@@ -80,7 +95,25 @@ it('replays concurrent settlements from the frozen plan despite changed original
  await Promise.all([run(),run(),run()]);
  const after=await db.transaction.findMany({where:{userId:{in:ids},category:'GAME_MONTHLY_REWARD'},orderBy:{userId:'asc'}});
  expect(after).toEqual(before);
+ expect(await db.notification.count({where:{recipientId:{in:ids},sourceKey:{startsWith:'monthly-game-reward:'}}})).toBe(10);
  expect(await db.gameMonthRewardStat.count({where:{catId}})).toBe(1);
+});
+it('pushes an award once to subscribed devices and retains the SSE inbox',async()=>{
+ const notification=await db.notification.findFirstOrThrow({where:{recipientId:ids[0],sourceKey:{startsWith:'monthly-game-reward:'}}});
+ const config={endpoint:'https://fcm.googleapis.com/fcm/send/monthly-award-fixture',keys:{p256dh:Buffer.alloc(65,4).toString('base64url'),auth:Buffer.alloc(16,1).toString('base64url')}};
+ const subscription=await db.pushNotification.create({data:{userId:ids[0],endpoint:config.endpoint,config}});
+ const connection={host:'127.0.0.1',port:16379};
+ const events=new QueueEvents(notificationQueue.name,{connection});await events.waitUntilReady();
+ const worker=new Worker(notificationQueue.name,job=>deliverNotification(job.data.notificationId),{connection,concurrency:2});
+ try {
+  const job=await notificationQueue.getJob(`notification-${notification.id}`);
+  await job!.waitUntilFinished(events,10000);
+  await deliverNotification(notification.id);
+  expect(pushSend).toHaveBeenCalledOnce();
+  expect(JSON.parse(pushSend.mock.calls[0][1])).toMatchObject({url:'/wallet',tag:notification.id});
+  expect((await db.notification.findUniqueOrThrow({where:{id:notification.id}})).pushSentAt).not.toBeNull();
+  expect(await getNotificationStreamSnapshot(ids[0])).toMatchObject({totalUnseenCount:1});
+ } finally {await worker.close();await events.close();await db.pushNotification.delete({where:{id:subscription.id}});}
 });
 it('does not need a retained snapshot after the period has fully settled',async()=>{
  await redis.del(snapshot);

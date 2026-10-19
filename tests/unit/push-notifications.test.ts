@@ -2,7 +2,7 @@ import {beforeEach, expect, it, vi} from 'vitest';
 const deps = vi.hoisted(() => ({subscriptions: {upsert: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn()}, notifications: {findMany: vi.fn(), updateMany: vi.fn(), update: vi.fn()}, configure: vi.fn(), send: vi.fn()}));
 vi.mock('@/db', () => ({default: {pushNotification: deps.subscriptions, notification: deps.notifications}}));
 vi.mock('@/utils/webpush', () => ({default: {sendNotification: deps.send, configure: deps.configure}}));
-import {subscribePushNotification, unsubscribePushNotification, validatePushSubscription, deliverPendingPushNotifications} from '@/services/v1/notifications';
+import {subscribePushNotification, unsubscribePushNotification, validatePushSubscription, deliverPendingPushNotifications,deliverNotification} from '@/services/v1/notifications';
 const subscription = {endpoint: 'https://fcm.googleapis.com/fcm/send/browser', keys: {p256dh: Buffer.alloc(65, 4).toString('base64url'), auth: Buffer.alloc(16, 1).toString('base64url')}};
 beforeEach(() => {
  vi.clearAllMocks(); deps.configure.mockReset(); deps.notifications.updateMany.mockResolvedValue({count: 1}); deps.notifications.update.mockResolvedValue({});
@@ -59,4 +59,11 @@ it('reports missing VAPID configuration before falsely claiming notifications ar
  deps.configure.mockImplementation(() => {throw new Error('Unavailable');});
  expect((await subscribePushNotification(subscription, {id: 'owner'})).status).toBe(503);
  expect(deps.subscriptions.upsert).not.toHaveBeenCalled();
+});
+
+it('delivers only the requested monthly award and links the device to the wallet',async()=>{
+ deps.notifications.findMany.mockResolvedValue([{id:'monthly-award',recipientId:'owner',title:'Monthly game reward',message:'Coins credited',meta:{kind:'monthly-game-reward'}}]);
+ await deliverNotification('monthly-award');
+ expect(deps.notifications.findMany).toHaveBeenCalledWith(expect.objectContaining({where:expect.objectContaining({id:'monthly-award'})}));
+ expect(JSON.parse(deps.send.mock.calls[0][1])).toMatchObject({title:'Monthly game reward',tag:'monthly-award',url:'/wallet'});
 });

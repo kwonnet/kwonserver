@@ -11,6 +11,7 @@ export function publicationNotificationVisibility(userId: string): Prisma.Notifi
     { sourceKey: null },
     { sourceKey: { startsWith: 'gift-received:' } },
     { sourceKey: { startsWith: 'quiz-reward:' } },
+    { sourceKey: { startsWith: 'monthly-game-reward:' } },
     { sourceKey: { startsWith: 'post-published:' },
       sender: { postNotificationSubscribers: { some: { subscriberId: userId } } },
       AND: [{sender: {followers: {some: {followerId: userId, status: 'ACCEPTED'}}}}],
@@ -119,15 +120,16 @@ return {status: 500, data: 'Unable to enable notifications'};}
 export async function unsubscribePushNotification(endpoint: string, user: Pick<AuthUser, 'id' | 'sessionId'>) {
   await prisma.pushNotification.deleteMany({where: {endpoint, userId: user.id}});
 }
-export async function deliverPendingPushNotifications(postId?: string) {
+export async function deliverPendingPushNotifications(postId?: string, notificationId?: string) {
   const now = new Date();
   // Atomic row leases coordinate immediate and recurring workers across replicas.
-  const notifications = await prisma.notification.findMany({where: {...(postId ? {postId, sourceKey: {startsWith: "post-published:"}} : {}), pushSentAt: null, pushAttempts: {lt: 5}, nextPushAttemptAt: {lte: now}}, orderBy: {createdAt: 'asc'}, take: 100});
+  const notifications = await prisma.notification.findMany({where: {...(notificationId ? {id: notificationId} : {}), ...(postId ? {postId, sourceKey: {startsWith: "post-published:"}} : {}), pushSentAt: null, pushAttempts: {lt: 5}, nextPushAttemptAt: {lte: now}}, orderBy: {createdAt: 'asc'}, take: 100});
   const deliver = async (notification: typeof notifications[number]) => {
     const claim = await prisma.notification.updateMany({where: {id: notification.id, pushSentAt: null, nextPushAttemptAt: {lte: now}}, data: {pushAttempts: {increment: 1}, nextPushAttemptAt: new Date(Date.now() + 300_000)}});
     if (!claim.count) return;
     let target = '/notifications';
     const giftMeta = notification.meta as {kind?:string;recipientUsername?:string} | null;
+    if (giftMeta?.kind === 'monthly-game-reward') target = '/wallet';
     if (giftMeta?.kind === 'gift' && giftMeta.recipientUsername) target = `/@${encodeURIComponent(giftMeta.recipientUsername)}/gifts`;
     if (notification.sourceKey?.startsWith('post-published:')) {
       const current = await prisma.notification.findFirst({where: {id: notification.id,
@@ -205,4 +207,27 @@ export async function getNotificationStreamSnapshot(userId: string) {
     prisma.notification.count({where: {...where, isSeen: false}}),
   ]);
   return {userId, latestNotificationId: latest?.id ?? null, totalUnseenCount: unseen};
+}
+
+/** The durable Notification row is the outbox; queue failure cannot undo payment. */
+export async function enqueueNotificationDelivery(notificationId: string) {
+  try {
+    const {notificationQueue} = await import('@/cron/jobs/queue');
+    const jobId = `notification-${notificationId}`;
+    const existing = await notificationQueue.getJob(jobId);
+    if (existing) {
+      if (await existing.getState() === 'failed') await existing.retry();
+      return;
+    }
+    await notificationQueue.add('notification', {notificationId}, {jobId, attempts: 3,
+      backoff: {type: 'exponential', delay: 5000},
+      removeOnComplete: {age: 86400, count: 1000}, removeOnFail: {age: 604800, count: 1000}});
+  } catch (err) {
+    logger.error({event: 'notification_enqueue_deferred', notificationId, err}, 'Notification saved; recurring push recovery will retry delivery');
+  }
+}
+
+export async function deliverNotification(notificationId: string) {
+  if (!notificationId || typeof notificationId !== 'string') throw new Error('Notification job requires a notification ID');
+  await deliverPendingPushNotifications(undefined, notificationId);
 }

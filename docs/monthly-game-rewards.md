@@ -220,6 +220,40 @@ All payout transactions use source/currency `COINS`, credit `wallet.coins`, and
 carry the period, category, mode and policy in metadata. No payout increments
 `wallet.bonus`.
 
+## Award notifications and duplicate protection
+
+A positive monthly award creates one `Notification` inside the same transaction
+as its wallet credit, transaction ledger entry, audit progress and durable receipt.
+Its unique source is
+`monthly-game-reward:<catId>:<MODE>:<year>:<month>:<playerId>`. Metadata includes
+the credited amount, rank, category, mode, period, transaction ID and audit ID.
+Zero-amount positions are processed for audit but do not announce a payment.
+
+After commit, `enqueueNotificationDelivery` schedules an immediate job on the
+existing notification queue with a stable notification ID. The worker sends
+Web Push to the recipient's valid registered browser/device subscriptions and
+links to `/wallet`. Queue failures do not reverse a payment: the durable inbox is
+also the push outbox, and `deliver_push_notifications` retries due notifications
+every minute. Existing leases, per-device success markers, expired-subscription
+cleanup and bounded attempts apply. Provider acceptance does not guarantee device
+display, and an external provider acceptance followed by a worker crash can still
+cause a repeated push submission; payment and inbox-row idempotency are separate
+from transport delivery guarantees.
+
+The authenticated notification SSE stream observes the recipient's saved inbox
+and emits `notifications_updated` on its next refresh (normally within five
+seconds). This works across worker/API replicas without an in-memory broadcast.
+SSE requires an active connection; an offline recipient retains the notification
+in the inbox and can receive device push if subscribed. Notification delivery does
+not itself refresh an already-open game room's wallet display.
+
+Financial idempotency is **per player, category, mode, year and month**, not once
+per player globally. `walletOperation` takes an advisory lock for that operation,
+checks its saved fingerprint/receipt, and locks the wallet row before crediting.
+A replay returns the saved result without repeating the credit, notification or
+audit increments. The unique notification source and stable queue job ID provide
+additional duplicate protection. Completed periods are skipped entirely.
+
 ## Queryable financial audit
 
 The existing `GameMonthRewardStat` table is the category/mode/month settlement
@@ -394,6 +428,7 @@ npm run test:typecheck
 The integration tests exercise actual mixed spending, pending-charge exclusion,
 the explicit bonus offset, coins-only settlement, recovery after a partial payout failure, concurrent retry,
 frozen-plan reuse, missing-snapshot protection, partial audit progress, cap excess,
-zero funding, no qualifying players, historical migration and completed-period replay.
+zero funding, no qualifying players, historical migration, notification uniqueness,
+recipient-specific SSE visibility, subscribed-device push and completed-period replay.
 
 See also [wallet integrity and rollout](wallet-integrity.md).

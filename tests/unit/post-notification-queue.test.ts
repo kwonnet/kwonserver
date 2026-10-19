@@ -2,7 +2,7 @@ import {beforeEach,expect,it,vi} from 'vitest';
 const deps=vi.hoisted(()=>({getJob:vi.fn(),add:vi.fn(),count:vi.fn(),findFirst:vi.fn()}));
 vi.mock('@/cron/jobs/queue',()=>({notificationQueue:{getJob:deps.getJob,add:deps.add}}));
 vi.mock('@/db',()=>({default:{notification:{count:deps.count,findFirst:deps.findFirst}}}));
-import {enqueuePostPublicationNotification,getNotificationStreamSnapshot} from '@/services/v1/notifications';
+import {enqueuePostPublicationNotification,getNotificationStreamSnapshot,enqueueNotificationDelivery} from '@/services/v1/notifications';
 beforeEach(()=>{vi.clearAllMocks();deps.getJob.mockResolvedValue(null);deps.add.mockResolvedValue({});});
 it('enqueues immediate delivery with a stable post ID and retained outcomes',async()=>{
  await enqueuePostPublicationNotification('post');
@@ -20,4 +20,17 @@ it('binds SSE snapshots to the viewer and current visibility without sending pri
  deps.findFirst.mockResolvedValue({id:'notification'});deps.count.mockResolvedValue(2);
  expect(await getNotificationStreamSnapshot('viewer')).toEqual({userId:'viewer',latestNotificationId:'notification',totalUnseenCount:2});
  expect(deps.findFirst).toHaveBeenCalledWith(expect.objectContaining({where:expect.objectContaining({recipientId:'viewer',OR:expect.any(Array)}),select:{id:true}}));
+});
+
+it('queues a durable award notification with a stable recipient-notification job ID',async()=>{
+ await enqueueNotificationDelivery('award-1');
+ expect(deps.add).toHaveBeenCalledWith('notification',{notificationId:'award-1'},expect.objectContaining({jobId:'notification-award-1',attempts:3}));
+});
+it('deduplicates award jobs and leaves the durable inbox recoverable if Redis is down',async()=>{
+ const retry=vi.fn();deps.getJob.mockResolvedValue({getState:async()=> 'waiting',retry});
+ await enqueueNotificationDelivery('award-1');expect(deps.add).not.toHaveBeenCalled();
+ deps.getJob.mockResolvedValue({getState:async()=> 'failed',retry});
+ await enqueueNotificationDelivery('award-1');expect(retry).toHaveBeenCalledOnce();
+ deps.getJob.mockRejectedValue(new Error('Redis unavailable'));
+ await expect(enqueueNotificationDelivery('award-1')).resolves.toBeUndefined();
 });
