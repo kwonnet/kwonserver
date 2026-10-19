@@ -285,7 +285,13 @@ const gameSocketIo = (_io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEve
               if (intent !== socket.data.gameJoinIntent || socket.data.room?.id !== roomId) return;
               if (question) socket.emit(GameEventEnum.GAME_ROOM_QUESTION, {question:publicWordQuestion(question), message: "Swen says, it's play time!"});
             }
-            socket.emit(GameEventEnum.GAME_ROOM_STATE, {status: currentRoom.status, countdown: Number(currentRoom.timer ?? 0)});
+            const serverNow = await gameClock();
+            const deadline = Number(currentRoom.deadline);
+            socket.emit(GameEventEnum.GAME_ROOM_STATE, {
+              status: currentRoom.status,
+              countdown: Number.isFinite(deadline) ? Math.max(0, Math.ceil((deadline-serverNow)/1000)) : Number(currentRoom.timer ?? 0),
+              ...(Number.isFinite(deadline) ? {deadline, serverNow} : {}),
+            });
           }
           // emitting a welcome message to a new player
           socket.emit(

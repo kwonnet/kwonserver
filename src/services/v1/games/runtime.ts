@@ -101,6 +101,7 @@ export async function ensureGameRuntime(room: TempGameRoom) {
 }
 
 async function stepRoom(roomId: string, io: Namespace) {
+  const stepStartedAt = await gameClock();
   const token = randomUUID(),
     lock = `game:runtime:lock:${roomId}`;
   if (!(await redis.set(lock, token, { NX: true, PX: 15000 }))) return;
@@ -203,6 +204,8 @@ async function stepRoom(roomId: string, io: Namespace) {
       io.to(roomId).emit(GameEventEnum.GAME_ROOM_STATE, {
         status: runtime.phase,
         countdown,
+        deadline: runtime.deadline.getTime(),
+        serverNow: now,
         roundId: runtime.roundId,
         sequence: runtime.revision,
       });
@@ -239,7 +242,7 @@ async function stepRoom(roomId: string, io: Namespace) {
     if ((await redis.zScore(dueKey, roomId)) !== null)
       await redis.zAdd(dueKey, {
         value: roomId,
-        score: (await gameClock()) + 1000,
+        score: stepStartedAt + 1000,
       });
   }
 }

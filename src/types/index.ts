@@ -255,6 +255,7 @@ export enum GameEventEnum {
     NOTIFY_MESSAGE = "notify_message",
 }
 export interface TempGameRoom {
+    deadline?: number;
     generation?: string;
     status: GameStatusEnum;
     roomId: string;

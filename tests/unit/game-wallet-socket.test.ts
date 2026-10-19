@@ -188,14 +188,15 @@ it('restores the live question and countdown when joining an already running roo
  try {
   games.checkGameRoom.mockResolvedValue({catId:'cat',name:'Room',category:{gameId:'game',game:{name:'Trivia',modes:['SINGLE','MULTI']},name:'General',topics:[]}});
   games.addGameRoomPlayer.mockResolvedValue({data:{room:{id:'room',generation:'generation',firstPlayer:false}}});
-  games.getGameRoom.mockResolvedValue({status:'PLAY',timer:'8'});
+  const serverNow=Date.now(),deadline=serverNow+8000;
+  games.getGameRoom.mockResolvedValue({status:'PLAY',timer:'10',deadline});
   games.getGameRoomPlayersWithRank.mockResolvedValue([]);
   socket.broadcast={to:()=>({emit:vi.fn()})};
   await handlers[GameEventEnum.PLAYER_JOINED]({roomId:'room',mode:'multi'},vi.fn());
   await vi.advanceTimersByTimeAsync(500);
   expect(games.gameChatTime).not.toHaveBeenCalled();
   expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_QUESTION,expect.objectContaining({question:expect.objectContaining({id:'question',roundId:'server-round',answer:''})}));
-  expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,{status:'PLAY',countdown:8});
+  expect(socket.emit).toHaveBeenCalledWith(GameEventEnum.GAME_ROOM_STATE,{status:'PLAY',countdown:8,deadline,serverNow:serverNow+500});
  } finally {vi.useRealTimers();}
 });
 
