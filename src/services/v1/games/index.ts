@@ -538,6 +538,10 @@ if action == 'leave' then
 elseif action == 'heartbeat' then
  if p.socketId ~= sid or p.roomId ~= ARGV[4] then return 0 end
  redis.call('ZADD',leases,now+30000,uid)
+ -- Repair an orphaned scheduler entry without restarting or extending the phase.
+ if redis.call('HGET','room:'..p.roomId,'status') then
+  redis.call('ZADD','game:runtime:due','NX',now,p.roomId)
+ end
  return 1
 elseif action == 'sweep' then
  local removed = {}

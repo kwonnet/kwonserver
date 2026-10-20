@@ -684,3 +684,63 @@ it("does not close or publish a round from a replaced runtime lease",async()=>{
  expect(await redis.hGet(`room:${roomId}`,'status')).toBe('PLAY');
  expect(await redis.get(`game:round-snapshot:${q.roundId}`)).toBeNull();
 });
+
+it("repairs an occupied successor generation without requiring the player to rejoin",async()=>{
+ const q=await round();
+ await captureRound(room);await settleGameRound(q.roundId,snapshot=>calculateGameRoomPoints(room,snapshot));
+ await scheduleGamePhase(room,"CHAT",Date.now()-1);
+ await redis.del(`room:${roomId}:question`);
+ await redis.hSet(`room:${roomId}`,{...room,generation:'replacement-generation',status:'CHAT',timer:'0'});
+ await redis.hDel(`room:${roomId}`,['deadline','roundId','revision']);
+ await redis.zAdd('game:runtime:due',{value:roomId,score:0});
+ await tickGameRuntimes(io);
+ const current=await db.gameRoomRuntime.findUniqueOrThrow({where:{id:roomId}});
+ expect(current.generation).toBe('replacement-generation');
+ expect(current.active).toBe(true);
+ expect(await redis.zScore('game:runtime:due',roomId)).not.toBeNull();
+ expect(Number(await redis.hGet(`room:${roomId}`,'deadline'))).toBeGreaterThan(Date.now());
+ // Restore the fixture's generation for following tests and cleanup.
+ await redis.hSet(`room:${roomId}`,{generation:room.generation});
+ await scheduleGamePhase(room,'CHAT',Date.now()+10000);
+});
+it("does not overwrite a newer phase with an already-started countdown tick",async()=>{
+ const q=await round();await scheduleGamePhase(room,'PLAY',Date.now()+10000,q.roundId);
+ const revision=Number(await redis.hGet(`room:${roomId}`,'revision'));
+ const evalRedis=redis.eval.bind(redis);
+ let replaced=false;
+ const intercept=vi.spyOn(redis,'eval').mockImplementation(async(script:any,options:any)=>{
+  if(!replaced && typeof script==='string' && script.includes("'timer',ARGV[3],'deadline',ARGV[5]")) {
+   replaced=true;
+   await redis.hSet(`room:${roomId}`,{status:'VOTE',revision:String(revision+1)});
+  }
+  return evalRedis(script,options);
+ });
+ try {
+  await redis.zAdd('game:runtime:due',{value:roomId,score:0});
+  await tickGameRuntimes(io);
+  expect(replaced).toBe(true);
+  expect(await redis.hGet(`room:${roomId}`,'status')).toBe('VOTE');
+  expect(await redis.hGet(`room:${roomId}`,'revision')).toBe(String(revision+1));
+ }finally{intercept.mockRestore();}
+ await captureRound(room);await settleGameRound(q.roundId,snapshot=>calculateGameRoomPoints(room,snapshot));
+});
+it("an expired timer lease cannot release or postpone its successor",async()=>{
+ const q=await round();await scheduleGamePhase(room,'PLAY',Date.now()+10000,q.roundId);
+ const lock=`game:runtime:lock:${roomId}`,successorDue=Date.now()+12000;
+ const evalRedis=redis.eval.bind(redis);let replaced=false;
+ const intercept=vi.spyOn(redis,'eval').mockImplementation(async(script:any,options:any)=>{
+  if(!replaced && typeof script==='string' && script.includes("'timer',ARGV[3],'deadline',ARGV[5]")) {
+   replaced=true;
+   await redis.set(lock,'successor',{PX:15000});
+   await redis.zAdd('game:runtime:due',{value:roomId,score:successorDue});
+  }
+  return evalRedis(script,options);
+ });
+ try {
+  await redis.zAdd('game:runtime:due',{value:roomId,score:0});await tickGameRuntimes(io);
+  expect(replaced).toBe(true);
+  expect(await redis.get(lock)).toBe('successor');
+  expect(await redis.zScore('game:runtime:due',roomId)).toBe(successorDue);
+ }finally{intercept.mockRestore();await redis.del(lock);}
+ await captureRound(room);await settleGameRound(q.roundId,snapshot=>calculateGameRoomPoints(room,snapshot));
+});

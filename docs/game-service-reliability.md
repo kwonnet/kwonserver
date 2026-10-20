@@ -194,3 +194,30 @@ Measure scheduler deadline lag and database latency at the actual occupied-room
 count before increasing replicas or concurrency. The SQL, Lua and cross-replica
 integration tests validate correctness, not production capacity at millions of
 simultaneous players.
+
+
+## Automatic recovery from stalled room timers
+
+An older timer could remove the shared scheduler entry while an occupied room
+was being replaced or reinitialized. The room then stayed at zero until a join
+scheduled it again. Normal five-second presence heartbeats now atomically add a
+missing due entry using `ZADD NX`; they never change an existing deadline or
+postpone scheduled work. Rejected/stale sessions cannot wake a room.
+
+Runtime cleanup removes a due entry only when the room is still empty at the
+Redis serialization point. An occupied generation with missing, inactive or
+older durable runtime metadata is rebuilt automatically. Missing/invalid cached
+deadlines recover from PostgreSQL; normal ticks and heartbeat repairs stay in
+Redis. Countdown writes compare generation, phase, round and revision, so a
+previous tick cannot rewind a newer phase. Question restoration checks ownership
+and the current round as well.
+
+Lease release and rescheduling are atomic and require the same owner token.
+A worker whose lease expired cannot release another worker's lease or change
+its due time. Removed schedules are not recreated by late cleanup. These changes
+preserve all category play/vote durations and the existing score/payment paths.
+
+Integration tests cover missing schedule repair, successor-generation recovery,
+a phase change during a countdown tick, and lease replacement before cleanup.
+Deploy by restarting API instances, which run the room scheduler and presence
+heartbeats. No schema migration or client update is needed for this fix.

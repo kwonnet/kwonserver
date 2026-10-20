@@ -10,6 +10,15 @@ import { TempGameRoom, GameStatusEnum, GameEventEnum, ThemedGameQuestion } from 
 import { publicWordQuestion } from "@/utils/word-games";
 import { recoverRoundProjections } from "./rounds";
 const dueKey = "game:runtime:due";
+const phases = new Set(["CHAT", "PLAY", "VOTE", "RESULT"]);
+/** Never let a stale room step remove a successor's schedule. */
+async function unscheduleEmptyRoom(roomId: string) {
+  await redis.eval(`if redis.call('SCARD',KEYS[2])==0 then
+    return redis.call('ZREM',KEYS[1],ARGV[1]) end
+    redis.call('ZADD',KEYS[1],'NX',ARGV[2],ARGV[1]);return 0`, {
+    keys: [dueKey, `room:${roomId}:players`], arguments: [roomId, String(await gameClock())],
+  });
+}
 
 export async function scheduleGamePhase(room: TempGameRoom, phase: string, deadline: number, roundId?: string) {
   return Boolean(await persistGamePhase(room, phase, deadline, roundId));
@@ -82,7 +91,7 @@ export async function ensureGameRuntime(room: TempGameRoom) {
       await recordGameRound(room, q);
     }
   }
-  await scheduleGamePhase(room, room.status ?? "CHAT", deadline, roundId);
+  await scheduleGamePhase(room, phases.has(room.status) ? room.status : "CHAT", deadline, roundId);
 }
 
 async function stepRoom(roomId: string, io: Namespace) {
@@ -120,34 +129,43 @@ async function stepRoom(roomId: string, io: Namespace) {
         getTotalRoomPlayers, deleteGameRoomQuestionAndAnswers,
       } = await import("./index");
       const room = await getGameRoom(roomId);
-      // Live timers use Redis. PostgreSQL is consulted only for a missing legacy cache.
-      const runtime = room && Number.isFinite(Number(room.deadline)) ? {
+      // Live timers use Redis. Missing/invalid caches recover from the durable phase.
+      const cached = room && phases.has(room.status) && Number(room.deadline) > 0 && Number.isFinite(Number(room.deadline));
+      const runtime = cached ? {
         active:true, generation:room.generation, phase:room.status,
         deadline:new Date(Number(room.deadline)), roundId:room.roundId||null, revision:Number(room.revision??0),
       } : await prisma.gameRoomRuntime.findUnique({where:{id:roomId}});
-      if (!runtime?.active) {await redis.zRem(dueKey,roomId);return;}
-      if(room && !Number.isFinite(Number(room.deadline)))await redis.hSet(`room:${roomId}`,{
-        deadline:String(runtime.deadline.getTime()),roundId:runtime.roundId??'',revision:String(runtime.revision),status:runtime.phase,
-      });
-      if (!room || room.generation !== runtime.generation) {
-        await prisma.gameRoomRuntime.updateMany({
-          where: { id: roomId, generation: runtime.generation },
-          data: { active: false },
+      if (room && (!runtime?.active || room.generation !== runtime.generation)) {
+        // A player can replace an empty room while its old timer is still stepping.
+        // Rebuild the occupied generation instead of deleting its due entry.
+        if (await getTotalRoomPlayers(roomId) > 0) {
+          await ensureGameRuntime(room);
+          return;
+        }
+      }
+      if (!runtime?.active || !room || room.generation !== runtime.generation) {
+        if (runtime) await prisma.gameRoomRuntime.updateMany({
+          where:{id:roomId,generation:runtime.generation},data:{active:false},
         });
-        await redis.zRem(dueKey, roomId);
+        await unscheduleEmptyRoom(roomId);
         return;
       }
+      if (!cached && !await redis.eval(`if redis.call('GET',KEYS[1])~=ARGV[1] or redis.call('HGET',KEYS[2],'generation')~=ARGV[2] then return 0 end
+        redis.call('HSET',KEYS[2],'deadline',ARGV[3],'roundId',ARGV[4],'revision',ARGV[5],'status',ARGV[6]);return 1`, {
+        keys:[lock,`room:${roomId}`], arguments:[token,runtime.generation!,String(runtime.deadline.getTime()),runtime.roundId??'',String(runtime.revision),runtime.phase],
+      })) return;
       // The durable round restores the question if Redis lost this individual key.
       if (runtime.roundId && !(await redis.exists(`room:${roomId}:question`))) {
         const record = await prisma.gameRoundRecord.findUniqueOrThrow({
           where: { id: runtime.roundId },
         });
         await assertGameRuntimeLease();
-        await redis.set(
-          `room:${roomId}:question`,
-          JSON.stringify(record.question),
-          { NX: true },
-        );
+        const restored = await redis.eval(`if redis.call('GET',KEYS[1])~=ARGV[1] or redis.call('HGET',KEYS[2],'generation')~=ARGV[2] or redis.call('HGET',KEYS[2],'roundId')~=ARGV[3] then return 0 end
+          redis.call('SET',KEYS[3],ARGV[4],'NX');return 1`, {
+          keys:[lock,`room:${roomId}`,`room:${roomId}:question`],
+          arguments:[token,runtime.generation!,runtime.roundId,JSON.stringify(record.question)],
+        });
+        if (!restored) return;
       }
       if ((await getTotalRoomPlayers(roomId)) === 0) {
         if (
@@ -161,7 +179,7 @@ async function stepRoom(roomId: string, io: Namespace) {
         });
         const { cleanUpGameRoom } = await import("./index");
         await cleanUpGameRoom(roomId);
-        await redis.zRem(dueKey, roomId);
+        await unscheduleEmptyRoom(roomId);
         return;
       }
       const now = await gameClock(),
@@ -171,7 +189,7 @@ async function stepRoom(roomId: string, io: Namespace) {
         );
       if (!owned) return;
       const valid = await redis.eval(
-        "if redis.call('GET',KEYS[1])~=ARGV[1] or redis.call('HGET',KEYS[2],'generation')~=ARGV[2] then return 0 end;redis.call('HSET',KEYS[2],'timer',ARGV[3],'status',ARGV[4],'deadline',ARGV[5]);return 1",
+        "if redis.call('GET',KEYS[1])~=ARGV[1] or redis.call('HGET',KEYS[2],'generation')~=ARGV[2] or redis.call('HGET',KEYS[2],'status')~=ARGV[4] or (redis.call('HGET',KEYS[2],'revision') or '0')~=ARGV[6] or (redis.call('HGET',KEYS[2],'roundId') or '')~=ARGV[7] then return 0 end;redis.call('HSET',KEYS[2],'timer',ARGV[3],'deadline',ARGV[5]);return 1",
         {
           keys: [lock, `room:${roomId}`],
           arguments: [
@@ -180,6 +198,8 @@ async function stepRoom(roomId: string, io: Namespace) {
             String(countdown),
             runtime.phase,
             String(runtime.deadline.getTime()),
+            String(runtime.revision),
+            runtime.roundId??'',
           ],
         },
       );
@@ -217,16 +237,14 @@ async function stepRoom(roomId: string, io: Namespace) {
     });
   } finally {
     clearInterval(timer);
-    // Release only our lease; an expired worker cannot erase a successor's lease.
-    await redis.eval(
-      "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end;return 0",
-      { keys: [lock], arguments: [token] },
-    );
-    if ((await redis.zScore(dueKey, roomId)) !== null)
-      await redis.zAdd(dueKey, {
-        value: roomId,
-        score: stepStartedAt + 1000,
-      });
+    // Release and reschedule atomically. An expired step cannot delay a successor,
+    // and an entry removed by empty-room cleanup must not be resurrected.
+    await redis.eval(`if redis.call('GET',KEYS[1])~=ARGV[1] then return 0 end
+      local due=redis.call('ZSCORE',KEYS[2],ARGV[2])
+      if due and tonumber(due)>tonumber(ARGV[3]) then redis.call('ZADD',KEYS[2],ARGV[3],ARGV[2]) end
+      return redis.call('DEL',KEYS[1])`, {
+      keys:[lock,dueKey],arguments:[token,roomId,String(stepStartedAt+1000)],
+    });
   }
 }
 export async function tickGameRuntimes(io: Namespace) {

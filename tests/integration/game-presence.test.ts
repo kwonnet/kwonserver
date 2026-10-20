@@ -107,3 +107,19 @@ it('uses the configured room capacity when allocating partitions',async()=>{
  expect(new Set(rooms.map(r=>r.roomId)).size).toBe(3);
  for(const room of rooms)expect(await redis.sCard(`room:${room.roomId}:players`)).toBeLessThanOrEqual(3);
 });
+
+it('heartbeats repair a missing room schedule without changing an active deadline',async()=>{
+ const first=await join();
+ await redis.hSet(`room:${first.roomId}`,{status:'PLAY',deadline:String(Date.now()+15000)});
+ const deadline=await redis.hGet(`room:${first.roomId}`,'deadline');
+ await redis.zRem('game:runtime:due',first.roomId);
+ expect(await refreshGamePresence('presence-user','stale-socket',first.roomId)).toBe(false);
+ expect(await redis.zScore('game:runtime:due',first.roomId)).toBeNull();
+ expect(await refreshGamePresence('presence-user','socket-1',first.roomId)).toBe(true);
+ expect(await redis.zScore('game:runtime:due',first.roomId)).not.toBeNull();
+ const due=Date.now()+12000;
+ await redis.zAdd('game:runtime:due',{value:first.roomId,score:due});
+ await refreshGamePresence('presence-user','socket-1',first.roomId);
+ expect(await redis.zScore('game:runtime:due',first.roomId)).toBe(due);
+ expect(await redis.hGet(`room:${first.roomId}`,'deadline')).toBe(deadline);
+});
