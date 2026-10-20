@@ -1,7 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { response, resetMocks } from './fixtures';
 const services = vi.hoisted(() => ({ rates:vi.fn(), wallet: vi.fn(), transfer: vi.fn(), fund: vi.fn(), history: vi.fn(), bonus: vi.fn(), task: vi.fn(),
-  coins: vi.fn(), walletCoins: vi.fn(), tokenCoins: vi.fn(), plans: vi.fn(), walletSub: vi.fn(), externalSub: vi.fn(), cancel: vi.fn() }));
+  coins: vi.fn(), walletCoins: vi.fn(), tokenCoins: vi.fn(), plans: vi.fn(), walletSub: vi.fn(), externalSub: vi.fn(), cancel: vi.fn(), benefits: vi.fn() }));
+vi.mock('@/services/v1/subscriptions/benefits', () => ({ getAccountBenefits: services.benefits }));
 vi.mock('@/services/v1/wallets', () => ({ getTransactionRates:services.rates, getUserCoinsWallet: services.wallet, transferCoins: services.transfer, fundCoins: services.fund,
   getTxnHistory: services.history, updateWalletBonus: services.bonus, rewardDailyTask: services.task }));
 vi.mock('@/services/v1/coins', () => ({ getCoinPackages: services.coins, purchaseCoinsWithWallet: services.walletCoins, purchaseCoinsWithToken: services.tokenCoins }));
@@ -85,6 +86,23 @@ it('passes ownership to subscription cancellation', async () => {
 });
 it('rejects invalid cancellation payloads', async () => {
   const res = response(); await s.cancelSubscriptionController(req(), res); expect(res.statusCode).toBe(400); expect(services.cancel).not.toHaveBeenCalled();
+});
+it('returns private account benefits for the authenticated owner, ignoring supplied user IDs', async () => {
+  const policy = { level: 1, version: 2, postTipsShareBps: 4000, gamePointBoostBps: 500 };
+  services.benefits.mockResolvedValue(policy);
+  const res = response();
+  await s.accountBenefitsController(req({ userId: 'victim' }, { userId: 'victim' }), res);
+  expect(services.benefits).toHaveBeenCalledExactlyOnceWith('owner');
+  expect(res.body).toEqual(policy);
+  expect(res.headers['Cache-Control']).toBe('private, no-store');
+});
+it('keeps benefits failures private and returns an uncached unavailable response', async () => {
+  services.benefits.mockRejectedValue(new Error('private database details'));
+  const res = response();
+  await s.accountBenefitsController(req(), res);
+  expect(res.statusCode).toBe(503);
+  expect(res.body).toBe('Account benefits unavailable');
+  expect(res.headers['Cache-Control']).toBe('private, no-store');
 });
 it.each([
   { controller: w.getUserCoinsWalletController, fn: 'wallet', body: {} },
