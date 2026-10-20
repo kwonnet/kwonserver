@@ -14859,17 +14859,7 @@ const subPlans: {
             id: generateUniqueRef(),
             title: "Game points boost",
             label: "5%",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Earn standard rewards",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Contains non-intrusive ads",
-            label: "",
-          },
+          }
         ],
       },
     },
@@ -14919,17 +14909,7 @@ const subPlans: {
             id: generateUniqueRef(),
             title: "Game points boost",
             label: "10%",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Earn standard rewards",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Contains partial & non-intrusive ads",
-            label: "",
-          },
+          }
         ],
       },
     },
@@ -14979,17 +14959,7 @@ const subPlans: {
             id: generateUniqueRef(),
             title: "Game points boost",
             label: "15%",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Earn standard rewards",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Contains non-intrusive ads",
-            label: "",
-          },
+          }
         ],
       },
     },
