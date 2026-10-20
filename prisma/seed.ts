@@ -14828,7 +14828,37 @@ const subPlans: {
           {
             id: generateUniqueRef(),
             title: "Post exposure",
-            label: "Small",
+            label: "Standard",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Receive post tips",
+            label: "High",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Receive account gifts",
+            label: "High",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Receive chat gifts",
+            label: "High",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Post quiz fees",
+            label: "Low",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Characters per post",
+            label: "Extended",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Game points boost",
+            label: "5%",
           },
           {
             id: generateUniqueRef(),
@@ -14838,11 +14868,6 @@ const subPlans: {
           {
             id: generateUniqueRef(),
             title: "Contains non-intrusive ads",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "5% game points boost in game rooms",
             label: "",
           },
         ],
@@ -14863,7 +14888,37 @@ const subPlans: {
           {
             id: generateUniqueRef(),
             title: "Post exposure",
-            label: "Large",
+            label: "Enhanced",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Receive post tips",
+            label: "Higher",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Receive account gifts",
+            label: "Higher",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Receive chat gifts",
+            label: "Higher",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Post quiz fees",
+            label: "Lower",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Characters per post",
+            label: "Extended",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Game points boost",
+            label: "10%",
           },
           {
             id: generateUniqueRef(),
@@ -14873,11 +14928,6 @@ const subPlans: {
           {
             id: generateUniqueRef(),
             title: "Contains partial & non-intrusive ads",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "10% game points boost in game rooms",
             label: "",
           },
         ],
@@ -14898,7 +14948,37 @@ const subPlans: {
           {
             id: generateUniqueRef(),
             title: "Post exposure",
-            label: "Largest",
+            label: "Maximum",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Receive post tips",
+            label: "Highest",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Receive account gifts",
+            label: "Highest",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Receive chat gifts",
+            label: "Highest",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Post quiz fees",
+            label: "Lowest",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Characters per post",
+            label: "Extended",
+          },
+          {
+            id: generateUniqueRef(),
+            title: "Game points boost",
+            label: "15%",
           },
           {
             id: generateUniqueRef(),
@@ -14910,205 +14990,201 @@ const subPlans: {
             title: "Contains non-intrusive ads",
             label: "",
           },
-          {
-            id: generateUniqueRef(),
-            title: "15% game points boost in game rooms",
-            label: "",
-          },
         ],
       },
     },
-    {
-      plan: {
-        name: "Standard",
-        price: 89.99,
-        ngnPrice: 125_500,
-        discount: 0.1,
-        accountType: UserTypeEnum.BUSINESS,
-        tier: [],
-      },
-      feature: {
-        name: "Exclusive Experience",
-        items: [
-          {
-            id: generateUniqueRef(),
-            title: "Reply and profile boost",
-            label: "Larger",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Priority placement in search suggestions",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Priority support for reports and issues.",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Partial Ads browsing experience",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "1 - 50 Employees",
-            label: "",
-          },
-        ],
-      },
-    },
-
-    {
-      plan: {
-        name: "Premium",
-        price: 229.99,
-        ngnPrice: 325_500,
-        discount: 0.11,
-        accountType: UserTypeEnum.BUSINESS,
-        tier: [],
-      },
-      feature: {
-        name: "Exclusive Experience",
-        items: [
-          {
-            id: generateUniqueRef(),
-            title: "Reply and profile boost",
-            label: "Larger",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Priority placement in search suggestions",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Priority support for reports and issues.",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Partial Ads browsing experience",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "More than 50 Employees",
-            label: "",
-          },
-        ],
-      },
-    },
-    {
-      plan: {
-        name: "Supreme",
-        price: 329.99,
-        ngnPrice: 455_500,
-        discount: 0.12,
-        accountType: UserTypeEnum.BUSINESS,
-        tier: [],
-      },
-      feature: {
-        name: "Exclusive Experience",
-        items: [
-          {
-            id: generateUniqueRef(),
-            title: "Reply and profile boost",
-            label: "Largest",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Priority placement in search suggestions",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Priority support for reports and issues.",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Ads-free browsing experience",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "More than 100 Employees",
-            label: "",
-          },
-        ],
-      },
-    },
-    {
-      plan: {
-        name: "Standard",
-        price: 30.99,
-        ngnPrice: 42_500,
-        discount: 0.11,
-        accountType: UserTypeEnum.GOVERNMENT,
-        tier: [],
-      },
-      feature: {
-        name: "Exclusive Experience",
-        items: [
-          {
-            id: generateUniqueRef(),
-            title: "Reply and profile boost",
-            label: "Larger",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Priority placement in search suggestions",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Priority support for reports and issues.",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Partial Ads browsing experience",
-            label: "",
-          },
-        ],
-      },
-    },
-    {
-      plan: {
-        name: "Pro",
-        price: 67.99,
-        ngnPrice: 95_500,
-        discount: 0.12,
-        accountType: UserTypeEnum.GOVERNMENT,
-        tier: [],
-      },
-      feature: {
-        name: "Exclusive Experience",
-        items: [
-          {
-            id: generateUniqueRef(),
-            title: "Reply and profile boost",
-            label: "Largest",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Priority placement in search suggestions",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Priority support for reports and issues.",
-            label: "",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Ads-free browsing experience",
-            label: "",
-          },
-        ],
-      },
-    },
+    // Business and Government plans are paused for now.
+//     {
+//       plan: {
+//         name: "Standard",
+//         price: 89.99,
+//         ngnPrice: 125_500,
+//         discount: 0.1,
+//         accountType: UserTypeEnum.BUSINESS,
+//         tier: [],
+//       },
+//       feature: {
+//         name: "Exclusive Experience",
+//         items: [
+//           {
+//             id: generateUniqueRef(),
+//             title: "Reply and profile boost",
+//             label: "Larger",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Priority placement in search suggestions",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Priority support for reports and issues.",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Partial Ads browsing experience",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "1 - 50 Employees",
+//             label: "",
+//           },
+//         ],
+//       },
+//     },
+//
+//     {
+//       plan: {
+//         name: "Premium",
+//         price: 229.99,
+//         ngnPrice: 325_500,
+//         discount: 0.11,
+//         accountType: UserTypeEnum.BUSINESS,
+//         tier: [],
+//       },
+//       feature: {
+//         name: "Exclusive Experience",
+//         items: [
+//           {
+//             id: generateUniqueRef(),
+//             title: "Reply and profile boost",
+//             label: "Larger",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Priority placement in search suggestions",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Priority support for reports and issues.",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Partial Ads browsing experience",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "More than 50 Employees",
+//             label: "",
+//           },
+//         ],
+//       },
+//     },
+//     {
+//       plan: {
+//         name: "Supreme",
+//         price: 329.99,
+//         ngnPrice: 455_500,
+//         discount: 0.12,
+//         accountType: UserTypeEnum.BUSINESS,
+//         tier: [],
+//       },
+//       feature: {
+//         name: "Exclusive Experience",
+//         items: [
+//           {
+//             id: generateUniqueRef(),
+//             title: "Reply and profile boost",
+//             label: "Largest",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Priority placement in search suggestions",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Priority support for reports and issues.",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Ads-free browsing experience",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "More than 100 Employees",
+//             label: "",
+//           },
+//         ],
+//       },
+//     },
+//     {
+//       plan: {
+//         name: "Standard",
+//         price: 30.99,
+//         ngnPrice: 42_500,
+//         discount: 0.11,
+//         accountType: UserTypeEnum.GOVERNMENT,
+//         tier: [],
+//       },
+//       feature: {
+//         name: "Exclusive Experience",
+//         items: [
+//           {
+//             id: generateUniqueRef(),
+//             title: "Reply and profile boost",
+//             label: "Larger",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Priority placement in search suggestions",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Priority support for reports and issues.",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Partial Ads browsing experience",
+//             label: "",
+//           },
+//         ],
+//       },
+//     },
+//     {
+//       plan: {
+//         name: "Pro",
+//         price: 67.99,
+//         ngnPrice: 95_500,
+//         discount: 0.12,
+//         accountType: UserTypeEnum.GOVERNMENT,
+//         tier: [],
+//       },
+//       feature: {
+//         name: "Exclusive Experience",
+//         items: [
+//           {
+//             id: generateUniqueRef(),
+//             title: "Reply and profile boost",
+//             label: "Largest",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Priority placement in search suggestions",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Priority support for reports and issues.",
+//             label: "",
+//           },
+//           {
+//             id: generateUniqueRef(),
+//             title: "Ads-free browsing experience",
+//             label: "",
+//           },
+//         ],
+//       },
+//     },
   ];
 
 const continentCountries = [
