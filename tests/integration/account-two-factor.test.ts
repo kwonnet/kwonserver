@@ -18,7 +18,7 @@ import {response} from '../unit/fixtures';
 let userId:string,current:string,other:string,passwordHash:string;
 const prefix='integration-2fa-',password='correct-password';
 const metadata={device:{type:'unknown',browser:null,browserVersion:null,os:null,osVersion:null},location:null,ipAddress:null,ipHash:null,metadataSource:'API_REQUEST'};
-function token(secret:string,offset=0){return new TOTP({secret:Secret.fromBase32(secret),algorithm:'SHA1',digits:6,period:30}).generate({timestamp:Date.now()+offset*30000});}
+function token(secret:string,offset=0,timestamp=Date.now()){return new TOTP({secret:Secret.fromBase32(secret),algorithm:'SHA1',digits:6,period:30}).generate({timestamp:timestamp+offset*30000});}
 async function enroll(){const setup=await beginTwoFactorSetup(userId,current,password);const result=await confirmTwoFactorSetup(userId,current,setup.setupId,token(setup.secret));return {...setup,...result};}
 async function challenge(provider:'PASSWORD'|'GOOGLE'='PASSWORD',kind='SIGN_IN',source?:string){return (await beginTwoFactorLogin(userId,provider,kind,source))!;}
 async function finish(challengeToken:string,code:string,provider:'PASSWORD'|'GOOGLE'='PASSWORD',kind='SIGN_IN'){return await startAuthSession(userId,provider,metadata,kind,randomUUID(),{challengeToken,code});}
@@ -65,9 +65,16 @@ it('returns a password-login challenge without access tokens, cookies or new ses
 it('enforces Google challenges, rejects authenticator replay across challenges and stores no raw challenge tokens',async()=>{
  const setup=await enroll(),first=await challenge('GOOGLE'),second=await challenge('GOOGLE');
  expect((await prisma.authTwoFactorChallenge.findUniqueOrThrow({where:{tokenHash:hashEmailToken(first.challengeToken)}})).tokenHash).not.toBe(first.challengeToken);
- await finish(first.challengeToken,token(setup.secret,1),'GOOGLE');
- await expect(finish(second.challengeToken,token(setup.secret,1),'GOOGLE')).rejects.toThrow('already used');
- await expect(finish(first.challengeToken,setup.recoveryCodes[0],'GOOGLE')).rejects.toThrow('already used');
+ // Reuse one exact token: generating it again after a 30-second boundary can
+ // legitimately produce a fresh code and turn this replay check into a flake.
+ const timestamp=Date.now(),code=token(setup.secret,1,timestamp);
+ await finish(first.challengeToken,code,'GOOGLE');
+ // Exercise the boundary deliberately, without faking timers used by Redis/SQL.
+ const clock=vi.spyOn(Date,'now').mockReturnValue((Math.floor(timestamp/30000)+1)*30000+1000);
+ try {
+  await expect(finish(second.challengeToken,code,'GOOGLE')).rejects.toThrow('already used');
+  await expect(finish(first.challengeToken,setup.recoveryCodes[0],'GOOGLE')).rejects.toThrow('already used');
+ } finally {clock.mockRestore();}
 });
 it('consumes a recovery code once under concurrent sign-ins and consumes each challenge once',async()=>{
  const setup=await enroll(),a=await challenge(),b=await challenge();
