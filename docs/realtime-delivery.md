@@ -73,6 +73,48 @@ notification worker. SSE/NOTIFY hints are ephemeral; stored notifications, walle
 records and encrypted message cursors are the durable source of truth. Manual
 retry actions and SWR focus/network recovery remain available.
 
+## Direct browser SSE transport
+
+The browser connects directly to the existing backend endpoints:
+
+- `GET ${NEXT_PUBLIC_API_URL}/api/v1/stream`
+- `GET ${NEXT_PUBLIC_API_URL}/api/v1/posts/feed/:feed/available/stream`
+
+`kwonweb2/src/lib/realtime.ts` reads the SSE response with browser fetch and
+supplies the current access token in the `Authorization: Bearer ...` header.
+It does not place tokens in URLs, issue stream tickets, store extra credentials,
+or send frontend cookies to the backend. Existing backend authentication,
+permission checks and stream revocation checks still apply. Redirects are rejected.
+The browser's existing session data already contains the API access token.
+
+The transport parses named/multiline events across UTF-8 and CR/LF chunk
+boundaries, ignores heartbeats, bounds event sizes, retries transient outages
+with backoff/jitter, and aborts on cleanup. A 60-second silence watchdog recovers
+stalled connections; server heartbeats normally arrive every 15 seconds. Reconnect
+snapshots and encrypted sync cursors recover durable state; there is no event-ID
+replay guarantee. A 401 stops that stream and requests a coordinated auth refresh;
+a changed token opens a new stream. A 403 stops without repeatedly retrying.
+
+The old Next.js `/api/events` relay returns HTTP 410 with a reload instruction.
+No updated client uses it, and it no longer opens an upstream stream. Existing
+open browser pages should be reloaded after deployment. Connection timeouts for
+these new streams are controlled by the backend ingress, not the frontend Cloud
+Run service. The backend now owns the full connection capacity and bandwidth.
+
+Set `NEXT_PUBLIC_API_URL` to the **browser-accessible HTTPS backend origin**, not
+the frontend host or a frontend rewrite. The backend's `REMOTE_APP_URL` origin
+allowlist must include every served frontend origin, including production and
+beta where applicable. Existing CORS middleware allows Authorization preflights;
+their successful responses are cached for 600 seconds. Do not change this to a
+wildcard cookie policy. Make sure backend ingress supports unbuffered SSE and
+passes heartbeat chunks through promptly.
+
+To verify in browser DevTools, filter Network requests for `stream`: the request
+URL must point to the backend host, the response type must be text/event-stream,
+and the request must contain an Authorization header. There should be no
+long-lived frontend `/api/events` request. Test notifications, a hidden/visible
+feed, disconnect/reconnect, and session revocation on both frontend origins.
+
 ## Deployment
 
 1. Apply the migration before starting the updated API and worker processes.

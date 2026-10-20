@@ -23,6 +23,7 @@ app.use(
   cors({
     origin: allowedOrigins,
     credentials: true,
+    maxAge: 600, // Cache bearer-authenticated browser stream preflights.
   })
 );
 // Middleware
