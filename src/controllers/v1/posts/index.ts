@@ -1113,7 +1113,7 @@ export const availableNewsfeedController = async (req: Request, res: Response) =
   try {const result = await getAvailableNewsfeedPosts(req.user as AuthUser, feed, ids);return res.status(result.status).json(result.data);}
   catch {return res.status(503).json({error: 'New posts unavailable'});}
 };
-export const availableNewsfeedStreamController = (req: Request, res: Response) => {
+export const availableNewsfeedStreamController = async (req: Request, res: Response) => {
   const feed = req.params.feedType;
   let since = typeof req.query.since === 'string' ? new Date(req.query.since) : new Date();
   const now = Date.now();
@@ -1127,23 +1127,37 @@ export const availableNewsfeedStreamController = (req: Request, res: Response) =
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
   res.write('retry: 5000\n\n');
-  let busy = false;
+  let busy = false,dirty=false;
   let closed = false;
   const tick = async () => {
-    if (busy || closed || res.writableNeedDrain) return;
+    if(closed)return;
+    if(res.writableNeedDrain){res.end();return;}
+    if(busy){dirty=true;return;}
     busy = true;
     try {
+      do {
+      dirty=false;
       const snapshot = await getAvailableNewsfeedSnapshot(req.user!.id, feed, since, known);
       if (!closed && !('degraded' in snapshot && snapshot.degraded)) res.write(`event: feed_available\ndata: ${JSON.stringify({feed, ...snapshot})}\n\n`);
+      }while(dirty&&!closed);
     } catch {if (!closed) res.write(': feed temporarily unavailable\n\n');}
     finally {busy = false;}
   };
-  const timer = setInterval(() => void tick(), 60000);
+  const {subscribeUserRealtime}=await import('@/services/v1/notifications/live');
+  let tickTimer:ReturnType<typeof setTimeout>|undefined;
+  let unsubscribe:(()=>Promise<void>)|undefined;
+  res.on('close',async()=>{closed=true;clearTimeout(tickTimer);if(unsubscribe)await unsubscribe();});
+  try {
+    unsubscribe=await subscribeUserRealtime(req.user!.id,hint=>{
+      if(hint.kind==='feed'&&!closed&&!tickTimer)tickTimer=setTimeout(async()=>{tickTimer=undefined;await tick();},500);
+    },()=>res.end());
+    if(closed){await unsubscribe();return;}
+  }catch{res.end();return;}
   const heartbeat = setInterval(() => {if (!closed && !res.writableNeedDrain) res.write(': heartbeat\n\n');}, 15000);
   // Renew auth on reconnect; keep stream windows bounded.
   const lifetime = setTimeout(() => res.end(), 55 * 60000);
-  res.on('close', () => {closed = true;clearInterval(timer);clearInterval(heartbeat);clearTimeout(lifetime);});
-  if (feed !== 'foryou') void tick();
+  res.on('close', () => {closed = true;clearTimeout(tickTimer);clearInterval(heartbeat);clearTimeout(lifetime);});
+  await tick();
 };
 
 export const publicPostSitemapCountController = async (_req: Request, res: Response) => {

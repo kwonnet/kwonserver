@@ -29,31 +29,53 @@ export async function authorNotificationSubscriptionController(req: Request, res
   }
 }
 
-/** Uses the durable inbox so worker/API replicas need no process-local broadcast. */
-export function notificationStreamController(req: Request, res: Response) {
-  sseEmitter.init(req, res);
-  res.setHeader('Cache-Control', 'private, no-store');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.write('retry: 5000\n\n');
-  const userId = req.user!.id;
-  let closed = false, pending = false, previous = '';
-  const refresh = async () => {
-    if (closed || pending || res.writableNeedDrain) return;
-    pending = true;
+/** Commit-driven hints plus an authoritative snapshot on each connection. */
+export async function notificationStreamController(req: Request, res: Response) {
+  const {subscribeUserRealtime}=await import('@/services/v1/notifications/live');
+  const userId=req.user!.id;
+  let closed=false,pending=false,dirty=false,initialized=false,forceSnapshot=false,previous='';
+  const buffered:import('@/services/v1/notifications/live').RealtimeHint[]=[];
+  let unsubscribe:(()=>Promise<void>)|undefined;
+  let heartbeat:ReturnType<typeof setInterval>|undefined;
+  let refreshTimer:ReturnType<typeof setTimeout>|undefined;
+  res.once('close',async()=>{closed=true;clearInterval(heartbeat);clearTimeout(refreshTimer);if(unsubscribe)await unsubscribe();});
+  const refresh=async()=>{
+    if(closed)return;
+    if(pending){dirty=true;return;}
+    pending=true;
     try {
-      const snapshot = await getNotificationStreamSnapshot(userId);
-      const serialized = JSON.stringify(snapshot);
-      if (!closed && previous !== serialized) {
-        res.write(`event: notifications_updated\ndata: ${serialized}\n\n`);
-        previous = serialized;
-      }
-    } catch (err) {
-      logger.error({event: 'notification_stream_refresh_failed', userId, err}, 'Notification SSE refresh failed; next tick will retry');
-    } finally {pending = false;}
+      do {
+        dirty=false;
+        const force=forceSnapshot;forceSnapshot=false;
+        const snapshot=await getNotificationStreamSnapshot(userId);
+        const serialized=JSON.stringify(snapshot);
+        if(!closed&&(force||previous!==serialized)){res.write(`event: notifications_updated\ndata: ${serialized}\n\n`);previous=serialized;}
+      }while(dirty&&!closed);
+    }catch(error){logger.warn({event:'notification_stream_snapshot_failed',error},'Reconnect to recover notification state');res.end();}
+    finally{pending=false;}
   };
-  const timer = setInterval(() => {void refresh();}, 5000);
-  const heartbeat = setInterval(() => {if (!closed && !res.writableNeedDrain) res.write(': heartbeat\n\n');}, 15000);
-  timer.unref(); heartbeat.unref();
-  res.once('close', () => {closed = true; clearInterval(timer); clearInterval(heartbeat);});
-  void refresh();
+  const receive=(hint:import('@/services/v1/notifications/live').RealtimeHint)=>{
+      if(closed||hint.kind==='feed')return;
+      if(!initialized){buffered.push(hint);return;}
+      if(res.writableNeedDrain){res.end();return;}
+      if(hint.kind==='notifications') {
+        forceSnapshot=true;
+        if(!refreshTimer)refreshTimer=setTimeout(async()=>{refreshTimer=undefined;await refresh();},100);
+      }
+      res.write(`event: account_updated\ndata: ${JSON.stringify(hint)}\n\n`);
+    };
+  try {
+    unsubscribe=await subscribeUserRealtime(userId,receive,()=>res.end());
+    if(closed){await unsubscribe();return;}
+    sseEmitter.init(req,res);
+    res.setHeader('Cache-Control','private, no-store');
+    res.setHeader('X-Accel-Buffering','no');
+    res.write('retry: 5000\n\n');
+    initialized=true;
+    for(const hint of buffered)receive(hint);
+    buffered.length=0;
+    heartbeat=setInterval(()=>{if(!closed&&!res.writableNeedDrain)res.write(': heartbeat\n\n');},15000);
+    heartbeat.unref();
+    await refresh();
+  }catch(error){logger.warn({event:'notification_stream_unavailable',error},'Realtime connection unavailable');if(!res.headersSent)res.status(503);res.end();}
 }

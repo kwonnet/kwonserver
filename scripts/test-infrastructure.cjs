@@ -4,6 +4,7 @@ const root = path.resolve(__dirname, '..');
 const env = { ...process.env, NODE_ENV: 'test', DATABASE_URL: 'postgresql://test:test@127.0.0.1:15432/kwonserver_test', REDIS_URL: 'redis://127.0.0.1:16379' };
 // Never allow a developer's production release URL to escape the disposable DB.
 env.DATABASE_MIGRATION_URL = env.DATABASE_URL;
+env.DATABASE_REALTIME_URL = env.DATABASE_URL;
 env.TIMESCALEDB_MODE = 'auto';
 const compose = ['compose', '-f', 'tests/docker-compose.yml'];
 function run(command, args) {
