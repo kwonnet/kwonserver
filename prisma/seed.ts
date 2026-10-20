@@ -1,5 +1,5 @@
-import {LEVEL_BENEFITS} from "./account-level-benefits";
-import {PrismaPg} from "@prisma/adapter-pg";
+import { LEVEL_BENEFITS } from "./account-level-benefits";
+import { PrismaPg } from "@prisma/adapter-pg";
 import {
   GameMode,
   MilestoneNameEnum,
@@ -14,9 +14,21 @@ import {
 import { faker } from "@faker-js/faker";
 import { v4 as uuidv4 } from "uuid";
 
-const seedDatabaseUrl = process.env.DATABASE_MIGRATION_URL || process.env.DATABASE_URL;
-const seedSchema = seedDatabaseUrl ? new URL(seedDatabaseUrl).searchParams.get("schema") || "public" : "public";
-const prisma = new PrismaClient({adapter: new PrismaPg({connectionString: seedDatabaseUrl, max: 10, connectionTimeoutMillis: 5000}, {schema: seedSchema})});
+const seedDatabaseUrl =
+  process.env.DATABASE_MIGRATION_URL || process.env.DATABASE_URL;
+const seedSchema = seedDatabaseUrl
+  ? new URL(seedDatabaseUrl).searchParams.get("schema") || "public"
+  : "public";
+const prisma = new PrismaClient({
+  adapter: new PrismaPg(
+    {
+      connectionString: seedDatabaseUrl,
+      max: 10,
+      connectionTimeoutMillis: 5000,
+    },
+    { schema: seedSchema },
+  ),
+});
 
 export function generateUniqueRef(size: number = 16): string {
   const uuid = uuidv4().replace(/-/g, ""); // Remove dashes
@@ -509,9 +521,6 @@ const dummyPosts = [
   "If Davido and Nicki Minaj made a song with Eminem's energy, it would break records. #Davido #NickiMinaj #Eminem",
 ];
 
-
-
-
 const coinPackages = [
   {
     name: "Starter Pack",
@@ -658,307 +667,306 @@ const coinPackages = [
 // Stable randomized prices: small gifts, celebrations, luxury gifts and premium landmarks.
 export const tipPackages = [
   {
-    "id": "party-prism",
-    "name": "Party Prism",
-    "price": 150,
-    "thumbnail": "/static/tips/party-prism.webp"
+    id: "party-prism",
+    name: "Party Prism",
+    price: 150,
+    thumbnail: "/static/tips/party-prism.webp",
   },
   {
-    "id": "golden-fizz",
-    "name": "Golden Fizz",
-    "price": 300,
-    "thumbnail": "/static/tips/golden-fizz.webp"
+    id: "golden-fizz",
+    name: "Golden Fizz",
+    price: 300,
+    thumbnail: "/static/tips/golden-fizz.webp",
   },
   {
-    "id": "petal-elixir",
-    "name": "Petal Elixir",
-    "price": 475,
-    "thumbnail": "/static/tips/petal-elixir.webp"
+    id: "petal-elixir",
+    name: "Petal Elixir",
+    price: 475,
+    thumbnail: "/static/tips/petal-elixir.webp",
   },
   {
-    "id": "coral-smooch",
-    "name": "Coral Smooch",
-    "price": 10,
-    "thumbnail": "/static/tips/coral-smooch.webp"
+    id: "coral-smooch",
+    name: "Coral Smooch",
+    price: 10,
+    thumbnail: "/static/tips/coral-smooch.webp",
   },
   {
-    "id": "cupid-comet",
-    "name": "Cupid Comet",
-    "price": 525,
-    "thumbnail": "/static/tips/cupid-comet.webp"
+    id: "cupid-comet",
+    name: "Cupid Comet",
+    price: 525,
+    thumbnail: "/static/tips/cupid-comet.webp",
   },
   {
-    "id": "secret-ember",
-    "name": "Secret Ember",
-    "price": 200,
-    "thumbnail": "/static/tips/secret-ember.webp"
+    id: "secret-ember",
+    name: "Secret Ember",
+    price: 200,
+    thumbnail: "/static/tips/secret-ember.webp",
   },
   {
-    "id": "heart-snapshot",
-    "name": "Heart Snapshot",
-    "price": 475,
-    "thumbnail": "/static/tips/heart-snapshot.webp"
+    id: "heart-snapshot",
+    name: "Heart Snapshot",
+    price: 475,
+    thumbnail: "/static/tips/heart-snapshot.webp",
   },
   {
-    "id": "moonpetal-pearls",
-    "name": "Moonpetal Pearls",
-    "price": 3350,
-    "thumbnail": "/static/tips/moonpetal-pearls.webp"
+    id: "moonpetal-pearls",
+    name: "Moonpetal Pearls",
+    price: 3350,
+    thumbnail: "/static/tips/moonpetal-pearls.webp",
   },
   {
-    "id": "blush-cruiser",
-    "name": "Blush Cruiser",
-    "price": 3400,
-    "thumbnail": "/static/tips/blush-cruiser.webp"
+    id: "blush-cruiser",
+    name: "Blush Cruiser",
+    price: 3400,
+    thumbnail: "/static/tips/blush-cruiser.webp",
   },
   {
-    "id": "solar-parade",
-    "name": "Solar Parade",
-    "price": 12000,
-    "thumbnail": "/static/tips/solar-parade.webp"
+    id: "solar-parade",
+    name: "Solar Parade",
+    price: 12000,
+    thumbnail: "/static/tips/solar-parade.webp",
   },
   {
-    "id": "reef-reverie",
-    "name": "Reef Reverie",
-    "price": 625,
-    "thumbnail": "/static/tips/reef-reverie.webp"
+    id: "reef-reverie",
+    name: "Reef Reverie",
+    price: 625,
+    thumbnail: "/static/tips/reef-reverie.webp",
   },
   {
-    "id": "peel-pop",
-    "name": "Peel Pop",
-    "price": 35,
-    "thumbnail": "/static/tips/peel-pop.webp"
+    id: "peel-pop",
+    name: "Peel Pop",
+    price: 35,
+    thumbnail: "/static/tips/peel-pop.webp",
   },
   {
-    "id": "bloom-breeze",
-    "name": "Bloom Breeze",
-    "price": 125,
-    "thumbnail": "/static/tips/bloom-breeze.webp"
+    id: "bloom-breeze",
+    name: "Bloom Breeze",
+    price: 125,
+    thumbnail: "/static/tips/bloom-breeze.webp",
   },
   {
-    "id": "velvet-bloom",
-    "name": "Velvet Bloom",
-    "price": 35,
-    "thumbnail": "/static/tips/velvet-bloom.webp"
+    id: "velvet-bloom",
+    name: "Velvet Bloom",
+    price: 35,
+    thumbnail: "/static/tips/velvet-bloom.webp",
   },
   {
-    "id": "starlace",
-    "name": "Starlace",
-    "price": 1950,
-    "thumbnail": "/static/tips/starlace.webp"
+    id: "starlace",
+    name: "Starlace",
+    price: 1950,
+    thumbnail: "/static/tips/starlace.webp",
   },
   {
-    "id": "indigo-devotion",
-    "name": "Indigo Devotion",
-    "price": 2600,
-    "thumbnail": "/static/tips/indigo-devotion.webp"
+    id: "indigo-devotion",
+    name: "Indigo Devotion",
+    price: 2600,
+    thumbnail: "/static/tips/indigo-devotion.webp",
   },
   {
-    "id": "spark-fiesta",
-    "name": "Spark Fiesta",
-    "price": 325,
-    "thumbnail": "/static/tips/spark-fiesta.webp"
+    id: "spark-fiesta",
+    name: "Spark Fiesta",
+    price: 325,
+    thumbnail: "/static/tips/spark-fiesta.webp",
   },
   {
-    "id": "cuddle-duo",
-    "name": "Cuddle Duo",
-    "price": 25,
-    "thumbnail": "/static/tips/cuddle-duo.webp"
+    id: "cuddle-duo",
+    name: "Cuddle Duo",
+    price: 25,
+    thumbnail: "/static/tips/cuddle-duo.webp",
   },
   {
-    "id": "amber-citadel",
-    "name": "Amber Citadel",
-    "price": 11750,
-    "thumbnail": "/static/tips/amber-citadel.webp"
+    id: "amber-citadel",
+    name: "Amber Citadel",
+    price: 11750,
+    thumbnail: "/static/tips/amber-citadel.webp",
   },
   {
-    "id": "sky-bonbon",
-    "name": "Sky Bonbon",
-    "price": 600,
-    "thumbnail": "/static/tips/sky-bonbon.webp"
+    id: "sky-bonbon",
+    name: "Sky Bonbon",
+    price: 600,
+    thumbnail: "/static/tips/sky-bonbon.webp",
   },
   {
-    "id": "violet-keep",
-    "name": "Violet Keep",
-    "price": 11250,
-    "thumbnail": "/static/tips/violet-keep.webp"
+    id: "violet-keep",
+    name: "Violet Keep",
+    price: 11250,
+    thumbnail: "/static/tips/violet-keep.webp",
   },
   {
-    "id": "kindred-light",
-    "name": "Kindred Light",
-    "price": 175,
-    "thumbnail": "/static/tips/kindred-light.webp"
+    id: "kindred-light",
+    name: "Kindred Light",
+    price: 175,
+    thumbnail: "/static/tips/kindred-light.webp",
   },
   {
-    "id": "cloud-pavilion",
-    "name": "Cloud Pavilion",
-    "price": 11750,
-    "thumbnail": "/static/tips/cloud-pavilion.webp"
+    id: "cloud-pavilion",
+    name: "Cloud Pavilion",
+    price: 11750,
+    thumbnail: "/static/tips/cloud-pavilion.webp",
   },
   {
-    "id": "halo-heart",
-    "name": "Halo Heart",
-    "price": 550,
-    "thumbnail": "/static/tips/halo-heart.webp"
+    id: "halo-heart",
+    name: "Halo Heart",
+    price: 550,
+    thumbnail: "/static/tips/halo-heart.webp",
   },
   {
-    "id": "crimson-wishes",
-    "name": "Crimson Wishes",
-    "price": 200,
-    "thumbnail": "/static/tips/crimson-wishes.webp"
+    id: "crimson-wishes",
+    name: "Crimson Wishes",
+    price: 200,
+    thumbnail: "/static/tips/crimson-wishes.webp",
   },
   {
-    "id": "confetti-curl",
-    "name": "Confetti Curl",
-    "price": 10,
-    "thumbnail": "/static/tips/confetti-curl.webp"
+    id: "confetti-curl",
+    name: "Confetti Curl",
+    price: 10,
+    thumbnail: "/static/tips/confetti-curl.webp",
   },
   {
-    "id": "cocoa-charm",
-    "name": "Cocoa Charm",
-    "price": 50,
-    "thumbnail": "/static/tips/cocoa-charm.webp"
+    id: "cocoa-charm",
+    name: "Cocoa Charm",
+    price: 50,
+    thumbnail: "/static/tips/cocoa-charm.webp",
   },
   {
-    "id": "boba-bliss",
-    "name": "Boba Bliss",
-    "price": 10,
-    "thumbnail": "/static/tips/boba-bliss.webp"
+    id: "boba-bliss",
+    name: "Boba Bliss",
+    price: 10,
+    thumbnail: "/static/tips/boba-bliss.webp",
   },
   {
-    "id": "ruby-harvest",
-    "name": "Ruby Harvest",
-    "price": 35,
-    "thumbnail": "/static/tips/ruby-harvest.webp"
+    id: "ruby-harvest",
+    name: "Ruby Harvest",
+    price: 35,
+    thumbnail: "/static/tips/ruby-harvest.webp",
   },
   {
-    "id": "morning-muse",
-    "name": "Morning Muse",
-    "price": 40,
-    "thumbnail": "/static/tips/morning-muse.webp"
+    id: "morning-muse",
+    name: "Morning Muse",
+    price: 40,
+    thumbnail: "/static/tips/morning-muse.webp",
   },
   {
-    "id": "cloudstep",
-    "name": "Cloudstep",
-    "price": 5,
-    "thumbnail": "/static/tips/cloudstep.webp"
+    id: "cloudstep",
+    name: "Cloudstep",
+    price: 5,
+    thumbnail: "/static/tips/cloudstep.webp",
   },
   {
-    "id": "sunset-stroll",
-    "name": "Sunset Stroll",
-    "price": 55,
-    "thumbnail": "/static/tips/sunset-stroll.webp"
+    id: "sunset-stroll",
+    name: "Sunset Stroll",
+    price: 55,
+    thumbnail: "/static/tips/sunset-stroll.webp",
   },
   {
-    "id": "gilded-orbit",
-    "name": "Gilded Orbit",
-    "price": 2700,
-    "thumbnail": "/static/tips/gilded-orbit.webp"
+    id: "gilded-orbit",
+    name: "Gilded Orbit",
+    price: 2700,
+    thumbnail: "/static/tips/gilded-orbit.webp",
   },
   {
-    "id": "aurora-crest",
-    "name": "Aurora Crest",
-    "price": 2700,
-    "thumbnail": "/static/tips/aurora-crest.webp"
+    id: "aurora-crest",
+    name: "Aurora Crest",
+    price: 2700,
+    thumbnail: "/static/tips/aurora-crest.webp",
   },
   {
-    "id": "forever-fountain",
-    "name": "Forever Fountain",
-    "price": 6250,
-    "thumbnail": "/static/tips/forever-fountain.webp"
+    id: "forever-fountain",
+    name: "Forever Fountain",
+    price: 6250,
+    thumbnail: "/static/tips/forever-fountain.webp",
   },
   {
-    "id": "aqua-ace",
-    "name": "Aqua Ace",
-    "price": 700,
-    "thumbnail": "/static/tips/aqua-ace.webp"
+    id: "aqua-ace",
+    name: "Aqua Ace",
+    price: 700,
+    thumbnail: "/static/tips/aqua-ace.webp",
   },
   {
-    "id": "prism-pony",
-    "name": "Prism Pony",
-    "price": 1400,
-    "thumbnail": "/static/tips/prism-pony.webp"
+    id: "prism-pony",
+    name: "Prism Pony",
+    price: 1400,
+    thumbnail: "/static/tips/prism-pony.webp",
   },
   {
-    "id": "twirl-fair",
-    "name": "Twirl Fair",
-    "price": 1500,
-    "thumbnail": "/static/tips/twirl-fair.webp"
+    id: "twirl-fair",
+    name: "Twirl Fair",
+    price: 1500,
+    thumbnail: "/static/tips/twirl-fair.webp",
   },
   {
-    "id": "silk-sonata",
-    "name": "Silk Sonata",
-    "price": 1350,
-    "thumbnail": "/static/tips/silk-sonata.webp"
+    id: "silk-sonata",
+    name: "Silk Sonata",
+    price: 1350,
+    thumbnail: "/static/tips/silk-sonata.webp",
   },
   {
-    "id": "rosette-promise",
-    "name": "Rosette Promise",
-    "price": 2200,
-    "thumbnail": "/static/tips/rosette-promise.webp"
+    id: "rosette-promise",
+    name: "Rosette Promise",
+    price: 2200,
+    thumbnail: "/static/tips/rosette-promise.webp",
   },
   {
-    "id": "swirl-joy",
-    "name": "Swirl Joy",
-    "price": 20,
-    "thumbnail": "/static/tips/swirl-joy.webp"
+    id: "swirl-joy",
+    name: "Swirl Joy",
+    price: 20,
+    thumbnail: "/static/tips/swirl-joy.webp",
   },
   {
-    "id": "fin-affection",
-    "name": "Fin Affection",
-    "price": 200,
-    "thumbnail": "/static/tips/fin-affection.webp"
+    id: "fin-affection",
+    name: "Fin Affection",
+    price: 200,
+    thumbnail: "/static/tips/fin-affection.webp",
   },
   {
-    "id": "wonder-vault",
-    "name": "Wonder Vault",
-    "price": 650,
-    "thumbnail": "/static/tips/wonder-vault.webp"
+    id: "wonder-vault",
+    name: "Wonder Vault",
+    price: 650,
+    thumbnail: "/static/tips/wonder-vault.webp",
   },
   {
-    "id": "net-glory",
-    "name": "Net Glory",
-    "price": 700,
-    "thumbnail": "/static/tips/net-glory.webp"
+    id: "net-glory",
+    name: "Net Glory",
+    price: 700,
+    thumbnail: "/static/tips/net-glory.webp",
   },
   {
-    "id": "frothy-cheer",
-    "name": "Frothy Cheer",
-    "price": 700,
-    "thumbnail": "/static/tips/frothy-cheer.webp"
+    id: "frothy-cheer",
+    name: "Frothy Cheer",
+    price: 700,
+    thumbnail: "/static/tips/frothy-cheer.webp",
   },
   {
-    "id": "victory-muse",
-    "name": "Victory Muse",
-    "price": 175,
-    "thumbnail": "/static/tips/victory-muse.webp"
+    id: "victory-muse",
+    name: "Victory Muse",
+    price: 175,
+    thumbnail: "/static/tips/victory-muse.webp",
   },
   {
-    "id": "champion-haven",
-    "name": "Champion Haven",
-    "price": 10750,
-    "thumbnail": "/static/tips/champion-haven.webp"
+    id: "champion-haven",
+    name: "Champion Haven",
+    price: 10750,
+    thumbnail: "/static/tips/champion-haven.webp",
   },
   {
-    "id": "heart-overflow",
-    "name": "Heart Overflow",
-    "price": 600,
-    "thumbnail": "/static/tips/heart-overflow.webp"
+    id: "heart-overflow",
+    name: "Heart Overflow",
+    price: 600,
+    thumbnail: "/static/tips/heart-overflow.webp",
   },
   {
-    "id": "love-aloft",
-    "name": "Love Aloft",
-    "price": 575,
-    "thumbnail": "/static/tips/love-aloft.webp"
+    id: "love-aloft",
+    name: "Love Aloft",
+    price: 575,
+    thumbnail: "/static/tips/love-aloft.webp",
   },
   {
-    "id": "ever-after-arch",
-    "name": "Ever After Arch",
-    "price": 5250,
-    "thumbnail": "/static/tips/ever-after-arch.webp"
-  }
+    id: "ever-after-arch",
+    name: "Ever After Arch",
+    price: 5250,
+    thumbnail: "/static/tips/ever-after-arch.webp",
+  },
 ];
-
 
 const gameMilestones = [
   // room winning streak
@@ -1125,8 +1133,12 @@ type Game = {
 };
 
 /** Room labels identify spaces to play; they never narrow the category content. */
-export function genericGameRooms(categoryName: string, count: number, activity = false) {
-  return Array.from({length: count}, (_, index) => ({
+export function genericGameRooms(
+  categoryName: string,
+  count: number,
+  activity = false,
+) {
+  return Array.from({ length: count }, (_, index) => ({
     name: `Room ${index + 1}`,
     description: activity
       ? `Play in this room. All rooms use the same category content and rules.`
@@ -14813,349 +14825,349 @@ const subPlans: {
     }[];
   };
 }[] = [
-    {
-      plan: {
-        name: "Starter",
-        price: 3.99,
-        ngnPrice: 5_500,
-        discount: 0.1,
-        accountType: UserTypeEnum.PERSONAL,
-        tier: [],
-      },
-      feature: {
-        name: "Exclusive Experience",
-        items: [
-          {
-            id: generateUniqueRef(),
-            title: "Post exposure",
-            label: "Standard",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Receive post tips",
-            label: "High",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Receive account gifts",
-            label: "High",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Receive chat gifts",
-            label: "High",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Post quiz fees",
-            label: "Low",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Characters per post",
-            label: "Extended",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Game points boost",
-            label: "5%",
-          }
-        ],
-      },
+  {
+    plan: {
+      name: "Starter",
+      price: 3.99,
+      ngnPrice: 5_500,
+      discount: 0.1,
+      accountType: UserTypeEnum.PERSONAL,
+      tier: [],
     },
-    {
-      plan: {
-        name: "Premium",
-        price: 8.99,
-        ngnPrice: 12_250,
-        discount: 0.11,
-        accountType: UserTypeEnum.PERSONAL,
-        tier: [],
-      },
-      feature: {
-        name: "Exclusive Experience",
-        items: [
-          {
-            id: generateUniqueRef(),
-            title: "Post exposure",
-            label: "Enhanced",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Receive post tips",
-            label: "Higher",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Receive account gifts",
-            label: "Higher",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Receive chat gifts",
-            label: "Higher",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Post quiz fees",
-            label: "Lower",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Characters per post",
-            label: "Extended",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Game points boost",
-            label: "10%",
-          }
-        ],
-      },
+    feature: {
+      name: "Exclusive Experience",
+      items: [
+        {
+          id: generateUniqueRef(),
+          title: "Post exposure",
+          label: "Standard",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Receive post tips",
+          label: "High",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Receive account gifts",
+          label: "High",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Receive chat gifts",
+          label: "High",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Post quiz fees",
+          label: "Low",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Characters per post",
+          label: "Extended",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Game points boost",
+          label: "5%",
+        },
+      ],
     },
-    {
-      plan: {
-        name: "Supreme",
-        price: 35.99,
-        ngnPrice: 50_500,
-        discount: 0.12,
-        accountType: UserTypeEnum.PERSONAL,
-        tier: [],
-      },
-      feature: {
-        name: "Exclusive Experience",
-        items: [
-          {
-            id: generateUniqueRef(),
-            title: "Post exposure",
-            label: "Maximum",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Receive post tips",
-            label: "Highest",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Receive account gifts",
-            label: "Highest",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Receive chat gifts",
-            label: "Highest",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Post quiz fees",
-            label: "Lowest",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Characters per post",
-            label: "Extended",
-          },
-          {
-            id: generateUniqueRef(),
-            title: "Game points boost",
-            label: "15%",
-          }
-        ],
-      },
+  },
+  {
+    plan: {
+      name: "Premium",
+      price: 8.99,
+      ngnPrice: 12_250,
+      discount: 0.11,
+      accountType: UserTypeEnum.PERSONAL,
+      tier: [],
     },
-    // Business and Government plans are paused for now.
-//     {
-//       plan: {
-//         name: "Standard",
-//         price: 89.99,
-//         ngnPrice: 125_500,
-//         discount: 0.1,
-//         accountType: UserTypeEnum.BUSINESS,
-//         tier: [],
-//       },
-//       feature: {
-//         name: "Exclusive Experience",
-//         items: [
-//           {
-//             id: generateUniqueRef(),
-//             title: "Reply and profile boost",
-//             label: "Larger",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Priority placement in search suggestions",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Priority support for reports and issues.",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Partial Ads browsing experience",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "1 - 50 Employees",
-//             label: "",
-//           },
-//         ],
-//       },
-//     },
-//
-//     {
-//       plan: {
-//         name: "Premium",
-//         price: 229.99,
-//         ngnPrice: 325_500,
-//         discount: 0.11,
-//         accountType: UserTypeEnum.BUSINESS,
-//         tier: [],
-//       },
-//       feature: {
-//         name: "Exclusive Experience",
-//         items: [
-//           {
-//             id: generateUniqueRef(),
-//             title: "Reply and profile boost",
-//             label: "Larger",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Priority placement in search suggestions",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Priority support for reports and issues.",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Partial Ads browsing experience",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "More than 50 Employees",
-//             label: "",
-//           },
-//         ],
-//       },
-//     },
-//     {
-//       plan: {
-//         name: "Supreme",
-//         price: 329.99,
-//         ngnPrice: 455_500,
-//         discount: 0.12,
-//         accountType: UserTypeEnum.BUSINESS,
-//         tier: [],
-//       },
-//       feature: {
-//         name: "Exclusive Experience",
-//         items: [
-//           {
-//             id: generateUniqueRef(),
-//             title: "Reply and profile boost",
-//             label: "Largest",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Priority placement in search suggestions",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Priority support for reports and issues.",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Ads-free browsing experience",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "More than 100 Employees",
-//             label: "",
-//           },
-//         ],
-//       },
-//     },
-//     {
-//       plan: {
-//         name: "Standard",
-//         price: 30.99,
-//         ngnPrice: 42_500,
-//         discount: 0.11,
-//         accountType: UserTypeEnum.GOVERNMENT,
-//         tier: [],
-//       },
-//       feature: {
-//         name: "Exclusive Experience",
-//         items: [
-//           {
-//             id: generateUniqueRef(),
-//             title: "Reply and profile boost",
-//             label: "Larger",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Priority placement in search suggestions",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Priority support for reports and issues.",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Partial Ads browsing experience",
-//             label: "",
-//           },
-//         ],
-//       },
-//     },
-//     {
-//       plan: {
-//         name: "Pro",
-//         price: 67.99,
-//         ngnPrice: 95_500,
-//         discount: 0.12,
-//         accountType: UserTypeEnum.GOVERNMENT,
-//         tier: [],
-//       },
-//       feature: {
-//         name: "Exclusive Experience",
-//         items: [
-//           {
-//             id: generateUniqueRef(),
-//             title: "Reply and profile boost",
-//             label: "Largest",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Priority placement in search suggestions",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Priority support for reports and issues.",
-//             label: "",
-//           },
-//           {
-//             id: generateUniqueRef(),
-//             title: "Ads-free browsing experience",
-//             label: "",
-//           },
-//         ],
-//       },
-//     },
-  ];
+    feature: {
+      name: "Exclusive Experience",
+      items: [
+        {
+          id: generateUniqueRef(),
+          title: "Post exposure",
+          label: "Enhanced",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Receive post tips",
+          label: "Higher",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Receive account gifts",
+          label: "Higher",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Receive chat gifts",
+          label: "Higher",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Post quiz fees",
+          label: "Lower",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Characters per post",
+          label: "Extended",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Game points boost",
+          label: "10%",
+        },
+      ],
+    },
+  },
+  {
+    plan: {
+      name: "Supreme",
+      price: 35.99,
+      ngnPrice: 50_500,
+      discount: 0.12,
+      accountType: UserTypeEnum.PERSONAL,
+      tier: [],
+    },
+    feature: {
+      name: "Exclusive Experience",
+      items: [
+        {
+          id: generateUniqueRef(),
+          title: "Post exposure",
+          label: "Maximum",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Receive post tips",
+          label: "Highest",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Receive account gifts",
+          label: "Highest",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Receive chat gifts",
+          label: "Highest",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Post quiz fees",
+          label: "Lowest",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Characters per post",
+          label: "Extended",
+        },
+        {
+          id: generateUniqueRef(),
+          title: "Game points boost",
+          label: "15%",
+        },
+      ],
+    },
+  },
+  // Business and Government plans are paused for now.
+  //     {
+  //       plan: {
+  //         name: "Standard",
+  //         price: 89.99,
+  //         ngnPrice: 125_500,
+  //         discount: 0.1,
+  //         accountType: UserTypeEnum.BUSINESS,
+  //         tier: [],
+  //       },
+  //       feature: {
+  //         name: "Exclusive Experience",
+  //         items: [
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Reply and profile boost",
+  //             label: "Larger",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Priority placement in search suggestions",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Priority support for reports and issues.",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Partial Ads browsing experience",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "1 - 50 Employees",
+  //             label: "",
+  //           },
+  //         ],
+  //       },
+  //     },
+  //
+  //     {
+  //       plan: {
+  //         name: "Premium",
+  //         price: 229.99,
+  //         ngnPrice: 325_500,
+  //         discount: 0.11,
+  //         accountType: UserTypeEnum.BUSINESS,
+  //         tier: [],
+  //       },
+  //       feature: {
+  //         name: "Exclusive Experience",
+  //         items: [
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Reply and profile boost",
+  //             label: "Larger",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Priority placement in search suggestions",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Priority support for reports and issues.",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Partial Ads browsing experience",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "More than 50 Employees",
+  //             label: "",
+  //           },
+  //         ],
+  //       },
+  //     },
+  //     {
+  //       plan: {
+  //         name: "Supreme",
+  //         price: 329.99,
+  //         ngnPrice: 455_500,
+  //         discount: 0.12,
+  //         accountType: UserTypeEnum.BUSINESS,
+  //         tier: [],
+  //       },
+  //       feature: {
+  //         name: "Exclusive Experience",
+  //         items: [
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Reply and profile boost",
+  //             label: "Largest",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Priority placement in search suggestions",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Priority support for reports and issues.",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Ads-free browsing experience",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "More than 100 Employees",
+  //             label: "",
+  //           },
+  //         ],
+  //       },
+  //     },
+  //     {
+  //       plan: {
+  //         name: "Standard",
+  //         price: 30.99,
+  //         ngnPrice: 42_500,
+  //         discount: 0.11,
+  //         accountType: UserTypeEnum.GOVERNMENT,
+  //         tier: [],
+  //       },
+  //       feature: {
+  //         name: "Exclusive Experience",
+  //         items: [
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Reply and profile boost",
+  //             label: "Larger",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Priority placement in search suggestions",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Priority support for reports and issues.",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Partial Ads browsing experience",
+  //             label: "",
+  //           },
+  //         ],
+  //       },
+  //     },
+  //     {
+  //       plan: {
+  //         name: "Pro",
+  //         price: 67.99,
+  //         ngnPrice: 95_500,
+  //         discount: 0.12,
+  //         accountType: UserTypeEnum.GOVERNMENT,
+  //         tier: [],
+  //       },
+  //       feature: {
+  //         name: "Exclusive Experience",
+  //         items: [
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Reply and profile boost",
+  //             label: "Largest",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Priority placement in search suggestions",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Priority support for reports and issues.",
+  //             label: "",
+  //           },
+  //           {
+  //             id: generateUniqueRef(),
+  //             title: "Ads-free browsing experience",
+  //             label: "",
+  //           },
+  //         ],
+  //       },
+  //     },
+];
 
 const continentCountries = [
   {
@@ -16144,41 +16156,62 @@ function getRandomElement<T>(array: T[]): T {
 
 /** Normalize all existing room labels in place, preserving Country Mania names. */
 export async function syncGenericGameRooms(tx: Prisma.TransactionClient) {
-  const definitions = new Map(games.filter(game => game.name !== "Country Mania").flatMap(game =>
-    game.categories.map(category => [JSON.stringify([game.name, category.name]), category] as const)
-  ));
+  const definitions = new Map(
+    games
+      .filter((game) => game.name !== "Country Mania")
+      .flatMap((game) =>
+        game.categories.map(
+          (category) =>
+            [JSON.stringify([game.name, category.name]), category] as const,
+        ),
+      ),
+  );
   const categories = await tx.gameCategory.findMany({
-    where: {game: {name: {not: "Country Mania"}}},
+    where: { game: { name: { not: "Country Mania" } } },
     select: {
-      id: true, name: true, description: true, game: {select: {name: true}},
+      id: true,
+      name: true,
+      description: true,
+      game: { select: { name: true } },
       rooms: {
-        orderBy: [{createdAt: "asc"}, {id: "asc"}],
-        select: {id: true, name: true, description: true},
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { id: true, name: true, description: true },
       },
     },
   });
   let categoriesUpdated = 0;
-  const roomUpdates: {id: string; name: string; description: string}[] = [];
+  const roomUpdates: { id: string; name: string; description: string }[] = [];
   for (const category of categories) {
-    const definition = definitions.get(JSON.stringify([category.game.name, category.name]));
+    const definition = definitions.get(
+      JSON.stringify([category.game.name, category.name]),
+    );
     if (definition && category.description !== definition.description) {
-      await tx.gameCategory.update({where: {id: category.id}, data: {description: definition.description}});
+      await tx.gameCategory.update({
+        where: { id: category.id },
+        data: { description: definition.description },
+      });
       categoriesUpdated++;
     }
-    const labels = genericGameRooms(category.name, category.rooms.length, category.game.name === "MindMash");
+    const labels = genericGameRooms(
+      category.name,
+      category.rooms.length,
+      category.game.name === "MindMash",
+    );
     category.rooms.forEach((room, index) => {
       const label = labels[index];
       if (room.name !== label.name || room.description !== label.description) {
-        roomUpdates.push({id: room.id, ...label});
+        roomUpdates.push({ id: room.id, ...label });
       }
     });
   }
   // Batch writes to avoid thousands of database round trips during deployment.
   let roomsUpdated = 0;
   for (let offset = 0; offset < roomUpdates.length; offset += 200) {
-    const values = roomUpdates.slice(offset, offset + 200).map(room =>
-      Prisma.sql`(${room.id}, ${room.name}, ${room.description})`
-    );
+    const values = roomUpdates
+      .slice(offset, offset + 200)
+      .map(
+        (room) => Prisma.sql`(${room.id}, ${room.name}, ${room.description})`,
+      );
     roomsUpdated += await tx.$executeRaw(Prisma.sql`
       UPDATE "GameRoom" AS room
       SET "name" = labels.name, "description" = labels.description, "updatedAt" = CURRENT_TIMESTAMP
@@ -16186,26 +16219,43 @@ export async function syncGenericGameRooms(tx: Prisma.TransactionClient) {
       WHERE room.id = labels.id
     `);
   }
-  console.log(`Game room labels: updated ${categoriesUpdated} categories and ${roomsUpdated} rooms.`);
-  return {categoriesUpdated, roomsUpdated};
+  console.log(
+    `Game room labels: updated ${categoriesUpdated} categories and ${roomsUpdated} rooms.`,
+  );
+  return { categoriesUpdated, roomsUpdated };
 }
 
 /** Add seed topics to existing categories without recreating games or rooms. */
 export async function syncGameCategoryTopics(
   tx: Prisma.TransactionClient,
-  seedGames: { name: string; categories: { name: string; topics: string[] }[] }[] = games
+  seedGames: {
+    name: string;
+    categories: { name: string; topics: string[] }[];
+  }[] = games,
 ) {
   const definitions = new Map<string, string[]>();
   for (const game of seedGames) {
     for (const category of game.categories) {
       const key = JSON.stringify([game.name, category.name]);
-      const topics = [...new Set(category.topics.map(topic => topic.trim()).filter(Boolean))];
-      if (topics.length) definitions.set(key, [...new Set([...(definitions.get(key) ?? []), ...topics])]);
+      const topics = [
+        ...new Set(
+          category.topics.map((topic) => topic.trim()).filter(Boolean),
+        ),
+      ];
+      if (topics.length)
+        definitions.set(key, [
+          ...new Set([...(definitions.get(key) ?? []), ...topics]),
+        ]);
     }
   }
   const categories = await tx.gameCategory.findMany({
-    where: { game: { name: { in: seedGames.map(game => game.name) } } },
-    select: { id: true, name: true, topics: true, game: { select: { name: true } } },
+    where: { game: { name: { in: seedGames.map((game) => game.name) } } },
+    select: {
+      id: true,
+      name: true,
+      topics: true,
+      game: { select: { name: true } },
+    },
   });
   let updated = 0;
   let added = 0;
@@ -16215,7 +16265,9 @@ export async function syncGameCategoryTopics(
     const seedTopics = definitions.get(key);
     if (!seedTopics) continue;
     matched.add(key);
-    const missing = seedTopics.filter(topic => !category.topics.includes(topic));
+    const missing = seedTopics.filter(
+      (topic) => !category.topics.includes(topic),
+    );
     if (!missing.length) continue;
     await tx.gameCategory.update({
       where: { id: category.id },
@@ -16225,7 +16277,9 @@ export async function syncGameCategoryTopics(
     added += missing.length;
   }
   const missingCategories = definitions.size - matched.size;
-  console.log(`Game topics: updated ${updated} categories, added ${added} topics; ${missingCategories} seed categories not found in database.`);
+  console.log(
+    `Game topics: updated ${updated} categories, added ${added} topics; ${missingCategories} seed categories not found in database.`,
+  );
   return { updated, added, missingCategories };
 }
 
@@ -16234,258 +16288,331 @@ const gameBannerFiles: Record<string, string> = {
   "Acronym Arcade": "acronym-arcade.webp",
   "Academia Adventure": "academia-adventure.webp",
   "Sports & Games": "sports-and-games.webp",
-  "MindMash": "mindmash.webp",
+  MindMash: "mindmash.webp",
   "Country Mania": "country-mania.webp",
 };
 
 export function gameBannerThumbnail(gameName: string) {
   const filename = gameBannerFiles[gameName];
   if (!filename) return undefined;
-  const base = (process.env.CLOUDFLARE_PUBLIC_MEDIA_URL || "https://media.kwonnet.com").replace(/\/+$/, "");
+  const base = (
+    process.env.CLOUDFLARE_PUBLIC_MEDIA_URL || "https://media.kwonnet.com"
+  ).replace(/\/+$/, "");
   return `${base}/static/games/${filename}`;
 }
 
 /** Refresh existing artwork without recreating games or changing room history. */
 export async function syncGameBannerThumbnails(tx: Prisma.TransactionClient) {
   const rows = await tx.game.findMany({
-    where: {name: {in: Object.keys(gameBannerFiles)}},
-    select: {id: true, name: true, thumbnail: true},
+    where: { name: { in: Object.keys(gameBannerFiles) } },
+    select: { id: true, name: true, thumbnail: true },
   });
-  let gamesUpdated = 0, categoriesUpdated = 0, roomsUpdated = 0;
+  let gamesUpdated = 0,
+    categoriesUpdated = 0,
+    roomsUpdated = 0;
   for (const game of rows) {
     const thumbnail = gameBannerThumbnail(game.name);
     if (!thumbnail) continue;
     if (game.thumbnail !== thumbnail) {
-      await tx.game.update({where: {id: game.id}, data: {thumbnail}});
+      await tx.game.update({ where: { id: game.id }, data: { thumbnail } });
       gamesUpdated++;
     }
     // Country categories and their rooms use individual flags instead of the banner.
     if (game.name === "Country Mania") continue;
-    const stale = {OR: [{thumbnail: null}, {thumbnail: {not: thumbnail}}]};
+    const stale = {
+      OR: [{ thumbnail: null }, { thumbnail: { not: thumbnail } }],
+    };
     const categories = await tx.gameCategory.updateMany({
-      where: {gameId: game.id, ...stale}, data: {thumbnail},
+      where: { gameId: game.id, ...stale },
+      data: { thumbnail },
     });
     const rooms = await tx.gameRoom.updateMany({
-      where: {category: {gameId: game.id}, ...stale}, data: {thumbnail},
+      where: { category: { gameId: game.id }, ...stale },
+      data: { thumbnail },
     });
     categoriesUpdated += categories.count;
     roomsUpdated += rooms.count;
   }
-  console.log(`Game banners: updated ${gamesUpdated} games, ${categoriesUpdated} categories and ${roomsUpdated} rooms.`);
-  return {gamesUpdated, categoriesUpdated, roomsUpdated};
+  console.log(
+    `Game banners: updated ${gamesUpdated} games, ${categoriesUpdated} categories and ${roomsUpdated} rooms.`,
+  );
+  return { gamesUpdated, categoriesUpdated, roomsUpdated };
 }
 
 /** Country assets match kwonweb2/public/flags; no sibling checkout is needed at deploy time. */
 export function countryGameThumbnail(countryName: string) {
-  const filename = countryName.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  const base = (process.env.CLOUDFLARE_PUBLIC_MEDIA_URL || "https://media.kwonnet.com").replace(/\/+$/, "");
+  const filename = countryName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  const base = (
+    process.env.CLOUDFLARE_PUBLIC_MEDIA_URL || "https://media.kwonnet.com"
+  ).replace(/\/+$/, "");
   return `${base}/static/flags/${filename}.webp`;
 }
 
 /** Backfill thumbnails without recreating countries, rooms or game history. */
 export async function syncCountryGameThumbnails(tx: Prisma.TransactionClient) {
   const categories = await tx.gameCategory.findMany({
-    where: {game: {name: "Country Mania"}}, select: {id: true, name: true, thumbnail: true},
+    where: { game: { name: "Country Mania" } },
+    select: { id: true, name: true, thumbnail: true },
   });
-  let categoriesUpdated = 0, roomsUpdated = 0;
+  let categoriesUpdated = 0,
+    roomsUpdated = 0;
   for (const category of categories) {
     const thumbnail = countryGameThumbnail(category.name);
     if (category.thumbnail !== thumbnail) {
-      await tx.gameCategory.update({where: {id: category.id}, data: {thumbnail}});
+      await tx.gameCategory.update({
+        where: { id: category.id },
+        data: { thumbnail },
+      });
       categoriesUpdated++;
     }
     const result = await tx.gameRoom.updateMany({
-      where: {catId: category.id, OR: [{thumbnail: null}, {thumbnail: {not: thumbnail}}]},
-      data: {thumbnail},
+      where: {
+        catId: category.id,
+        OR: [{ thumbnail: null }, { thumbnail: { not: thumbnail } }],
+      },
+      data: { thumbnail },
     });
     roomsUpdated += result.count;
   }
-  console.log(`Country flags: updated ${categoriesUpdated} categories and ${roomsUpdated} rooms.`);
-  return {categoriesUpdated, roomsUpdated};
+  console.log(
+    `Country flags: updated ${categoriesUpdated} categories and ${roomsUpdated} rooms.`,
+  );
+  return { categoriesUpdated, roomsUpdated };
 }
 
 async function seedReferenceData(prisma: Prisma.TransactionClient) {
-    await prisma.chargeRate.upsert({where:{id:"default"},update:{},create:{id:"default"}});
-    // seed coin packages
-    const totalPackages = await prisma.coinPackage.count();
-    if (totalPackages === 0) {
-      await prisma.coinPackage.createMany({ data: coinPackages });
-      console.log("seeding complete.... coin packages created successfully");
-    } else {
-      console.log("Seeding complete .... coin packages  already exists");
-    }
+  await prisma.chargeRate.upsert({
+    where: { id: "default" },
+    update: {},
+    create: { id: "default" },
+  });
+  // seed coin packages
+  const totalPackages = await prisma.coinPackage.count();
+  if (totalPackages === 0) {
+    await prisma.coinPackage.createMany({ data: coinPackages });
+    console.log("seeding complete.... coin packages created successfully");
+  } else {
+    console.log("Seeding complete .... coin packages  already exists");
+  }
 
-    await seedTipPackages(prisma);
+  await seedTipPackages(prisma);
 
-    // seed game milestones
-    const totalMilestones = await prisma.gameMilestone.count();
-    if (totalMilestones === 0) {
-      await prisma.gameMilestone.createMany({ data: gameMilestones });
-      console.log("seeding complete.... game milestones created successfully");
-    } else {
-      console.log("Seeding complete.... game milestones  already exists");
-    }
-    // seed game
-    const totalGames = await prisma.game.count();
-    if (totalGames === 0) {
-      for (let index = 0; index < games.length; index++) {
-        const el = games[index];
-        const gameName = el.name.toLocaleLowerCase();
-        const isAcronym = gameName.startsWith("acronym");
-        await prisma.game.create({
-          data: {
-            name: el.name,
-            thumbnail: gameBannerThumbnail(el.name),
-            description: el.description,
-            modes: isAcronym
-              ? [GameMode.MULTI]
-              : [GameMode.MULTI, GameMode.SINGLE],
-            categories: {
-              create: el.categories.map((item) => ({
-                name: item.name,
-                description: item.description,
-                topics: item.topics,
-                thumbnail: el.name === "Country Mania" ? countryGameThumbnail(item.name) : gameBannerThumbnail(el.name),
-                rooms: { create: item.rooms.map(room => ({...room,
-                  thumbnail: el.name === "Country Mania" ? countryGameThumbnail(item.name) : gameBannerThumbnail(el.name),
-                })) },
-              })),
-            },
+  // seed game milestones
+  const totalMilestones = await prisma.gameMilestone.count();
+  if (totalMilestones === 0) {
+    await prisma.gameMilestone.createMany({ data: gameMilestones });
+    console.log("seeding complete.... game milestones created successfully");
+  } else {
+    console.log("Seeding complete.... game milestones  already exists");
+  }
+  // seed game
+  const totalGames = await prisma.game.count();
+  if (totalGames === 0) {
+    for (let index = 0; index < games.length; index++) {
+      const el = games[index];
+      const gameName = el.name.toLocaleLowerCase();
+      const isAcronym = gameName.startsWith("acronym");
+      await prisma.game.create({
+        data: {
+          name: el.name,
+          thumbnail: gameBannerThumbnail(el.name),
+          description: el.description,
+          modes: isAcronym
+            ? [GameMode.MULTI]
+            : [GameMode.MULTI, GameMode.SINGLE],
+          categories: {
+            create: el.categories.map((item) => ({
+              name: item.name,
+              description: item.description,
+              topics: item.topics,
+              thumbnail:
+                el.name === "Country Mania"
+                  ? countryGameThumbnail(item.name)
+                  : gameBannerThumbnail(el.name),
+              rooms: {
+                create: item.rooms.map((room) => ({
+                  ...room,
+                  thumbnail:
+                    el.name === "Country Mania"
+                      ? countryGameThumbnail(item.name)
+                      : gameBannerThumbnail(el.name),
+                })),
+              },
+            })),
           },
-        });
-      }
-      console.log("seeding complete.... games created successfully");
-    } else {
-      console.log("Seeding complete.... games  already exists");
+        },
+      });
     }
-    await syncGenericGameRooms(prisma);
-    await syncGameCategoryTopics(prisma);
-    await syncGameBannerThumbnails(prisma);
-    await syncCountryGameThumbnails(prisma);
-    for (const benefits of LEVEL_BENEFITS) await prisma.accountLevelBenefit.upsert({where:{level:benefits.level},create:benefits,update:{}});
-    // seed app subscriptions
-    const plans = await prisma.subscriptionPlan.count();
-    if (plans === 0) {
-      for (let { plan, feature } of subPlans) {
-        await prisma.subscriptionPlan.create({
-          data: { ...plan, level: ["Supreme","Pro"].includes(plan.name)?3:plan.name==="Premium"?2:1, features: { create: feature } },
-        });
-      }
-      console.log(
-        "seeding complete.... subscription plans created successfully"
-      );
-    } else {
-      console.log("Seeding complete.... subscription plans  already exists");
+    console.log("seeding complete.... games created successfully");
+  } else {
+    console.log("Seeding complete.... games  already exists");
+  }
+  await syncGenericGameRooms(prisma);
+  await syncGameCategoryTopics(prisma);
+  await syncGameBannerThumbnails(prisma);
+  await syncCountryGameThumbnails(prisma);
+  for (const benefits of LEVEL_BENEFITS)
+    await prisma.accountLevelBenefit.upsert({
+      where: { level: benefits.level },
+      create: benefits,
+      update: {},
+    });
+  // seed app subscriptions
+  const plans = await prisma.subscriptionPlan.count();
+  if (plans === 0) {
+    for (let { plan, feature } of subPlans) {
+      await prisma.subscriptionPlan.create({
+        data: {
+          ...plan,
+          level: ["Supreme", "Pro"].includes(plan.name)
+            ? 3
+            : plan.name === "Premium"
+              ? 2
+              : 1,
+          features: { create: feature },
+        },
+      });
     }
-    // seed countries
-    const countries = await prisma.country.count();
-    const continents = await prisma.continent.count();
-    if (continents === 0 && countries === 0) {
-      for (const item of continentCountries) {
-        const continent = await prisma.continent.create({
-          data: item.continent,
-        });
-        await prisma.country.createMany({
-          data: item.countries.map((i) => ({
-            ...i,
-            continentId: continent.id,
-          })),
-        });
-      }
-      console.log(
-        "seeding complete.... Continent & countries created successfully"
-      );
-    } else {
-      console.log("Seeding complete.... Continent & countries  already exists");
+    console.log("seeding complete.... subscription plans created successfully");
+  } else {
+    console.log("Seeding complete.... subscription plans  already exists");
+  }
+  // seed countries
+  const countries = await prisma.country.count();
+  const continents = await prisma.continent.count();
+  if (continents === 0 && countries === 0) {
+    for (const item of continentCountries) {
+      const continent = await prisma.continent.create({
+        data: item.continent,
+      });
+      await prisma.country.createMany({
+        data: item.countries.map((i) => ({
+          ...i,
+          continentId: continent.id,
+        })),
+      });
     }
+    console.log(
+      "seeding complete.... Continent & countries created successfully",
+    );
+  } else {
+    console.log("Seeding complete.... Continent & countries  already exists");
+  }
 }
 
 export async function main() {
-  if (process.argv.includes("--tips")) {await seedTipPackages();return;}
+  if (process.argv.includes("--tips")) {
+    await seedTipPackages();
+    return;
+  }
   const demo = process.argv.includes("--demo");
   const topicsOnly = process.argv.includes("--game-topics");
-  if (demo && topicsOnly) throw new Error("Choose either --demo or --game-topics");
+  if (demo && topicsOnly)
+    throw new Error("Choose either --demo or --game-topics");
   if (demo && process.env.NODE_ENV === "production") {
     throw new Error("Demo seeding is disabled in production");
   }
   // Serialize release seeds and roll back reference data together on failure.
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(73190241)`;
-    if (topicsOnly) await syncGameCategoryTopics(tx);
-    else await seedReferenceData(tx);
-  }, { timeout: 300000, maxWait: 10000 });
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(73190241)`;
+      if (topicsOnly) await syncGameCategoryTopics(tx);
+      else await seedReferenceData(tx);
+    },
+    { timeout: 300000, maxWait: 10000 },
+  );
   if (!demo) return;
-    // send users
-    const userCount = await prisma.user.count();
-    if (userCount < 10) {
-      const uniqueEmails = faker.helpers.uniqueArray(faker.internet.email, 100); // will generate 1000 unique email addresses
-      const uniqueUsernames = faker.helpers.uniqueArray(
-        faker.internet.username,
-        100
-      ); // will generate 1000 unique email addresses
-      const fakeUsers = Array.from({ length: 100 }, (_, i) => ({
-        name: faker.person.fullName(),
-        email: uniqueEmails[i] ?? faker.internet.email(),
-        username: uniqueUsernames[i] ?? faker.internet.username(),
-        avatar: faker.image.avatar(),
-        password:
-          "$2b$10$0BSAg6Mu3K4k83FsLIVRl.642jOuCNRYF0tV9B4xKtdK9IO1UI6Zq",
-      }));
-      const result = await Promise.all(
-        fakeUsers.map((user) => {
-          return prisma.user.create({
-            data: {
-              ...user,
-              wallet: { create: { bonus: 100 } },
-            },
-          });
-        })
-      );
-      console.log(
-        `seeding complete ${result.length}.... users created successfully`
-      );
-    } else {
-      console.log("Seeding complete.... users already exists");
-    }
-    // seed posts
-    // send users
-    const users = await prisma.user.findMany({ select: { id: true } });
-    const postCount = await prisma.post.count();
-    if (users.length > 0 && postCount === 0) {
-      const shuffledUsers = users?.map((item) => item.id)
-      const postData = dummyPosts.map((content) => ({
-        kind: PostKindEnum.ROOT,
-        type: PostTypeEnum.CONTENT,
-        userId: getRandomElement(shuffledUsers),
-        content,
-      }));
+  // send users
+  const userCount = await prisma.user.count();
+  if (userCount < 10) {
+    const uniqueEmails = faker.helpers.uniqueArray(faker.internet.email, 100); // will generate 1000 unique email addresses
+    const uniqueUsernames = faker.helpers.uniqueArray(
+      faker.internet.username,
+      100,
+    ); // will generate 1000 unique email addresses
+    const fakeUsers = Array.from({ length: 100 }, (_, i) => ({
+      name: faker.person.fullName(),
+      email: uniqueEmails[i] ?? faker.internet.email(),
+      username: uniqueUsernames[i] ?? faker.internet.username(),
+      avatar: faker.image.avatar(),
+      password: "$2b$10$0BSAg6Mu3K4k83FsLIVRl.642jOuCNRYF0tV9B4xKtdK9IO1UI6Zq",
+    }));
+    const result = await Promise.all(
+      fakeUsers.map((user) => {
+        return prisma.user.create({
+          data: {
+            ...user,
+            wallet: { create: { bonus: 100 } },
+          },
+        });
+      }),
+    );
+    console.log(
+      `seeding complete ${result.length}.... users created successfully`,
+    );
+  } else {
+    console.log("Seeding complete.... users already exists");
+  }
+  // seed posts
+  // send users
+  const users = await prisma.user.findMany({ select: { id: true } });
+  const postCount = await prisma.post.count();
+  if (users.length > 0 && postCount === 0) {
+    const shuffledUsers = users?.map((item) => item.id);
+    const postData = dummyPosts.map((content) => ({
+      kind: PostKindEnum.ROOT,
+      type: PostTypeEnum.CONTENT,
+      userId: getRandomElement(shuffledUsers),
+      content,
+    }));
 
-      const result = await prisma.post.createMany({
-        data: postData,
-      });
+    const result = await prisma.post.createMany({
+      data: postData,
+    });
 
-      console.log(
-        `seeding complete ${result.count}.... posts created successfully`
-      );
-    } else {
-      console.log("Seeding complete.... posts already exists");
-    }
+    console.log(
+      `seeding complete ${result.count}.... posts created successfully`,
+    );
+  } else {
+    console.log("Seeding complete.... posts already exists");
+  }
 }
 
-export async function seedTipPackages(client?:Prisma.TransactionClient) {
-  const sync=async(tx:Prisma.TransactionClient)=>{
+export async function seedTipPackages(client?: Prisma.TransactionClient) {
+  const sync = async (tx: Prisma.TransactionClient) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(73190241)`;
     // Snapshot old gift names/assets before deleting their catalog entries.
     await tx.$executeRaw`UPDATE "PostTip" t SET "giftName"=COALESCE(t."giftName",p.name), "giftThumbnail"=COALESCE(t."giftThumbnail",p.thumbnail), "giftCoinsSnapshot"=COALESCE(t."giftCoinsSnapshot",p.price) FROM "TipPackage" p WHERE t."tipId"=p.id`;
-    for(const gift of tipPackages) await tx.tipPackage.upsert({where:{id:gift.id},create:gift,update:{...gift,isActive:true,endDate:null}});
-    await tx.tipPackage.deleteMany({where:{id:{notIn:tipPackages.map(gift=>gift.id)}}});
+    for (const gift of tipPackages)
+      await tx.tipPackage.upsert({
+        where: { id: gift.id },
+        create: gift,
+        update: { ...gift, isActive: true, endDate: null },
+      });
+    await tx.tipPackage.deleteMany({
+      where: { id: { notIn: tipPackages.map((gift) => gift.id) } },
+    });
   };
-  if(client)await sync(client);else await prisma.$transaction(sync,{timeout:300000,maxWait:10000});
+  if (client) await sync(client);
+  else await prisma.$transaction(sync, { timeout: 300000, maxWait: 10000 });
   console.log(`Gift catalog synchronized: ${tipPackages.length} gifts`);
 }
 
 if (require.main === module) {
-  async function runSeed(){try{await main();}catch(error:any){console.error("Error seeding data",error?.message);process.exitCode=1;}finally{await prisma.$disconnect();}}
+  async function runSeed() {
+    try {
+      await main();
+    } catch (error: any) {
+      console.error("Error seeding data", error?.message);
+      process.exitCode = 1;
+    } finally {
+      await prisma.$disconnect();
+    }
+  }
   runSeed();
 }
