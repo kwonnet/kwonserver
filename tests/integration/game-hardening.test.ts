@@ -28,7 +28,7 @@ vi.mock("@/utils/ai", () => ({
   shuffleArray: (a: any) => a,
 }));
 vi.mock("@/services/helper", () => ({
-  getGameType: () => "MINDMASH",
+  getGameType: (name:string) => name === "ACRONYM" ? "ACRONYM" : "MINDMASH",
   getGameCatType: (name: string) => name,
   calculateWordMakerPlayerScore: () => ({ score: 0, answer: "" }),
   syncRedisUserWalletToPrisma: async () => {},
@@ -41,6 +41,7 @@ import redis from "@/redis";
 import {
   recordGameRound,
   captureRound,
+  captureLiveGameRound,
   assertGameRoundsSynced,
   settleGameRound,
   projectGameRound,
@@ -743,4 +744,45 @@ it("an expired timer lease cannot release or postpone its successor",async()=>{
   expect(await redis.zScore('game:runtime:due',roomId)).toBe(successorDue);
  }finally{intercept.mockRestore();await redis.del(lock);}
  await captureRound(room);await settleGameRound(q.roundId,snapshot=>calculateGameRoomPoints(room,snapshot));
+});
+
+it.each(['TYPEMANIA','WORDMAKER','LUCKYSPIN','LUCKYFLIP'])('finishes an unanswered %s round and starts the next one automatically',async catName=>{
+ const q=await round();
+ await redis.hSet(`room:${roomId}`,{catName});
+ await redis.del(`room:${roomId}:answers`);
+ // Reproduce an already-stuck RESULT and its cached Lua snapshot, without rejoining.
+ await captureLiveGameRound({...room,catName});
+ expect(await redis.hGet(`room:${roomId}`,'status')).toBe('RESULT');
+ expect(JSON.parse((await redis.get(`game:round-snapshot:${q.roundId}`))!).answers).toEqual({});
+ const live=await finishLiveGameRound({...room,catName});
+ expect(live.snapshot.answers).toEqual([]);
+ expect(live.scores).toEqual([]);
+ expect(await redis.hGet(`room:${roomId}`,'status')).toBe('CHAT');
+ await settleQueuedGameRound(q.roundId);
+ expect((await db.gameRoundRecord.findUniqueOrThrow({where:{id:q.roundId}})).status).toBe('COMPLETED');
+ const {generateRoomQuestion}=await import('@/utils/ai');
+ vi.mocked(generateRoomQuestion).mockResolvedValueOnce({...q,id:'next-question'});
+ await redis.hSet(`room:${roomId}`,{deadline:String(Date.now()-1)});
+ await redis.zAdd('game:runtime:due',{value:roomId,score:0});
+ await tickGameRuntimes(io);
+ expect(await redis.hGet(`room:${roomId}`,'status')).toBe('PLAY');
+ const nextId=(await redis.hGet(`room:${roomId}`,'roundId'))!;
+ rounds.push(nextId);
+ expect(nextId).not.toBe(q.roundId);
+ expect(Number(await redis.hGet(`room:${roomId}`,'deadline'))).toBeGreaterThan(Date.now());
+ await redis.del(`room:${roomId}:answers`);
+ await finishLiveGameRound({...room,catName});await settleQueuedGameRound(nextId);
+});
+
+it("completes an acronym round with an answer but no votes",async()=>{
+ const q=await round();
+ await redis.hSet(`room:${roomId}`,{gameName:'ACRONYM'});
+ await redis.del(`room:${roomId}:answers`);
+ await redis.hSet(`room:${roomId}:answers`,{[users[0]]:JSON.stringify({playerId:users[0],roomId,catId,name:users[0],answer:'A sample acronym',timer:5,voted:false,votes:[]})});
+ const live=await finishLiveGameRound({...room,gameName:'ACRONYM'});
+ expect(live.snapshot.answers[0].votes).toEqual([]);
+ expect(live.snapshot.answers[0].answers).toEqual([]);
+ expect(live.scores[0].score).toBe(10);
+ expect(await redis.hGet(`room:${roomId}`,'status')).toBe('CHAT');
+ await settleQueuedGameRound(q.roundId);
 });

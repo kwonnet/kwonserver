@@ -14,6 +14,29 @@ import {
 import { TempGameRoom, ThemedGameQuestion, ThemedGameScore } from "@/types";
 import { applyRoundGameEnergy, syncGameEnergy } from "./energy";
 export type RoundSnapshot = { question: ThemedGameQuestion; answers: any[] };
+/** Redis Lua cjson encodes empty tables as {}, including nested JSON arrays.
+ * Normalize at every snapshot boundary, including retries of already cached data.
+ * Reject nonempty objects instead of silently discarding malformed round input.
+ */
+export function normalizeRoundSnapshot(input: unknown): RoundSnapshot & {actionIds:string[]} {
+  const snapshot = input as RoundSnapshot & {actionIds?: unknown};
+  if (!snapshot || !snapshot.question || typeof snapshot.question !== 'object')
+    throw new Error('Invalid round snapshot question');
+  const list = (value:unknown, field:string):any[] => {
+    if (Array.isArray(value)) return value;
+    if (value === undefined || (value !== null && typeof value === 'object' && Object.keys(value).length === 0)) return [];
+    throw new Error(`Invalid round snapshot ${field}`);
+  };
+  return {
+    ...snapshot,
+    question: {...snapshot.question, options:list(snapshot.question.options,'options'),
+      ...(snapshot.question.acceptedAnswers !== undefined ? {acceptedAnswers:list(snapshot.question.acceptedAnswers,'acceptedAnswers')} : {})},
+    answers:list(snapshot.answers,'answers').map(answer=>({...answer,
+      answers:list(answer.answers,'guesses'), votes:list(answer.votes,'votes')})),
+    actionIds:list(snapshot.actionIds,'actionIds'),
+  };
+}
+
 
 export async function recordGameRound(
   room: TempGameRoom,
@@ -77,11 +100,7 @@ export async function captureRound(room: TempGameRoom, input?: RoundSnapshot & {
     arguments: [q.roundId!, room.generation ?? "legacy"],
   });
   if (!raw) throw new Error("Round ownership changed during capture");
-  const snapshot = JSON.parse(String(raw));
-  if (!Array.isArray(snapshot.answers)) snapshot.answers = [];
-  if (!Array.isArray(snapshot.actionIds)) snapshot.actionIds = [];
-  for (const answer of snapshot.answers)
-    if (!Array.isArray(answer.answers)) answer.answers = [];
+  const snapshot = normalizeRoundSnapshot(JSON.parse(String(raw)));
   await prisma.$transaction(async (tx) => {
     if (Array.isArray(snapshot.actionIds) && snapshot.actionIds.length)
       await tx.gameWalletAction.updateMany({
@@ -137,8 +156,8 @@ export async function settleGameRound(
   const record = await prisma.gameRoundRecord.findUniqueOrThrow({
     where: { id: recordId },
   });
-  const snapshot = record.snapshot as unknown as RoundSnapshot;
-  if (!snapshot) throw new Error("Round snapshot is not durable");
+  if (!record.snapshot) throw new Error("Round snapshot is not durable");
+  const snapshot = normalizeRoundSnapshot(record.snapshot);
   const candidate =
     record.status === "COMPLETED"
       ? (record.scores as unknown as ThemedGameScore[])
@@ -289,7 +308,7 @@ export async function captureLiveGameRound(room:TempGameRoom) {
     arguments:[question.roundId!,room.generation??'legacy',lease?.token??''],
   });
   if(!raw) throw new Error('Round ownership changed during capture');
-  return JSON.parse(String(raw)) as RoundSnapshot & {actionIds:string[]};
+  return normalizeRoundSnapshot(JSON.parse(String(raw)));
 }
 
 export async function recoverRoundProjections() {

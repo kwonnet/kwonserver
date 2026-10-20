@@ -221,3 +221,27 @@ Integration tests cover missing schedule repair, successor-generation recovery,
 a phase change during a countdown tick, and lease replacement before cleanup.
 Deploy by restarting API instances, which run the room scheduler and presence
 heartbeats. No schema migration or client update is needed for this fix.
+
+
+## Unanswered rounds and Redis JSON array normalization
+
+Redis Lua `cjson.encode` serializes an empty Lua table as `{}`, including tables
+that originally represented empty JSON arrays. Live round capture therefore
+returned `answers: {}` when nobody answered. The scorer attempted `.sort()` or
+`.map()` after capture had already changed the phase to RESULT, causing every
+retry to fail on the same cached snapshot. The visible timer stayed at zero.
+A player joining during that round encountered the same failure. Empty acronym
+vote lists could also become objects and produce a non-finite score.
+
+`normalizeRoundSnapshot` now restores known empty array fields at both live and
+PostgreSQL snapshot boundaries: answers, action receipts, guesses, votes, options
+and accepted sentence answers. It also normalizes durable snapshots before
+scoring. Nonempty malformed objects are rejected rather than silently dropped.
+Cached snapshots are normalized on every read, so deploying this fix repairs
+already-captured unanswered rounds on their next scheduler retry without a Redis
+flush or a player rejoin. Round deadlines, charges and scoring rules are unchanged.
+
+Regression coverage runs the real Redis Lua capture for unanswered TypeMania,
+WordMaker, LuckySpin and LuckyFlip rounds, resumes their cached RESULT snapshots,
+settles them with no player awards, and verifies the next round starts. An
+additional acronym test covers an answered round with no votes.
