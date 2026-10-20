@@ -28,7 +28,7 @@ export const getPlans = async () => {
   return cachedCatalogRead("subscription-plans", 60000, async () => {
     try {
       const data = await prisma.subscriptionPlan.findMany({
-        include: { features: true },
+        include: { features: true, benefits:true },
       });
 
       const coinRate=(await prisma.chargeRate.findUniqueOrThrow({where:{id:'default'}})).price.toString();
@@ -602,8 +602,9 @@ export const cancelAppSubscription = async (arg: {
 
     const result = await prisma.$transaction(async tx => {
       await lockWallets(tx, [user.id]);
-      const updated = await tx.subscription.update({ where: { id: arg.subId, userId: user.id }, data: { status: arg.status, isRecurring: false } });
-      await tx.user.update({ where: { id: user.id }, data: { meta: {
+      const keepPaidAccess=arg.userId!==undefined && arg.status==='CANCELLED' && sub.status==='ACTIVE' && sub.endDate>new Date();
+      const updated = await tx.subscription.update({ where: { id: arg.subId, userId: user.id }, data: { status: keepPaidAccess?'ACTIVE':arg.status, isRecurring: false } });
+      if(!keepPaidAccess) await tx.user.update({ where: { id: user.id }, data: { meta: {
         color, status: user.accountVerifiedAt ? 'ACTIVE' : 'INACTIVE', type: 'LEGACY',
       } } });
       return updated;

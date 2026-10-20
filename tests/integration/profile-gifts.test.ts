@@ -7,11 +7,11 @@ import {getNotificationStreamSnapshot} from '@/services/v1/notifications';
 const db=new PrismaClient({adapter:new PrismaPg({connectionString:process.env.DATABASE_URL})});
 const sender='gift-test-sender',receiver='gift-test-receiver',gift='gift-test-package';let actor:any;
 beforeAll(async()=>{
- await db.chargeRate.upsert({where:{id:'default'},create:{id:'default'},update:{tipFee:0.5}});
+ await db.accountLevelBenefit.update({where:{level:0},data:{accountGiftsShareBps:5000}});
  for(const id of [sender,receiver]){const user=await db.user.create({data:{id,name:id,username:id,email:`${id}@example.test`,wallet:{create:{coins:id===sender?100:0,bonus:500}}}});if(id===sender)actor=user;}
  await db.tipPackage.create({data:{id:gift,name:'Rose',price:25,thumbnail:'/static/tips/velvet-bloom.webp'}});
 });
-afterAll(async()=>{await db.user.deleteMany({where:{id:{in:[sender,receiver]}}});await db.tipPackage.delete({where:{id:gift}});await db.$disconnect();});
+afterAll(async()=>{await db.accountLevelBenefit.update({where:{level:0},data:{accountGiftsShareBps:3500,version:1}});await db.user.deleteMany({where:{id:{in:[sender,receiver]}}});await db.tipPackage.delete({where:{id:gift}});await db.$disconnect();});
 const args={senderId:sender,recipientId:receiver,tipId:gift,device:{},meta:null,idempotencyKey:'profile-gift-once',isAnon:true,message:'Private gift note'}as any;
 it('sends a profile gift exactly once under concurrent retries with a 50/50 coin split',async()=>{
  const results=await Promise.all(Array.from({length:8},()=>createUserGift(args,actor)));expect(results.every(r=>r.status===200)).toBe(true);
@@ -53,14 +53,14 @@ it('retains a named sender for non-anonymous gifts and paginates deterministical
 
 it('reads the current tip fee for each new gift while preserving retried settlements',async()=>{
  const before=await db.wallet.findUniqueOrThrow({where:{userId:receiver}});
- await db.chargeRate.update({where:{id:'default'},data:{tipFee:0.4}});
+ await db.accountLevelBenefit.update({where:{level:0},data:{accountGiftsShareBps:6000,version:{increment:1}}});
  try{
   const changed={...args,idempotencyKey:'dynamic-tip-fee'};
   expect((await createUserGift(changed,actor)).status).toBe(200);
   expect((await db.wallet.findUniqueOrThrow({where:{userId:receiver}})).coins.minus(before.coins).toNumber()).toBe(15);
-  await db.chargeRate.update({where:{id:'default'},data:{tipFee:0.2}});
+  await db.accountLevelBenefit.update({where:{level:0},data:{accountGiftsShareBps:8000,version:{increment:1}}});
   expect((await createUserGift(changed,actor)).status).toBe(200);
   expect((await db.wallet.findUniqueOrThrow({where:{userId:receiver}})).coins.minus(before.coins).toNumber()).toBe(15);
   expect((await db.transaction.findFirstOrThrow({where:{tipPackageId:gift,metadata:{path:['tipFeeRate'],equals:0.4}}})).metadata).toMatchObject({grossCoins:25,recipientCoins:15,platformFeeCoins:10});
- }finally{await db.chargeRate.update({where:{id:'default'},data:{tipFee:0.5}});}
+ }finally{await db.accountLevelBenefit.update({where:{level:0},data:{accountGiftsShareBps:5000}});}
 });

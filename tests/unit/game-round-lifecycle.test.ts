@@ -67,3 +67,17 @@ it('does not apply a delayed energy refresh to a player who switched categories'
  expect(current).toHaveBeenCalledWith(GameEventEnum.GAME_PLAYER_ENERGY,payload);
  expect(old).not.toHaveBeenCalled();expect(broadcast).not.toHaveBeenCalled();
 });
+
+it('boosts positive final base scores once, preserves zero scores, and sorts boosted results',async()=>{
+ deps.kind.mockReturnValue(GameType.MINDMASH);deps.cat.mockReturnValue(GameCatType.TYPEMANIA);
+ const snapshot:any={question:{id:'q',question:'test',answer:'test',options:[]},answers:[
+  {playerId:'a',roomId:'room',catId:'cat',answer:'test',timer:10,accountBenefits:{level:1,version:4,gamePointBoostBps:500}},
+  {playerId:'b',roomId:'room',catId:'cat',answer:'test',timer:10,accountBenefits:{level:3,version:4,gamePointBoostBps:1500}},
+  {playerId:'c',roomId:'room',catId:'cat',answer:'wrong',timer:10,accountBenefits:{level:3,version:4,gamePointBoostBps:1500}},
+ ]};
+ const scores=await calculateGameRoomPoints(room,snapshot);
+ expect(scores.find(s=>s.playerId==='a')).toMatchObject({baseScore:40,score:42,boostPoints:2,accountLevel:1,benefitsVersion:4});
+ expect(scores.find(s=>s.playerId==='b')).toMatchObject({baseScore:30,score:35,boostPoints:5});
+ expect(scores.find(s=>s.playerId==='c')).toMatchObject({baseScore:0,score:0,boostPoints:0});
+ expect(await calculateGameRoomPoints(room,snapshot)).toEqual(scores);
+});

@@ -38,8 +38,10 @@ it('returns a generic database failure without leaking details',async()=>{
  db.$transaction.mockRejectedValue(new Error('secret'));expect(await transferCoins(args)).toMatchObject({status:500,data:expect.not.stringContaining('secret')});
 });
 
-it('reads current transaction fee fractions from ChargeRate without caching',async()=>{
- db.chargeRate.findUniqueOrThrow.mockResolvedValueOnce({tipFee:new Prisma.Decimal('0.5'),quizFee:new Prisma.Decimal('0.15')}).mockResolvedValueOnce({tipFee:new Prisma.Decimal('0.4'),quizFee:new Prisma.Decimal('0.123456')});
- expect(await getTransactionRates()).toEqual({tipFee:0.5,quizFee:0.15});expect(await getTransactionRates()).toEqual({tipFee:0.4,quizFee:0.123456});
- db.chargeRate.findUniqueOrThrow.mockRejectedValue(new Error('database unavailable'));await expect(getTransactionRates()).rejects.toThrow('database unavailable');
+it('reads personalized benefits rather than ChargeRate for transaction fees',async()=>{
+ const {getAccountBenefits}=await import('@/services/v1/subscriptions/benefits');
+ const mock=vi.spyOn(await import('@/services/v1/subscriptions/benefits'),'getAccountBenefits');
+ mock.mockResolvedValue({level:1,postQuizChargeBps:1750} as any);
+ expect(await getTransactionRates('u')).toMatchObject({quizFee:0.175,accountBenefits:{level:1}});
+ mock.mockRejectedValue(new Error('database unavailable'));await expect(getTransactionRates('u')).rejects.toThrow('database unavailable');mock.mockRestore();
 });

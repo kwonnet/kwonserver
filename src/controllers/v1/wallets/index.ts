@@ -236,6 +236,6 @@ export async function withdrawalAdminDecisionController(req:Request,res:Response
 
 export async function transactionRatesController(req:Request,res:Response) {
   res.setHeader('Cache-Control','private, no-store');
-  try{const {getTransactionRates}=await import('@/services/v1/wallets');return res.json(await getTransactionRates());}
+  try{const {getTransactionRates}=await import('@/services/v1/wallets');return res.json(await getTransactionRates(String(req.user!.id)));}
   catch{return res.status(503).send('Transaction fees unavailable');}
 }

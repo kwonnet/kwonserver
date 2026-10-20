@@ -38,7 +38,7 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 it.each([{ plans: [], status: 404 }, { plans: [plan], status: 200 }])('lists subscription plans with features', async ({ plans, status }) => {
   db.subscriptionPlan.findMany.mockResolvedValue(plans); expect((await s.getPlans()).status).toBe(status);
-  expect(db.subscriptionPlan.findMany).toHaveBeenCalledWith({ include: { features: true } });
+  expect(db.subscriptionPlan.findMany).toHaveBeenCalledWith({ include: { features: true, benefits:true } });
 });
 it('handles a catalog error', async () => { db.subscriptionPlan.findMany.mockRejectedValue(new Error('db')); expect((await s.getPlans()).status).toBe(500); });
 const buy = [

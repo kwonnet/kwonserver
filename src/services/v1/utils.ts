@@ -47,7 +47,8 @@ export const composeAuthUser = (
   user: any,
   includeEmail: boolean = false
 ): AuthUser => {
-  const subscription = user?.subscriptions[0];
+  const now=new Date();
+  const subscription = user?.subscriptions?.filter((sub:any)=>sub.isPrimary&&sub.status==='ACTIVE'&&new Date(sub.startDate)<=now&&new Date(sub.endDate)>now).sort((a:any,b:any)=>new Date(b.endDate).getTime()-new Date(a.endDate).getTime()||a.id.localeCompare(b.id))[0];
   const statuses = [UserStatus.ACTIVE, UserStatus.PRIVATE] as string[];
   return {
     id: user.id,
@@ -71,7 +72,7 @@ export const composeAuthUser = (
       message: getUserStatusMessage(user),
       accountStatus: user?.status,
       tier: 1,
-      level: 1,
+      level: subscription?.plan?.level??0,
     },
   };
 };
@@ -517,6 +518,7 @@ export const getAuthUser = async (
       where: { id: userId },
       include: {
         subscriptions: {
+          include:{plan:{select:{level:true}}},
           where: {
             status: {
               in: [
@@ -575,6 +577,7 @@ export const getPublicUser = async (
       where: { id: userId },
       include: {
         subscriptions: {
+          include:{plan:{select:{level:true}}},
           where: {
             status: {
               in: [

@@ -446,7 +446,8 @@ async function assertWithdrawalOtpProof(row:CoinWithdrawal,user:{email:string;pa
 }
 
 
-export async function getTransactionRates() {
-  const rates=await prisma.chargeRate.findUniqueOrThrow({where:{id:'default'},select:{tipFee:true,quizFee:true}});
-  return {tipFee:rates.tipFee.toNumber(),quizFee:rates.quizFee.toNumber()};
+export async function getTransactionRates(userId:string) {
+  const {getAccountBenefits}=await import('../subscriptions/benefits');
+  const benefits=await getAccountBenefits(userId);
+  return {quizFee:benefits.postQuizChargeBps/10000,accountBenefits:benefits};
 }

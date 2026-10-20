@@ -1018,7 +1018,8 @@ model Country {
 }
 
 model SubscriptionPlan {
-  postBoostTarget Int @default(150)
+  level Int @default(1)
+  benefits AccountLevelBenefit @relation(fields:[level],references:[level])
   id            String         @id @default(cuid()) // Unique subscription plan ID
   name          String
   ngnPrice      Decimal @db.Decimal(20, 2) // Price in Nigerian Naira (NGN)
@@ -1066,6 +1067,7 @@ model Subscription {
   updatedAt    DateTime         @updatedAt
 
    @@index([createdAt])
+   @@index([userId,isPrimary,status,endDate])
 }
 
 model Notification {
@@ -2105,6 +2107,8 @@ model EngagementCredit {
   @@id([userId, taskId, targetId])
 }
 model PostBoost {
+  accountLevel Int @default(0)
+  benefitsVersion Int @default(1)
   postId String @id
   post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
   target Int @default(150)
@@ -2371,8 +2375,6 @@ model BachsCheckout {
 
 // Decimal rates retain sub-cent prices such as USD 0.015 per coin.
 model ChargeRate {
-  tipFee Decimal @default(0.5) @db.Decimal(10,6)
-  quizFee Decimal @default(0.15) @db.Decimal(10,6)
   id String @id @default("default")
   price Decimal @default(0.015) @db.Decimal(20,6)
   maxPrice Decimal @default(0.017) @db.Decimal(20,6)
@@ -2688,4 +2690,20 @@ model GameIntegrityCase {
  @@index([status,nextAttemptAt])
  @@index([userId,createdAt])
  @@index([catId,roundId])
+}
+
+model AccountLevelBenefit {
+ level Int @id
+ postTipsShareBps Int
+ accountGiftsShareBps Int
+ chatGiftsShareBps Int
+ postExposureTarget Int
+ postExposureWindowHours Int @default(24)
+ gamePointBoostBps Int
+ postQuizChargeBps Int
+ maxPostCharacters Int
+ version Int @default(1)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ plans SubscriptionPlan[]
 }

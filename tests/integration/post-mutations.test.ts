@@ -41,7 +41,7 @@ it('rolls back a new like if its counter update fails', async () => {
   }
 });
 
-it('charges concurrent gift retries once and immediately credits the recipient half',async()=>{
+it('charges concurrent gift retries once and immediately credits the level-zero recipient share',async()=>{
  await prisma.wallet.create({data:{userId:reader.id,coins:60,}});
  await prisma.wallet.create({data:{userId:author.id,coins:0,}});
  const pack=await prisma.tipPackage.create({data:{name:'Integrity tip',price:30}});
@@ -50,11 +50,11 @@ it('charges concurrent gift retries once and immediately credits the recipient h
  expect(results.map(r=>r.status)).toEqual([200,200,200,200,200]);
  expect(moneyJson((await prisma.wallet.findUniqueOrThrow({where:{userId:reader.id}})).coins)).toBe(30);
 
- expect(moneyJson((await prisma.wallet.findUniqueOrThrow({where:{userId:author.id}})).coins)).toBe(15);
+ expect(moneyJson((await prisma.wallet.findUniqueOrThrow({where:{userId:author.id}})).coins)).toBe(9);
  const entries=await prisma.transaction.findMany({where:{postId:'integration-post',category:'POST_TIP'}});
  expect(moneyJson(entries)).toHaveLength(2);expect(moneyJson(entries[0].txnRef)).toBe(entries[1].txnRef);
  expect(moneyJson(entries.find(e=>e.type==='DEBIT'))).toMatchObject({userId:reader.id,amount:30,status:'COMPLETED'});
- expect(moneyJson(entries.find(e=>e.type==='CREDIT'))).toMatchObject({userId:author.id,amount:15,status:'COMPLETED'});
+ expect(moneyJson(entries.find(e=>e.type==='CREDIT'))).toMatchObject({userId:author.id,amount:9,status:'COMPLETED'});
  expect(await prisma.rewardTip.count({where:{userId:author.id,status:'SETTLED'}})).toBe(1);
  expect((await prisma.postTip.findFirstOrThrow({where:{postId:'integration-post'}})).coinsAmount?.toString()).toBe('30');
  expect((await createPostTip({...args,senderId:author.id},reader)).status).toBe(400);

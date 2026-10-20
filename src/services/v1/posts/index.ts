@@ -1,3 +1,4 @@
+import {getAccountBenefits,assertPostLength} from "../subscriptions/benefits";
 import {transactionFee} from "@/services/walletLedger/fees";
 import {PostCreateSchema} from "@/schema/post";
 import {enqueuePostPublicationNotification} from '@/services/v1/notifications';
@@ -100,7 +101,9 @@ export const createPost = async (body: PostCreate, userId: string, idempotencyKe
     
 
     const create = async (tx: Prisma.TransactionClient) => {
-      const rates = needsFunding ? await tx.chargeRate.findUniqueOrThrow({where:{id:'default'}}) : null;
+      const benefits=await getAccountBenefits(userId,tx);
+      assertPostLength(body.thread,benefits.maxPostCharacters);
+      const rates=needsFunding?{quizFee:new Prisma.Decimal(benefits.postQuizChargeBps).div(10000)}:null;
       if(rates && (body.expectedQuizFee===undefined || !rates.quizFee.eq(body.expectedQuizFee)))throw new WalletError('Quiz fee changed. Refresh the fee and confirm again.',409);
       const totalRewardAmount = rates ? rewardedQuiz.reduce((sum,p)=>sum+transactionFee(p.quiz!.rewardAmount,rates.quizFee,'quiz').total,0)/100 : 0;
       // locked user wallet temporary
@@ -561,7 +564,7 @@ export const createPost = async (body: PostCreate, userId: string, idempotencyKe
                 amount: quote.total/100,
                 postId: post.id,
                 txnRef: fundingTxnRef,
-                metadata:{quizId:quiz.id,rewardPoolCoins:quote.gross/100,platformFeeCoins:quote.fee/100,quizFeeRate:quote.rate},
+                metadata:{accountLevel:benefits.level,benefitsVersion:benefits.version,quizId:quiz.id,rewardPoolCoins:quote.gross/100,platformFeeCoins:quote.fee/100,quizFeeRate:quote.rate},
                 description: `Quiz reward pool and creation fee`,
                 senderId: post.userId,
                 walletId: wallet.id,
@@ -615,6 +618,7 @@ export const createPostQuote = async (
   try {
     const isScheduled = !!body.scheduleAt;
     const result = await prisma.$transaction(async (tx) => {
+      assertPostLength(body.thread,(await getAccountBenefits(userId,tx)).maxPostCharacters);
       // check if post exists
       await tx.post.findUniqueOrThrow({ where: { id: postId } });
       // check if scheduled
@@ -895,6 +899,7 @@ export const createPostQuote = async (
     return { data: result, status: 200 };
   } catch (error) {
     logServiceError("v1/posts/index", "createPostQuote", error);
+    if(error instanceof WalletError)return {status:error.status,data:error.message};
 
     return {
       data: "Error occurred while processing request, please try again",
@@ -911,6 +916,7 @@ export const createPostReply = async (
   if(body.thread.some(thread=>thread.quiz?.isPaid))return {status:400,data:'Publish rewarded quizzes as a new post or thread'};
   try {
     const result = await prisma.$transaction(async (tx) => {
+      assertPostLength(body.thread,(await getAccountBenefits(user.id,tx)).maxPostCharacters);
       let reply: Post | undefined = undefined;
       const post = await tx.post.findUniqueOrThrow({ where: { id: postId } });
       const rootId = post.rootId || post.id;
@@ -1072,6 +1078,7 @@ export const createPostReply = async (
     return { data: serializeBigInts(rest), status: 200 };
   } catch (error: any) {
     logServiceError("v1/posts/index", "createPostReply", error);
+    if(error instanceof WalletError)return {status:error.status,data:error.message};
 
 
     return { data: "Error occurred reposting, please try again", status: 500 };
@@ -1410,8 +1417,9 @@ export async function createPostTip(args:{idempotencyKey?:string;device:DetectRe
       if(await tx.blockUser.findFirst({where:{OR:[{blockerId:args.senderId,blockedId:args.recipientId},{blockerId:args.recipientId,blockedId:args.senderId}]}}))throw new WalletError('Gifting is unavailable between these accounts',403);
       const tip=await tx.tipPackage.findUniqueOrThrow({where:{id:args.tipId}});
       if(!tip.isActive||(tip.endDate&&tip.endDate<new Date())||!['ALL',args.postId?'POST':'ALL'].includes(tip.kind))throw new WalletError('Gift unavailable');
-      const rates=await tx.chargeRate.findUniqueOrThrow({where:{id:'default'}});
-      const split=transactionFee(tip.price,rates.tipFee,'tip');
+      const benefits=await getAccountBenefits(args.recipientId,tx);
+      const shareBps=args.postId?benefits.postTipsShareBps:benefits.accountGiftsShareBps;
+      const split=transactionFee(tip.price,new Prisma.Decimal(10000-shareBps).div(10000),'tip');
       const price=split.gross,received=split.received,platformFee=split.fee;
       if(!received)throw new WalletError('Gift price is too small');
       const senderWallet=await tx.wallet.findUniqueOrThrow({where:{userId:args.senderId}}),receiverWallet=await tx.wallet.findUniqueOrThrow({where:{userId:args.recipientId}});
@@ -1419,7 +1427,7 @@ export async function createPostTip(args:{idempotencyKey?:string;device:DetectRe
       if(cents(senderWallet.coins,true)<price)throw new WalletError('Insufficient coins, please purchase coins');
       await tx.wallet.update({where:{id:senderWallet.id},data:{coins:{decrement:price/100}}});
       await tx.wallet.update({where:{id:receiverWallet.id},data:{coins:{increment:received/100}}});
-      const txnRef=generateUniqueRef(),metadata={giftId:tip.id,giftName:tip.name,giftThumbnail:tip.thumbnail,grossCoins:price/100,recipientCoins:received/100,platformFeeCoins:platformFee/100,tipFeeRate:split.rate,settlementVersion:2};
+      const txnRef=generateUniqueRef(),metadata={accountLevel:benefits.level,benefitsVersion:benefits.version,recipientShareBps:shareBps,giftId:tip.id,giftName:tip.name,giftThumbnail:tip.thumbnail,grossCoins:price/100,recipientCoins:received/100,platformFeeCoins:platformFee/100,tipFeeRate:split.rate,settlementVersion:2};
       const common={txnRef,tipPackageId:tip.id,postId:args.postId,senderId:args.senderId,recipientId:args.recipientId,currency:TxnCurrencyEnum.COINS,source:TxnSourceEnum.COINS,gateway:TxnGatewayEnum.WALLET,category:TxnCategoryEnum.POST_TIP,status:TxnStatusEnum.COMPLETED,metadata};
       await tx.transaction.create({data:{...common,userId:args.senderId,walletId:senderWallet.id,amount:price/100,type:TxnTypeEnum.DEBIT,description:`Gift sent to ${recipient.name}`}});
       const reward=await tx.transaction.create({data:{...common,senderId:args.isAnon?null:args.senderId,userId:args.recipientId,walletId:receiverWallet.id,amount:received/100,type:TxnTypeEnum.CREDIT,description:`Gift received from ${args.isAnon?'anonymous':user.name}`}});
@@ -1590,7 +1598,7 @@ export const getPostTagUsers = async (
                 },
               },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -1694,7 +1702,7 @@ export const getPostMentionUsers = async (
                 },
               },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -1761,7 +1769,7 @@ export const getEmbedPost = async (postId: string, userId?: string) => {
   const authorSelect = {
     id: true, name: true, username: true, avatar: true, bio: true, role: true,
     userType: true, meta: true, status: true, createdAt: true, accountVerifiedAt: true,
-    subscriptions: {where: {status: {in: [SubStatusEnum.ACTIVE, SubStatusEnum.TRIAL, SubStatusEnum.PAYMENT_ERROR] as SubStatusEnum[]}}, select: {id: true}, take: 1},
+    subscriptions: {where:{status:'ACTIVE',isPrimary:true,startDate:{lte:new Date()},endDate:{gt:new Date()}},select:{id:true,isPrimary:true,status:true,startDate:true,endDate:true,plan:{select:{level:true}}},take:1},
     _count: {select: {followers: {where: {status: FollowStatus.ACCEPTED}}, following: {where: {status: FollowStatus.ACCEPTED}}}},
     followers: {where: {followerId: viewerId}, select: {status: true}},
     following: {where: {followingId: viewerId}, select: {status: true}},
@@ -1916,7 +1924,7 @@ export const getPostQuotes = async (
                 status: true,
               },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -1988,7 +1996,7 @@ export const getPostQuotes = async (
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -2062,7 +2070,7 @@ export const getPostQuotes = async (
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -2160,7 +2168,7 @@ export const getPostQuotes = async (
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -2232,7 +2240,7 @@ export const getPostQuotes = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -2306,7 +2314,7 @@ export const getPostQuotes = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -2492,7 +2500,7 @@ export const getPostReposters = async (
                 status: true,
               },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -2703,7 +2711,7 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
             mutedBy: {
               where: { muterId: userId },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -2775,7 +2783,7 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -2849,7 +2857,7 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -3027,7 +3035,7 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
                 mutedBy: {
                   where: { muterId: userId },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -3099,7 +3107,7 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -3173,7 +3181,7 @@ const getFeedPostThread = async (postId: string, userId?: string) => {
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -3448,7 +3456,7 @@ export const fetchFeedPostReplies = async ({
             mutedBy: {
               where: { muterId: userId },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -3520,7 +3528,7 @@ export const fetchFeedPostReplies = async ({
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -3594,7 +3602,7 @@ export const fetchFeedPostReplies = async ({
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -3757,7 +3765,7 @@ export const fetchFeedPostReplies = async ({
                 mutedBy: {
                   where: { muterId: userId },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -3829,7 +3837,7 @@ export const fetchFeedPostReplies = async ({
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -3903,7 +3911,7 @@ export const fetchFeedPostReplies = async ({
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -5241,7 +5249,7 @@ const getSinglePost = async (postId: string, userId?: string) => {
             mutedBy: {
               where: { muterId: userId },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -5313,7 +5321,7 @@ const getSinglePost = async (postId: string, userId?: string) => {
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -5387,7 +5395,7 @@ const getSinglePost = async (postId: string, userId?: string) => {
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -7122,7 +7130,7 @@ export function newsfeedQuery(userId: string, recs: string[], args: { feed?: str
             mutedBy: {
               where: { muterId: userId },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -7210,7 +7218,7 @@ export function newsfeedQuery(userId: string, recs: string[], args: { feed?: str
                 mutedBy: {
                   where: { muterId: userId },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -7300,7 +7308,7 @@ export function newsfeedQuery(userId: string, recs: string[], args: { feed?: str
                 mutedBy: {
                   where: { muterId: userId },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -7474,7 +7482,7 @@ export function newsfeedQuery(userId: string, recs: string[], args: { feed?: str
                 mutedBy: {
                   where: { muterId: userId },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -7562,7 +7570,7 @@ export function newsfeedQuery(userId: string, recs: string[], args: { feed?: str
                     mutedBy: {
                       where: { muterId: userId },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -7652,7 +7660,7 @@ export function newsfeedQuery(userId: string, recs: string[], args: { feed?: str
                     mutedBy: {
                       where: { muterId: userId },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -7844,7 +7852,7 @@ export function newsfeedQuery(userId: string, recs: string[], args: { feed?: str
                     mutedBy: {
                       where: { muterId: userId },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -7932,7 +7940,7 @@ export function newsfeedQuery(userId: string, recs: string[], args: { feed?: str
                         mutedBy: {
                           where: { muterId: userId },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -8022,7 +8030,7 @@ export function newsfeedQuery(userId: string, recs: string[], args: { feed?: str
                         mutedBy: {
                           where: { muterId: userId },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [

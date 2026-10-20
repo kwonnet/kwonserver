@@ -302,7 +302,7 @@ export const updateUserNotifications = async (args: {
 export const getUserActiveSubscription = async (userId: string) => {
   try {
     const sub = await prisma.subscription.findFirst({
-      where: { userId, isPrimary: true },
+      where: { userId, isPrimary: true, status:'ACTIVE',startDate:{lte:new Date()},endDate:{gt:new Date()} },
       include: {
         plan: {
           select: {
@@ -310,6 +310,8 @@ export const getUserActiveSubscription = async (userId: string) => {
             id: true,
             createdAt: true,
             features: true,
+            level: true,
+            benefits: true,
             discount: true,
             name: true,
             price: true,
@@ -1629,7 +1631,7 @@ export async function getUserProfileOverview(
             },
           },
         },
-        subscriptions: {
+        subscriptions: { include:{plan:{select:{level:true}}},
           where: {
             status: {
               in: [
@@ -1791,7 +1793,7 @@ export const getMutualFollowings = async (
               following: true,
             },
           },
-          subscriptions: {
+          subscriptions: { include:{plan:{select:{level:true}}},
             where: {
               status: {
                 in: [
@@ -1884,7 +1886,7 @@ export const getUserFollowers = async ({
                 },
               },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -1989,7 +1991,7 @@ export const getUserFollowing = async ({
                 },
               },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -2107,7 +2109,7 @@ export const getUserFriends = async ({
             },
           },
         },
-        subscriptions: {
+        subscriptions: { include:{plan:{select:{level:true}}},
           where: {
             status: {
               in: [
@@ -2230,7 +2232,7 @@ export const getUserVerifiedFollowers = async ({
                 },
               },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -2336,7 +2338,7 @@ export const getUserFollowRequests = async ({
                 },
               },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -2440,7 +2442,7 @@ export const getUserBlockedUsers = async ({
                 },
               },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -2544,7 +2546,7 @@ export const getUserMutedUsers = async ({
                 },
               },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -2733,7 +2735,7 @@ export const getUserPosts = async (
             mutedBy: {
               where: { muterId: user.id },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -2805,7 +2807,7 @@ export const getUserPosts = async (
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -2879,7 +2881,7 @@ export const getUserPosts = async (
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -3049,7 +3051,7 @@ export const getUserPosts = async (
                 mutedBy: {
                   where: { muterId: user.id },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -3121,7 +3123,7 @@ export const getUserPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -3195,7 +3197,7 @@ export const getUserPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -3383,7 +3385,7 @@ export const getUserPosts = async (
                     mutedBy: {
                       where: { muterId: user.id },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -3455,7 +3457,7 @@ export const getUserPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -3529,7 +3531,7 @@ export const getUserPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -3803,7 +3805,7 @@ export const getUserScheduledPosts = async (
             mutedBy: {
               where: { muterId: user.id },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -3875,7 +3877,7 @@ export const getUserScheduledPosts = async (
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -3949,7 +3951,7 @@ export const getUserScheduledPosts = async (
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -4119,7 +4121,7 @@ export const getUserScheduledPosts = async (
                 mutedBy: {
                   where: { muterId: user.id },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -4191,7 +4193,7 @@ export const getUserScheduledPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -4265,7 +4267,7 @@ export const getUserScheduledPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -4453,7 +4455,7 @@ export const getUserScheduledPosts = async (
                     mutedBy: {
                       where: { muterId: user.id },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -4525,7 +4527,7 @@ export const getUserScheduledPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -4599,7 +4601,7 @@ export const getUserScheduledPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -4874,7 +4876,7 @@ export const getUserReplies = async (
             mutedBy: {
               where: { muterId: user.id },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -4946,7 +4948,7 @@ export const getUserReplies = async (
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -5020,7 +5022,7 @@ export const getUserReplies = async (
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -5190,7 +5192,7 @@ export const getUserReplies = async (
                 mutedBy: {
                   where: { muterId: user.id },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -5262,7 +5264,7 @@ export const getUserReplies = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -5336,7 +5338,7 @@ export const getUserReplies = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -5524,7 +5526,7 @@ export const getUserReplies = async (
                     mutedBy: {
                       where: { muterId: user.id },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -5596,7 +5598,7 @@ export const getUserReplies = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -5670,7 +5672,7 @@ export const getUserReplies = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -5950,7 +5952,7 @@ export const getUserLikedPosts = async (
                 mutedBy: {
                   where: { muterId: user.id },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -6022,7 +6024,7 @@ export const getUserLikedPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -6096,7 +6098,7 @@ export const getUserLikedPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -6266,7 +6268,7 @@ export const getUserLikedPosts = async (
                     mutedBy: {
                       where: { muterId: user.id },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -6338,7 +6340,7 @@ export const getUserLikedPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -6412,7 +6414,7 @@ export const getUserLikedPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -6601,7 +6603,7 @@ export const getUserLikedPosts = async (
                         mutedBy: {
                           where: { muterId: user.id },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -6673,7 +6675,7 @@ export const getUserLikedPosts = async (
                                 status: true,
                               },
                             },
-                            subscriptions: {
+                            subscriptions: { include:{plan:{select:{level:true}}},
                               where: {
                                 status: {
                                   in: [
@@ -6747,7 +6749,7 @@ export const getUserLikedPosts = async (
                                 status: true,
                               },
                             },
-                            subscriptions: {
+                            subscriptions: { include:{plan:{select:{level:true}}},
                               where: {
                                 status: {
                                   in: [
@@ -7029,7 +7031,7 @@ export const getUserBookmarkPosts = async (
                 mutedBy: {
                   where: { muterId: user.id },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -7101,7 +7103,7 @@ export const getUserBookmarkPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -7175,7 +7177,7 @@ export const getUserBookmarkPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -7345,7 +7347,7 @@ export const getUserBookmarkPosts = async (
                     mutedBy: {
                       where: { muterId: user.id },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -7417,7 +7419,7 @@ export const getUserBookmarkPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -7491,7 +7493,7 @@ export const getUserBookmarkPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -7682,7 +7684,7 @@ export const getUserBookmarkPosts = async (
                         mutedBy: {
                           where: { muterId: user.id },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -7754,7 +7756,7 @@ export const getUserBookmarkPosts = async (
                                 status: true,
                               },
                             },
-                            subscriptions: {
+                            subscriptions: { include:{plan:{select:{level:true}}},
                               where: {
                                 status: {
                                   in: [
@@ -7828,7 +7830,7 @@ export const getUserBookmarkPosts = async (
                                 status: true,
                               },
                             },
-                            subscriptions: {
+                            subscriptions: { include:{plan:{select:{level:true}}},
                               where: {
                                 status: {
                                   in: [
@@ -8110,7 +8112,7 @@ export const getUserHighlightPosts = async (
                 mutedBy: {
                   where: { muterId: user.id },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -8182,7 +8184,7 @@ export const getUserHighlightPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -8256,7 +8258,7 @@ export const getUserHighlightPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -8426,7 +8428,7 @@ export const getUserHighlightPosts = async (
                     mutedBy: {
                       where: { muterId: user.id },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -8498,7 +8500,7 @@ export const getUserHighlightPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -8572,7 +8574,7 @@ export const getUserHighlightPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -8763,7 +8765,7 @@ export const getUserHighlightPosts = async (
                         mutedBy: {
                           where: { muterId: user.id },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -8835,7 +8837,7 @@ export const getUserHighlightPosts = async (
                                 status: true,
                               },
                             },
-                            subscriptions: {
+                            subscriptions: { include:{plan:{select:{level:true}}},
                               where: {
                                 status: {
                                   in: [
@@ -8909,7 +8911,7 @@ export const getUserHighlightPosts = async (
                                 status: true,
                               },
                             },
-                            subscriptions: {
+                            subscriptions: { include:{plan:{select:{level:true}}},
                               where: {
                                 status: {
                                   in: [
@@ -9186,7 +9188,7 @@ export const getUserMediaPosts = async (
             mutedBy: {
               where: { muterId: user.id },
             },
-            subscriptions: {
+            subscriptions: { include:{plan:{select:{level:true}}},
               where: {
                 status: {
                   in: [
@@ -9258,7 +9260,7 @@ export const getUserMediaPosts = async (
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -9332,7 +9334,7 @@ export const getUserMediaPosts = async (
                     status: true,
                   },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -9502,7 +9504,7 @@ export const getUserMediaPosts = async (
                 mutedBy: {
                   where: { muterId: user.id },
                 },
-                subscriptions: {
+                subscriptions: { include:{plan:{select:{level:true}}},
                   where: {
                     status: {
                       in: [
@@ -9574,7 +9576,7 @@ export const getUserMediaPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -9648,7 +9650,7 @@ export const getUserMediaPosts = async (
                         status: true,
                       },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -9834,7 +9836,7 @@ export const getUserMediaPosts = async (
                     mutedBy: {
                       where: { muterId: user.id },
                     },
-                    subscriptions: {
+                    subscriptions: { include:{plan:{select:{level:true}}},
                       where: {
                         status: {
                           in: [
@@ -9906,7 +9908,7 @@ export const getUserMediaPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [
@@ -9980,7 +9982,7 @@ export const getUserMediaPosts = async (
                             status: true,
                           },
                         },
-                        subscriptions: {
+                        subscriptions: { include:{plan:{select:{level:true}}},
                           where: {
                             status: {
                               in: [

@@ -9,9 +9,12 @@ const source = fs.readFileSync(path.join(__dirname, '../prisma/seed.ts'), 'utf8'
 const output = ts.transpileModule(source, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true,
 } }).outputText;
+const benefitExports={};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,'../prisma/account-level-benefits.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports:benefitExports});
 function load({ demo = false, failure = false, topicsOnly = false, mediaBase } = {}) {
   let transactions = 0;
   const chargeRateWrites = [];
+  const benefitWrites=[];
   const tx = { $executeRaw: async () => {} };
   tx.chargeRate = { upsert: async args => {
     if (failure) throw new Error('Database failure');
@@ -21,12 +24,14 @@ function load({ demo = false, failure = false, topicsOnly = false, mediaBase } =
   for (const name of ['coinPackage', 'tipPackage', 'gameMilestone', 'game', 'subscriptionPlan', 'country', 'continent']) {
     tx[name] = { count: async () => { if (failure) throw new Error('Database failure'); return 1; } };
   }
+  tx.accountLevelBenefit={upsert:async args=>{benefitWrites.push(args);return args.create;}};
   tx.game.findMany = async () => [];
   tx.gameCategory = { findMany: async () => [], update: async () => { throw new Error("Unexpected update"); } };
   tx.tipPackage.upsert=async()=>({});tx.tipPackage.deleteMany=async()=>({count:0});
   const prisma = { $transaction: async callback => { transactions++; return await callback(tx); } };
   const exports = {};
   const requireMock = name => {
+    if (name === './account-level-benefits') return benefitExports;
     if (name === '@prisma/adapter-pg') return {PrismaPg: class {}};
     if (name === '@prisma/client') return { ...generated, PrismaClient: function () { return prisma; } };
     if (name === '@faker-js/faker') return { faker: {} };
@@ -36,10 +41,12 @@ function load({ demo = false, failure = false, topicsOnly = false, mediaBase } =
   vm.runInNewContext(output, { exports, module: { exports }, require: requireMock,
     console: { log() {}, error() {} }, process: { argv: demo ? ['node', 'seed', '--demo'] : topicsOnly ? ['node', 'seed', '--game-topics'] : [], env: { NODE_ENV: 'production', CLOUDFLARE_PUBLIC_MEDIA_URL: mediaBase } },
   });
-  return { genericRooms: exports.genericGameRooms, banners: exports.syncGameBannerThumbnails, bannerUrl: exports.gameBannerThumbnail, main: exports.main, flags: exports.syncCountryGameThumbnails, flagUrl: exports.countryGameThumbnail, sync: exports.syncGameCategoryTopics, tx, chargeRateWrites, transactions: () => transactions };
+  return { genericRooms: exports.genericGameRooms, banners: exports.syncGameBannerThumbnails, bannerUrl: exports.gameBannerThumbnail, main: exports.main, flags: exports.syncCountryGameThumbnails, flagUrl: exports.countryGameThumbnail, sync: exports.syncGameCategoryTopics, tx, benefitWrites, chargeRateWrites, transactions: () => transactions };
 }
 test('production seed only accesses reference tables and runs transactionally', async () => {
   const seed = load(); await seed.main(); assert.equal(seed.transactions(), 1);
+  assert.deepEqual(seed.benefitWrites.map(row=>row.where.level),[0,1,2,3]);
+  assert.ok(seed.benefitWrites.every(row=>Object.keys(row.update).length===0));
   assert.deepEqual(JSON.parse(JSON.stringify(seed.chargeRateWrites)), [
     { where: { id: 'default' }, update: {}, create: { id: 'default' } },
   ]);
@@ -88,7 +95,7 @@ test('topic sync propagates write errors so the seed transaction rolls back', as
   } }, [{ name: 'Game', categories: [{ name: 'Category', topics: ['Topic'] }] }]), /Write failed/);
 });
 test('generated gift catalog uses stable IDs, thumbnails and affordable coin prices',()=>{
- const exports={};const requireMock=name=>name==='@prisma/adapter-pg'?{PrismaPg:class{}}:name==='@prisma/client'?{...generated,PrismaClient:class{}}:name==='@faker-js/faker'?{faker:{}}:require(name);
+ const exports={};const requireMock=name=>name==='./account-level-benefits'?benefitExports:name==='@prisma/adapter-pg'?{PrismaPg:class{}}:name==='@prisma/client'?{...generated,PrismaClient:class{}}:name==='@faker-js/faker'?{faker:{}}:require(name);
  vm.runInNewContext(output,{exports,module:{exports},require:requireMock,process:{env:{},argv:[]},console});
  const gifts=JSON.parse(JSON.stringify(exports.tipPackages));assert.equal(gifts.length,50);assert.equal(new Set(gifts.map(g=>g.id)).size,50);
  for(const gift of gifts){assert.equal(gift.thumbnail,`/static/tips/${gift.id}.webp`);assert.ok(Number.isInteger(gift.price)&&gift.price>=5&&gift.price<=12500);assert.ok(gift.name);}

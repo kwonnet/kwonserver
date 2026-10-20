@@ -1,3 +1,4 @@
+import {getAccountBenefits} from "@/services/v1/subscriptions/benefits";
 import { GameDelivery, gameActionId } from './gameDelivery';
 import { GameActionEnum } from '@/types';
 import { TxnCategoryEnum, TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum, TxnStatusEnum, TxnTypeEnum } from '@prisma/client';
@@ -40,6 +41,12 @@ export async function chargeGameAction(params: { playerId: string; action: GameA
       const {luckOptions,requestDetails,...payload} = delivery.payload;
       acceptedDelivery = {...delivery, payload: {...payload, answer: outcome, serverOutcome: true, luckInvalid:zeroRound}};
     }
+    if (acceptedDelivery && ['ANSWER','ACRONYM','WORDMAKER'].includes(acceptedDelivery.kind)) {
+      // Wallet locks serialize first participation; later spins keep this round's policy.
+      const prior=await tx.gameWalletAction.findFirst({where:{userId:params.playerId,roundId:acceptedDelivery.roundId,roomId:acceptedDelivery.roomId,kind:{in:['ANSWER','ACRONYM','WORDMAKER']},status:{not:'REFUNDED'}},orderBy:{sequence:'asc'}});
+      const benefits=(prior?.payload as any)?.accountBenefits ?? await getAccountBenefits(params.playerId,tx);
+      acceptedDelivery={...acceptedDelivery,payload:{...acceptedDelivery.payload,accountBenefits:benefits}};
+    }
     if (acceptedDelivery) await tx.gameWalletAction.create({data:{id:actionId!,userId:params.playerId,roomId:acceptedDelivery.roomId,roundId:acceptedDelivery.roundId,
       kind:acceptedDelivery.kind,payload:acceptedDelivery.kind === 'CHAT' ? {id: acceptedDelivery.payload.id} : acceptedDelivery.payload,deductedCoins:coinDebit/100,deductedBonus:bonusDebit/100}});
     await tx.transaction.create({ data: {
@@ -50,7 +57,7 @@ export async function chargeGameAction(params: { playerId: string; action: GameA
       type: TxnTypeEnum.DEBIT, status: TxnStatusEnum.COMPLETED,
       description: 'Game action charge', metadata: { ...storedParams, gameActionId:actionId, deductedBonus: bonusDebit / 100, deductedCoins: coinDebit / 100 },
     } });
-    return { ...(outcome !== undefined ? {outcome} : {}), ...(actionId ? {actionId} : {}), amount: (coins - coinDebit) / 100, bonus: (bonus - bonusDebit) / 100,
+    return { ...(acceptedDelivery?.payload.accountBenefits?{accountBenefits:acceptedDelivery.payload.accountBenefits}:{}), ...(outcome !== undefined ? {outcome} : {}), ...(actionId ? {actionId} : {}), amount: (coins - coinDebit) / 100, bonus: (bonus - bonusDebit) / 100,
       deductedBonus: bonusDebit / 100, deductedCoins: coinDebit / 100 };
   });
 }

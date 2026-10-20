@@ -63,3 +63,9 @@ export const cancelSubscriptionController = async(req: Request, res: Response) =
         return res.status(500).send('Error: Unable to process request, please try again later')
     }
 }
+
+export async function accountBenefitsController(req:Request,res:Response) {
+ res.setHeader('Cache-Control','private, no-store');
+ try {const {getAccountBenefits}=await import('@/services/v1/subscriptions/benefits');return res.json(await getAccountBenefits(String(req.user!.id)));}
+ catch {return res.status(503).send('Account benefits unavailable');}
+}

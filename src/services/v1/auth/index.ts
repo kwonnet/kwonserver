@@ -86,6 +86,7 @@ export const createUser = async (
         },
         include: {
           subscriptions: {
+            include:{plan:{select:{level:true}}},
             where: {
               status: {
                 in: [
@@ -156,6 +157,7 @@ export const loginUser = async (body: { email: string; password: string }) => {
       },
       include: {
         subscriptions: {
+          include:{plan:{select:{level:true}}},
           where: {
             status: {
               in: [

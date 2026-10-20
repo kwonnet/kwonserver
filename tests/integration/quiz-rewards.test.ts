@@ -69,11 +69,7 @@ async function enter(quiz: any, user: string, correct = true) {
   return voteQuizPost(quiz.postId, option.id, user);
 }
 beforeAll(async () => {
-  await db.chargeRate.upsert({
-    where: { id: "default" },
-    create: { id: "default" },
-    update: { quizFee: 0.15 },
-  });
+  await db.accountLevelBenefit.update({where:{level:0},data:{postQuizChargeBps:1500}});
   for (const id of [owner, ...users])
     await db.user.create({
       data: {
@@ -88,6 +84,7 @@ beforeAll(async () => {
 });
 // The scale test creates 50,000 accounts; await their FK cascades on CI.
 afterAll(async () => {
+  await db.accountLevelBenefit.update({where:{level:0},data:{postQuizChargeBps:2000}});
   try {
     const where = { quiz: { post: { userId: owner } } };
     await db.quizReward.deleteMany({ where });
@@ -140,10 +137,7 @@ it("charges pool plus dynamic fee once across concurrent creation retries and re
     platformFeeCoins: 150,
     quizFeeRate: 0.15,
   });
-  await db.chargeRate.update({
-    where: { id: "default" },
-    data: { quizFee: 0.2 },
-  });
+  await db.accountLevelBenefit.update({where:{level:0},data:{postQuizChargeBps:2000}});
   try {
     expect(
       (await createPost(payload, owner, "quiz-create-concurrent")).status,
@@ -163,10 +157,7 @@ it("charges pool plus dynamic fee once across concurrent creation retries and re
       ),
     ).toBe(2650);
   } finally {
-    await db.chargeRate.update({
-      where: { id: "default" },
-      data: { quizFee: 0.15 },
-    });
+    await db.accountLevelBenefit.update({where:{level:0},data:{postQuizChargeBps:1500}});
   }
 });
 it("requires enough coins for the fee too and rejects blank choices without creating or debiting", async () => {

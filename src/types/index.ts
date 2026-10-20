@@ -349,6 +349,7 @@ export interface GameRoomAnswer {
 }
 
 export interface ThemedGameScore {
+  baseScore?:number; boostPoints?:number; accountLevel?:number; benefitsVersion?:number; gamePointBoostBps?:number;
     avatar?: string | null;
     roomId: string;
     catId: string;

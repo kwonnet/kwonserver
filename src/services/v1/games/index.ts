@@ -1,3 +1,4 @@
+import {getAccountBenefits,boostRoundScore} from "../subscriptions/benefits";
 import {finishLiveGameRound,enqueueGameResult} from './liveResults';
 import {gameClock} from './clock';
 import {assertGameRuntimeLease} from './lease';
@@ -378,7 +379,17 @@ export const deleteGameRoomQuestionAndAnswers = async (roomId:string,roundId?:st
 };
 
 // Function to retrieve all answers, check correctness, and assign points
-export async function calculateGameRoomPoints(room: TempGameRoom, snapshot?: RoundSnapshot) {
+export async function calculateGameRoomPoints(room:TempGameRoom,snapshot?:RoundSnapshot):Promise<ThemedGameScore[]> {
+ const input=snapshot??{question:(await retrieveGameRoomQuestion(room.roomId))!,answers:await retrieveGameRoomAnswers(room.roomId,true)};
+ const scores=await calculateBaseGameRoomPoints(room,input);
+ return scores.map(score=>{
+  const benefits=input.answers.find((answer:any)=>answer.playerId===score.playerId)?.accountBenefits;
+  const baseScore=score.score,boostBps=benefits?.gamePointBoostBps??0;
+  const finalScore=boostRoundScore(baseScore,boostBps);
+  return {...score,baseScore,score:finalScore,boostPoints:finalScore-baseScore,accountLevel:benefits?.level??0,benefitsVersion:benefits?.version??1,gamePointBoostBps:boostBps};
+ }).sort((a,b)=>b.score-a.score);
+}
+async function calculateBaseGameRoomPoints(room: TempGameRoom, snapshot?: RoundSnapshot) {
   const question = snapshot?.question ?? await retrieveGameRoomQuestion(room.roomId);
 
   if (!question) return [];
@@ -706,16 +717,17 @@ export const addGameRoomPlayer = async (params: GameRoomPlayer) => {
     }
     const wallet = result.data;
     // check game energy
-    const energy = await checkUserGameEnergy(params.playerId, params.catId);
+    const [energy,accountBenefits] = await Promise.all([checkUserGameEnergy(params.playerId, params.catId),getAccountBenefits(params.playerId)]);
     if (!energy) return { message: "Error: User info not found!", data: null };
     await Promise.all([
       redisClient.set(userKeys.session,currDate),
-      redisClient.hSet(playerKeys.info,playerInfo),
+      redisClient.hSet(playerKeys.info,{...playerInfo,accountLevel:String(accountBenefits.level)}),
+      redisClient.set(`game:account-benefits:${params.playerId}`,JSON.stringify(accountBenefits),{EX:60}),
       redisClient.expire(playerKeys.info,120*86400),
     ]);
     const presence = await claimGamePresence(params);
     return {
-      data: { energy, wallet, room: { id: presence.roomId, firstPlayer: presence.firstPlayer, generation: presence.generation }, previous: presence.previous },
+      data: { energy, wallet, accountBenefits, room: { id: presence.roomId, firstPlayer: presence.firstPlayer, generation: presence.generation }, previous: presence.previous },
       message: "success",
     };
   } catch (error: any) {

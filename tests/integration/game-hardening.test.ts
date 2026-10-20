@@ -786,3 +786,27 @@ it("completes an acronym round with an answer but no votes",async()=>{
  expect(await redis.hGet(`room:${roomId}`,'status')).toBe('CHAT');
  await settleQueuedGameRound(q.roundId);
 });
+
+it('preloads the join benefits and freezes the first authoritative subscription boost per round',async()=>{
+ const plan=await db.subscriptionPlan.create({data:{name:'Round benefits',level:1,price:1,ngnPrice:100,discount:0,accountType:'PERSONAL'}});
+ const subscription=await db.subscription.create({data:{userId:users[0],planId:plan.id,isPrimary:true,status:'ACTIVE',startDate:new Date(Date.now()-1000),endDate:new Date(Date.now()+86400000)}});
+ try {
+  const joined=await addGameRoomPlayer({playerId:users[0],socketId:'benefit-owner',roomId:roomId.slice(6),gameId,catId,mode:'MULTI',name:'Benefit player',voteCount:0});
+  expect(joined.data?.accountBenefits).toMatchObject({level:1,gamePointBoostBps:500});
+  const q=await round();
+  await redis.del(`room:${roomId}:answers`);
+  const delivery:any={kind:'ANSWER',roomId,roundId:q.roundId,payload:{playerId:users[0],name:'Benefit player',roomId,catId,answer:q.answer,timer:10,accountBenefits:{level:3,gamePointBoostBps:9999}}};
+  const params:any={playerId:users[0],operationId:'level-round-first',action:GameActionEnum.ANSWER,catId,mode:'MULTI',roomId};
+  const first=await chargeGameAction(params,1,1,delivery);await dispatchGameAction(first.actionId!);
+  await db.subscriptionPlan.update({where:{id:plan.id},data:{level:3}});
+  const second=await chargeGameAction({...params,operationId:'level-round-second'},1,1,delivery);await dispatchGameAction(second.actionId!);
+  const admitted=await db.gameWalletAction.findUniqueOrThrow({where:{id:second.actionId!}});
+  expect((admitted.payload as any).accountBenefits).toMatchObject({level:1,gamePointBoostBps:500});
+  const captured=await captureLiveGameRound(room);
+  const scores=await calculateGameRoomPoints(room,captured);
+  expect(scores[0]).toMatchObject({baseScore:20,score:21,boostPoints:1,accountLevel:1});
+  await captureRound(room,captured);await settleGameRound(q.roundId,snapshot=>calculateGameRoomPoints(room,snapshot));
+ }finally{
+  await db.subscription.delete({where:{id:subscription.id}});await db.subscriptionPlan.delete({where:{id:plan.id}});
+ }
+});

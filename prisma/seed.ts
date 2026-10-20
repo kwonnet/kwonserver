@@ -1,3 +1,4 @@
+import {LEVEL_BENEFITS} from "./account-level-benefits";
 import {PrismaPg} from "@prisma/adapter-pg";
 import {
   GameMode,
@@ -14841,7 +14842,7 @@ const subPlans: {
           },
           {
             id: generateUniqueRef(),
-            title: "Send/receive friend requests in game rooms",
+            title: "5% game points boost in game rooms",
             label: "",
           },
         ],
@@ -14876,7 +14877,7 @@ const subPlans: {
           },
           {
             id: generateUniqueRef(),
-            title: "Send/receive friend requests in game rooms",
+            title: "10% game points boost in game rooms",
             label: "",
           },
         ],
@@ -14911,7 +14912,7 @@ const subPlans: {
           },
           {
             id: generateUniqueRef(),
-            title: "Send/receive friend requests in game rooms",
+            title: "15% game points boost in game rooms",
             label: "",
           },
         ],
@@ -16316,12 +16317,13 @@ async function seedReferenceData(prisma: Prisma.TransactionClient) {
     await syncGameCategoryTopics(prisma);
     await syncGameBannerThumbnails(prisma);
     await syncCountryGameThumbnails(prisma);
+    for (const benefits of LEVEL_BENEFITS) await prisma.accountLevelBenefit.upsert({where:{level:benefits.level},create:benefits,update:{}});
     // seed app subscriptions
     const plans = await prisma.subscriptionPlan.count();
     if (plans === 0) {
       for (let { plan, feature } of subPlans) {
         await prisma.subscriptionPlan.create({
-          data: { ...plan, features: { create: feature } },
+          data: { ...plan, level: ["Supreme","Pro"].includes(plan.name)?3:plan.name==="Premium"?2:1, features: { create: feature } },
         });
       }
       console.log(
