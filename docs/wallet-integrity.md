@@ -222,3 +222,17 @@ continues to govern request bodies: a registered destination plus exactly one of
 `amount` (same currency) or `quote_id` (converted payout), with a stable
 `Idempotency-Key` and the recipient account header. Existing coin reservation,
 OTP/admin approval, fee/balance checks and reconciliation remain in effect.
+
+Bachs bank-recipient onboarding uses the bank-resolved account-holder name rather
+than requiring a multi-word public profile name. For crypto recipients, complete
+profile names can be supplied to Bachs; a single-word display name is not locally
+rejected or turned into a fabricated surname. Existing Bachs identity and capability
+checks remain authoritative, and new recipients may still need provider onboarding.
+
+The withdrawal form retains the selected provider across feedback, retries, token
+renewal and settings refreshes. If that provider becomes unavailable, the form
+keeps the selection and disables submission instead of switching to a different
+provider. Settings reloads do not discard an in-flight operation or leave the form
+stuck busy. Its bank list is reloaded for that provider; a stale
+request cannot replace a more recent provider's bank list. The minimum withdrawal
+and expected receive amount share a two-column summary row.

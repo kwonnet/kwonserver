@@ -120,3 +120,23 @@ it.each([undefined,null,[],['transfers'],{payouts:true},'payouts'])(
   await expect(prepareBachsWithdrawal('user',d(10),d(15),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1')).rejects.toThrow('Bachs payouts must be enabled');
   expect(db.user.findUniqueOrThrow).not.toHaveBeenCalled();expect(db.withdrawalRecipient.upsert).not.toHaveBeenCalled();expect(fetch).toHaveBeenCalledTimes(1);
  });
+it('uses the verified bank holder name even when the public profile has a single-word name',async()=>{
+ db.user.findUniqueOrThrow.mockResolvedValue({name:'kwonnet',email:'user@example.test',country:{iso2:'NG'}});
+ const mock=vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>{
+  const path=new URL(url).pathname;
+  if(path==='/v1/reference/banks')return Response.json({banks:[{code:'058',name:'Test bank'}]});
+  if(path==='/v1/misc/bank-accounts/resolve')return Response.json({resolved:true,account_name:'KELVIN TORVER PETER',account_number:'0123456789'});
+  if(path==='/v1/payouts/destinations')return Response.json({items:[{id:'pd-ngn',currency:'NGN',bank_code:'058',account_number:'0123456789',account_name:'KELVIN TORVER PETER',is_usable:true}]});
+  if(path==='/v1/balances')return Response.json({balances:[{currency:'NGN',available_balance:'100000'}]});
+  return await mock(url,options);
+ });
+ const plan=await prepareBachsWithdrawal('user',d(72000),d(90000),{type:'bank',bankCode:'058',accountNumber:'0123456789'},'wd-ngn');
+ expect(plan.data.accountName).toBe('KELVIN TORVER PETER');
+ expect(requests.find(r=>r.body?.fields)!.body.fields.persons).toEqual([{first_name:'KELVIN',last_name:'TORVER PETER',relationship:{representative:true}}]);
+});
+it('does not fabricate a surname or block an already approved crypto recipient for its profile display name',async()=>{
+ db.user.findUniqueOrThrow.mockResolvedValue({name:'kwonnet',email:'user@example.test',country:{iso2:'US'}});
+ await prepareBachsWithdrawal('user',d('56.25'),d(75),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1');
+ const onboard=requests.find(r=>r.body?.fields)!;expect(onboard.body.fields).not.toHaveProperty('persons');expect(onboard.body.fields.payout_destination.wallet_address).toBe(address);
+});

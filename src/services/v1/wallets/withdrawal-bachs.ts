@@ -72,11 +72,7 @@ async function recipient(
       data: { providerId: accountId },
     });
   }
-  const name = user.name.trim().split(/\s+/);
-  if (name.length < 2)
-    throw new WalletError(
-      "Add your full legal name to your profile before withdrawing",
-    );
+  let holderName = user.name?.trim() ?? "";
   let details: Record<string, unknown>;
   if (destination.type === "bank") {
     const { accountName } = await resolveWithdrawalBank(
@@ -84,6 +80,8 @@ async function recipient(
       destination.bankCode,
       destination.accountNumber,
     );
+    // Use the bank-verified account holder, not the user's public display name.
+    holderName = accountName;
     details = {
       type: "bank_account",
       currency: "NGN",
@@ -98,6 +96,7 @@ async function recipient(
       asset: destination.asset,
       wallet_address: destination.address,
     };
+  const name = holderName.split(/\s+/).filter(Boolean);
   await payoutRequest(
     "BACHS",
     `/accounts/${encodeURIComponent(accountId)}`,
@@ -106,13 +105,13 @@ async function recipient(
         ? { balance_currencies: { NGN: true } }
         : {}),
       fields: {
-        persons: [
-          {
-            first_name: name[0],
-            last_name: name.slice(1).join(" "),
-            relationship: { representative: true },
-          },
-        ],
+        // Never invent a surname or impose a profile-name gate. Existing provider
+        // identity can be reused; Bachs remains authoritative about onboarding requirements.
+        ...(name.length >= 2 ? {persons: [{
+          first_name: name[0],
+          last_name: name.slice(1).join(" "),
+          relationship: {representative: true},
+        }]} : {}),
         payout_destination: details,
       },
     },
