@@ -45,5 +45,5 @@ export function safeLogRecord(value: any, depth = 0): any {
   if (typeof value === 'string') return safeLogText(value);
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.slice(0,50).map(item=>safeLogRecord(item,depth+1));
-  return Object.fromEntries(Object.entries(value).map(([key,item])=>[key, privateKey.test(key) ? '[REDACTED]' : key==='err'||key==='error' ? safeError(item) : safeLogRecord(item,depth+1)]));
+  return Object.fromEntries(Object.entries(value).map(([key,item])=>[key, privateKey.test(key) && !(/^statusCode$/.test(key) && Number.isInteger(item) && Number(item) >= 100 && Number(item) <= 599) ? '[REDACTED]' : key==='err'||key==='error' ? safeError(item) : safeLogRecord(item,depth+1)]));
 }

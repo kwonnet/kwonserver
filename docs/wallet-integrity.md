@@ -238,7 +238,7 @@ request cannot replace a more recent provider's bank list. The minimum withdrawa
 and expected receive amount share a two-column summary row.
 
 
-### Bachs recipient reuse and temporary diagnostics
+### Bachs recipient reuse and withdrawal diagnostics
 
 Withdrawal preparation fetches the saved recipient's current account status.
 When both `transfers` and `payouts` are active, it skips onboarding and reuses the
@@ -252,15 +252,37 @@ then re-read capabilities. If all outstanding requirement entries are already
 under review or pending verification, preparation stops without resubmission.
 Provider approval remains authoritative; this does not bypass Connect requirements.
 
-Temporary full-response diagnostics are enabled for every Bachs HTTP response
-through the withdrawal provider helper, including non-JSON and rejected responses.
-The `bachs_withdrawal_response_raw` event contains endpoint, HTTP method/status,
-account ID, idempotency key, response headers and the complete response body.
-It deliberately bypasses normal log sanitization and can expose personal/bank
-information. Request bodies and authorization headers are not part of this event.
-Remove this temporary diagnostic block in `withdrawal-provider.ts` after verification;
-normal application log sanitization remains unchanged. No response is available
-to log for a network failure before HTTP headers arrive.
+Withdrawal diagnostics now use sanitized structured lifecycle events through the
+normal logger. The temporary `bachs_withdrawal_response_raw` event has been removed.
+No full provider response bodies or headers are logged.
+
+Each operation emits `<step>.started`, then `<step>.completed` or `<step>.failed`
+with elapsed milliseconds. Coverage includes quote preparation/persistence,
+OTP email outbox/enqueue and verification, confirmation, processing leases,
+dispatch eligibility, provider quote refresh, stage persistence, provider outcome,
+settlement (including failed-withdrawal coin restoration), scheduled reconciliation,
+and admin approval/rejection (including rejected-withdrawal restoration).
+Both Bachs and Flutterwave provider preparation, bank verification, balance checks,
+HTTP calls and dispatch use the same diagnostics. Bachs also records recipient
+reuse/setup, onboarding/review, destination lookup/reuse, funding and recovery.
+
+An async-local context carries the withdrawal ID and gateway into nested provider
+calls, including background processing, without mixing concurrent withdrawals.
+HTTP request IDs are added by the existing request logger; provider request IDs
+are retained for support. Only an explicit allowlist of operational fields is
+accepted: internal identifiers, endpoint path without query parameters, method,
+HTTP status, stage, attempt, outcome, destination type, page offset and duration.
+Bank details, wallet addresses, names, email addresses, OTPs, review notes,
+request/response bodies, authorization headers and credentials are excluded.
+Numeric HTTP statuses (100–599) remain visible through the sanitizer; OTP and
+other sensitive code fields remain redacted.
+
+A step's `completed` means that function returned successfully, not necessarily
+that a payout reached the bank. Use `provider.outcome` and `settlement.completed`
+to distinguish pending, successful and failed payouts. Confirmation/settlement
+completion events occur after their database operations return, and retries can
+repeat lifecycle events without creating a second wallet debit/refund. Existing
+financial records remain the audit authority; diagnostic logs are not receipts.
 
 
 Bachs destination-list responses use `{ destinations, total, limit, offset }`.

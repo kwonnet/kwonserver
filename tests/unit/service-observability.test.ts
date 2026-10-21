@@ -66,3 +66,9 @@ it('does not leave unobserved catch clauses in service modules',()=>{
   const walk=(node:ts.Node)=>{if(ts.isCatchClause(node)) expect(node.block.getText(tree),`${file}:${tree.getLineAndCharacterOfPosition(node.pos).line+1}`).toMatch(/logServiceError\(|logGameError\(|logger\.(error|warn)\(/);ts.forEachChild(node,walk);};walk(tree);
  }
 });
+
+it('keeps numeric HTTP statuses visible without weakening credential or code redaction',()=>{
+ const result=safeLogRecord({statusCode:503,httpStatus:200,providerStatus:422,code:'123456',otp:'123456',nested:{statusCode:'private-value'},invalid:{statusCode:123456},token:'private-token'});
+ expect(result).toMatchObject({statusCode:503,httpStatus:200,providerStatus:422,code:'[REDACTED]',otp:'[REDACTED]',nested:{statusCode:'[REDACTED]'},invalid:{statusCode:'[REDACTED]'},token:'[REDACTED]'});
+ expect(JSON.stringify(result)).not.toMatch(/123456|private-value|private-token/);
+});

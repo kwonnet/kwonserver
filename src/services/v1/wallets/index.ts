@@ -351,6 +351,8 @@ export const rewardDailyTask = async ({
 // Withdrawal orchestration stays in the wallet domain; adapters own provider contracts.
 import { Prisma, ChargeRate, CoinWithdrawal } from "@prisma/client";
 import {
+  withdrawalDiagnostic,
+  withdrawalStep,
   WithdrawalGateway,
   WithdrawalDestination,
   WithdrawalProviderError,
@@ -519,6 +521,7 @@ export async function quoteCoinWithdrawal(
     destination: WithdrawalDestination;
   },
 ) {
+  return await withdrawalStep("quote", {userId, gateway: input.gateway}, async () => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: { country: true, wallet: true },
@@ -599,7 +602,9 @@ export async function quoteCoinWithdrawal(
       ),
     },
   });
+  withdrawalDiagnostic("quote.persisted", {withdrawalId: row.id, gateway: row.gateway, outcome: row.approvalRequired ? "approval_required" : "ready_for_authorization"});
   return withdrawalView(row);
+  });
 }
 export async function confirmCoinWithdrawal(
   userId: string,
@@ -607,6 +612,7 @@ export async function confirmCoinWithdrawal(
   key: string,
   otp?: { challengeId: string; code: string },
 ) {
+  return await withdrawalStep("confirmation", {userId, withdrawalId: id}, async () => {
   requestKey(key);
   await verifyWithdrawalOtp(userId, id, otp);
   const result = await walletOperation(
@@ -722,13 +728,16 @@ export async function confirmCoinWithdrawal(
       return { id };
     },
   );
+  withdrawalDiagnostic("confirmation.committed", {withdrawalId: result.id});
   return await processCoinWithdrawal(result.id, userId);
+  });
 }
 async function settleCoinWithdrawal(
   row: CoinWithdrawal,
   status: "SUCCEEDED" | "FAILED",
   attempt: number,
 ) {
+  return await withdrawalStep("settlement", {withdrawalId: row.id, gateway: row.gateway, attempt, outcome: status}, async () => {
   await walletOperation(
     "withdrawal-settlement",
     row.id,
@@ -787,13 +796,18 @@ async function settleCoinWithdrawal(
       });
     },
   );
+  });
 }
 export async function processCoinWithdrawal(id: string, userId?: string) {
+  return await withdrawalStep("processing", {withdrawalId: id, ...(userId ? {userId} : {})}, async () => {
   let row = await prisma.coinWithdrawal.findFirst({
     where: { id, ...(userId ? { userId } : {}) },
   });
   if (!row) throw new WalletError("Withdrawal not found", 404);
-  if (!pendingWithdrawals.includes(row.status)) return withdrawalView(row);
+  if (!pendingWithdrawals.includes(row.status)) {
+    withdrawalDiagnostic("processing.skipped", {gateway: row.gateway, stage: row.stage, outcome: row.status});
+    return withdrawalView(row);
+  }
   if (
     row.environment !== withdrawalEnvironment(row.gateway as WithdrawalGateway)
   )
@@ -812,8 +826,12 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
       processingAttempts: { increment: 1 },
     },
   });
-  if (!claim.count) return withdrawalView(row);
+  if (!claim.count) {
+    withdrawalDiagnostic("processing.lease_busy", {gateway: row.gateway, stage: row.stage});
+    return withdrawalView(row);
+  }
   row = await prisma.coinWithdrawal.findUniqueOrThrow({ where: { id } });
+  withdrawalDiagnostic("processing.lease_acquired", {gateway: row.gateway, attempt: row.processingAttempts, stage: row.stage});
   const attempt = row.processingAttempts,
     initialStage = row.stage;
   const save = async (data: {
@@ -834,6 +852,7 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
     if (!changed.count)
       throw new WalletError("Withdrawal processing lease expired", 409);
     row = await prisma.coinWithdrawal.findUniqueOrThrow({ where: { id } });
+    withdrawalDiagnostic("processing.stage_saved", {gateway: row.gateway, attempt, stage: row.stage});
     return row;
   };
   try {
@@ -847,6 +866,7 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
         old.quoteExpiresAt &&
         new Date(old.quoteExpiresAt).getTime() <= Date.now() + 10000
       ) {
+        withdrawalDiagnostic("quote.refresh_required", {gateway: row.gateway, attempt, stage: row.stage});
         const destination = row.destination as unknown as WithdrawalDestination;
         const gross = row.coins
           .mul(row.rate)
@@ -899,6 +919,7 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
       row.gateway === "FLUTTERWAVE"
         ? await runFlutterwaveWithdrawal(providerRow, providerSave, guard)
         : await runBachsWithdrawal(providerRow, providerSave, guard);
+    withdrawalDiagnostic("provider.outcome", {gateway: row.gateway, attempt, stage: row.stage, outcome: result.status});
     if (result.status === "PROCESSING") {
       const overdue = Date.now() - row.createdAt.getTime() > 24 * 3600000;
       const review = row.status === "REVIEW" || overdue;
@@ -940,6 +961,7 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
     )
       return withdrawalView(owned);
     if (error instanceof WithdrawalBlockedError) {
+      withdrawalDiagnostic("processing.blocked", {gateway: row.gateway, stage: row.stage});
       await prisma.coinWithdrawal.updateMany({
         where: {
           id,
@@ -990,10 +1012,12 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
       where: { id, processingAttempts: attempt },
       data: { processingUntil: null },
     });
+    withdrawalDiagnostic("processing.lease_released", {gateway: row.gateway, attempt});
   }
   return withdrawalView(
     await prisma.coinWithdrawal.findUniqueOrThrow({ where: { id } }),
   );
+  });
 }
 export async function listCoinWithdrawals(userId: string, page?: number) {
   if (page != null && (!Number.isInteger(page) || page < 1))
@@ -1012,6 +1036,7 @@ export async function listCoinWithdrawals(userId: string, page?: number) {
     : rows.map(withdrawalView);
 }
 export async function reconcileCoinWithdrawals() {
+  return await withdrawalStep("reconciliation", {}, async () => {
   const rows = await prisma.coinWithdrawal.findMany({
     where: { status: { in: pendingWithdrawals } },
     orderBy: { updatedAt: "asc" },
@@ -1034,6 +1059,7 @@ export async function reconcileCoinWithdrawals() {
       });
     }
   }
+  });
 }
 
 class WithdrawalBlockedError extends WalletError {}
@@ -1094,6 +1120,7 @@ export function withdrawalOtpHash(
     .digest("hex");
 }
 export async function requestWithdrawalOtp(userId: string, id: string) {
+  return await withdrawalStep("authorization.delivery", {userId, withdrawalId: id}, async () => {
   const result = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
     const row = await tx.coinWithdrawal.findFirst({ where: { id, userId } });
@@ -1167,8 +1194,10 @@ export async function requestWithdrawalOtp(userId: string, id: string) {
     });
     return { challengeId, expiresAt, messageId: message.id };
   });
+  withdrawalDiagnostic("authorization.delivery_persisted");
   try {
     await enqueueEmailMessage(result.messageId);
+    withdrawalDiagnostic("authorization.delivery_enqueued");
   } catch (error) {
     logServiceError("v1/wallets/index", "withdrawal.otp.queue", error, true, {
       withdrawalId: id,
@@ -1179,12 +1208,14 @@ export async function requestWithdrawalOtp(userId: string, id: string) {
     expiresAt: result.expiresAt,
     message: "A withdrawal code is queued for your registered email.",
   };
+  });
 }
 async function verifyWithdrawalOtp(
   userId: string,
   id: string,
   otp?: { challengeId: string; code: string },
 ) {
+  return await withdrawalStep("authorization.verification", {userId, withdrawalId: id}, async () => {
   const result = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
     const row = await tx.coinWithdrawal.findFirst({ where: { id, userId } });
@@ -1243,8 +1274,10 @@ async function verifyWithdrawalOtp(
       "Invalid, expired or locked withdrawal code. Request another code.",
       400,
     );
+  });
 }
 async function authorizeWithdrawalDispatch(row: CoinWithdrawal) {
+  return await withdrawalStep("dispatch.eligibility", {withdrawalId: row.id, gateway: row.gateway, stage: row.stage}, async () => {
   const user = await prisma.user.findUniqueOrThrow({
       where: { id: row.userId },
       include: { country: true, wallet: true },
@@ -1277,6 +1310,7 @@ async function authorizeWithdrawalDispatch(row: CoinWithdrawal) {
       "Admin approval is required before payout",
       403,
     );
+  });
 }
 async function requireWithdrawalAdmin(
   actorId: string,
@@ -1547,6 +1581,7 @@ export async function decideWithdrawal(
   note: string,
   key: string,
 ) {
+  return await withdrawalStep("admin.decision", {actorId, withdrawalId: id, decision}, async () => {
   await requireWithdrawalAdmin(actorId);
   if (note.trim().length < 3 || note.length > 500)
     throw new WalletError("Record a reason for the withdrawal decision");
@@ -1671,6 +1706,7 @@ export async function decideWithdrawal(
   return withdrawalView(
     await prisma.coinWithdrawal.findUniqueOrThrow({ where: { id } }),
   );
+  });
 }
 
 async function assertWithdrawalOtpProof(

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Prisma, CoinWithdrawal } from "@prisma/client";
 import { WalletError } from "@/services/walletLedger";
 import { bachsApiOrigin } from "@/utils/bachs";
@@ -68,6 +69,53 @@ export function providerId(value: unknown): string {
     throw new WalletError("Payout provider did not return an identifier", 503);
   return String(value);
 }
+// Only operational identifiers and states belong in withdrawal diagnostics.
+// Never pass destinations, provider payloads, names, email addresses or OTPs here.
+type WithdrawalDiagnosticContext = {
+  withdrawalId?: string; userId?: string; actorId?: string; gateway?: string; stage?: string;
+  attempt?: number; destinationType?: string; decision?: string;
+  providerAccountId?: string; providerEndpoint?: string; providerRequestId?: string | null;
+  idempotencyRef?: string; method?: string; httpStatus?: number;
+  durationMs?: number; outcome?: string; pageOffset?: number;
+};
+const withdrawalContext = new AsyncLocalStorage<WithdrawalDiagnosticContext>();
+export function withdrawalDiagnostic(operation: string, context: WithdrawalDiagnosticContext = {}) {
+  const values = {...withdrawalContext.getStore(), ...context};
+  const allowed = ["withdrawalId", "userId", "actorId", "gateway", "stage", "attempt",
+    "destinationType", "decision", "providerAccountId", "providerEndpoint",
+    "providerRequestId", "idempotencyRef", "method", "httpStatus", "durationMs",
+    "outcome", "pageOffset"] as const;
+  logServiceTrace("v1/wallets/withdrawals", operation, `Withdrawal ${operation}`,
+    Object.fromEntries(allowed.filter(key => values[key] !== undefined).map(key => [key, values[key]])));
+}
+export async function withdrawalStep<T>(
+  operation: string, context: WithdrawalDiagnosticContext, work: () => Promise<T>,
+): Promise<T> {
+  return await withdrawalContext.run({...withdrawalContext.getStore(), ...context}, async () => {
+    const started = performance.now();
+    withdrawalDiagnostic(`${operation}.started`);
+    try {
+      const result = await work();
+      withdrawalDiagnostic(`${operation}.completed`, {durationMs: Math.round(performance.now() - started)});
+      return result;
+    } catch (error) {
+      // Log a fixed error description rather than potentially private provider text.
+      logServiceError("v1/wallets/withdrawals", `${operation}.failed`,
+        new Error("Withdrawal step failed; see lifecycle outcome and provider request ID"), false,
+        {withdrawalId: withdrawalContext.getStore()?.withdrawalId});
+      // Do not serialize exceptions or provider error messages into lifecycle traces.
+      withdrawalDiagnostic(`${operation}.failed`, {
+        durationMs: Math.round(performance.now() - started),
+        outcome: error instanceof WithdrawalProviderError
+          ? (error.definitive ? "provider_rejected" : "provider_uncertain")
+          : error instanceof WalletError ? "validation_rejected"
+          : operation === "provider.request" ? "provider_uncertain" : "internal_error",
+        ...(error instanceof WalletError ? {httpStatus: error.status} : {}),
+      });
+      throw error;
+    }
+  });
+}
 export async function payoutRequest(
   gateway: WithdrawalGateway,
   path: string,
@@ -75,6 +123,7 @@ export async function payoutRequest(
   key?: string,
   account?: string,
 ) {
+  return await withdrawalStep("provider.request", {gateway, providerEndpoint: path.split("?")[0], method: body ? "POST" : "GET", ...(account ? {providerAccountId: account} : {}), ...(key ? {idempotencyRef: key} : {})}, async () => {
   const environment = withdrawalEnvironment(gateway);
   const base =
     gateway === "BACHS"
@@ -93,34 +142,13 @@ export async function payoutRequest(
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  // Normal service logs remain sanitized. Temporary Bachs diagnostics below are raw.
-  logServiceTrace(
-    "v1/wallets/withdrawals",
-    "provider.response",
-    "Payout provider HTTP response",
-    {
-      gateway,
-      httpStatus: response.status,
-      withdrawalId: key,
-      providerRequestId: response.headers.get("x-request-id"),
-    },
-  );
+  withdrawalDiagnostic("provider.response", {
+    gateway, httpStatus: response.status,
+    providerRequestId: response.headers.get("x-request-id"),
+  });
   let data: any;
   try {
-    const rawResponse = await response.text();
-    if (gateway === "BACHS") {
-      // TEMPORARY: explicitly requested full provider responses for live diagnosis.
-      // Keep isolated from the normal sanitizer; remove after verification.
-      console.info(JSON.stringify({
-        event: "bachs_withdrawal_response_raw",
-        timestamp: new Date().toISOString(),
-        method: body ? "POST" : "GET", path, accountId: account,
-        idempotencyKey: key, status: response.status,
-        headers: Object.fromEntries(response.headers.entries()),
-        responseBody: rawResponse,
-      }));
-    }
-    data = JSON.parse(rawResponse);
+    data = await response.json();
   } catch (error) {
     logServiceError(
       "v1/wallets/withdrawals",
@@ -144,27 +172,22 @@ export async function payoutRequest(
       data.message.toLowerCase().includes("reference");
     const definitive =
       [400, 401, 403, 422].includes(response.status) && !duplicate;
-    logServiceTrace(
-      "v1/wallets/withdrawals",
-      "provider.rejected",
-      "Payout provider rejected request",
-      {
-        gateway,
-        httpStatus: response.status,
-        providerCode: code,
-        // Provider text can contain destinations: omit it here; use request ID for support.
-        providerRequestId: response.headers.get("x-request-id"),
-      },
-    );
+    withdrawalDiagnostic("provider.rejected", {
+      gateway, httpStatus: response.status,
+      outcome: definitive ? "provider_rejected" : "provider_uncertain",
+      providerRequestId: response.headers.get("x-request-id"),
+    });
     throw new WithdrawalProviderError(definitive, response.status, code);
   }
   return gateway === "FLUTTERWAVE" ? data.data : data;
+  });
 }
 export async function availableBalance(
   gateway: WithdrawalGateway,
   currency: string,
   account?: string,
 ) {
+  return await withdrawalStep("provider.balance", {gateway, ...(account ? {providerAccountId: account} : {})}, async () => {
   const result = await payoutRequest(
     gateway,
     "/balances",
@@ -182,6 +205,7 @@ export async function availableBalance(
       503,
     );
   return decimal(balance.available_balance, true);
+  });
 }
 export async function requireProviderBalance(
   gateway: WithdrawalGateway,
@@ -189,11 +213,13 @@ export async function requireProviderBalance(
   amount: Prisma.Decimal,
   account?: string,
 ) {
+  return await withdrawalStep("provider.funding_check", {gateway, ...(account ? {providerAccountId: account} : {})}, async () => {
   if ((await availableBalance(gateway, currency, account)).lt(amount))
     throw new WalletError(
       "Withdrawals are temporarily unavailable: insufficient provider funds. Your coins have not been paid out.",
       503,
     );
+  });
 }
 export const cryptoRoutes: Record<
   WithdrawalGateway,
@@ -259,6 +285,7 @@ export function validateWithdrawalDestination(
   return destination;
 }
 export async function withdrawalBanks(gateway: WithdrawalGateway) {
+  return await withdrawalStep("bank.list", {gateway}, async () => {
   const response = await payoutRequest(
     gateway,
     gateway === "BACHS" ? "/reference/banks?country=NG" : "/banks/NG",
@@ -272,12 +299,14 @@ export async function withdrawalBanks(gateway: WithdrawalGateway) {
   return banks
     .filter((b: any) => b.code && b.name && !b.has_branches)
     .map((b: any) => ({ code: String(b.code), name: String(b.name) }));
+  });
 }
 export async function resolveWithdrawalBank(
   gateway: WithdrawalGateway,
   bankCode: string,
   accountNumber: string,
 ) {
+  return await withdrawalStep("bank.verification", {gateway}, async () => {
   if (!/^\d{10}$/.test(accountNumber))
     throw new WalletError("Enter a 10-digit bank account number");
   const banks = await withdrawalBanks(gateway);
@@ -298,4 +327,5 @@ export async function resolveWithdrawalBank(
   )
     throw new WalletError("Could not verify the bank account", 503);
   return { accountName: safeLogText(data.account_name) };
+  });
 }

@@ -1,8 +1,9 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import {Prisma} from '@prisma/client';
+import logger from '@/logger';
 vi.mock('@/db',()=>({default:{}}));
 import {withdrawalConversion} from '@/services/v1/wallets';
-import {payoutRequest,availableBalance,requireProviderBalance,validateWithdrawalDestination,WithdrawalProviderError,resolveWithdrawalBank} from '@/services/v1/wallets/withdrawal-provider';
+import {withdrawalStep,withdrawalDiagnostic,payoutRequest,availableBalance,requireProviderBalance,validateWithdrawalDestination,WithdrawalProviderError,resolveWithdrawalBank} from '@/services/v1/wallets/withdrawal-provider';
 import {prepareFlutterwaveWithdrawal,runFlutterwaveWithdrawal,flutterwaveWithdrawalOutcome} from '@/services/v1/wallets/withdrawal-flutterwave';
 import {bachsWithdrawalOutcome,runBachsWithdrawal} from '@/services/v1/wallets/withdrawal-bachs';
 const d=(n:number|string)=>new Prisma.Decimal(n);
@@ -122,14 +123,31 @@ it('blocks a Flutterwave submission when authorization is revoked after the fund
  await expect(runFlutterwaveWithdrawal({...flwRow(),stage:'PREPARED',expiresAt:new Date(Date.now()+60000),providerData:{request:{currency:'NGN',debit_currency:'NGN',amount:'56.25'},sourceRequired:'60'}},save,guard)).rejects.toThrow('restricted');expect(guard).toHaveBeenCalledOnce();expect(save).not.toHaveBeenCalled();expect(vi.mocked(fetch).mock.calls.every(([,options])=>options!.method==='GET')).toBe(true);
 });
 
-it.each([200,422,502])('logs complete Bachs response bodies and headers including sensitive fields for status %s',async status=>{
- const raw=status===502?'upstream bank account 0123456789 unavailable':JSON.stringify({id:'pd-1',account_number:'0123456789',account_name:'TEST USER',error_code:status===422?'VALIDATION_ERROR':undefined});
- const log=vi.spyOn(console,'info').mockImplementation(()=>{});
- try {
-  vi.mocked(fetch).mockResolvedValueOnce(new Response(raw,{status,headers:{'x-request-id':'request-raw','x-provider-detail':'full-detail'}}));
-  if(status===200)await payoutRequest('BACHS','/payouts/destinations',{},'wd-test','acct-1');
-  else await expect(payoutRequest('BACHS','/payouts/destinations',{},'wd-test','acct-1')).rejects.toBeInstanceOf(WithdrawalProviderError);
-  const record=JSON.parse(log.mock.calls.find(([line])=>String(line).includes('bachs_withdrawal_response_raw'))![0]);
-  expect(record).toMatchObject({event:'bachs_withdrawal_response_raw',status,path:'/payouts/destinations',method:'POST',accountId:'acct-1',idempotencyKey:'wd-test',responseBody:raw,headers:{'x-request-id':'request-raw','x-provider-detail':'full-detail'}});
- } finally {log.mockRestore();}
+it.each([200,422,502])('logs safe provider diagnostics without response bodies or headers for status %s',async status=>{
+ const raw=status===502?'upstream bank account 0123456789 unavailable':JSON.stringify({id:'pd-1',account_number:'0123456789',account_name:'PRIVATE HOLDER',error_code:status===422?'VALIDATION_ERROR':undefined});
+ const consoleLog=vi.spyOn(console,'info').mockImplementation(()=>{});
+ vi.mocked(fetch).mockResolvedValueOnce(new Response(raw,{status,headers:{'x-request-id':'provider-request-1','x-provider-detail':'private-header-value'}}));
+ if(status===200)await payoutRequest('BACHS','/payouts/destinations',{},'wd-test','acct-1');
+ else await expect(payoutRequest('BACHS','/payouts/destinations',{},'wd-test','acct-1')).rejects.toBeInstanceOf(WithdrawalProviderError);
+ expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'provider.response',httpStatus:status,providerRequestId:'provider-request-1',providerEndpoint:'/payouts/destinations',method:'POST',providerAccountId:'acct-1'}),expect.any(String));
+ const logs=JSON.stringify([vi.mocked(logger.info).mock.calls,vi.mocked(logger.error).mock.calls]);
+ expect(logs).not.toMatch(/0123456789|PRIVATE HOLDER|private-header-value|responseBody|bachs_withdrawal_response_raw/);
+ expect(consoleLog).not.toHaveBeenCalled();
+});
+it('records network failures as uncertain and propagates them without logging provider messages',async()=>{
+ const error=new Error('Private holder at bank account 0123456789');
+ vi.mocked(fetch).mockRejectedValueOnce(error);
+ await expect(payoutRequest('BACHS','/payouts',{},'wd-test')).rejects.toBe(error);
+ expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'provider.request.failed',gateway:'BACHS',outcome:'provider_uncertain',durationMs:expect.any(Number)}),expect.any(String));
+ expect(JSON.stringify(vi.mocked(logger.info).mock.calls)).not.toContain('0123456789');
+});
+it('keeps concurrent withdrawal diagnostic contexts isolated and drops unexpected payload fields',async()=>{
+ let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
+ await Promise.all([
+  withdrawalStep('processing',{withdrawalId:'wd-first',userId:'first'},async()=>{await gate;withdrawalDiagnostic('first.check',{body:{account_number:'private-account'},email:'private@example.test'} as any);}),
+  withdrawalStep('processing',{withdrawalId:'wd-second',userId:'second'},async()=>{withdrawalDiagnostic('second.check');release();}),
+ ]);
+ expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'first.check',withdrawalId:'wd-first',userId:'first'}),expect.any(String));
+ expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'second.check',withdrawalId:'wd-second',userId:'second'}),expect.any(String));
+ expect(JSON.stringify(vi.mocked(logger.info).mock.calls)).not.toMatch(/private-account|private@example/);
 });

@@ -1,6 +1,6 @@
 import {Prisma,CoinWithdrawal} from '@prisma/client';
 import {WalletError} from '@/services/walletLedger';
-import {WithdrawalDestination,WithdrawalPlan,WithdrawalOutcome,SaveWithdrawal,payoutRequest,decimal,providerId,requireProviderBalance,cryptoRoutes,resolveWithdrawalBank} from './withdrawal-provider';
+import {withdrawalStep,WithdrawalDestination,WithdrawalPlan,WithdrawalOutcome,SaveWithdrawal,payoutRequest,decimal,providerId,requireProviderBalance,cryptoRoutes,resolveWithdrawalBank} from './withdrawal-provider';
 
 async function transferFee(amount:Prisma.Decimal,currency:string,crypto:boolean) {
   const fees=await payoutRequest('FLUTTERWAVE',`/transfers/fee?amount=${amount.toString()}&currency=${encodeURIComponent(currency)}&type=${crypto?'crypto':'account'}${crypto?'&debit_currency=USD':''}`);
@@ -9,6 +9,7 @@ async function transferFee(amount:Prisma.Decimal,currency:string,crypto:boolean)
   return fee;
 }
 export async function prepareFlutterwaveWithdrawal(amount:Prisma.Decimal,destination:WithdrawalDestination):Promise<WithdrawalPlan> {
+  return await withdrawalStep<WithdrawalPlan>("provider.preparation", {gateway: "FLUTTERWAVE", destinationType: destination.type}, async () => {
   let currency='NGN',accountBank:string,accountNumber:string,beneficiaryName:string|undefined;
   let transferAmount=amount,receiveAmount=amount,sourceRequired:Prisma.Decimal;
   if(destination.type==='bank') {
@@ -45,6 +46,7 @@ export async function prepareFlutterwaveWithdrawal(amount:Prisma.Decimal,destina
   return {receiveAmount:receiveAmount.toString(),receiveCurrency:currency,expiresAt:new Date(Date.now()+60000),data:{sourceRequired:sourceRequired.toString(),
     request:{account_bank:accountBank,account_number:accountNumber,amount:transferAmount.toNumber(),currency,debit_currency:destination.type==='bank'?'NGN':'USD',
       ...(beneficiaryName?{beneficiary_name:beneficiaryName}:{}),narration:'Kwonnet coin withdrawal',skip_beneficiary_creation:"1"}}};
+  });
 }
 export function flutterwaveWithdrawalOutcome(row:CoinWithdrawal,data:any):WithdrawalOutcome {
   const plan=row.providerData as any, body=plan.request;
@@ -55,6 +57,7 @@ export function flutterwaveWithdrawalOutcome(row:CoinWithdrawal,data:any):Withdr
   return {id:providerId(data.id),status:status==='SUCCESSFUL'?'SUCCEEDED':status==='FAILED'?'FAILED':'PROCESSING'};
 }
 export async function runFlutterwaveWithdrawal(row:CoinWithdrawal,save:SaveWithdrawal,guard?:()=>Promise<void>):Promise<WithdrawalOutcome> {
+  return await withdrawalStep<WithdrawalOutcome>("provider.dispatch", {gateway: "FLUTTERWAVE", withdrawalId: row.id, stage: row.stage}, async () => {
   const plan=row.providerData as any;
   let response:any;
   if(row.providerId) response=await payoutRequest('FLUTTERWAVE',`/transfers/${encodeURIComponent(row.providerId)}`);
@@ -88,4 +91,5 @@ export async function runFlutterwaveWithdrawal(row:CoinWithdrawal,save:SaveWithd
   const result=flutterwaveWithdrawalOutcome(row,response);
   if(result.id && !row.providerId) await save({providerId:result.id,stage:'PAYOUT_ACCEPTED'});
   return result;
+  });
 }

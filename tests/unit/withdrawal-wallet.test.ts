@@ -1,6 +1,7 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import {createHmac,createHash} from 'node:crypto';
 import {Prisma} from '@prisma/client';
+import logger from '@/logger';
 const fixture=vi.hoisted(()=>({row:null as any,other:null as any,user:null as any,wallet:null as any,rates:null as any,operation:vi.fn(),prepare:vi.fn(),run:vi.fn(),enqueue:vi.fn()}));
 const db=vi.hoisted(()=>Object.fromEntries(['user','wallet','chargeRate','coinWithdrawal','transaction','authEmailToken','emailMessage','withdrawalAdminEvent'].map(model=>[model,Object.fromEntries(['findUnique','findUniqueOrThrow','findFirst','findMany','create','update','updateMany','count','groupBy'].map(method=>[method,vi.fn()]))])) as any);
 vi.mock('@/services/email',()=>({enqueueEmailMessage:fixture.enqueue}));
@@ -224,4 +225,20 @@ it('rechecks quote ownership inside the coin reservation transaction',async()=>{
 it('blocks banned, deleted and deactivated users and locks applied before payout',async()=>{
  for(const override of [{status:'BANNED'},{deletedAt:new Date()},{deactivatedAt:new Date()}]){Object.assign(fixture.user,{status:'ACTIVE',deletedAt:null,deactivatedAt:null},override);await expect(quote()).rejects.toThrow('account cannot withdraw');}
  Object.assign(fixture.user,{status:'ACTIVE',deletedAt:null,deactivatedAt:null});fixture.row.status='RESERVED';fixture.wallet.isLocked=true;expect(await processCoinWithdrawal(fixture.row.id)).toMatchObject({status:'BLOCKED'});fixture.row.status='RESERVED';fixture.user.wallet=null;expect(await processCoinWithdrawal(fixture.row.id)).toMatchObject({status:'BLOCKED'});expect(fixture.run).not.toHaveBeenCalled();
+});
+
+it.each(['SUCCEEDED','FAILED'] as const)('traces committed authorization, stages and %s settlement without private wallet/provider details',async status=>{
+ fixture.run.mockImplementation(async(_row:any,save:any,guard:any)=>{
+  await guard();await save({stage:'PAYOUT_ACCEPTED',providerId:'payout-safe'});
+  return {id:'payout-safe',status};
+ });
+ await confirm();
+ const events=vi.mocked(logger.info).mock.calls.map(([context])=>context as any);
+ for(const operation of ['confirmation.started','authorization.verification.completed','confirmation.committed','processing.lease_acquired','dispatch.eligibility.completed','processing.stage_saved','provider.outcome','settlement.completed','processing.lease_released','confirmation.completed']){
+  expect(events).toContainEqual(expect.objectContaining({operation,withdrawalId:'withdraw-fixture'}));
+ }
+ expect(events).toContainEqual(expect.objectContaining({operation:'settlement.completed',outcome:status}));
+ expect(fixture.wallet.coins.toString()).toBe(status==='FAILED'?'10000':'5000');
+ const serialized=JSON.stringify(events);
+ expect(serialized).not.toMatch(/123456|user@example|Test User|account_number|wallet_address|tokenHash|reviewNote/);
 });

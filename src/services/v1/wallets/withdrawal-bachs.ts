@@ -4,6 +4,8 @@ import prisma from "@/db";
 import { logServiceError } from "@/logger/events";
 import { WalletError } from "@/services/walletLedger";
 import {
+  withdrawalDiagnostic,
+  withdrawalStep,
   WithdrawalDestination,
   WithdrawalPlan,
   WithdrawalOutcome,
@@ -22,6 +24,7 @@ async function recipient(
   destination: WithdrawalDestination,
   key: string,
 ) {
+  return await withdrawalStep("bachs.recipient", {userId, gateway: "BACHS", destinationType: destination.type}, async () => {
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: userId },
     include: { country: true },
@@ -54,6 +57,7 @@ async function recipient(
     update: {},
   });
   let accountId = record.providerId;
+  withdrawalDiagnostic(accountId ? "bachs.recipient.reused" : "bachs.recipient.creation_required");
   if (!accountId) {
     if (Date.now() - record.createdAt.getTime() > 23 * 3600000)
       throw new WalletError(
@@ -100,13 +104,16 @@ async function recipient(
     };
     return details;
   }
+  if (ready()) withdrawalDiagnostic("bachs.recipient.ready", {providerAccountId: accountId});
   if (!ready()) {
     const entries = account.requirements?.entries;
     // Re-sending information already under review cannot activate capabilities.
     const awaitingReview = Array.isArray(entries) && entries.length > 0 &&
       entries.every((entry: any) => entry.resolution === "review" ||
         entry.status === "pending_verification");
+    if (awaitingReview) withdrawalDiagnostic("bachs.onboarding.awaiting_review", {providerAccountId: accountId});
     if (!awaitingReview) {
+      withdrawalDiagnostic("bachs.onboarding.submission_required", {providerAccountId: accountId});
       const submitted = await destinationDetails();
       const holderName = destination.type === "bank"
         ? String(submitted.account_name) : user.name?.trim() ?? "";
@@ -124,6 +131,7 @@ async function recipient(
       }, `${key}-onboard`);
       account = await payoutRequest("BACHS", accountPath);
       verifyAccount();
+      withdrawalDiagnostic("bachs.onboarding.submitted", {providerAccountId: accountId, outcome: ready() ? "ready" : "approval_pending"});
     }
     if (!ready())
       throw new WalletError(
@@ -134,6 +142,7 @@ async function recipient(
   let saved: any;
   let offset = 0;
   while (!saved) {
+    withdrawalDiagnostic("bachs.destination.page", {providerAccountId: accountId, pageOffset: offset});
     const page = await payoutRequest(
       "BACHS",
       offset === 0 ? "/payouts/destinations"
@@ -164,6 +173,7 @@ async function recipient(
       throw new WalletError("Could not verify Bachs payout destinations", 503);
     offset += page.limit;
   }
+  withdrawalDiagnostic(saved ? "bachs.destination.reused" : "bachs.destination.creation_required", {providerAccountId: accountId});
   if (!saved) {
     const { asset, ...payload } = await destinationDetails();
     saved = await payoutRequest(
@@ -179,11 +189,13 @@ async function recipient(
       "Bachs has not approved this destination yet. Your coins have not been deducted.",
       409,
     );
+  withdrawalDiagnostic("bachs.destination.ready", {providerAccountId: accountId});
   return {
     accountId,
     destinationId: providerId(saved.id),
     accountName: saved.account_name,
   };
+  });
 }
 export async function prepareBachsWithdrawal(
   userId: string,
@@ -192,6 +204,7 @@ export async function prepareBachsWithdrawal(
   destination: WithdrawalDestination,
   key: string,
 ): Promise<WithdrawalPlan> {
+  return await withdrawalStep<WithdrawalPlan>("provider.preparation", {userId, gateway: "BACHS", withdrawalId: key, destinationType: destination.type}, async () => {
   const platform = await payoutRequest("BACHS", "/accounts/me");
   const platformId = providerId(platform.id);
   // Platform responses can have capabilities: null; use the enabled capability list.
@@ -290,6 +303,7 @@ export async function prepareBachsWithdrawal(
       sourceAmount: sourceAmount.toFixed(2),
     },
   };
+  });
 }
 function transferMatches(
   data: any,
@@ -345,8 +359,12 @@ async function recover(
   save: SaveWithdrawal,
   proposed: Prisma.Decimal,
 ) {
+  return await withdrawalStep("bachs.funding_recovery", {gateway: "BACHS", withdrawalId: row.id, stage: row.stage}, async () => {
   let plan = row.providerData as any;
-  if (plan.recovered) return;
+  if (plan.recovered) {
+    withdrawalDiagnostic("bachs.funding_recovery.already_completed");
+    return;
+  }
   const amount =
     plan.recoveryAmount != null ? decimal(plan.recoveryAmount, true) : proposed;
   if (amount.isZero()) {
@@ -385,12 +403,14 @@ async function recover(
   if (!transferMatches(response, row, amount, true))
     throw new WalletError("Withdrawal funding recovery is pending", 503);
   await save({ providerData: { ...plan, recovered: true } });
+  });
 }
 export async function runBachsWithdrawal(
   row: CoinWithdrawal,
   save: SaveWithdrawal,
   guard?: () => Promise<void>,
 ): Promise<WithdrawalOutcome> {
+  return await withdrawalStep<WithdrawalOutcome>("provider.dispatch", {gateway: "BACHS", withdrawalId: row.id, stage: row.stage}, async () => {
   let plan = row.providerData as any;
   if (row.stage === "PREPARED" || row.stage === "FUNDING") {
     if (row.stage === "PREPARED" && row.expiresAt.getTime() <= Date.now())
@@ -409,6 +429,7 @@ export async function runBachsWithdrawal(
       if (guard) await guard();
       row = await save({ stage: "FUNDING" });
     }
+    withdrawalDiagnostic("bachs.funding.submitting");
     const funding = await payoutRequest(
       "BACHS",
       "/transfers",
@@ -423,6 +444,7 @@ export async function runBachsWithdrawal(
     );
     if (!transferMatches(funding, row, decimal(plan.fundingAmount)))
       return { status: "PROCESSING" };
+    withdrawalDiagnostic("bachs.funding.confirmed");
     row = await save({
       stage: "FUNDED",
       providerData: { ...plan, fundingId: providerId(funding.id) },
@@ -488,6 +510,7 @@ export async function runBachsWithdrawal(
       plan.accountId,
     );
   else {
+    withdrawalDiagnostic("bachs.payout.reconciliation_by_reference");
     const payouts = await payoutRequest(
       "BACHS",
       "/payouts?limit=100",
@@ -525,4 +548,5 @@ export async function runBachsWithdrawal(
     await recover(row, save, recoverAmount);
   }
   return result;
+  });
 }
