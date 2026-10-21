@@ -44,3 +44,4 @@ router.post('/withdrawals/admin/requests/:id/decision',authMiddleware(),withdraw
 const walletRoutes = router
 
 export default walletRoutes
+
