@@ -4,16 +4,16 @@ const db=vi.hoisted(()=>({user:{findUniqueOrThrow:vi.fn()},withdrawalRecipient:{
 vi.mock('@/db',()=>({default:db}));
 import {prepareBachsWithdrawal,runBachsWithdrawal} from '@/services/v1/wallets/withdrawal-bachs';
 const d=(s:number|string)=>new Prisma.Decimal(s),address='0x'+'a'.repeat(40);
-let payoutFailed=false,recoveryLost=false;const requests:{path:string;body:any;key?:string;account?:string}[]=[];
+let payoutFailed=false,recoveryLost=false,recipientReady=false;const requests:{path:string;body:any;key?:string;account?:string}[]=[];
 beforeEach(()=>{
- vi.clearAllMocks();vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');requests.length=0;payoutFailed=false;recoveryLost=false;
+ vi.clearAllMocks();vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');requests.length=0;payoutFailed=false;recoveryLost=false;recipientReady=false;
  db.user.findUniqueOrThrow.mockResolvedValue({name:'Test User',email:'user@example.test',country:{iso2:'US'}});
  db.withdrawalRecipient.upsert.mockImplementation(async({create})=>({...create,providerId:'acct-1',createdAt:new Date()}));db.withdrawalRecipient.update.mockResolvedValue({});
  vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>{
   const path=new URL(url).pathname,body=options?.body?JSON.parse(options.body):undefined,key=options?.headers?.['Idempotency-Key'],account=options?.headers?.['X-Account-Id'];requests.push({path,body,key,account});
   if(path==='/v1/accounts/me')return Response.json({id:'platform',is_active:true,capabilities:null,enabled_capabilities:['payouts','transfers']});
   if(path==='/v1/accounts' && body)return Response.json({id:'acct-1'});
-  if(path==='/v1/accounts/acct-1')return Response.json({id:'acct-1',capabilities:{transfers:{status:'active'},payouts:{status:'active'}}});
+  if(path==='/v1/accounts/acct-1'){if(body)recipientReady=true;return Response.json({id:'acct-1',capabilities:{transfers:{status:recipientReady?'active':'restricted'},payouts:{status:recipientReady?'active':'restricted'}}});}
   if(path==='/v1/payouts/destinations')return Response.json({items:[{id:'pd-1',is_usable:true,currency:'USDC_BASE',wallet_address:address}]});
   if(path==='/v1/payouts/quotes')return Response.json({quote_id:'quote-'+body.amount,from_currency:'USD',to_currency:'USDC_BASE',from_amount:body.amount,to_amount:d(body.amount).sub(1).toFixed(2),exchange_rate:'1',expires_at:new Date(Date.now()+30000).toISOString()});
   if(path==='/v1/balances')return Response.json({balances:[{currency:'USD',available_balance:account?'75.00':'1000.00'}]});
@@ -135,8 +135,53 @@ it('uses the verified bank holder name even when the public profile has a single
  expect(plan.data.accountName).toBe('KELVIN TORVER PETER');
  expect(requests.find(r=>r.body?.fields)!.body.fields.persons).toEqual([{first_name:'KELVIN',last_name:'TORVER PETER',relationship:{representative:true}}]);
 });
-it('does not fabricate a surname or block an already approved crypto recipient for its profile display name',async()=>{
+it('reuses an approved crypto recipient without resubmitting identity or destination',async()=>{
+ recipientReady=true;
  db.user.findUniqueOrThrow.mockResolvedValue({name:'kwonnet',email:'user@example.test',country:{iso2:'US'}});
  await prepareBachsWithdrawal('user',d('56.25'),d(75),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1');
- const onboard=requests.find(r=>r.body?.fields)!;expect(onboard.body.fields).not.toHaveProperty('persons');expect(onboard.body.fields.payout_destination.wallet_address).toBe(address);
+ expect(requests.some(r=>r.body?.fields)).toBe(false);expect(requests.filter(r=>r.path==='/v1/accounts/acct-1')).toHaveLength(1);expect(requests.some(r=>r.path==='/v1/payouts/destinations'&&r.body)).toBe(false);
+});
+
+it('does not resubmit onboarding while Bachs is reviewing the supplied requirements',async()=>{
+ const mock=vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>{
+  if(new URL(url).pathname==='/v1/accounts/acct-1')return Response.json({id:'acct-1',capabilities:{transfers:{status:'active'},payouts:{status:'restricted'}},requirements:{entries:[{status:'pending_verification',resolution:'review'}]}});
+  return await mock(url,options);
+ });
+ await expect(prepareBachsWithdrawal('user',d(10),d(15),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1')).rejects.toThrow('approve your recipient');
+ expect(vi.mocked(fetch).mock.calls.some(([,o])=>o?.method==='POST')).toBe(false);
+});
+it('rejects an account identity mismatch before changing onboarding or registering destinations',async()=>{
+ const mock=vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>new URL(url).pathname==='/v1/accounts/acct-1'?Response.json({id:'other-account',capabilities:{transfers:{status:'active'},payouts:{status:'active'}}}):await mock(url,options));
+ await expect(prepareBachsWithdrawal('user',d(10),d(15),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1')).rejects.toThrow('verify Bachs recipient');
+ expect(vi.mocked(fetch).mock.calls.some(([,o])=>o?.method==='POST')).toBe(false);
+});
+it('registers a changed destination on an approved account without repeating onboarding',async()=>{
+ recipientReady=true;
+ const mock=vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>{
+  if(new URL(url).pathname==='/v1/payouts/destinations'){
+   const body=options?.body?JSON.parse(options.body):undefined;
+   requests.push({path:'/v1/payouts/destinations',body,account:options?.headers?.['X-Account-Id'],key:options?.headers?.['Idempotency-Key']});
+   return Response.json(body?{...body,id:'pd-new',is_usable:true}:{items:[]});
+  }
+  return await mock(url,options);
+ });
+ const plan=await prepareBachsWithdrawal('user',d(10),d(15),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1');
+ expect(plan.data.destinationId).toBe('pd-new');expect(requests.some(r=>r.body?.fields)).toBe(false);
+ expect(requests.find(r=>r.key==='wd-1-destination')).toMatchObject({account:'acct-1',body:{type:'crypto_wallet',currency:'USDC_BASE',wallet_address:address}});
+});
+it('reuses an approved bank destination without a repeat bank-network resolution',async()=>{
+ recipientReady=true;
+ const mock=vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>{
+  const path=new URL(url).pathname;
+  if(path==='/v1/payouts/destinations')return Response.json({items:[{id:'pd-ngn',currency:'NGN',bank_code:'058',account_number:'0123456789',account_name:'TEST USER',is_usable:true}]});
+  if(path==='/v1/balances')return Response.json({balances:[{currency:'NGN',available_balance:'100000'}]});
+  return await mock(url,options);
+ });
+ const plan=await prepareBachsWithdrawal('user',d(72000),d(90000),{type:'bank',bankCode:'058',accountNumber:'0123456789'},'wd-ngn');
+ expect(plan.data.accountName).toBe('TEST USER');
+ expect(vi.mocked(fetch).mock.calls.some(([url,o])=>String(url).includes('resolve')||o?.method==='POST')).toBe(false);
 });

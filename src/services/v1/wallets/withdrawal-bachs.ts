@@ -72,64 +72,65 @@ async function recipient(
       data: { providerId: accountId },
     });
   }
-  let holderName = user.name?.trim() ?? "";
-  let details: Record<string, unknown>;
-  if (destination.type === "bank") {
-    const { accountName } = await resolveWithdrawalBank(
-      "BACHS",
-      destination.bankCode,
-      destination.accountNumber,
-    );
-    // Use the bank-verified account holder, not the user's public display name.
-    holderName = accountName;
-    details = {
-      type: "bank_account",
-      currency: "NGN",
-      bank_code: destination.bankCode,
-      account_number: destination.accountNumber,
-      account_name: accountName,
+  const accountPath = `/accounts/${encodeURIComponent(accountId)}`;
+  let account = await payoutRequest("BACHS", accountPath);
+  const ready = () =>
+    account.capabilities?.transfers?.status === "active" &&
+    account.capabilities?.payouts?.status === "active";
+  const verifyAccount = () => {
+    if (account.id !== accountId)
+      throw new WalletError("Could not verify Bachs recipient account", 503);
+  };
+  verifyAccount();
+  let details: Record<string, unknown> | undefined;
+  async function destinationDetails() {
+    if (details) return details;
+    if (destination.type === "bank") {
+      const { accountName } = await resolveWithdrawalBank(
+        "BACHS", destination.bankCode, destination.accountNumber,
+      );
+      details = {
+        type: "bank_account", currency: "NGN",
+        bank_code: destination.bankCode,
+        account_number: destination.accountNumber, account_name: accountName,
+      };
+    } else details = {
+      type: "crypto_wallet", currency: destination.asset,
+      asset: destination.asset, wallet_address: destination.address,
     };
-  } else
-    details = {
-      type: "crypto_wallet",
-      currency: destination.asset,
-      asset: destination.asset,
-      wallet_address: destination.address,
-    };
-  const name = holderName.split(/\s+/).filter(Boolean);
-  await payoutRequest(
-    "BACHS",
-    `/accounts/${encodeURIComponent(accountId)}`,
-    {
-      ...(destination.type === "bank"
-        ? { balance_currencies: { NGN: true } }
-        : {}),
-      fields: {
-        // Never invent a surname or impose a profile-name gate. Existing provider
-        // identity can be reused; Bachs remains authoritative about onboarding requirements.
-        ...(name.length >= 2 ? {persons: [{
-          first_name: name[0],
-          last_name: name.slice(1).join(" "),
-          relationship: {representative: true},
-        }]} : {}),
-        payout_destination: details,
-      },
-    },
-    `${key}-onboard`,
-  );
-  const account = await payoutRequest(
-    "BACHS",
-    `/accounts/${encodeURIComponent(accountId)}`,
-  );
-  if (
-    account.id !== accountId ||
-    account.capabilities?.transfers?.status !== "active" ||
-    account.capabilities?.payouts?.status !== "active"
-  )
-    throw new WalletError(
-      "Bachs needs to approve your recipient account before withdrawal. Your coins have not been deducted.",
-      409,
-    );
+    return details;
+  }
+  if (!ready()) {
+    const entries = account.requirements?.entries;
+    // Re-sending information already under review cannot activate capabilities.
+    const awaitingReview = Array.isArray(entries) && entries.length > 0 &&
+      entries.every((entry: any) => entry.resolution === "review" ||
+        entry.status === "pending_verification");
+    if (!awaitingReview) {
+      const submitted = await destinationDetails();
+      const holderName = destination.type === "bank"
+        ? String(submitted.account_name) : user.name?.trim() ?? "";
+      const name = holderName.split(/\s+/).filter(Boolean);
+      await payoutRequest("BACHS", accountPath, {
+        ...(destination.type === "bank" ? { balance_currencies: { NGN: true } } : {}),
+        fields: {
+          // Use the bank-verified holder; never invent a profile surname.
+          ...(name.length >= 2 ? { persons: [{
+            first_name: name[0], last_name: name.slice(1).join(" "),
+            relationship: { representative: true },
+          }] } : {}),
+          payout_destination: submitted,
+        },
+      }, `${key}-onboard`);
+      account = await payoutRequest("BACHS", accountPath);
+      verifyAccount();
+    }
+    if (!ready())
+      throw new WalletError(
+        "Bachs needs to approve your recipient account before withdrawal. Your coins have not been deducted.",
+        409,
+      );
+  }
   const destinations = await payoutRequest(
     "BACHS",
     "/payouts/destinations",
@@ -141,14 +142,14 @@ async function recipient(
     throw new WalletError("Could not verify Bachs payout destinations", 503);
   let saved = destinations.items.find(
     (d: any) =>
-      d.currency === details.currency &&
+      d.currency === (destination.type === "bank" ? "NGN" : destination.asset) &&
       (destination.type === "bank"
         ? d.account_number === destination.accountNumber &&
           d.bank_code === destination.bankCode
         : d.wallet_address === destination.address),
   );
   if (!saved) {
-    const { asset, ...payload } = details;
+    const { asset, ...payload } = await destinationDetails();
     saved = await payoutRequest(
       "BACHS",
       "/payouts/destinations",
@@ -176,13 +177,6 @@ export async function prepareBachsWithdrawal(
   key: string,
 ): Promise<WithdrawalPlan> {
   const platform = await payoutRequest("BACHS", "/accounts/me");
-  logServiceError(
-        "v1/wallets/withdrawals",
-        "bachs.payout.request",
-        platform,
-        false,
-        { userId, amount: amount.toString(), destination, key, platform },
-      );
   const platformId = providerId(platform.id);
   // Platform responses can have capabilities: null; use the enabled capability list.
   if (

@@ -93,7 +93,7 @@ export async function payoutRequest(
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  // Do not log request bodies, destinations, account numbers or wallet addresses.
+  // Normal service logs remain sanitized. Temporary Bachs diagnostics below are raw.
   logServiceTrace(
     "v1/wallets/withdrawals",
     "provider.response",
@@ -107,7 +107,20 @@ export async function payoutRequest(
   );
   let data: any;
   try {
-    data = await response.json();
+    const rawResponse = await response.text();
+    if (gateway === "BACHS") {
+      // TEMPORARY: explicitly requested full provider responses for live diagnosis.
+      // Keep isolated from the normal sanitizer; remove after verification.
+      console.info(JSON.stringify({
+        event: "bachs_withdrawal_response_raw",
+        timestamp: new Date().toISOString(),
+        method: body ? "POST" : "GET", path, accountId: account,
+        idempotencyKey: key, status: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+        responseBody: rawResponse,
+      }));
+    }
+    data = JSON.parse(rawResponse);
   } catch (error) {
     logServiceError(
       "v1/wallets/withdrawals",

@@ -236,3 +236,28 @@ provider. Settings reloads do not discard an in-flight operation or leave the fo
 stuck busy. Its bank list is reloaded for that provider; a stale
 request cannot replace a more recent provider's bank list. The minimum withdrawal
 and expected receive amount share a two-column summary row.
+
+
+### Bachs recipient reuse and temporary diagnostics
+
+Withdrawal preparation fetches the saved recipient's current account status.
+When both `transfers` and `payouts` are active, it skips onboarding and reuses the
+matching saved destination. A different destination is registered on that account
+without resending its identity. An approved matching bank destination also avoids
+a repeated bank-network name resolution. Account ID and destination usability
+checks still run before coin reservation.
+
+Inactive recipients submit minimal name/destination information when needed,
+then re-read capabilities. If all outstanding requirement entries are already
+under review or pending verification, preparation stops without resubmission.
+Provider approval remains authoritative; this does not bypass Connect requirements.
+
+Temporary full-response diagnostics are enabled for every Bachs HTTP response
+through the withdrawal provider helper, including non-JSON and rejected responses.
+The `bachs_withdrawal_response_raw` event contains endpoint, HTTP method/status,
+account ID, idempotency key, response headers and the complete response body.
+It deliberately bypasses normal log sanitization and can expose personal/bank
+information. Request bodies and authorization headers are not part of this event.
+Remove this temporary diagnostic block in `withdrawal-provider.ts` after verification;
+normal application log sanitization remains unchanged. No response is available
+to log for a network failure before HTTP headers arrive.

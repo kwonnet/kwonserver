@@ -121,3 +121,15 @@ it('blocks a Flutterwave submission when authorization is revoked after the fund
  const guard=vi.fn().mockRejectedValue(new Error('User restricted')),save=vi.fn();
  await expect(runFlutterwaveWithdrawal({...flwRow(),stage:'PREPARED',expiresAt:new Date(Date.now()+60000),providerData:{request:{currency:'NGN',debit_currency:'NGN',amount:'56.25'},sourceRequired:'60'}},save,guard)).rejects.toThrow('restricted');expect(guard).toHaveBeenCalledOnce();expect(save).not.toHaveBeenCalled();expect(vi.mocked(fetch).mock.calls.every(([,options])=>options!.method==='GET')).toBe(true);
 });
+
+it.each([200,422,502])('logs complete Bachs response bodies and headers including sensitive fields for status %s',async status=>{
+ const raw=status===502?'upstream bank account 0123456789 unavailable':JSON.stringify({id:'pd-1',account_number:'0123456789',account_name:'TEST USER',error_code:status===422?'VALIDATION_ERROR':undefined});
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{});
+ try {
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(raw,{status,headers:{'x-request-id':'request-raw','x-provider-detail':'full-detail'}}));
+  if(status===200)await payoutRequest('BACHS','/payouts/destinations',{},'wd-test','acct-1');
+  else await expect(payoutRequest('BACHS','/payouts/destinations',{},'wd-test','acct-1')).rejects.toBeInstanceOf(WithdrawalProviderError);
+  const record=JSON.parse(log.mock.calls.find(([line])=>String(line).includes('bachs_withdrawal_response_raw'))![0]);
+  expect(record).toMatchObject({event:'bachs_withdrawal_response_raw',status,path:'/payouts/destinations',method:'POST',accountId:'acct-1',idempotencyKey:'wd-test',responseBody:raw,headers:{'x-request-id':'request-raw','x-provider-detail':'full-detail'}});
+ } finally {log.mockRestore();}
+});
