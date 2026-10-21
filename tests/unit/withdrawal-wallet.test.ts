@@ -132,7 +132,7 @@ it('enforces net payout maxima in both regions and invalid configured limits',()
 });
 it('queues an encrypted intent-bound OTP without exposing the code, retaining the outbox on enqueue failure',async()=>{
  fixture.row.otpVerifiedAt=null;fixture.enqueue.mockRejectedValueOnce(new Error('queue offline'));
- const result=await requestWithdrawalOtp('user',fixture.row.id);expect(result).not.toHaveProperty('code');expect(result).not.toHaveProperty('messageId');
+ const result=await requestWithdrawalOtp('user',fixture.row.id);expect(result.message).toBe('A withdrawal code is sent to your registered email.');expect(result).not.toHaveProperty('code');expect(result).not.toHaveProperty('messageId');
  const data=db.authEmailToken.create.mock.calls[0][0].data;const {decryptEmailToken}=await import('@/utils/auth-security');const code=decryptEmailToken(data.encryptedToken);
  expect(code).toMatch(/^\d{6}$/);expect(data.tokenHash).toBe(withdrawalOtpHash(fixture.row.id,data.id,fixture.user.email,code));expect(data.encryptedToken).not.toBe(code);
  expect(db.authEmailToken.updateMany).toHaveBeenCalledWith(expect.objectContaining({where:{userId:'user',purpose:'WITHDRAWAL_OTP',usedAt:null}}));

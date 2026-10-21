@@ -1205,7 +1205,7 @@ export async function requestWithdrawalOtp(userId: string, id: string) {
   return {
     challengeId: result.challengeId,
     expiresAt: result.expiresAt,
-    message: "A withdrawal code is queued for your registered email.",
+    message: "A withdrawal code is sent to your registered email.",
   };
   });
 }
