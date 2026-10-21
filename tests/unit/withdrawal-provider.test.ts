@@ -26,7 +26,7 @@ it('rejects invalid server exchange rates',()=>{
 });
 it('restricts bank and crypto routes by the authoritative region',()=>{
  expect(()=>validateWithdrawalDestination({type:'bank',bankCode:'058',accountNumber:'0123456789'},'BACHS',false)).toThrow();
- expect(()=>validateWithdrawalDestination({type:'crypto',asset:'USDT_BEP20',address:'0x'+'a'.repeat(40),confirmed:true},'BACHS',true)).toThrow();
+ expect(()=>validateWithdrawalDestination({type:'crypto',asset:'USDT_BEP20',address:'0x'+'a'.repeat(40),confirmed:true},'BACHS',true)).not.toThrow();
  expect(()=>validateWithdrawalDestination({type:'crypto',asset:'USDT_BEP20',address:'0x'+'a'.repeat(40),confirmed:true},'FLUTTERWAVE',false)).toThrow();
 });
 it('uses available balance, not ledger or pending balance',async()=>{

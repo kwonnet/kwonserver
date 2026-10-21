@@ -218,3 +218,17 @@ it.each([
  await expect(prepareBachsWithdrawal('user',d(10),d(15),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1')).rejects.toThrow('Could not verify Bachs payout destinations');
  expect(vi.mocked(fetch).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false);
 });
+
+it('enables NGN on an approved crypto-first recipient when switching to a bank payout',async()=>{
+ recipientReady=true;
+ const mock=vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>{
+  const path=new URL(url).pathname,body=options?.body?JSON.parse(options.body):undefined;
+  if(path==='/v1/accounts/acct-1'&&!body)return Response.json({id:'acct-1',balance_currencies:['USD'],capabilities:{transfers:{status:'active'},payouts:{status:'active'}}});
+  if(path==='/v1/payouts/destinations')return Response.json({destinations:[{id:'pd-bank',currency:'NGN',bank_code:'058',account_number:'0123456789',account_name:'TEST USER',is_usable:true}],total:1,limit:20,offset:0});
+  if(path==='/v1/balances')return Response.json({balances:[{currency:'NGN',available_balance:'100000'}]});
+  return await mock(url,options);
+ });
+ const plan=await prepareBachsWithdrawal('user',d(72000),d(90000),{type:'bank',bankCode:'058',accountNumber:'0123456789'},'wd-bank');
+ expect(plan.data.destinationId).toBe('pd-bank');expect(requests.find(r=>r.key==='wd-bank-currency-NGN')?.body).toEqual({balance_currencies:{NGN:true}});expect(requests.some(r=>r.body?.fields)).toBe(false);
+});

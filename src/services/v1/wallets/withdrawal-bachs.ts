@@ -104,6 +104,12 @@ async function recipient(
     };
     return details;
   }
+  // USD is always available; a crypto-first Nigerian recipient may still need NGN enabled.
+  if (ready() && destination.type === "bank" && Array.isArray(account.balance_currencies) && !account.balance_currencies.includes("NGN")) {
+    account = await payoutRequest("BACHS", accountPath, {balance_currencies: {NGN: true}}, `${key}-currency-NGN`);
+    verifyAccount();
+    withdrawalDiagnostic("bachs.recipient.ngn_enabled", {providerAccountId: accountId});
+  }
   if (ready()) withdrawalDiagnostic("bachs.recipient.ready", {providerAccountId: accountId});
   if (!ready()) {
     const entries = account.requirements?.entries;

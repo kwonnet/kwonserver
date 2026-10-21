@@ -242,3 +242,39 @@ it.each(['SUCCEEDED','FAILED'] as const)('traces committed authorization, stages
  const serialized=JSON.stringify(events);
  expect(serialized).not.toMatch(/123456|user@example|Test User|account_number|wallet_address|tokenHash|reviewNote/);
 });
+
+it('exposes both Nigerian withdrawal methods and global crypto-only pricing',async()=>{
+ const global=await withdrawalSettings('user');
+ expect(global.methods.bank).toBeNull();expect(global.methods.crypto).toMatchObject({currency:'USD',rate:'0.015',exchangeFeePercent:25,minimum:5,maximum:5000});
+ fixture.user.country.iso3='NGA';
+ const local=await withdrawalSettings('user');
+ expect(local.methods.bank).toMatchObject({currency:'NGN',rate:'18',exchangeFeePercent:20,minimum:1000,maximum:5000000});
+ expect(local.methods.crypto).toEqual(global.methods.crypto);
+ expect(local.providers.every(provider=>provider.routes.length>0)).toBe(true);
+});
+it.each(['BACHS','FLUTTERWAVE'] as const)('quotes Nigerian crypto through %s using global prices and fees',async gateway=>{
+ fixture.user.country.iso3='NGA';
+ const q=await quoteCoinWithdrawal('user',{coins:5000,gateway,destination:crypto});
+ expect(q).toMatchObject({currency:'USD',rate:'0.015',exchangeFeePercent:25,amount:56.25,minimum:5});
+ expect(fixture.row.country).toBe('NGA');expect(fixture.row.rate.toString()).toBe('0.015');
+ const args=fixture.prepare.mock.calls[0];expect(args[gateway==='BACHS'?1:0].toString()).toBe('56.25');
+});
+it('confirms Nigerian crypto with USD policies and dispatches only within USD limits',async()=>{
+ fixture.user.country.iso3='NGA';fixture.row.country='NGA';fixture.rates.maxNgnWithdrawal=d(1);fixture.rates.reviewNgnWithdrawal=d(1);
+ expect(await confirm()).toMatchObject({status:'PROCESSING',currency:'USD'});
+ expect(fixture.row.approvalRequired).toBe(false);expect(fixture.run).toHaveBeenCalled();
+ fixture.row.status='RESERVED';fixture.rates.maxWithdrawal=d(50);fixture.run.mockClear();
+ expect(await processCoinWithdrawal(fixture.row.id)).toMatchObject({status:'BLOCKED'});expect(fixture.run).not.toHaveBeenCalled();
+});
+it('requires USD admin review for Nigerian crypto and uses the USD maximum on approval',async()=>{
+ fixture.user.country.iso3='NGA';fixture.row.country='NGA';fixture.rates.reviewWithdrawal=d(50);fixture.rates.reviewNgnWithdrawal=d(1000000);
+ expect(await confirm()).toMatchObject({status:'AWAITING_APPROVAL',currency:'USD'});expect(fixture.run).not.toHaveBeenCalled();
+ fixture.rates.maxNgnWithdrawal=d(1);
+ expect(await decideWithdrawal('admin',fixture.row.id,'APPROVE','Verified ownership','decision-crypto')).toMatchObject({status:'RESERVED'});
+});
+it('rejects Nigerian crypto below the global minimum and above the global maximum',async()=>{
+ fixture.user.country.iso3='NGA';
+ await expect(quoteCoinWithdrawal('user',{coins:100,gateway:'BACHS',destination:crypto})).rejects.toThrow('USD');
+ fixture.rates.maxWithdrawal=d(50);
+ await expect(quote()).rejects.toThrow('USD');expect(fixture.prepare).not.toHaveBeenCalled();
+});

@@ -251,13 +251,11 @@ export function validateWithdrawalDestination(
   gateway: WithdrawalGateway,
   nigerian: boolean,
 ) {
-  if (nigerian) {
-    if (
-      destination.type !== "bank" ||
-      !destination.bankCode ||
-      !/^\d{10}$/.test(destination.accountNumber)
-    )
-      throw new WalletError("A Nigerian bank account is required");
+  if (destination.type === "bank") {
+    if (!nigerian)
+      throw new WalletError("Bank withdrawals are available to Nigerian users");
+    if (!destination.bankCode || !/^\d{10}$/.test(destination.accountNumber))
+      throw new WalletError("A valid Nigerian bank account is required");
   } else {
     if (
       destination.type !== "crypto" ||

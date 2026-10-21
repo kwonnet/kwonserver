@@ -475,22 +475,21 @@ export async function withdrawalSettings(userId: string) {
   if (!rate)
     throw new WalletError("Withdrawal exchange rates are unavailable", 503);
   const nigerian = user.country.iso3 === "NGA";
+  const pricing = (bank: boolean) => ({
+    currency: bank ? "NGN" : "USD",
+    rate: (bank ? rate.ngnPrice : rate.price).toString(),
+    exchangeFeePercent: (bank ? rate.ngnFee : rate.fee).mul(100).toNumber(),
+    minimum: (bank ? rate.minNgnWithdrawal : rate.minWithdrawal).toNumber(),
+    maximum: (bank ? rate.maxNgnWithdrawal : rate.maxWithdrawal)?.toNumber() ?? (bank ? 5000000 : 5000),
+    reviewThreshold: (bank ? rate.reviewNgnWithdrawal : rate.reviewWithdrawal)?.toNumber() ?? (bank ? 2500000 : 2500),
+  });
   return {
     canWithdraw: !withdrawalBlockReason(user, rate),
     blockedReason: withdrawalBlockReason(user, rate),
-    maximum:
-      (nigerian ? rate.maxNgnWithdrawal : rate.maxWithdrawal)?.toNumber() ??
-      (nigerian ? 5000000 : 5000),
-    reviewThreshold:
-      (nigerian
-        ? rate.reviewNgnWithdrawal
-        : rate.reviewWithdrawal
-      )?.toNumber() ?? (nigerian ? 2500000 : 2500),
     nigerian,
-    currency: nigerian ? "NGN" : "USD",
-    rate: (nigerian ? rate.ngnPrice : rate.price).toString(),
-    exchangeFeePercent: (nigerian ? rate.ngnFee : rate.fee).mul(100).toNumber(),
-    minimum: (nigerian ? rate.minNgnWithdrawal : rate.minWithdrawal).toNumber(),
+    // Retain the default fields for existing clients; new clients select method pricing.
+    ...pricing(nigerian),
+    methods: {bank: nigerian ? pricing(true) : null, crypto: pricing(false)},
     providers: (["FLUTTERWAVE", "BACHS"] as const).map((gateway) => {
       let enabled = true;
       try {
@@ -508,7 +507,7 @@ export async function withdrawalSettings(userId: string) {
       return {
         gateway,
         enabled,
-        routes: nigerian ? [] : cryptoRoutes[gateway],
+        routes: cryptoRoutes[gateway],
       };
     }),
   };
@@ -548,7 +547,7 @@ export async function quoteCoinWithdrawal(
   const converted = withdrawalConversion(
     input.coins,
     rates,
-    user.country.iso3 === "NGA",
+    destination.type === "bank",
   );
   if (cents(user.wallet.coins, true) < cents(converted.coins))
     throw new WalletError("Insufficient coin balance");
@@ -598,7 +597,7 @@ export async function quoteCoinWithdrawal(
       receiveCurrency: plan.receiveCurrency,
       expiresAt: new Date(Date.now() + 15 * 60000),
       approvalRequired: converted.amount.gte(
-        reviewLimit(rates, user.country.iso3 === "NGA"),
+        reviewLimit(rates, destination.type === "bank"),
       ),
     },
   });
@@ -661,7 +660,7 @@ export async function confirmCoinWithdrawal(
       const current = withdrawalConversion(
         row.coins,
         rates,
-        row.country === "NGA",
+        row.currency === "NGN",
       );
       if (
         !current.rate.eq(row.rate) ||
@@ -715,7 +714,7 @@ export async function confirmCoinWithdrawal(
         },
       });
       const approvalRequired = current.amount.gte(
-        reviewLimit(rates, row.country === "NGA"),
+        reviewLimit(rates, row.currency === "NGN"),
       );
       await tx.coinWithdrawal.update({
         where: { id },
@@ -1295,7 +1294,7 @@ async function authorizeWithdrawalDispatch(row: CoinWithdrawal) {
       409,
     );
   const maximum =
-    row.country === "NGA" ? rates.maxNgnWithdrawal : rates.maxWithdrawal;
+    row.currency === "NGN" ? rates.maxNgnWithdrawal : rates.maxWithdrawal;
   if (maximum && row.amount.gt(maximum))
     throw new WithdrawalBlockedError(
       "This withdrawal exceeds the current per-transaction maximum",
@@ -1303,7 +1302,7 @@ async function authorizeWithdrawalDispatch(row: CoinWithdrawal) {
     );
   if (
     (row.approvalRequired ||
-      row.amount.gte(reviewLimit(rates, row.country === "NGA"))) &&
+      row.amount.gte(reviewLimit(rates, row.currency === "NGN"))) &&
     !row.approvedAt
   )
     throw new WithdrawalBlockedError(
@@ -1625,7 +1624,7 @@ export async function decideWithdrawal(
           !row.otpVerifiedAt ||
           user.country?.iso3 !== row.country ||
           row.amount.gt(
-            row.country === "NGA"
+            row.currency === "NGN"
               ? rates.maxNgnWithdrawal
               : rates.maxWithdrawal,
           )

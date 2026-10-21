@@ -291,3 +291,20 @@ until it finds an exact match or exhausts the list for that recipient account.
 It does not list other users' destinations. Malformed/incomplete pages stop
 preparation rather than being treated as an empty list and creating duplicates.
 Tests use this provider response shape, including destination reuse on later pages.
+
+
+### Withdrawal methods and pricing
+
+Nigerian accounts can select bank transfer or crypto. Accounts outside Nigeria
+can select crypto only; bank eligibility is enforced by the server. Settings now
+include separate `methods.bank` (NGN, Nigerians only) and `methods.crypto` (USD,
+all eligible users) pricing, and supported crypto routes for every country.
+Legacy top-level pricing fields retain the account's default method.
+
+NGN bank payouts use `ngnPrice`, `ngnFee`, Nigerian minimum/maximum and review
+threshold. Every crypto payout, including those requested by Nigerian users,
+uses global `price`, `fee`, USD minimum/maximum and review threshold. The quote
+stores that currency and pricing; confirmation, dispatch and admin approval use
+the stored payout currency for their financial policy checks. The account's
+country is still snapshotted and rechecked independently. Switching methods on
+the client invalidates the quote, ownership confirmation and bank verification.
