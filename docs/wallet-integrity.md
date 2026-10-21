@@ -197,3 +197,28 @@ are refreshed before dispatch, including after admin approval. Crypto receive
 amounts shown before dispatch are estimates; the fiat amount stays fixed and
 Kwonnet covers provider fees. The Wallet Withdrawals tab lists approval, blocked,
 processing, review, completed and restored requests with timestamps.
+
+### Bachs platform capability projection
+
+`prepareBachsWithdrawal` does not require
+`platform.capabilities.connect.status === "active"` from `GET /accounts/me`.
+The platform response can contain `capabilities: null` alongside
+`enabled_capabilities`. Preparation requires `enabled_capabilities` to be an array
+containing `payouts`; missing, malformed or payout-disabled lists stop before
+recipient setup. The optional nested capability object is not used for this check. Bachs' [payout overview](https://docs.bachs.io/guides/payouts/overview)
+requires payout readiness on the account being debited and a usable destination;
+Connect concerns creating/managing connected accounts, as described in
+[Become a platform](https://docs.bachs.io/connect/become-a-platform).
+
+Kwonnet still uses the connected-recipient flow: create/reuse the user's account,
+verify its active `transfers` and `payouts` capabilities and destination usability,
+fund it, then submit its payout with `X-Account-Id`. Removing the local platform
+projection check does not bypass Bachs permissions; actual account-creation,
+transfer and payout API denials still stop processing. A platform's enabled
+`payouts` capability alone does not prove it may create connected accounts.
+
+The [Create Payout reference](https://docs.bachs.io/api-reference/payouts/create-payout)
+continues to govern request bodies: a registered destination plus exactly one of
+`amount` (same currency) or `quote_id` (converted payout), with a stable
+`Idempotency-Key` and the recipient account header. Existing coin reservation,
+OTP/admin approval, fee/balance checks and reconciliation remain in effect.

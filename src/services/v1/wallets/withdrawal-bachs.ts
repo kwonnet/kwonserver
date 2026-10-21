@@ -185,9 +185,13 @@ export async function prepareBachsWithdrawal(
         { userId, amount: amount.toString(), destination, key, platform },
       );
   const platformId = providerId(platform.id);
-  if (platform.capabilities?.connect?.status !== "active")
+  // Platform responses can have capabilities: null; use the enabled capability list.
+  if (
+    !Array.isArray(platform.enabled_capabilities) ||
+    !platform.enabled_capabilities.includes("payouts")
+  )
     throw new WalletError(
-      "Bachs Connect must be enabled for Kwonnet before user withdrawals are available",
+      "Bachs payouts must be enabled for Kwonnet before user withdrawals are available",
       503,
     );
   const { accountId, destinationId, accountName } = await recipient(

@@ -11,7 +11,7 @@ beforeEach(()=>{
  db.withdrawalRecipient.upsert.mockImplementation(async({create})=>({...create,providerId:'acct-1',createdAt:new Date()}));db.withdrawalRecipient.update.mockResolvedValue({});
  vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>{
   const path=new URL(url).pathname,body=options?.body?JSON.parse(options.body):undefined,key=options?.headers?.['Idempotency-Key'],account=options?.headers?.['X-Account-Id'];requests.push({path,body,key,account});
-  if(path==='/v1/accounts/me')return Response.json({id:'platform',capabilities:{connect:{status:'active'}}});
+  if(path==='/v1/accounts/me')return Response.json({id:'platform',is_active:true,capabilities:null,enabled_capabilities:['payouts','transfers']});
   if(path==='/v1/accounts' && body)return Response.json({id:'acct-1'});
   if(path==='/v1/accounts/acct-1')return Response.json({id:'acct-1',capabilities:{transfers:{status:'active'},payouts:{status:'active'}}});
   if(path==='/v1/payouts/destinations')return Response.json({items:[{id:'pd-1',is_usable:true,currency:'USDC_BASE',wallet_address:address}]});
@@ -27,13 +27,14 @@ beforeEach(()=>{
 });
 it('onboards a recipient and grosses up the source quote without reducing the user payout',async()=>{
  const plan=await prepareBachsWithdrawal('user',d('56.25'),d(75),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1');
+ expect(plan.data.platformId).toBe('platform');expect(plan.data.request).toEqual({destination:'pd-1',quote_id:'quote-57.25',reference:'wd-1'});
  expect(plan.receiveAmount).toBe('56.25');expect(plan.data.sourceAmount).toBe('57.25');expect(plan.data.fundingAmount).toBe('76.00');
  expect(requests.filter(r=>r.path.endsWith('/quotes')).map(r=>r.body.amount)).toEqual(['56.25','57.25']);
  const onboard=requests.find(r=>r.path==='/v1/accounts/acct-1'&&r.body)!;expect(onboard.body.fields.payout_destination).toEqual({type:'crypto_wallet',currency:'USDC_BASE',asset:'USDC_BASE',wallet_address:address});expect(onboard.body).not.toHaveProperty('balance_currencies');
  expect(requests.filter(r=>r.path.endsWith('/quotes')).every(r=>r.account==='acct-1')).toBe(true);expect(requests.some(r=>r.path==='/v1/transfers')).toBe(false);
 });
 it('requires active capabilities and a usable destination before any coin reservation',async()=>{
- vi.mocked(fetch).mockImplementation(async(url)=>Response.json(String(url).endsWith('/accounts/me')?{id:'platform',capabilities:{connect:{status:'active'}}}:{id:'acct-1',capabilities:{payouts:{status:'restricted'},transfers:{status:'active'}}}));
+ vi.mocked(fetch).mockImplementation(async(url)=>Response.json(String(url).endsWith('/accounts/me')?{id:'platform',is_active:true,capabilities:null,enabled_capabilities:['payouts','transfers']}:{id:'acct-1',capabilities:{payouts:{status:'restricted'},transfers:{status:'active'}}}));
  await expect(prepareBachsWithdrawal('user',d(10),d(15),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1')).rejects.toThrow('approve your recipient');
 });
 it('creates a recipient once with a stable per-user account idempotency key',async()=>{
@@ -92,3 +93,30 @@ it('rechecks restrictions immediately before funding and again before the recipi
  requests.length=0;guard.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('User restricted'));
  await expect(runBachsWithdrawal(state,saver(state),guard)).rejects.toThrow('restricted');expect(requests.some(r=>r.key==='wd-1-fund')).toBe(true);expect(requests.some(r=>r.path==='/v1/payouts')).toBe(false);expect(state.stage).toBe('FUNDED');
 });
+
+it('does not treat a missing platform capability projection as proof that Connect is disabled',async()=>{
+ const mock=vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>String(url).endsWith('/accounts/me')?Response.json({id:'platform',capabilities:null,enabled_capabilities:['payouts','transfers'],configuration:null}):await mock(url,options));
+ const plan=await prepareBachsWithdrawal('user',d('56.25'),d(75),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1');
+ expect(plan.data.platformId).toBe('platform');expect(plan.data.accountId).toBe('acct-1');expect(requests.some(r=>r.path==='/v1/payouts'||r.path==='/v1/transfers')).toBe(false);
+});
+it('still propagates an actual Bachs denial when creating a connected recipient',async()=>{
+ db.withdrawalRecipient.upsert.mockImplementation(async({create})=>({...create,providerId:null,createdAt:new Date()}));
+ const mock=vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>new URL(url).pathname==='/v1/accounts'?Response.json({error_code:'FORBIDDEN',detail:'Connect permission required'},{status:403}):await mock(url,options));
+ await expect(prepareBachsWithdrawal('user',d('56.25'),d(75),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1')).rejects.toMatchObject({providerStatus:403});
+ expect(db.withdrawalRecipient.update).not.toHaveBeenCalled();expect(requests.some(r=>r.path==='/v1/transfers'||r.path==='/v1/payouts')).toBe(false);
+});
+it('continues to reject destinations which Bachs has not approved for payout',async()=>{
+ const mock=vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>new URL(url).pathname==='/v1/payouts/destinations'?Response.json({items:[{id:'pd-1',is_usable:false,currency:'USDC_BASE',wallet_address:address}]}):await mock(url,options));
+ await expect(prepareBachsWithdrawal('user',d('56.25'),d(75),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1')).rejects.toThrow('not approved this destination');
+ expect(requests.some(r=>r.path==='/v1/transfers'||r.path==='/v1/payouts')).toBe(false);
+});
+
+it.each([undefined,null,[],['transfers'],{payouts:true},'payouts'])(
+ 'blocks withdrawal preparation without an enabled payouts capability: %j',async enabled=>{
+  vi.mocked(fetch).mockResolvedValue(Response.json({id:'platform',capabilities:{connect:{status:'active'},payouts:{status:'active'}},enabled_capabilities:enabled}));
+  await expect(prepareBachsWithdrawal('user',d(10),d(15),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1')).rejects.toThrow('Bachs payouts must be enabled');
+  expect(db.user.findUniqueOrThrow).not.toHaveBeenCalled();expect(db.withdrawalRecipient.upsert).not.toHaveBeenCalled();expect(fetch).toHaveBeenCalledTimes(1);
+ });
