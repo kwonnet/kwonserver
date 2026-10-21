@@ -14,7 +14,7 @@ beforeEach(()=>{
   if(path==='/v1/accounts/me')return Response.json({id:'platform',is_active:true,capabilities:null,enabled_capabilities:['payouts','transfers']});
   if(path==='/v1/accounts' && body)return Response.json({id:'acct-1'});
   if(path==='/v1/accounts/acct-1'){if(body)recipientReady=true;return Response.json({id:'acct-1',capabilities:{transfers:{status:recipientReady?'active':'restricted'},payouts:{status:recipientReady?'active':'restricted'}}});}
-  if(path==='/v1/payouts/destinations')return Response.json({items:[{id:'pd-1',is_usable:true,currency:'USDC_BASE',wallet_address:address}]});
+  if(path==='/v1/payouts/destinations')return Response.json({total:1,limit:20,offset:0,destinations:[{id:'pd-1',is_usable:true,currency:'USDC_BASE',wallet_address:address}]});
   if(path==='/v1/payouts/quotes')return Response.json({quote_id:'quote-'+body.amount,from_currency:'USD',to_currency:'USDC_BASE',from_amount:body.amount,to_amount:d(body.amount).sub(1).toFixed(2),exchange_rate:'1',expires_at:new Date(Date.now()+30000).toISOString()});
   if(path==='/v1/balances')return Response.json({balances:[{currency:'USD',available_balance:account?'75.00':'1000.00'}]});
   if(path==='/v1/transfers'){
@@ -75,7 +75,7 @@ it('uses NGN recipient onboarding and bank payouts without a conversion quote',a
   const path=new URL(url).pathname,body=options?.body?JSON.parse(options.body):undefined;
   if(path==='/v1/reference/banks')return Response.json({banks:[{code:'058',name:'Test bank'}]});
   if(path==='/v1/misc/bank-accounts/resolve')return Response.json({resolved:true,account_name:'TEST USER',account_number:'0123456789'});
-  if(path==='/v1/payouts/destinations')return Response.json({items:[{id:'pd-ngn',currency:'NGN',bank_code:'058',account_number:'0123456789',account_name:'TEST USER',is_usable:true}]});
+  if(path==='/v1/payouts/destinations')return Response.json({total:1,limit:20,offset:0,destinations:[{id:'pd-ngn',currency:'NGN',bank_code:'058',account_number:'0123456789',account_name:'TEST USER',is_usable:true}]});
   if(path==='/v1/balances')return Response.json({balances:[{currency:'NGN',available_balance:'100000'}]});
   if(path.startsWith('/v1/payouts') && path!=='/v1/payouts/destinations')return Response.json({id:'payout-ngn',reference:'wd-ngn',destination:'pd-ngn',currency:'NGN',source_currency:'NGN',amount:'72000.00',fee:'100.00',total_debited:'72100.00',status:'completed'});
   return await mock(url,options);
@@ -109,7 +109,7 @@ it('still propagates an actual Bachs denial when creating a connected recipient'
 });
 it('continues to reject destinations which Bachs has not approved for payout',async()=>{
  const mock=vi.mocked(fetch).getMockImplementation()!;
- vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>new URL(url).pathname==='/v1/payouts/destinations'?Response.json({items:[{id:'pd-1',is_usable:false,currency:'USDC_BASE',wallet_address:address}]}):await mock(url,options));
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>new URL(url).pathname==='/v1/payouts/destinations'?Response.json({total:1,limit:20,offset:0,destinations:[{id:'pd-1',is_usable:false,currency:'USDC_BASE',wallet_address:address}]}):await mock(url,options));
  await expect(prepareBachsWithdrawal('user',d('56.25'),d(75),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1')).rejects.toThrow('not approved this destination');
  expect(requests.some(r=>r.path==='/v1/transfers'||r.path==='/v1/payouts')).toBe(false);
 });
@@ -127,7 +127,7 @@ it('uses the verified bank holder name even when the public profile has a single
   const path=new URL(url).pathname;
   if(path==='/v1/reference/banks')return Response.json({banks:[{code:'058',name:'Test bank'}]});
   if(path==='/v1/misc/bank-accounts/resolve')return Response.json({resolved:true,account_name:'KELVIN TORVER PETER',account_number:'0123456789'});
-  if(path==='/v1/payouts/destinations')return Response.json({items:[{id:'pd-ngn',currency:'NGN',bank_code:'058',account_number:'0123456789',account_name:'KELVIN TORVER PETER',is_usable:true}]});
+  if(path==='/v1/payouts/destinations')return Response.json({total:1,limit:20,offset:0,destinations:[{id:'pd-ngn',currency:'NGN',bank_code:'058',account_number:'0123456789',account_name:'KELVIN TORVER PETER',is_usable:true}]});
   if(path==='/v1/balances')return Response.json({balances:[{currency:'NGN',available_balance:'100000'}]});
   return await mock(url,options);
  });
@@ -164,7 +164,7 @@ it('registers a changed destination on an approved account without repeating onb
   if(new URL(url).pathname==='/v1/payouts/destinations'){
    const body=options?.body?JSON.parse(options.body):undefined;
    requests.push({path:'/v1/payouts/destinations',body,account:options?.headers?.['X-Account-Id'],key:options?.headers?.['Idempotency-Key']});
-   return Response.json(body?{...body,id:'pd-new',is_usable:true}:{items:[]});
+   return Response.json(body?{...body,id:'pd-new',is_usable:true}:{total:0,limit:20,offset:0,destinations:[]});
   }
   return await mock(url,options);
  });
@@ -177,11 +177,44 @@ it('reuses an approved bank destination without a repeat bank-network resolution
  const mock=vi.mocked(fetch).getMockImplementation()!;
  vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>{
   const path=new URL(url).pathname;
-  if(path==='/v1/payouts/destinations')return Response.json({items:[{id:'pd-ngn',currency:'NGN',bank_code:'058',account_number:'0123456789',account_name:'TEST USER',is_usable:true}]});
+  if(path==='/v1/payouts/destinations')return Response.json({total:1,limit:20,offset:0,destinations:[{id:'pd-ngn',currency:'NGN',bank_code:'058',account_number:'0123456789',account_name:'TEST USER',is_usable:true}]});
   if(path==='/v1/balances')return Response.json({balances:[{currency:'NGN',available_balance:'100000'}]});
   return await mock(url,options);
  });
  const plan=await prepareBachsWithdrawal('user',d(72000),d(90000),{type:'bank',bankCode:'058',accountNumber:'0123456789'},'wd-ngn');
  expect(plan.data.accountName).toBe('TEST USER');
  expect(vi.mocked(fetch).mock.calls.some(([url,o])=>String(url).includes('resolve')||o?.method==='POST')).toBe(false);
+});
+
+it('reuses an approved destination on a later Bachs page instead of creating another one',async()=>{
+ recipientReady=true;
+ const mock=vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>{
+  const parsed=new URL(url);
+  if(parsed.pathname==='/v1/payouts/destinations'){
+   expect(options.method).toBe('GET');expect(options.headers['X-Account-Id']).toBe('acct-1');
+   const offset=Number(parsed.searchParams.get('offset')??0);
+   if(offset===0)return Response.json({destinations:Array.from({length:20},(_,i)=>({id:`other-${i}`,currency:'USDC_BASE',wallet_address:'other-address',is_usable:true})),total:21,limit:20,offset:0});
+   expect(parsed.searchParams.get('limit')).toBe('20');expect(offset).toBe(20);
+   return Response.json({destinations:[{id:'pd-existing',currency:'USDC_BASE',wallet_address:address,status:'approved',is_usable:true}],total:21,limit:20,offset:20});
+  }
+  return await mock(url,options);
+ });
+ const plan=await prepareBachsWithdrawal('user',d(10),d(15),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1');
+ expect(plan.data.destinationId).toBe('pd-existing');
+ expect(vi.mocked(fetch).mock.calls.filter(([url])=>new URL(String(url)).pathname==='/v1/payouts/destinations')).toHaveLength(2);
+ expect(vi.mocked(fetch).mock.calls.some(([,options])=>options?.method==='POST'&&JSON.parse(String(options.body??'{}')).type==='crypto_wallet')).toBe(false);
+});
+it.each([
+ {items:[],total:0,limit:20,offset:0},
+ {destinations:null,total:0,limit:20,offset:0},
+ {destinations:[],total:21,limit:20,offset:0},
+ {destinations:[],total:1,limit:0,offset:0},
+ {destinations:[],total:1,limit:20,offset:20},
+])('rejects malformed or incomplete destination pages without creating destinations: %j',async page=>{
+ recipientReady=true;
+ const mock=vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>new URL(url).pathname==='/v1/payouts/destinations'?Response.json(page):await mock(url,options));
+ await expect(prepareBachsWithdrawal('user',d(10),d(15),{type:'crypto',asset:'USDC_BASE',address,confirmed:true},'wd-1')).rejects.toThrow('Could not verify Bachs payout destinations');
+ expect(vi.mocked(fetch).mock.calls.some(([,options])=>options?.method==='POST')).toBe(false);
 });

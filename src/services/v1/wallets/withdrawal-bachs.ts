@@ -131,23 +131,39 @@ async function recipient(
         409,
       );
   }
-  const destinations = await payoutRequest(
-    "BACHS",
-    "/payouts/destinations",
-    undefined,
-    undefined,
-    accountId,
-  );
-  if (!Array.isArray(destinations.items))
-    throw new WalletError("Could not verify Bachs payout destinations", 503);
-  let saved = destinations.items.find(
-    (d: any) =>
-      d.currency === (destination.type === "bank" ? "NGN" : destination.asset) &&
-      (destination.type === "bank"
-        ? d.account_number === destination.accountNumber &&
-          d.bank_code === destination.bankCode
-        : d.wallet_address === destination.address),
-  );
+  let saved: any;
+  let offset = 0;
+  while (!saved) {
+    const page = await payoutRequest(
+      "BACHS",
+      offset === 0 ? "/payouts/destinations"
+        : `/payouts/destinations?limit=20&offset=${offset}`,
+      undefined,
+      undefined,
+      accountId,
+    );
+    // Bachs returns { destinations, total, limit, offset }, not { items }.
+    if (
+      !Array.isArray(page.destinations) ||
+      !Number.isSafeInteger(page.total) || page.total < 0 ||
+      !Number.isSafeInteger(page.limit) || page.limit <= 0 ||
+      page.offset !== offset || page.destinations.length > page.limit
+    )
+      throw new WalletError("Could not verify Bachs payout destinations", 503);
+    saved = page.destinations.find(
+      (d: any) => d &&
+        d.currency === (destination.type === "bank" ? "NGN" : destination.asset) &&
+        (destination.type === "bank"
+          ? d.account_number === destination.accountNumber &&
+            d.bank_code === destination.bankCode
+          : d.wallet_address === destination.address),
+    );
+    if (saved || offset + page.limit >= page.total) break;
+    // An incomplete page must not cause a duplicate destination to be created.
+    if (page.destinations.length === 0)
+      throw new WalletError("Could not verify Bachs payout destinations", 503);
+    offset += page.limit;
+  }
   if (!saved) {
     const { asset, ...payload } = await destinationDetails();
     saved = await payoutRequest(

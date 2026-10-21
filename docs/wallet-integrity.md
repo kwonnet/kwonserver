@@ -261,3 +261,11 @@ information. Request bodies and authorization headers are not part of this event
 Remove this temporary diagnostic block in `withdrawal-provider.ts` after verification;
 normal application log sanitization remains unchanged. No response is available
 to log for a network failure before HTTP headers arrive.
+
+
+Bachs destination-list responses use `{ destinations, total, limit, offset }`.
+Withdrawal preparation reads `destinations` and follows offset pagination only
+until it finds an exact match or exhausts the list for that recipient account.
+It does not list other users' destinations. Malformed/incomplete pages stop
+preparation rather than being treated as an empty list and creating duplicates.
+Tests use this provider response shape, including destination reuse on later pages.
