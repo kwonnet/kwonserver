@@ -308,3 +308,16 @@ stores that currency and pricing; confirmation, dispatch and admin approval use
 the stored payout currency for their financial policy checks. The account's
 country is still snapshotted and rechecked independently. Switching methods on
 the client invalidates the quote, ownership confirmation and bank verification.
+
+### Withdrawal confirmation email
+
+Withdrawal OTP delivery uses `templates/email/withdrawal-code.mjml` with subject
+`Kwonnet withdrawal confirmation code`. The responsive template includes the
+configured public HTTPS `APP_LOGO`, a selectable six-digit confirmation code,
+the actual code expiry in UTC, payout estimate, coins, provider, destination and
+withdrawal reference. Bank account numbers are masked to their last four digits;
+crypto addresses remain visible so the recipient can verify the intended wallet.
+Crypto amounts are identified as estimates. The wallet link never contains the
+code. All template values are HTML-escaped, and a plain-text alternative remains
+available. Existing encrypted token storage, intent binding, cancellation,
+outbox retries and SMTP delivery diagnostics are unchanged.

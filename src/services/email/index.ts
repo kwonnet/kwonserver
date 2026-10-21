@@ -88,11 +88,8 @@ export async function deliverEmailMessage(id:string) {
     if(!action||!withdrawal||action.usedAt||action.expiresAt<=new Date()||action.userId!==message.userId||action.subjectId!==withdrawal.id||action.purpose!=='WITHDRAWAL_OTP'||action.id!==withdrawal.otpChallengeId||action.recipientHash!==hashEmailToken(message.user.email)||withdrawal.status!=='QUOTED') {
       await prisma.emailMessage.update({where:{id},data:{status:'CANCELLED',leaseUntil:null}});return;
     }
-    const destination=withdrawal.destination as any;
-    const target=destination.type==='bank'?`Bank account ending ${destination.accountNumber.slice(-4)} (${destination.accountName??''})`:`${destination.asset}: ${destination.address}`;
-    const code=decryptEmailToken(action.encryptedToken);
-    const text=`Your Kwonnet withdrawal code is ${code}. It expires in 10 minutes.\n\nProvider: ${withdrawal.gateway}\nCoins: ${withdrawal.coins.toString()}\nWithdrawal value: ${withdrawal.currency} ${withdrawal.amount.toFixed(2)}\nDestination: ${target}\n\nDo not share this code. If you did not request this withdrawal, do not enter it and secure your account.`;
-    content={text,html:`<p>${escapeHtml(text).replace(/\n/g,'<br/>')}</p>`};subject='Authorize your Kwonnet withdrawal';
+    content=await renderWithdrawalEmail(message.user.name,appUrl,decryptEmailToken(action.encryptedToken),action.expiresAt,withdrawal);
+    subject='Kwonnet withdrawal confirmation code';
   }
   else {
     let actionUrl = new URL('/auth/signin', appUrl).href;
@@ -142,4 +139,35 @@ export async function renderAuthEmail(name: string, appUrl: string, kind: string
  const markup = (await readFile(path.resolve(__dirname, '../../../templates/email/auth-action.mjml'), 'utf8'))
   .replace(/{{(name|logoUrl|title|description|button|actionUrl|expiry|appUrl)}}/g, (_, key) => escapeHtml(({name: name.trim().split(/\s+/)[0] || 'there', logoUrl, title, description, button, actionUrl, expiry: changed ? 'This is a security notice for your account.' : `This single-use link expires in ${lifetimeLabel}. Request a new link if it expires.`, appUrl: origin} as Record<string,string>)[key]));
  return {html: (await mjml2html(markup, {validationLevel: 'strict'})).html, text: `Hi ${name.trim().slice(0,80)},\n\n${description}\n\n${button}: ${actionUrl}\n\n${changed ? '' : `Link expires in ${lifetimeLabel}.`}\n\nKwonnet - Connecting the dots and nodes\n${origin}`};
+}
+
+
+export async function renderWithdrawalEmail(
+ name:string, appUrl:string, code:string, expiresAt:Date,
+ withdrawal:{id:string;gateway:string;coins:{toString():string};currency:string;amount:{toFixed(places:number):string};receiveAmount?:string;receiveCurrency?:string;destination:unknown},
+) {
+ const origin=new URL(appUrl).origin;
+ if(!origin.startsWith('https://'))throw new Error('CONFIG');
+ if(!/^\d{6}$/.test(code)||!Number.isFinite(expiresAt.getTime()))throw new Error('Invalid withdrawal confirmation details');
+ const destination=withdrawal.destination as {type:string;accountNumber?:string;accountName?:string;asset?:string;address?:string};
+ const target=destination.type==='bank'
+  ? `Bank account ending ${destination.accountNumber!.slice(-4)}${destination.accountName?` (${destination.accountName})`:''}`
+  : `${destination.asset}: ${destination.address}`;
+ const currency=withdrawal.receiveCurrency??withdrawal.currency;
+ const value=withdrawal.receiveAmount??withdrawal.amount.toFixed(2);
+ const amount=['NGN','USD'].includes(currency)
+  ? new Intl.NumberFormat(currency==='NGN'?'en-NG':'en-US',{style:'currency',currency}).format(Number(value))
+  : `${new Intl.NumberFormat('en-US',{maximumFractionDigits:8}).format(Number(value))} ${currency}`;
+ const coins=new Intl.NumberFormat('en-US',{maximumFractionDigits:2}).format(Number(withdrawal.coins.toString()));
+ const expiry=`${new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short',timeZone:'UTC'}).format(expiresAt)} UTC`;
+ const provider=withdrawal.gateway==='BACHS'?'Bachs':'Flutterwave';
+ const values:Record<string,string>={name:name.trim().split(/\s+/)[0].slice(0,80)||'there',appUrl:origin,logoUrl:appLogoUrl(),code,expiry,
+  payoutNote:`This email is a request for confirmation. It does not mean your withdrawal has been completed.${destination.type==='crypto'?' Crypto amounts are estimates until the withdrawal is sent.':''}`,
+  amountLabel:destination.type==='bank'?'AMOUNT TO RECEIVE':'ESTIMATED AMOUNT TO RECEIVE',amount,coins,destination:target,provider,reference:withdrawal.id};
+ const markup=(await readFile(path.resolve(__dirname,'../../../templates/email/withdrawal-code.mjml'),'utf8'))
+  .replace(/{{(\w+)}}/g,(_,key)=>escapeHtml(values[key]));
+ return {
+  html:(await mjml2html(markup,{validationLevel:'strict'})).html,
+  text:`Hi ${name.trim().slice(0,80)||'there'},\n\nYour Kwonnet withdrawal confirmation code is ${code}. It expires ${expiry}.\n\nProvider: ${provider}\nCoins: ${coins}\nWithdrawal value: ${withdrawal.currency} ${withdrawal.amount.toFixed(2)}\n${destination.type==='crypto'?'Estimated a':'A'}mount to receive: ${amount}\nDestination: ${target}\nReference: ${withdrawal.id}\n\nEnter this code only in Kwonnet. Do not share it. If you did not request this withdrawal, do not enter it and secure your account. This is a confirmation request, not a completed withdrawal.\n\nReturn to your wallet: ${origin}/wallet\n\nKwonnet is a product of Torzwar TechNova Limited.`,
+ };
 }

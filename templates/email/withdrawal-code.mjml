@@ -1,0 +1,71 @@
+<mjml>
+  <mj-head>
+    <mj-title>Kwonnet withdrawal confirmation code</mj-title>
+    <mj-preview>Review your withdrawal details and confirm it securely in Kwonnet.</mj-preview>
+    <mj-attributes>
+      <mj-all font-family="Arial, Helvetica, sans-serif" />
+      <mj-text color="#253247" font-size="16px" line-height="25px" padding="0" />
+      <mj-button background-color="#0084c7" color="#ffffff" font-size="16px" font-weight="bold" border-radius="8px" inner-padding="14px 24px" />
+    </mj-attributes>
+    <mj-style>
+      @media only screen and (max-width:480px) {
+        .email-content > table > tbody > tr > td { padding-left:20px !important; padding-right:20px !important; }
+        .confirmation-code div { font-size:30px !important; letter-spacing:7px !important; }
+        .email-heading div { font-size:26px !important; line-height:34px !important; }
+      }
+    </mj-style>
+  </mj-head>
+  <mj-body background-color="#f3f6fa" width="600px">
+    <mj-section padding="24px 16px 0"><mj-column><mj-spacer height="1px" /></mj-column></mj-section>
+    <mj-wrapper background-color="#ffffff" border-radius="16px" padding="0">
+      <mj-section padding="32px 36px 24px" css-class="email-content"><mj-column>
+        <mj-table padding="0" cellpadding="0" cellspacing="0"><tr>
+          <td width="56" style="vertical-align:middle;"><a href="{{appUrl}}"><img src="{{logoUrl}}" width="44" height="44" alt="Kwonnet logo" style="display:block;border:0;" /></a></td>
+          <td style="vertical-align:middle;font-size:26px;font-weight:bold;letter-spacing:-0.5px;color:#142238;">kwonnet</td>
+        </tr></mj-table>
+        <mj-spacer height="32px" />
+        <mj-text font-size="12px" font-weight="bold" letter-spacing="1.5px" color="#0084c7">WITHDRAWAL CONFIRMATION</mj-text>
+        <mj-spacer height="10px" />
+        <mj-text css-class="email-heading" font-size="30px" line-height="38px" font-weight="bold" color="#142238">Confirm your withdrawal</mj-text>
+        <mj-spacer height="18px" />
+        <mj-text>Hi {{name}},</mj-text>
+        <mj-spacer height="8px" />
+        <mj-text>Review the details below, then enter this confirmation code in Kwonnet to authorize your withdrawal.</mj-text>
+      </mj-column></mj-section>
+      <mj-section background-color="#eaf7ff" padding="20px 24px"><mj-column>
+        <mj-text align="center" font-size="12px" font-weight="bold" letter-spacing="1.2px" color="#47627b">YOUR CONFIRMATION CODE</mj-text>
+        <mj-spacer height="10px" />
+        <mj-text css-class="confirmation-code" align="center" font-family="Consolas, Courier New, monospace" font-size="36px" line-height="48px" font-weight="bold" letter-spacing="10px" color="#102d45">{{code}}</mj-text>
+        <mj-spacer height="8px" />
+        <mj-text align="center" font-size="12px" line-height="20px" color="#47627b">Expires {{expiry}}. This code can authorize only this withdrawal.</mj-text>
+      </mj-column></mj-section>
+      <mj-section padding="28px 36px 12px" css-class="email-content"><mj-column>
+        <mj-text font-size="12px" letter-spacing="1px" color="#6c7789">{{amountLabel}}</mj-text>
+        <mj-text font-size="26px" line-height="36px" font-weight="bold" color="#142238">{{amount}}</mj-text>
+        <mj-spacer height="18px" />
+        <mj-text font-size="12px" letter-spacing="1px" color="#6c7789">COINS TO WITHDRAW</mj-text>
+        <mj-text font-weight="bold">{{coins}} coins</mj-text>
+        <mj-spacer height="16px" />
+        <mj-text font-size="12px" letter-spacing="1px" color="#6c7789">DESTINATION</mj-text>
+        <mj-text font-weight="bold"><span style="overflow-wrap:anywhere;word-break:break-word;">{{destination}}</span></mj-text>
+        <mj-spacer height="16px" />
+        <mj-text font-size="12px" letter-spacing="1px" color="#6c7789">PROVIDER</mj-text>
+        <mj-text>{{provider}}</mj-text>
+        <mj-spacer height="16px" />
+        <mj-text font-size="12px" letter-spacing="1px" color="#6c7789">WITHDRAWAL REFERENCE</mj-text>
+        <mj-text font-size="13px" line-height="21px"><span style="word-break:break-all;">{{reference}}</span></mj-text>
+        <mj-spacer height="18px" />
+        <mj-button href="{{appUrl}}/wallet" align="left" padding="0">Return to your wallet</mj-button>
+        <mj-spacer height="20px" />
+        <mj-text font-size="13px" line-height="21px" color="#6c7789">{{payoutNote}}</mj-text>
+        <mj-divider border-color="#e5ebf1" border-width="1px" padding="24px 0" />
+        <mj-text font-size="14px" line-height="23px" font-weight="bold" color="#142238">Keep your code private.</mj-text>
+        <mj-text font-size="14px" line-height="23px" color="#59677b">Only enter it in Kwonnet. We will never ask you to share it. If you did not request this withdrawal, do not enter the code and secure your account.</mj-text>
+        <mj-spacer height="20px" />
+      </mj-column></mj-section>
+    </mj-wrapper>
+    <mj-section padding="24px 24px 32px"><mj-column>
+      <mj-text align="center" font-size="12px" line-height="20px" color="#748094">Kwonnet · Connecting the dots and nodes<br />Kwonnet is a product of Torzwar TechNova Limited.<br /><a href="{{appUrl}}/privacy-policy" style="color:#62748a;">Privacy policy</a> · <a href="{{appUrl}}/settings" style="color:#62748a;">Account settings</a></mj-text>
+    </mj-column></mj-section>
+  </mj-body>
+</mjml>

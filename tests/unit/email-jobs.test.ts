@@ -53,8 +53,31 @@ it('sends encrypted withdrawal OTPs with intent details and cancels superseded a
  const action={id:'challenge',userId:'user',purpose:'WITHDRAWAL_OTP',subjectId:'withdrawal',recipientHash:hashEmailToken(message.user.email),encryptedToken:encryptEmailToken('012345'),usedAt:null,expiresAt:new Date(Date.now()+60000)};
  const withdrawal={id:'withdrawal',otpChallengeId:'challenge',status:'QUOTED',gateway:'BACHS',coins:{toString:()=> '5000'},currency:'USD',amount:{toFixed:()=> '56.25'},destination:{type:'crypto',asset:'USDC_BASE',address:'0x123'}};
  deps.db.emailMessage.findUniqueOrThrow.mockResolvedValue(message);deps.db.authEmailToken.findUnique.mockResolvedValue(action);deps.db.coinWithdrawal.findUnique.mockResolvedValue(withdrawal);
- await deliverEmailMessage('event');expect(deps.send).toHaveBeenLastCalledWith(expect.objectContaining({subject:'Authorize your Kwonnet withdrawal',text:expect.stringContaining('012345')}));expect(deps.send.mock.calls.at(-1)![0].text).toContain('USDC_BASE: 0x123');
+ await deliverEmailMessage('event');expect(deps.send).toHaveBeenLastCalledWith(expect.objectContaining({subject:'Kwonnet withdrawal confirmation code',text:expect.stringContaining('012345')}));expect(deps.send.mock.calls.at(-1)![0].text).toContain('USDC_BASE: 0x123');
  deps.db.coinWithdrawal.findUnique.mockResolvedValue({...withdrawal,destination:{type:'bank',accountNumber:'0123456789'}});await deliverEmailMessage('event');expect(deps.send.mock.calls.at(-1)![0].text).toContain('ending 6789');
  for(const override of [null,{usedAt:new Date()},{expiresAt:new Date(0)},{userId:'other'},{subjectId:'other'},{purpose:'VERIFY_EMAIL'},{id:'old'},{recipientHash:'old'}]){deps.db.authEmailToken.findUnique.mockResolvedValue(override===null?null:{...action,...override});deps.send.mockClear();await deliverEmailMessage('event');expect(deps.send).not.toHaveBeenCalled();}
  deps.db.authEmailToken.findUnique.mockResolvedValue(action);deps.db.coinWithdrawal.findUnique.mockResolvedValueOnce(null);await deliverEmailMessage('event');expect(deps.send).not.toHaveBeenCalled();deps.db.coinWithdrawal.findUnique.mockResolvedValue({...withdrawal,status:'RESERVED'});await deliverEmailMessage('event');expect(deps.send).not.toHaveBeenCalled();
+});
+
+it('renders a branded responsive withdrawal code email with a masked bank destination and exact expiry',async()=>{
+ const {renderWithdrawalEmail}=await import('@/services/email');
+ const result=await renderWithdrawalEmail('Alex Morgan','https://kwonnet.test','012345',new Date('2026-10-21T14:30:00Z'),{
+  id:'withdrawal-reference',gateway:'BACHS',coins:{toString:()=> '500'},currency:'NGN',amount:{toFixed:()=> '7200.00'},receiveAmount:'7200',receiveCurrency:'NGN',destination:{type:'bank',accountNumber:'0790347316',accountName:'ALEX MORGAN'},
+ });
+ expect(result.html).toContain('src="https://images.test.invalid/kwonnet-logo.png"');
+ expect(result.html).toContain('012345');expect(result.html).toContain('₦7,200.00');expect(result.html).toContain('ending 7316');expect(result.html).not.toContain('0790347316');
+ expect(result.html).toContain('max-width:480px');expect(result.html).toContain('Return to your wallet');expect(result.html).toContain('Torzwar TechNova Limited');
+ expect(result.text).toContain('21 Oct 2026, 14:30 UTC');expect(result.text).not.toContain('expires in 10 minutes');
+ expect(result.html).not.toMatch(/{{\w+}}/);expect(result.html).not.toContain('Crypto amounts are estimates');
+});
+it('escapes withdrawal email fields and shows crypto estimates without exposing the code in links',async()=>{
+ const {renderWithdrawalEmail}=await import('@/services/email');
+ const result=await renderWithdrawalEmail('<script>','https://kwonnet.test','012345',new Date('2026-10-21T14:30:00Z'),{
+  id:'reference<img>',gateway:'FLUTTERWAVE',coins:{toString:()=> '5000'},currency:'USD',amount:{toFixed:()=> '56.25'},receiveAmount:'56.251234',receiveCurrency:'USDC',destination:{type:'crypto',asset:'USDC_BASE',address:'0x<script>alert(1)</script>'},
+ });
+ expect(result.html).toContain('56.251234 USDC');expect(result.html).toContain('ESTIMATED AMOUNT TO RECEIVE');expect(result.html).toContain('Crypto amounts are estimates');
+ expect(result.html).not.toContain('<script>');expect(result.html).not.toContain('<img>');expect(result.html).toContain('&lt;script&gt;');
+ expect(result.html.match(/href="[^"]*"/g)?.some(link=>link.includes('012345'))).toBe(false);
+ await expect(renderWithdrawalEmail('Alex','http://kwonnet.test','012345',new Date(),{} as any)).rejects.toThrow('CONFIG');
+ await expect(renderWithdrawalEmail('Alex','https://kwonnet.test','not-a-code',new Date(),{} as any)).rejects.toThrow('Invalid withdrawal confirmation details');
 });
