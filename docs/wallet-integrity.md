@@ -324,16 +324,25 @@ outbox retries and SMTP delivery diagnostics are unchanged.
 
 ### Flutterwave stablecoin funding
 
-New Flutterwave crypto plans debit the selected stablecoin wallet: USDT uses
-`debit_currency: USDT`, USDC uses USDC, and RLUSD uses RLUSD. USD exchange rates
-value the user's coin conversion; they do not require an available USD balance.
-The fee request uses the same-currency crypto schedule without a fiat
-`debit_currency` override. Kwonnet grosses up the transfer amount to cover the
-fee deducted by Flutterwave, and checks that full amount against the matching
-wallet's `available_balance` at preparation and dispatch. Ledger balances and
-other currencies cannot substitute for spendable funds. Dispatch rechecks fees
-and refuses a transfer that would underpay the quoted recipient amount.
-Existing persisted fiat-funded plans retain their authorized funding currency
-for dispatch and reconciliation.
+Flutterwave crypto plans prefer the selected stablecoin wallet: USDT uses
+`debit_currency: USDT`, USDC uses USDC, and RLUSD uses RLUSD. Kwonnet grosses up
+the native transfer amount to cover fees deducted from that transfer. If the
+matching wallet is absent or its available balance cannot cover the gross amount,
+preparation falls back to USD. It quotes the USD conversion and requests crypto
+fees with `debit_currency=USD`; the provider's fiat fee is added to the USD funding
+requirement, while the transfer amount remains the user's quoted receive amount.
+Fiat fees are charged separately, so they must not also inflate the crypto payout.
 
-Reference: [Flutterwave stablecoins](https://developer.flutterwave.com/docs/stablecoins).
+Dispatch rechecks funds and fees. If a native wallet becomes insufficient before
+submission, it can select USD while preserving the recipient amount. The selected
+request and funding requirement are saved atomically with `PAYOUT_SUBMITTING`
+before the provider POST. After that point, retries reconcile that exact saved
+request and never switch sources or create another payment. Existing persisted
+fiat-funded plans retain their original semantics for reconciliation.
+
+Only `available_balance` counts: ledger balances or another stablecoin do not
+substitute for spendable funds. A USD fallback requires enough available USD for
+both conversion and its separately charged fee. Provider errors and invalid fee
+or rate responses fail closed, rather than triggering another payment attempt.
+
+Reference: [Flutterwave v3 stablecoins](https://developer.flutterwave.com/docs/stablecoins).

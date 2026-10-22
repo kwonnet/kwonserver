@@ -186,6 +186,7 @@ export async function availableBalance(
   gateway: WithdrawalGateway,
   currency: string,
   account?: string,
+  missingAsZero = false,
 ) {
   return await withdrawalStep("provider.balance", {gateway, ...(account ? {providerAccountId: account} : {})}, async () => {
   const result = await payoutRequest(
@@ -199,6 +200,7 @@ export async function availableBalance(
   if (!Array.isArray(balances))
     throw new WalletError("Could not verify payout provider balance", 503);
   const balance = balances.find((b: any) => b.currency === currency);
+  if (!balance && missingAsZero) return new Prisma.Decimal(0);
   if (!balance)
     throw new WalletError(
       "Payout provider has no available balance in this currency",

@@ -1,6 +1,6 @@
 import {Prisma,CoinWithdrawal} from '@prisma/client';
 import {WalletError} from '@/services/walletLedger';
-import {withdrawalStep,WithdrawalDestination,WithdrawalPlan,WithdrawalOutcome,SaveWithdrawal,payoutRequest,decimal,providerId,requireProviderBalance,cryptoRoutes,resolveWithdrawalBank} from './withdrawal-provider';
+import {withdrawalStep,WithdrawalDestination,WithdrawalPlan,WithdrawalOutcome,SaveWithdrawal,payoutRequest,decimal,providerId,requireProviderBalance,availableBalance,cryptoRoutes,resolveWithdrawalBank} from './withdrawal-provider';
 
 async function transferFee(amount:Prisma.Decimal,currency:string,crypto:boolean,debitCurrency?:string) {
   const fees=await payoutRequest('FLUTTERWAVE',`/transfers/fee?amount=${amount.toString()}&currency=${encodeURIComponent(currency)}&type=${crypto?'crypto':'account'}${crypto&&debitCurrency&&debitCurrency!==currency?`&debit_currency=${encodeURIComponent(debitCurrency)}`:''}`);
@@ -8,8 +8,19 @@ async function transferFee(amount:Prisma.Decimal,currency:string,crypto:boolean,
   if(!fee) throw new WalletError('Could not verify Flutterwave payout fees',503);
   return fee;
 }
+async function usdFunding(receiveAmount:Prisma.Decimal,currency:string) {
+  const cost=await payoutRequest('FLUTTERWAVE',`/transfers/rates?amount=${receiveAmount.toString()}&destination_currency=${currency}&source_currency=USD`);
+  if(cost.source?.currency!=='USD'||cost.destination?.currency!==currency||!decimal(cost.destination.amount).eq(receiveAmount))throw new WalletError('Could not verify payout funding requirement',503);
+  const fee=await transferFee(receiveAmount,currency,true,'USD');
+  // Fiat-funded transfers charge fees separately in the debit wallet.
+  if(fee.fee_amount_in_fiat_currency==null)throw new WalletError('Could not verify USD payout fees',503);
+  const sourceRequired=decimal(cost.source.amount).add(decimal(fee.fee_amount_in_fiat_currency,true)).toDecimalPlaces(2,Prisma.Decimal.ROUND_UP);
+  await requireProviderBalance('FLUTTERWAVE','USD',sourceRequired);
+  return sourceRequired;
+}
 export async function prepareFlutterwaveWithdrawal(amount:Prisma.Decimal,destination:WithdrawalDestination):Promise<WithdrawalPlan> {
   return await withdrawalStep<WithdrawalPlan>("provider.preparation", {gateway: "FLUTTERWAVE", destinationType: destination.type}, async () => {
+  let debitCurrency='NGN',fiatFeesSeparate=false;
   let currency='NGN',accountBank:string,accountNumber:string,beneficiaryName:string|undefined;
   let transferAmount=amount,receiveAmount=amount,sourceRequired:Prisma.Decimal;
   if(destination.type==='bank') {
@@ -40,10 +51,15 @@ export async function prepareFlutterwaveWithdrawal(amount:Prisma.Decimal,destina
     // Stablecoin fees are deducted from this gross transfer amount, so the
     // matching stablecoin wallet funds both the user's payout and our fee.
     sourceRequired=transferAmount;
+    debitCurrency=currency;
+    if((await availableBalance('FLUTTERWAVE',currency,undefined,true)).lt(sourceRequired)) {
+      sourceRequired=await usdFunding(receiveAmount,currency);
+      transferAmount=receiveAmount;debitCurrency='USD';fiatFeesSeparate=true;
+    }
   }
-  await requireProviderBalance('FLUTTERWAVE',currency,sourceRequired);
-  return {receiveAmount:receiveAmount.toString(),receiveCurrency:currency,expiresAt:new Date(Date.now()+60000),data:{sourceRequired:sourceRequired.toString(),
-    request:{account_bank:accountBank,account_number:accountNumber,amount:transferAmount.toNumber(),currency,debit_currency:currency,
+  await requireProviderBalance('FLUTTERWAVE',debitCurrency,sourceRequired);
+  return {receiveAmount:receiveAmount.toString(),receiveCurrency:currency,expiresAt:new Date(Date.now()+60000),data:{sourceRequired:sourceRequired.toString(),fiatFeesSeparate,
+    request:{account_bank:accountBank,account_number:accountNumber,amount:transferAmount.toNumber(),currency,debit_currency:debitCurrency,
       ...(beneficiaryName?{beneficiary_name:beneficiaryName}:{}),narration:'Kwonnet coin withdrawal',skip_beneficiary_creation:"1"}}};
   });
 }
@@ -57,13 +73,20 @@ export function flutterwaveWithdrawalOutcome(row:CoinWithdrawal,data:any):Withdr
 }
 export async function runFlutterwaveWithdrawal(row:CoinWithdrawal,save:SaveWithdrawal,guard?:()=>Promise<void>):Promise<WithdrawalOutcome> {
   return await withdrawalStep<WithdrawalOutcome>("provider.dispatch", {gateway: "FLUTTERWAVE", withdrawalId: row.id, stage: row.stage}, async () => {
-  const plan=row.providerData as any;
+  let plan=row.providerData as any;
   let response:any;
   if(row.providerId) response=await payoutRequest('FLUTTERWAVE',`/transfers/${encodeURIComponent(row.providerId)}`);
   else if(row.stage==='PREPARED') {
     if(row.expiresAt.getTime()<=Date.now()) return {status:'FAILED'};
-    await requireProviderBalance('FLUTTERWAVE',plan.request.debit_currency,decimal(plan.sourceRequired));
-    if(plan.request.currency!=='NGN') {
+    if(plan.request.currency!=='NGN'&&plan.request.debit_currency===plan.request.currency&&
+       (await availableBalance('FLUTTERWAVE',plan.request.currency,undefined,true)).lt(decimal(plan.sourceRequired))) {
+      plan={...plan,fiatFeesSeparate:true,request:{...plan.request,debit_currency:'USD',amount:decimal(row.receiveAmount).toNumber()}};
+    }
+    if(!plan.fiatFeesSeparate)await requireProviderBalance('FLUTTERWAVE',plan.request.debit_currency,decimal(plan.sourceRequired));
+    if(plan.fiatFeesSeparate) {
+      plan={...plan,sourceRequired:(await usdFunding(decimal(row.receiveAmount),plan.request.currency)).toString()};
+      if(!decimal(plan.request.amount).eq(decimal(row.receiveAmount)))throw new WalletError('Payout amount does not match this withdrawal',409);
+    } else if(plan.request.currency!=='NGN') {
       const amount=decimal(plan.request.amount),fee=await transferFee(amount,plan.request.currency,true,plan.request.debit_currency);
       const extra=fee.amount_minus_fee!=null?amount.sub(decimal(fee.amount_minus_fee,true)):fee.fee_amount_in_crypto_currency!=null?decimal(fee.fee_amount_in_crypto_currency,true):
         fee.fee_type==='percentage'?amount.mul(decimal(fee.fee,true)).div(100):decimal(fee.fee,true);
@@ -83,7 +106,7 @@ export async function runFlutterwaveWithdrawal(row:CoinWithdrawal,save:SaveWithd
       await requireProviderBalance('FLUTTERWAVE','NGN',decimal(plan.request.amount).add(extra));
     }
     if(guard) await guard();
-    row=await save({stage:'PAYOUT_SUBMITTING'});
+    row=await save({stage:'PAYOUT_SUBMITTING',providerData:plan});
     response=await payoutRequest('FLUTTERWAVE','/transfers',{...plan.request,reference:row.id},row.id);
   } else {
     // A lost POST response is reconciled by the unique reference, never sent again blindly.
