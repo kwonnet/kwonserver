@@ -77,10 +77,40 @@ it('grosses up crypto fees so the user receives the full exchange value',async()
  vi.mocked(fetch).mockImplementation(async(url:any)=>{
   if(String(url).includes('/transfers/rates')){const amount=new URL(url).searchParams.get('amount')!;return Response.json({status:'success',data:{rate:1,source:{currency:'USD',amount},destination:{currency:'USDC',amount}}});}
   if(String(url).includes('/transfers/fee')) return Response.json({status:'success',data:[{currency:'USDC',fee_type:'value',fee:1.5}]});
-  return Response.json({status:'success',data:[{currency:'USD',available_balance:1000}]});
+  return Response.json({status:'success',data:[{currency:'USD',available_balance:0,ledger_balance:376.49},{currency:'USDC',available_balance:1234.56,ledger_balance:0}]});
  });
  const plan=await prepareFlutterwaveWithdrawal(d('56.25'),{type:'crypto',asset:'USDC_BASE',address:'0x'+'a'.repeat(40),confirmed:true});
- expect(plan.receiveAmount).toBe('56.25');expect(plan.data.request.amount).toBe(57.75);expect(plan.data.sourceRequired).toBe('59.25');
+ expect(plan.data.request.debit_currency).toBe('USDC');expect(vi.mocked(fetch).mock.calls.some(([url])=>String(url).includes('debit_currency=USD'))).toBe(false);
+ expect(plan.receiveAmount).toBe('56.25');expect(plan.data.request.amount).toBe(57.75);expect(plan.data.sourceRequired).toBe('57.75');
+});
+it('quotes and sends USDT from its available stablecoin balance when fiat is unavailable',async()=>{
+ let submitted:any;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>{
+  const path=new URL(url).pathname;
+  if(path==='/v3/transfers/rates')return Response.json({status:'success',data:{rate:1,source:{currency:'USD',amount:1},destination:{currency:'USDT',amount:1}}});
+  if(path==='/v3/transfers/fee')return Response.json({status:'success',data:[{currency:'USDT',fee_type:'value',fee:1.5}]});
+  if(path==='/v3/balances')return Response.json({status:'success',data:[{currency:'USD',available_balance:0,ledger_balance:376.49},{currency:'USDC',available_balance:1234.56},{currency:'USDT',available_balance:789.01,ledger_balance:0}]});
+  submitted=JSON.parse(options.body);
+  return Response.json({status:'success',data:{...submitted,id:43,bank_code:submitted.account_bank,status:'SUCCESSFUL'}});
+ });
+ const plan=await prepareFlutterwaveWithdrawal(d('6.75'),{type:'crypto',asset:'USDT_SOLANA',address:'test-solana-wallet',confirmed:true});
+ expect(plan.receiveAmount).toBe('6.75');expect(plan.data.sourceRequired).toBe('8.25');expect(plan.data.request).toMatchObject({currency:'USDT',debit_currency:'USDT',amount:8.25,account_bank:'SOLANA'});
+ const state={...flwRow(),stage:'PREPARED',providerData:plan.data,receiveAmount:plan.receiveAmount};
+ expect(await runFlutterwaveWithdrawal(state,async(data:any)=>Object.assign(state,data))).toEqual({id:'43',status:'SUCCEEDED'});
+ expect(submitted).toMatchObject({currency:'USDT',debit_currency:'USDT',amount:8.25});
+ expect(vi.mocked(fetch).mock.calls.filter(([url])=>String(url).includes('/transfers/rates'))).toHaveLength(1);
+ expect(vi.mocked(fetch).mock.calls.some(([url])=>String(url).includes('debit_currency=USD'))).toBe(false);
+});
+it('does not substitute fiat ledger balances or another stablecoin for insufficient USDT',async()=>{
+ vi.mocked(fetch).mockImplementation(async(url:any)=>Response.json({status:'success',data:String(url).includes('/transfers/rates')?{rate:1,source:{currency:'USD',amount:1},destination:{currency:'USDT',amount:1}}:String(url).includes('/transfers/fee')?[{currency:'USDT',fee_type:'value',fee:1.5}]:[{currency:'USD',available_balance:0,ledger_balance:376.49},{currency:'USDC',available_balance:1234.56},{currency:'USDT',available_balance:8,ledger_balance:789.01}]}));
+ await expect(prepareFlutterwaveWithdrawal(d('6.75'),{type:'crypto',asset:'USDT_SOLANA',address:'test-solana-wallet',confirmed:true})).rejects.toThrow('insufficient provider funds');
+ expect(vi.mocked(fetch).mock.calls.every(([,options])=>options!.method==='GET')).toBe(true);
+});
+for(const changed of ['balance','fee'])it(`blocks stablecoin dispatch when its ${changed} changes after quoting`,async()=>{
+ const state={...flwRow(),stage:'PREPARED',receiveAmount:'6.75',providerData:{sourceRequired:'8.25',request:{currency:'USDT',debit_currency:'USDT',amount:8.25}}};
+ vi.mocked(fetch).mockImplementation(async(url:any)=>Response.json({status:'success',data:String(url).includes('/transfers/fee')?[{currency:'USDT',fee_type:'value',fee:2}]:[{currency:'USD',available_balance:1000},{currency:'USDT',available_balance:changed==='balance'?8:789.01}]}));
+ const save=vi.fn();await expect(runFlutterwaveWithdrawal(state,save)).rejects.toThrow(changed==='balance'?'insufficient provider funds':'fees changed');
+ expect(save).not.toHaveBeenCalled();expect(vi.mocked(fetch).mock.calls.every(([,options])=>options!.method==='GET')).toBe(true);
 });
 const bachsRow=()=>({id:'wd-fixture',providerId:'pay-1',stage:'PAYOUT_ACCEPTED',currency:'USD',receiveAmount:'56.25',receiveCurrency:'USDC_BASE',providerData:{accountId:'acct-1',destinationId:'pd-1',fundingAmount:'75.00',sourceAmount:'56.25'}} as any);
 it('validates Bachs payout details and only treats delivered status as success',()=>{

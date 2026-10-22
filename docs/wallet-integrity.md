@@ -321,3 +321,19 @@ Crypto amounts are identified as estimates. The wallet link never contains the
 code. All template values are HTML-escaped, and a plain-text alternative remains
 available. Existing encrypted token storage, intent binding, cancellation,
 outbox retries and SMTP delivery diagnostics are unchanged.
+
+### Flutterwave stablecoin funding
+
+New Flutterwave crypto plans debit the selected stablecoin wallet: USDT uses
+`debit_currency: USDT`, USDC uses USDC, and RLUSD uses RLUSD. USD exchange rates
+value the user's coin conversion; they do not require an available USD balance.
+The fee request uses the same-currency crypto schedule without a fiat
+`debit_currency` override. Kwonnet grosses up the transfer amount to cover the
+fee deducted by Flutterwave, and checks that full amount against the matching
+wallet's `available_balance` at preparation and dispatch. Ledger balances and
+other currencies cannot substitute for spendable funds. Dispatch rechecks fees
+and refuses a transfer that would underpay the quoted recipient amount.
+Existing persisted fiat-funded plans retain their authorized funding currency
+for dispatch and reconciliation.
+
+Reference: [Flutterwave stablecoins](https://developer.flutterwave.com/docs/stablecoins).
