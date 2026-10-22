@@ -7,7 +7,7 @@ import {withdrawalStep,withdrawalDiagnostic,payoutRequest,availableBalance,requi
 import {prepareFlutterwaveWithdrawal,runFlutterwaveWithdrawal,flutterwaveWithdrawalOutcome} from '@/services/v1/wallets/withdrawal-flutterwave';
 import {bachsWithdrawalOutcome,runBachsWithdrawal} from '@/services/v1/wallets/withdrawal-bachs';
 const d=(n:number|string)=>new Prisma.Decimal(n);
-const rates={price:d('.015'),ngnPrice:d(18),fee:d('.25'),ngnFee:d('.2'),minWithdrawal:d(5),minNgnWithdrawal:d(1000)};
+const rates={price:d('.015'),ngnPrice:d(18),fee:d('.25'),ngnFee:d('.2'),minWithdrawal:d(10),minNgnWithdrawal:d(1000)};
 beforeEach(()=>{vi.stubEnv('FLUTTERWAVE_SECK','FLWSECK_TEST_fixture');vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');});
 it('applies the global and Nigerian formulas without withdrawing bonuses or adding coin fees',()=>{
  expect(withdrawalConversion(5000,rates,false).amount.toString()).toBe('56.25');
@@ -15,8 +15,8 @@ it('applies the global and Nigerian formulas without withdrawing bonuses or addi
  expect(withdrawalConversion(5000,rates,true).coins.toString()).toBe('5000');
 });
 it('checks the minimum on the rounded net amount, including the exact boundary',()=>{
- expect(()=>withdrawalConversion(444.44,rates,false)).toThrow('Minimum withdrawal');
- expect(withdrawalConversion(444.45,rates,false).amount.toString()).toBe('5');
+ expect(()=>withdrawalConversion(888.88,rates,false)).toThrow('Minimum withdrawal');
+ expect(withdrawalConversion(888.89,rates,false).amount.toString()).toBe('10');
  expect(()=>withdrawalConversion(69.44,rates,true)).toThrow('Minimum withdrawal');
  expect(withdrawalConversion(69.45,rates,true).amount.toString()).toBe('1000.08');
 });

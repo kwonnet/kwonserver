@@ -48,7 +48,7 @@ test('production seed only accesses reference tables and runs transactionally', 
   assert.deepEqual(seed.benefitWrites.map(row=>row.where.level),[0,1,2,3]);
   assert.ok(seed.benefitWrites.every(row=>Object.keys(row.update).length===0));
   assert.deepEqual(JSON.parse(JSON.stringify(seed.chargeRateWrites)), [
-    { where: { id: 'default' }, update: {}, create: { id: 'default' } },
+    { where: { id: 'default' }, update: {}, create: { id: 'default', minWithdrawal: 10 } },
   ]);
 });
 test('seed failures propagate to the release command', async () => {

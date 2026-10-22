@@ -13,14 +13,14 @@ import {WalletError} from '@/services/walletLedger';
 import {WithdrawalProviderError} from '@/services/v1/wallets/withdrawal-provider';
 import {withdrawalSettings,quoteCoinWithdrawal,confirmCoinWithdrawal,processCoinWithdrawal,listCoinWithdrawals,reconcileCoinWithdrawals,requestWithdrawalOtp,withdrawalOtpHash,getWithdrawalAdminPolicy,updateWithdrawalAdminPolicy,restrictUserWithdrawal,listWithdrawalAdminQueue,getWithdrawalAdminDetails,decideWithdrawal,withdrawalConversion} from '@/services/v1/wallets';
 const d=(n:number|string)=>new Prisma.Decimal(n),crypto={type:'crypto' as const,asset:'USDC_BASE',address:'0x'+'a'.repeat(40),confirmed:true as const};
-function makeRow(){return {id:'withdraw-fixture',userId:'user',gateway:'FLUTTERWAVE',environment:'flutterwave:test',country:'USA',coins:d(5000),rate:d('.015'),fee:d('.25'),minimum:d(5),amount:d('56.25'),currency:'USD',destination:crypto,providerData:{request:{},sourceRequired:'60'},receiveAmount:'56.25',receiveCurrency:'USDC',expiresAt:new Date(Date.now()+60000),status:'QUOTED',stage:'PREPARED',providerId:null,createdAt:new Date(),completedAt:null,reviewRequiredAt:null,processingAttempts:0,processingUntil:null,otpVerifiedAt:new Date(),otpChallengeId:'11111111-1111-4111-8111-111111111111'};}
+function makeRow(){return {id:'withdraw-fixture',userId:'user',gateway:'FLUTTERWAVE',environment:'flutterwave:test',country:'USA',coins:d(5000),rate:d('.015'),fee:d('.25'),minimum:d(10),amount:d('56.25'),currency:'USD',destination:crypto,providerData:{request:{},sourceRequired:'60'},receiveAmount:'56.25',receiveCurrency:'USDC',expiresAt:new Date(Date.now()+60000),status:'QUOTED',stage:'PREPARED',providerId:null,createdAt:new Date(),completedAt:null,reviewRequiredAt:null,processingAttempts:0,processingUntil:null,otpVerifiedAt:new Date(),otpChallengeId:'11111111-1111-4111-8111-111111111111'};}
 function apply(data:any){for(const [key,value]of Object.entries(data))fixture.row[key]=value&&typeof value==='object'&&'increment'in value?fixture.row[key]+(value as any).increment:value;return {...fixture.row};}
 beforeEach(()=>{
  vi.clearAllMocks();vi.stubEnv('FLUTTERWAVE_SECK','FLWSECK_TEST_fixture');vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');vi.stubEnv('AUTH_EMAIL_TOKEN_SECRET','test-withdrawal-secret-at-least-32-characters');
  db.$transaction=vi.fn(async(work)=>await work({...db}));db.$queryRaw=vi.fn(async()=>[]);
  db.authEmailToken.findUnique.mockImplementation(async()=>({id:fixture.row.otpChallengeId,userId:'user',purpose:'WITHDRAWAL_OTP',subjectId:fixture.row.id,recipientHash:createHash('sha256').update('user@example.test').digest('hex'),tokenHash:createHmac('sha256',process.env.AUTH_EMAIL_TOKEN_SECRET!).update(JSON.stringify([fixture.row.id,fixture.row.otpChallengeId,'user@example.test','123456'])).digest('hex'),usedAt:new Date(),attempts:0,createdAt:new Date(),expiresAt:new Date(Date.now()+60000)}));
  db.chargeRate.findUniqueOrThrow.mockImplementation(async()=>fixture.rates);
- fixture.row=makeRow();fixture.other=null;fixture.wallet={id:'wallet',userId:'user',coins:d(10000),bonus:d(100),credit:d(100),isLocked:false};fixture.user={id:'user',email:'user@example.test',emailVerifiedAt:new Date(),name:'Test User',country:{iso3:'USA',iso2:'US'},wallet:fixture.wallet};fixture.rates={withdrawalsEnabled:true,maxWithdrawal:d(5000),maxNgnWithdrawal:d(5000000),reviewWithdrawal:d(2500),reviewNgnWithdrawal:d(2500000),price:d('.015'),ngnPrice:d(18),fee:d('.25'),ngnFee:d('.2'),minWithdrawal:d(5),minNgnWithdrawal:d(1000)};
+ fixture.row=makeRow();fixture.other=null;fixture.wallet={id:'wallet',userId:'user',coins:d(10000),bonus:d(100),credit:d(100),isLocked:false};fixture.user={id:'user',email:'user@example.test',emailVerifiedAt:new Date(),name:'Test User',country:{iso3:'USA',iso2:'US'},wallet:fixture.wallet};fixture.rates={withdrawalsEnabled:true,maxWithdrawal:d(5000),maxNgnWithdrawal:d(5000000),reviewWithdrawal:d(2500),reviewNgnWithdrawal:d(2500000),price:d('.015'),ngnPrice:d(18),fee:d('.25'),ngnFee:d('.2'),minWithdrawal:d(10),minNgnWithdrawal:d(1000)};
  db.user.findUnique.mockImplementation(async({where}:any)=>where.id==='admin'?{id:'admin',role:'ADMIN',status:'ACTIVE'}:fixture.user);db.user.findUniqueOrThrow.mockImplementation(async()=>fixture.user);db.chargeRate.findUnique.mockImplementation(async()=>fixture.rates);
  db.wallet.findUniqueOrThrow.mockImplementation(async()=>fixture.wallet);db.wallet.update.mockImplementation(async({data}:any)=>{if(data.coins?.increment)fixture.wallet.coins=fixture.wallet.coins.add(data.coins.increment);if(data.coins?.decrement)fixture.wallet.coins=fixture.wallet.coins.sub(data.coins.decrement);return fixture.wallet;});
  db.coinWithdrawal.findFirst.mockImplementation(async({where}:any)=>where.id&&typeof where.id==='string'?fixture.row&&where.id===fixture.row.id&&(!where.userId||where.userId===fixture.row.userId)?{...fixture.row}:null:fixture.other);
@@ -33,9 +33,14 @@ beforeEach(()=>{
 const quote=()=>quoteCoinWithdrawal('user',{coins:5000,gateway:'FLUTTERWAVE',destination:crypto});
 const confirm=()=>confirmCoinWithdrawal('user','withdraw-fixture','withdraw-test-key',{challengeId:'11111111-1111-4111-8111-111111111111',code:'123456'});
 it('returns regional settings and provider availability',async()=>{
- expect(await withdrawalSettings('user')).toMatchObject({currency:'USD',rate:'0.015',exchangeFeePercent:25,minimum:5});
+ expect(await withdrawalSettings('user')).toMatchObject({currency:'USD',rate:'0.015',exchangeFeePercent:25,minimum:10});
  fixture.user.country.iso3='NGA';expect(await withdrawalSettings('user')).toMatchObject({currency:'NGN',rate:'18',exchangeFeePercent:20,minimum:1000});
  vi.stubEnv('FLUTTERWAVE_SECK','');vi.stubEnv('BACHS_API_KEY','');expect((await withdrawalSettings('user')).providers.every(p=>!p.enabled)).toBe(true);
+});
+for(const gateway of ['BACHS','FLUTTERWAVE'] as const)for(const country of ['USA','NGA'])it(`enforces the configured USD 10 minimum for ${country} crypto through ${gateway}`,async()=>{
+ fixture.user.country.iso3=country;
+ await expect(quoteCoinWithdrawal('user',{coins:800,gateway,destination:crypto})).rejects.toThrow('Minimum withdrawal after exchange fee is USD 10.00');
+ expect(fixture.prepare).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();
 });
 it('requires country and exchange settings',async()=>{fixture.user=null;await expect(withdrawalSettings('user')).rejects.toThrow('country');fixture.user={country:{iso3:'USA'}};fixture.rates=null;await expect(withdrawalSettings('user')).rejects.toThrow('rates');});
 it('quotes without debiting and protects persisted provider data from the API response',async()=>{
@@ -50,7 +55,7 @@ it('prevents invalid, locked, underfunded and overlapping quotes',async()=>{
  fixture.user=null;await expect(quote()).rejects.toThrow('country');fixture.user={email:'user@example.test',emailVerifiedAt:new Date(),country:{iso3:'USA'},wallet:null};await expect(quote()).rejects.toThrow('wallet');fixture.user.wallet=fixture.wallet;
  fixture.wallet.isLocked=true;await expect(quote()).rejects.toThrow('locked');fixture.wallet.isLocked=false;
  await expect(quoteCoinWithdrawal('user',{coins:5000,gateway:'UNKNOWN' as any,destination:crypto})).rejects.toThrow('Unsupported');
- fixture.rates=null;await expect(quote()).rejects.toThrow('rates');fixture.rates={price:d('.015'),fee:d('.25'),minWithdrawal:d(5)};fixture.wallet.coins=d(1);await expect(quote()).rejects.toThrow('Insufficient');fixture.wallet.coins=d(10000);fixture.other={};await expect(quote()).rejects.toThrow('in progress');
+ fixture.rates=null;await expect(quote()).rejects.toThrow('rates');fixture.rates={price:d('.015'),fee:d('.25'),minWithdrawal:d(10)};fixture.wallet.coins=d(1);await expect(quote()).rejects.toThrow('Insufficient');fixture.wallet.coins=d(10000);fixture.other={};await expect(quote()).rejects.toThrow('in progress');
  expect(fixture.prepare).not.toHaveBeenCalled();
 });
 it('rejects a provider funding preflight before reserving',async()=>{fixture.prepare.mockRejectedValue(new WalletError('insufficient provider funds',503));await expect(quote()).rejects.toThrow('funds');expect(db.coinWithdrawal.create).not.toHaveBeenCalled();expect(db.wallet.update).not.toHaveBeenCalled();});
@@ -245,7 +250,7 @@ it.each(['SUCCEEDED','FAILED'] as const)('traces committed authorization, stages
 
 it('exposes both Nigerian withdrawal methods and global crypto-only pricing',async()=>{
  const global=await withdrawalSettings('user');
- expect(global.methods.bank).toBeNull();expect(global.methods.crypto).toMatchObject({currency:'USD',rate:'0.015',exchangeFeePercent:25,minimum:5,maximum:5000});
+ expect(global.methods.bank).toBeNull();expect(global.methods.crypto).toMatchObject({currency:'USD',rate:'0.015',exchangeFeePercent:25,minimum:10,maximum:5000});
  fixture.user.country.iso3='NGA';
  const local=await withdrawalSettings('user');
  expect(local.methods.bank).toMatchObject({currency:'NGN',rate:'18',exchangeFeePercent:20,minimum:1000,maximum:5000000});
@@ -255,7 +260,7 @@ it('exposes both Nigerian withdrawal methods and global crypto-only pricing',asy
 it.each(['BACHS','FLUTTERWAVE'] as const)('quotes Nigerian crypto through %s using global prices and fees',async gateway=>{
  fixture.user.country.iso3='NGA';
  const q=await quoteCoinWithdrawal('user',{coins:5000,gateway,destination:crypto});
- expect(q).toMatchObject({currency:'USD',rate:'0.015',exchangeFeePercent:25,amount:56.25,minimum:5});
+ expect(q).toMatchObject({currency:'USD',rate:'0.015',exchangeFeePercent:25,amount:56.25,minimum:10});
  expect(fixture.row.country).toBe('NGA');expect(fixture.row.rate.toString()).toBe('0.015');
  const args=fixture.prepare.mock.calls[0];expect(args[gateway==='BACHS'?1:0].toString()).toBe('56.25');
 });

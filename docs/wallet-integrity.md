@@ -346,3 +346,9 @@ both conversion and its separately charged fee. Provider errors and invalid fee
 or rate responses fail closed, rather than triggering another payment attempt.
 
 Reference: [Flutterwave v3 stablecoins](https://developer.flutterwave.com/docs/stablecoins).
+
+The default dollar withdrawal minimum is USD 10 after the exchange fee, for both
+providers and for crypto withdrawals from every country. NGN bank withdrawals keep
+their separate minimum. Settings, quotes and confirmation use `ChargeRate.minWithdrawal`
+from the database. Seeding creates the default row with USD 10 but preserves existing
+rows; the minimum-default migration changes only the SQL default, not stored values.

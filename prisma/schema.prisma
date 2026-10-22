@@ -2383,7 +2383,7 @@ model ChargeRate {
   maxNgnWithdrawal Decimal @default(5000000) @db.Decimal(20,2)
   reviewWithdrawal Decimal @default(2500) @db.Decimal(20,2)
   reviewNgnWithdrawal Decimal @default(2500000) @db.Decimal(20,2)
-  minWithdrawal Decimal @default(5) @db.Decimal(20,2)
+  minWithdrawal Decimal @default(10) @db.Decimal(20,2)
   fee Decimal @default(0.25) @db.Decimal(10,6)
   ngnPrice Decimal @default(18) @db.Decimal(20,6)
   maxNgnPrice Decimal @default(20) @db.Decimal(20,6)
