@@ -2,6 +2,7 @@ import { Prisma, CoinWithdrawal } from "@prisma/client";
 import { WalletError } from "@/services/walletLedger";
 import {
   withdrawalStep,
+  withdrawalDiagnostic,
   WithdrawalDestination,
   WithdrawalPlan,
   WithdrawalOutcome,
@@ -177,37 +178,43 @@ export async function prepareFlutterwaveWithdrawal(
     },
   );
 }
+function flutterwaveNetworkMatches(currency: string, expected: string, actual: unknown) {
+  if (actual === expected) return true;
+  // Flutterwave's Solana receipt uses SOLANA_MAINNET for the SOLANA request route.
+  // This alias never applies to bank codes or changes wallet-address comparison.
+  return typeof actual === "string" &&
+    cryptoRoutes.FLUTTERWAVE.some(route => route.asset === currency && route.network === expected) &&
+    expected === "SOLANA" && actual === "SOLANA_MAINNET";
+}
 export function flutterwaveWithdrawalOutcome(
   row: CoinWithdrawal,
   data: any,
 ): WithdrawalOutcome {
-  const plan = row.providerData as any,
-    body = plan.request;
-  if (
-    data.reference !== row.id ||
-    String(data.account_number) !== body.account_number ||
-    data.bank_code !== body.account_bank ||
-    data.currency !== body.currency ||
-    (data.debit_currency != null &&
-      data.debit_currency !== body.debit_currency) ||
-    !decimal(data.amount).eq(body.amount) ||
-    (row.providerId && String(data.id) !== row.providerId)
-  )
-    throw new WalletError(
-      "Payout response does not match this withdrawal",
-      409,
-    );
+  const body = (row.providerData as any).request;
+  const checks = {
+    reference: data.reference === row.id,
+    destination: String(data.account_number) === body.account_number,
+    network: flutterwaveNetworkMatches(body.currency, body.account_bank, data.bank_code),
+    currency: data.currency === body.currency,
+    debit_currency: data.debit_currency == null || data.debit_currency === body.debit_currency,
+    amount: decimal(data.amount).eq(body.amount),
+    provider_id: !row.providerId || String(data.id) === row.providerId,
+  };
+  const mismatches = Object.entries(checks).filter(([, matches]) => !matches).map(([field]) => field);
+  if (mismatches.length) {
+    withdrawalDiagnostic("provider.response_mismatch", {
+      gateway: "FLUTTERWAVE", withdrawalId: row.id,
+      outcome: mismatches.join(","),
+    });
+    throw new WalletError("Payout response does not match this withdrawal", 409);
+  }
   const status = String(data.status).toUpperCase();
   return {
     id: providerId(data.id),
-    status:
-      status === "SUCCESSFUL"
-        ? "SUCCEEDED"
-        : status === "FAILED"
-          ? "FAILED"
-          : "PROCESSING",
+    status: status === "SUCCESSFUL" ? "SUCCEEDED" : status === "FAILED" ? "FAILED" : "PROCESSING",
   };
 }
+
 export async function runFlutterwaveWithdrawal(
   row: CoinWithdrawal,
   save: SaveWithdrawal,
@@ -361,10 +368,17 @@ export async function runFlutterwaveWithdrawal(
         response = transfers.find((item: any) => item.reference === row.id);
         if (!response) return { status: "PROCESSING" };
       }
-      const result = flutterwaveWithdrawalOutcome(row, response);
-      if (result.id && !row.providerId)
-        await save({ providerId: result.id, stage: "PAYOUT_ACCEPTED" });
-      return result;
+      // Retain the authenticated provider's reference-bound transfer ID even if
+      // another response field needs review. Saving an ID never settles coins.
+      if (!row.providerId && response?.reference === row.id) {
+        const id = providerId(response.id);
+        await save({ providerId: id, stage: "PAYOUT_ACCEPTED" });
+        row = { ...row, providerId: id, stage: "PAYOUT_ACCEPTED" };
+        withdrawalDiagnostic("provider.transfer_id_saved", {
+          gateway: "FLUTTERWAVE", withdrawalId: row.id, stage: row.stage,
+        });
+      }
+      return flutterwaveWithdrawalOutcome(row, response);
     },
   );
 }

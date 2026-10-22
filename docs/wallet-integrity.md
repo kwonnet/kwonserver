@@ -352,3 +352,18 @@ providers and for crypto withdrawals from every country. NGN bank withdrawals ke
 their separate minimum. Settings, quotes and confirmation use `ChargeRate.minWithdrawal`
 from the database. Seeding creates the default row with USD 10 but preserves existing
 rows; the minimum-default migration changes only the SQL default, not stored values.
+
+Flutterwave payout verification accepts `SOLANA_MAINNET` as the response alias
+for the supported `SOLANA` crypto request route. Bank codes remain exact; Solana
+wallet addresses stay case-sensitive. Reference, provider ID, debit currency,
+transfer currency and gross transfer amount must still match. Mismatch diagnostics
+record field names only, with no wallet addresses or provider response bodies.
+A successful matching verification can settle an existing REVIEW withdrawal;
+reference reconciliation only reads the existing transfer and never resends it.
+
+Flutterwave's transfer ID is persisted in `CoinWithdrawal.providerId` immediately
+after a provider response is bound to the withdrawal's exact reference, before
+validating the remaining settlement fields. A mismatch therefore retains the ID
+for later GET `/transfers/{id}` verification, without marking success or restoring
+coins. Missing IDs from lost responses are recovered by reference lookup; once an
+ID exists it is never replaced or used to submit another transfer.

@@ -105,6 +105,20 @@ it('escalates unmatched or old unknown outcomes and does not restore',async()=>{
  fixture.row.status='RESERVED';fixture.row.stage='PAYOUT_ACCEPTED';fixture.run.mockRejectedValue(new WalletError('Response mismatch',409));expect(await processCoinWithdrawal(fixture.row.id)).toMatchObject({status:'REVIEW'});
  fixture.row.reviewRequiredAt=null;fixture.row.createdAt=new Date(Date.now()-25*3600000);fixture.run.mockRejectedValue(new Error('Unavailable'));expect(await processCoinWithdrawal(fixture.row.id)).toMatchObject({status:'REVIEW'});expect(db.wallet.update).not.toHaveBeenCalled();
 });
+it('clears a reviewed withdrawal after a verified provider success without deducting coins again',async()=>{
+ fixture.row.status='REVIEW';fixture.row.stage='PAYOUT_SUBMITTING';fixture.row.reviewRequiredAt=new Date();
+ fixture.wallet.coins=d(5000);fixture.run.mockResolvedValue({id:'43',status:'SUCCEEDED'});
+ expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'SUCCEEDED'});
+ expect(fixture.wallet.coins.toString()).toBe('5000');expect(db.wallet.update).not.toHaveBeenCalled();
+ fixture.run.mockClear();expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'SUCCEEDED'});expect(fixture.run).not.toHaveBeenCalled();
+});
+it('retains a transfer ID saved before a response mismatch and leaves coins reserved for review',async()=>{
+ fixture.row.status='RESERVED';fixture.row.stage='PAYOUT_SUBMITTING';fixture.wallet.coins=d(5000);
+ fixture.run.mockImplementation(async(_row,save)=>{await save({providerId:'42',stage:'PAYOUT_ACCEPTED'});throw new WalletError('Payout response does not match this withdrawal',409);});
+ expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'REVIEW'});
+ expect(fixture.row.providerId).toBe('42');expect(fixture.row.stage).toBe('PAYOUT_ACCEPTED');
+ expect(fixture.wallet.coins.toString()).toBe('5000');expect(db.wallet.update).not.toHaveBeenCalled();
+});
 it('does not act on a lease lost after an external request',async()=>{
  fixture.row.status='RESERVED';fixture.run.mockImplementation(async()=>{fixture.row.processingAttempts++;throw new Error('Lease lost');});await processCoinWithdrawal(fixture.row.id);expect(db.wallet.update).not.toHaveBeenCalled();
 });

@@ -58,10 +58,53 @@ it('matches payout reference, ID, amount, currency and destination before comple
  for(const bad of [{reference:'another'},{account_number:'1111111111'},{currency:'USD'},{amount:1},{bank_code:'999'}])expect(()=>flutterwaveWithdrawalOutcome(flwRow(),{...response(),...bad})).toThrow('match');
  expect(()=>flutterwaveWithdrawalOutcome({...flwRow(),providerId:'99'},response())).toThrow('match');
 });
+it('reconciles successful Solana mainnet responses without relaxing address or money checks',async()=>{
+ const address='8UT6Ca19SKgFMCqpzqYxUL4nXYv9qnqTHbCDQR5uxeWZ';
+ const row={...flwRow(),status:'REVIEW',receiveAmount:'11.25',providerData:{request:{account_number:address,account_bank:'SOLANA',amount:12.75,currency:'USDT',debit_currency:'USDT'}}};
+ const transfer={id:43,reference:row.id,account_number:address,bank_code:'SOLANA_MAINNET',amount:12.75,fee:1.5,currency:'USDT',debit_currency:'USDT',status:'SUCCESSFUL'};
+ expect(flutterwaveWithdrawalOutcome(row,transfer)).toEqual({id:'43',status:'SUCCEEDED'});
+ for(const bad of [{account_number:address.toLowerCase()},{bank_code:'ETHEREUM'},{bank_code:'SOLANA_DEVNET'},{amount:11.25},{currency:'USDC'},{debit_currency:'USD'},{reference:'other'}])expect(()=>flutterwaveWithdrawalOutcome(row,{...transfer,...bad})).toThrow('match');
+ expect(()=>flutterwaveWithdrawalOutcome({...row,providerId:'different'},transfer)).toThrow('match');
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:[transfer]}));
+ const save=vi.fn();expect(await runFlutterwaveWithdrawal(row,save)).toEqual({id:'43',status:'SUCCEEDED'});
+ expect(save).toHaveBeenCalledWith({providerId:'43',stage:'PAYOUT_ACCEPTED'});
+ expect(vi.mocked(fetch).mock.calls.every(([,options])=>options!.method==='GET')).toBe(true);
+ const diagnostics=vi.mocked(logger.info).mock.calls.map(([entry])=>entry as any).filter(entry=>entry.operation==='provider.response_mismatch');
+ expect(diagnostics.some(entry=>entry.outcome==='network')).toBe(true);
+ expect(JSON.stringify(diagnostics)).not.toContain(address);
+});
 it('reconciles a lost Flutterwave POST response by reference without sending again',async()=>{
  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:[response()]}));
  const save=vi.fn();expect(await runFlutterwaveWithdrawal(flwRow(),save)).toEqual({id:'42',status:'SUCCEEDED'});
  expect(vi.mocked(fetch).mock.calls[0][1]!.method).toBe('GET');expect(save).toHaveBeenCalledWith({providerId:'42',stage:'PAYOUT_ACCEPTED'});
+});
+it('persists the initiation ID before full validation and later verifies that ID without resending',async()=>{
+ const state={...flwRow(),stage:'PREPARED'};
+ let posts=0,valid=false;
+ vi.mocked(fetch).mockImplementation(async(url:any,options:any)=>{
+  const path=new URL(url).pathname;
+  if(path==='/v3/balances')return Response.json({status:'success',data:[{currency:'NGN',available_balance:100000}]});
+  if(path==='/v3/transfers/fee')return Response.json({status:'success',data:[{currency:'NGN',fee_type:'value',fee:100}]});
+  if(options.method==='POST')posts++;
+  return Response.json({status:'success',data:{...response(),bank_code:valid?'058':'unexpected-provider-code'}});
+ });
+ const save=vi.fn(async(data:any)=>Object.assign(state,data));
+ await expect(runFlutterwaveWithdrawal(state,save)).rejects.toThrow('match');
+ expect(state.providerId).toBe('42');expect(state.stage).toBe('PAYOUT_ACCEPTED');expect(posts).toBe(1);
+ expect(save).toHaveBeenCalledWith({providerId:'42',stage:'PAYOUT_ACCEPTED'});
+ valid=true;expect(await runFlutterwaveWithdrawal(state,save)).toEqual({id:'42',status:'SUCCEEDED'});
+ expect(String(vi.mocked(fetch).mock.calls.at(-1)![0])).toContain('/transfers/42');expect(posts).toBe(1);
+});
+it('does not attach a transfer ID for another reference or replace an existing ID',async()=>{
+ const state={...flwRow(),providerId:'42',stage:'PAYOUT_ACCEPTED'},save=vi.fn();
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{...response(),reference:'other',id:99}}));
+ await expect(runFlutterwaveWithdrawal(state,save)).rejects.toThrow('match');expect(save).not.toHaveBeenCalled();expect(state.providerId).toBe('42');
+});
+it('recovers a missing ID from a reference lookup even when the transfer still needs review',async()=>{
+ const state=flwRow(),save=vi.fn(async(data:any)=>Object.assign(state,data));
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:[{...response(),amount:1}]}));
+ await expect(runFlutterwaveWithdrawal(state,save)).rejects.toThrow('match');
+ expect(state.providerId).toBe('42');expect(vi.mocked(fetch).mock.calls.every(([,options])=>options!.method==='GET')).toBe(true);
 });
 it('keeps an uncertain missing payout pending and does not restore automatically',async()=>{
  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:[]}));
