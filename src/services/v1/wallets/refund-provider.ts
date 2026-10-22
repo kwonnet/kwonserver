@@ -25,7 +25,12 @@ export async function verifyRefundPayment(
   paid: Prisma.Decimal,
   context: Record<string, unknown> = {},
 ) {
-  await getRefundProvider(gateway).verifyPayment(paymentId, currency, paid, context);
+  await getRefundProvider(gateway).verifyPayment(
+    paymentId,
+    currency,
+    paid,
+    context,
+  );
 }
 export async function createProviderRefund(
   row: PurchaseRefund,

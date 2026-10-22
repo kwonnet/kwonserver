@@ -35,7 +35,7 @@ def main():
         output = re.sub(r'(\w+://)[^\s/@]+:[^\s/@]+@', r'\1[REDACTED]@', output)
         print(output, flush=True)
 
-    for container in ('kwonserver', 'kwonserver-worker'):
+    for container in (sys.argv[2] if len(sys.argv) > 2 else 'kwonserver', 'kwonserver-worker'):
         print(f'--- Startup diagnostics: {container} ---', flush=True)
         report(['inspect', '--format',
                 'status={{.State.Status}} exit={{.State.ExitCode}} '

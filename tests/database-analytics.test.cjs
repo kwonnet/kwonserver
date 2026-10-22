@@ -158,3 +158,17 @@ test('failed initial aggregate refresh never marks initialization complete or sc
  assert.ok(!calls.some(call=>call.sql.includes('add_continuous_aggregate_policy')));
  assert.ok(!calls.some(call=>call.sql.startsWith('INSERT')&&call.params?.[0]==='post-trends-v1:aggregate-warm'));
 });
+
+test('rolling migration check skips applied migrations and rejects pending destructive changes', async t => {
+  const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+  const {assertRollingMigrations}=require('../scripts/database-analytics.cjs');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'rolling-migrations-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  function write(name,sql){fs.mkdirSync(path.join(root,name),{recursive:true});fs.writeFileSync(path.join(root,name,'migration.sql'),sql);}
+  write('old','ALTER TABLE "User" DROP COLUMN "old";');
+  write('new','ALTER TABLE "ChargeRate" ALTER COLUMN "minWithdrawal" SET DEFAULT 10;');
+  const db={query:async sql=>({rows:sql.includes('to_regclass')?[{name:'_prisma_migrations'}]:[{migration_name:'old'}]})};
+  await assertRollingMigrations(db,root);
+  for(const sql of ['ALTER TABLE "User" DROP COLUMN "name";','ALTER TABLE "User" RENAME COLUMN "name" TO "new";','ALTER TABLE "User" ALTER COLUMN "name" TYPE INTEGER;','ALTER TABLE "User" ADD COLUMN "new" TEXT NOT NULL;']){
+    write('new',sql);await assert.rejects(assertRollingMigrations(db,root),/Rolling deployment blocked/);
+  }
+});

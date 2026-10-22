@@ -25,6 +25,9 @@ if args[:2]==['image','prune'] and os.environ.get('FAIL_PRUNE'): sys.exit(23)
 if args[0]=='login': sys.stdin.read()
 if args[:2]==['container','inspect']: sys.exit(0 if os.environ.get('EXISTING_CONTAINERS') else 1)
 if args[0]=='logs': print('Startup error: missing configuration; '+os.environ.get('LOG_SECRET',''))
+if args[0]=='exec' and 'reload' in args and os.environ.get('FAIL_RELOAD'): sys.exit(44)
+if args[0]=='inspect' and 'kwonserver-worker' in args and os.environ.get('FAIL_WORKER'):
+    print('false'); sys.exit(0)
 if args[0]=='inspect' and os.environ.get('FAIL_HEALTH'):
     print('unhealthy'); sys.exit(0)
 if args[0]=='inspect':
@@ -120,17 +123,32 @@ test('post-release cleanup failure warns without failing a healthy deployment', 
 });
 
 
-test('pauses existing API and worker before migrating and seeding, then starts the tested image',t=>{
+test('keeps the active API through migrations and health checks, then reloads the proxy before draining',t=>{
   const f=fixture(t),r=f.run({EXISTING_CONTAINERS:'1'});assert.equal(r.status,0,r.stderr);
   const calls=f.calls(),release=calls.findIndex(args=>args.some(value=>value.includes('exec npm run db:deploy')));
-  for(const name of ['kwonserver','kwonserver-worker']) {
-    assert.ok(calls.findIndex(args=>args[0]==='stop'&&args.includes(name))<release);
-    assert.ok(calls.findIndex(args=>args[0]==='run'&&args.includes('--name')&&args.includes(name))>release);
-  }
+  const health=calls.findIndex(args=>args[0]==='exec'&&args.includes('kwonserver-blue'));
+  const reload=calls.findIndex(args=>args.includes('reload'));
+  const retire=calls.findIndex(args=>args[0]==='stop'&&args.includes('kwonserver'));
+  assert.ok(health>release&&reload>health&&retire>reload);
+  assert.ok(!calls.some(args=>args[0]==='stop'&&args.includes('kwonserver-proxy')));
+  assert.equal(fs.readFileSync(path.join(f.root,'runtime/active-api'),'utf8'),'kwonserver-blue\n');
 });
-test('failed database release leaves old writers paused without restarting or deleting them',t=>{
+test('failed database release leaves the previous API and worker running',t=>{
   const f=fixture(t),r=f.run({EXISTING_CONTAINERS:'1',FAIL_MIGRATION:'1'});assert.equal(r.status,42);
-  const calls=f.calls();assert.equal(calls.filter(args=>args[0]==='stop').length,2);
-  assert.ok(!calls.some(args=>args[0]==='start'||args[0]==='rm'||args.includes('--name')));
-  assert.match(r.stderr,/remain paused/);assert.equal(fs.existsSync(path.join(f.root,'runtime/image')),false);
+  assert.ok(!f.calls().some(args=>['stop','rm','start'].includes(args[0])||args.includes('--name')));
+  assert.match(r.stderr,/remain running/);assert.equal(fs.existsSync(path.join(f.root,'runtime/image')),false);
+});
+for(const failure of ['FAIL_HEALTH','FAIL_HANDSHAKE','FAIL_RELOAD','FAIL_WORKER'])test(`${failure} keeps the previous API serving`,t=>{
+  const f=fixture(t),r=f.run({EXISTING_CONTAINERS:'1',[failure]:'1'});assert.notEqual(r.status,0);
+  assert.ok(!f.calls().some(args=>['stop','rm'].includes(args[0])&&args.includes('kwonserver')));
+  assert.ok(!f.calls().some(args=>['stop','rm'].includes(args[0])&&args.includes('kwonserver-proxy')));
+  if(['FAIL_RELOAD','FAIL_WORKER'].includes(failure))assert.ok(f.calls().some(args=>args[0]==='start'&&args.includes('kwonserver-worker')));
+  assert.equal(fs.existsSync(path.join(f.root,'runtime/image')),false);
+});
+test('the next release alternates slots without removing the active API early',t=>{
+  const f=fixture(t);fs.mkdirSync(path.join(f.root,'runtime'),{recursive:true});fs.writeFileSync(path.join(f.root,'runtime/active-api'),'kwonserver-blue\n');
+  assert.equal(f.run({EXISTING_CONTAINERS:'1'}).status,0);
+  const calls=f.calls(),reload=calls.findIndex(args=>args.includes('reload'));
+  assert.ok(calls.findIndex(args=>args[0]==='stop'&&args.includes('kwonserver-blue'))>reload);
+  assert.equal(fs.readFileSync(path.join(f.root,'runtime/active-api'),'utf8'),'kwonserver-green\n');
 });

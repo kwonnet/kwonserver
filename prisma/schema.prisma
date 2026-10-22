@@ -2383,9 +2383,9 @@ model ChargeRate {
   maxNgnWithdrawal Decimal @default(5000000) @db.Decimal(20,2)
   reviewWithdrawal Decimal @default(2500) @db.Decimal(20,2)
   reviewNgnWithdrawal Decimal @default(2500000) @db.Decimal(20,2)
-  minWithdrawal Decimal @default(10) @db.Decimal(20,2)
-  fee Decimal @default(0.25) @db.Decimal(10,6)
-  ngnPrice Decimal @default(18) @db.Decimal(20,6)
+  minWithdrawal Decimal @default(10) @db.Decimal(20,2) // Minimum withdrawal in USD
+  fee Decimal @default(0.25) @db.Decimal(10,6) // Fee percentage for withdrawals in USD
+  ngnPrice Decimal @default(18) @db.Decimal(20,6) 
   maxNgnPrice Decimal @default(20) @db.Decimal(20,6)
   minNgnWithdrawal Decimal @default(1000) @db.Decimal(20,2)
   ngnFee Decimal @default(0.2) @db.Decimal(10,6)

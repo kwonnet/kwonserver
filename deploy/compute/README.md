@@ -1,3 +1,35 @@
+### Rolling API deployment
+
+A push builds the immutable image while the active API continues serving. The VM
+runs compatible migrations/seeds, starts the inactive blue/green API slot, checks
+Docker health and a Socket.IO handshake, and only then hands traffic to it using
+an in-place Caddy reload. The proxy is never stopped during an update. The old API
+gets 20 seconds to drain before its graceful shutdown; persistent streams reconnect
+to the new API at cutover. The VM needs enough memory for both API slots briefly.
+
+Migration, startup and proxy reload failures leave the previous API serving. The
+worker switches only after API health checks; its previous container is retained
+for restoration if worker startup or proxy cutover fails. Worker jobs may briefly
+pause during their handover. No second worker runs alongside the active worker.
+
+Pending migrations are screened for destructive SQL before the rolling database
+release. Use expand/contract changes: add compatible schema first, deploy code that
+stops using old fields, and remove obsolete fields in a separately planned database
+maintenance release. The SQL screen is conservative, not a proof of compatibility;
+review data changes, constraints and seeds for compatibility with the old release.
+Do not force a destructive migration while an old image still needs its schema.
+Database setup/seeding must also avoid long exclusive locks on serving tables.
+
+The active API container name is recorded in `/opt/kwonnet/active-api` (the legacy
+name is `kwonserver` before the first rolling release). For diagnostics use:
+
+```bash
+sudo docker exec "$(sudo cat /opt/kwonnet/active-api)" npm run redis:connections
+```
+
+No infrastructure changes are applied by editing these files. Push the updated
+workflow/script to activate the new deployment behavior on the VM.
+
 # Automatic kwonserver deployment
 
 Push to `main` (or run the deployment workflow manually). GitHub tests/builds
@@ -272,7 +304,7 @@ once they are no longer needed.
 After deployment, run this read-only diagnostic on the VM:
 
 ```bash
-sudo docker exec kwonserver npm run redis:connections
+sudo docker exec "$(sudo cat /opt/kwonnet/active-api)" npm run redis:connections
 ```
 
 It reports Redis's total connected/blocked clients and groups client names when

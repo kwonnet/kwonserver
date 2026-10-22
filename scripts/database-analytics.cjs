@@ -1,6 +1,7 @@
 const { Client } = require('pg');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
+const fs = require('node:fs');
 const { setTimeout: delay } = require('node:timers/promises');
 require('dotenv').config({ quiet: true });
 const LOCK = 'kwonserver:database-analytics';
@@ -124,6 +125,19 @@ function releaseUrl(env = process.env) {
   }
   return value;
 }
+async function assertRollingMigrations(db, directory = path.resolve(__dirname, '../prisma/migrations')) {
+  const exists = await db.query(`SELECT to_regclass('public._prisma_migrations') AS name`);
+  if (!exists.rows[0]?.name) return; // First database installation has no old schema clients.
+  const result = await db.query('SELECT migration_name FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL');
+  const applied = new Set(result.rows.map(row => row.migration_name));
+  for (const name of fs.readdirSync(directory).sort()) {
+    const file = path.join(directory, name, 'migration.sql');
+    if (applied.has(name) || !fs.existsSync(file)) continue;
+    const sql = fs.readFileSync(file, 'utf8').replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    if (/\bDROP\s+(?:TABLE|COLUMN|TYPE|SCHEMA|VIEW|MATERIALIZED)\b|\bTRUNCATE\b|\bRENAME\b|\bALTER\s+COLUMN\s+[^;]*?\b(?:TYPE|SET\s+NOT\s+NULL)\b|\bADD\s+(?:COLUMN\s+)?[^;,]*?\bNOT\s+NULL\b(?![^;,]*?\bDEFAULT\b)/i.test(sql))
+      throw new Error('Rolling deployment blocked: migration '+name+' may break the running release. Use an expand/contract migration before deploying.');
+  }
+}
 async function main(command = process.argv[2]) {
   mode();
   const url = releaseUrl();
@@ -136,6 +150,7 @@ async function main(command = process.argv[2]) {
     await db.query("SET lock_timeout = '30s'");
     await db.query('SELECT pg_advisory_lock(hashtext($1))', [LOCK]);
     if (command === 'deploy') {
+      if (process.env.ROLLING_DEPLOYMENT === 'true') await assertRollingMigrations(db);
       await enableExtensions(db);
       const prismaCli = require.resolve('prisma/build/index.js');
       for (const args of [['migrate', 'deploy'], ['db', 'seed']]) {
@@ -151,7 +166,7 @@ async function main(command = process.argv[2]) {
     else throw new Error('Use deploy, extensions or setup');
   } finally { await db.end(); }
 }
-module.exports = { mode, enableExtensions, prepareAnalytics, refreshAggregate, backfill, releaseUrl, main };
+module.exports = { mode, enableExtensions, prepareAnalytics, refreshAggregate, backfill, releaseUrl, assertRollingMigrations, main };
 if (require.main === module) main().catch(error => {
   // PostgreSQL messages may contain URL/user data; expose only known safe setup errors.
   if (error.code === '55P03') {
@@ -159,7 +174,7 @@ if (require.main === module) main().catch(error => {
     process.exitCode = 1;
     return;
   }
-  const safe = /^(TIMESCALEDB_MODE|Database host|DATABASE_URL|Analytics setup|Use extensions)/.test(error.message);
-  console.error(safe ? error.message : `Database analytics setup failed (${error.code || 'connection/query failure'}). Check extension privileges, shared_preload_libraries and a direct database connection. The release has not completed; API/worker may be paused by deployment. Repair the release before restarting services.`);
+  const safe = /^(TIMESCALEDB_MODE|Database host|DATABASE_URL|Analytics setup|Use extensions|Rolling deployment blocked)/.test(error.message);
+  console.error(safe ? error.message : `Database analytics setup failed (${error.code || 'connection/query failure'}). Check extension privileges, shared_preload_libraries and a direct database connection. The release has not completed; the previous release remains serving during rolling deployment. Repair the database release before retrying.`);
   process.exitCode = 1;
 });
