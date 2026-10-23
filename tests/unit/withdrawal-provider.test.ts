@@ -85,6 +85,16 @@ it('reconciles the accepted USDC Ethereum transfer by ID even after its quote ex
  expect(vi.mocked(fetch).mock.calls[0][1]!.method).toBe('GET');
  expect(save).toHaveBeenCalledWith(expect.objectContaining({providerFee:'1.5',providerFeeCurrency:'USDC',providerFeeSource:'PROVIDER'}));
 });
+it('reconciles the reported successful Base payout by its saved ID without submitting again',async()=>{
+ const address='0x4DEfEF6c9CB007C7cCd9F60bAd076270AB117f65';
+ const row={...flwRow(),id:'245cdd9d-4f46-4034-af46-908370e22eea',providerId:'2247392',stage:'PAYOUT_ACCEPTED',status:'REVIEW',expiresAt:new Date(0),receiveAmount:d('12.37'),providerData:{request:{account_number:address,account_bank:'BASE',amount:13.87,currency:'USDC',debit_currency:'USDC'}}};
+ const transfer={id:2247392,reference:row.id,account_number:address,bank_code:'BASE_MAINNET',bank_name:'BASE_MAINNET',full_name:`BASE${address}`,created_at:'2026-10-23T14:37:32.000Z',currency:'USDC',debit_currency:'USDC',amount:13.87,fee:1.5,status:'SUCCESSFUL',meta:[{meta_name:'fee currency conversion',from_currency:'USD',from_amount:1.5,to_currency:'USDC',to_amount:1.5,rate:1}],narration:'Kwonnet coin withdrawal',complete_message:'Successful',requires_approval:0,is_approved:1,approver:null};
+ for(const bad of [{account_number:address.toLowerCase()},{bank_code:'BASE_SEPOLIA'},{bank_code:'ETH_MAINNET'},{amount:12.37},{currency:'USDT'},{debit_currency:'USD'},{reference:'other'},{id:2247393}])expect(()=>flutterwaveWithdrawalOutcome(row,{...transfer,...bad})).toThrow('match');
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',message:'Transfer fetched',data:transfer}));
+ const save=vi.fn();expect(await runFlutterwaveWithdrawal(row,save)).toEqual({id:'2247392',status:'SUCCEEDED'});
+ expect(fetch).toHaveBeenCalledTimes(1);expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain('/transfers/2247392');expect(vi.mocked(fetch).mock.calls[0][1]!.method).toBe('GET');
+ expect(save).toHaveBeenCalledWith(expect.objectContaining({providerFee:'1.5',providerFeeCurrency:'USDC',providerFeeSource:'PROVIDER'}));
+});
 it.each(['USDT','USDC','RLUSD'])('accepts the exact Ethereum mainnet alias for supported %s routes',currency=>{
  const row={...flwRow(),providerData:{request:{...flwRow().providerData.request,currency,account_bank:'ETHEREUM'}}};
  expect(flutterwaveWithdrawalOutcome(row,{...response(),currency,bank_code:'ETH_MAINNET'}).status).toBe('SUCCEEDED');
@@ -93,7 +103,9 @@ it.each(['USDT','USDC','RLUSD'])('accepts the exact Ethereum mainnet alias for s
 it.each(cryptoRoutes.FLUTTERWAVE)('reconciles $id by transfer ID with its supported network response',async(route)=>{
  const address=route.network==='SOLANA'?'8UT6Ca19SKgFMCqpzqYxUL4nXYv9qnqTHbCDQR5uxeWZ':'0x'+'a'.repeat(40);
  const row={...flwRow(),providerId:'42',stage:'PAYOUT_ACCEPTED',status:'REVIEW',providerData:{request:{account_number:address,account_bank:route.network,amount:16.12,currency:route.asset,debit_currency:route.asset}}};
- const aliases:Record<string,string>={SOLANA:'SOLANA_MAINNET',ETHEREUM:'ETH_MAINNET'};
+ const aliases:Record<string,string>={SOLANA:'SOLANA_MAINNET',ETHEREUM:'ETH_MAINNET',BASE:'BASE_MAINNET',POLYGON:'POLYGON_MAINNET'};
+ const transfer={id:42,reference:row.id,account_number:address,bank_code:route.network,amount:16.12,currency:route.asset,debit_currency:route.asset,status:'SUCCESSFUL'};
+ for(const bank_code of ['BASE_SEPOLIA','POLYGON_AMOY','SOLANA_DEVNET','ETH_TESTNET','UNKNOWN_MAINNET',...Object.values(aliases).filter(alias=>alias!==aliases[route.network])])expect(()=>flutterwaveWithdrawalOutcome(row,{...transfer,bank_code})).toThrow('match');
  for(const bank_code of new Set([route.network,aliases[route.network]??route.network])){
   vi.mocked(fetch).mockClear();
   vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:42,reference:row.id,account_number:address,bank_code,amount:16.12,currency:route.asset,debit_currency:route.asset,status:'SUCCESSFUL'}}));

@@ -191,7 +191,7 @@ function flutterwaveNetworkMatches(currency: string, expected: string, actual: u
   // These aliases never apply to bank codes or change wallet-address comparison.
   return typeof actual === "string" &&
     cryptoRoutes.FLUTTERWAVE.some(route => route.asset === currency && route.network === expected) &&
-    ((expected === "SOLANA" && actual === "SOLANA_MAINNET") ||
+    ((["SOLANA", "BASE", "POLYGON"].includes(expected) && actual === `${expected}_MAINNET`) ||
       (expected === "ETHEREUM" && actual === "ETH_MAINNET"));
 }
 export function flutterwaveWithdrawalOutcome(
