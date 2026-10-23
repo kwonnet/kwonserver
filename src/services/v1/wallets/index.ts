@@ -440,7 +440,7 @@ function withdrawalView(row: CoinWithdrawal) {
     minimum: row.minimum.toNumber(),
     amount: row.amount.toNumber(),
     currency: row.currency,
-    receiveAmount: row.receiveAmount,
+    receiveAmount: row.receiveAmount.toString(),
     receiveCurrency: row.receiveCurrency,
     expiresAt: row.expiresAt,
     status: row.status,

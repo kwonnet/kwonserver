@@ -24,3 +24,25 @@ it('backfills only complete compatible fee evidence without casting malformed hi
   expect(result.find(row=>row.id==='fx').estimatedProviderFee).toBeNull();
  } finally {await client.query('SET search_path TO public');await client.query('DROP SCHEMA IF EXISTS withdrawal_fee_probe CASCADE');await client.end();}
 });
+
+it('converts withdrawal receive amounts exactly and rolls back incompatible historical values',async()=>{
+ const client=new Client({connectionString:process.env.DATABASE_URL});await client.connect();
+ const migration=readFileSync('prisma/migrations/20261023150000_withdrawal_receive_amount_decimal/migration.sql','utf8');
+ try {
+  await client.query('CREATE SCHEMA withdrawal_amount_probe');
+  await client.query('SET search_path TO withdrawal_amount_probe');
+  await client.query('CREATE TABLE "CoinWithdrawal" ("receiveAmount" text NOT NULL)');
+  for(const value of ['14.62','8640.00','0.000000000000000001','99999999999999999999.123456789012345678'])await client.query('INSERT INTO "CoinWithdrawal" VALUES ($1)',[value]);
+  await client.query(migration);
+  expect((await client.query('SELECT "receiveAmount" FROM "CoinWithdrawal" ORDER BY "receiveAmount"')).rows.map(row=>row.receiveAmount)).toEqual(['0.000000000000000001','14.620000000000000000','8640.000000000000000000','99999999999999999999.123456789012345678']);
+  expect((await client.query('SELECT SUM("receiveAmount")::text AS total FROM "CoinWithdrawal" WHERE "receiveAmount" IN (14.62,8640)')).rows[0].total).toBe('8654.620000000000000000');
+  await client.query('DROP TABLE "CoinWithdrawal"');
+  for(const value of ['invalid','NaN','Infinity','100000000000000000000','0.0000000000000000001']){
+   await client.query('CREATE TABLE "CoinWithdrawal" ("receiveAmount" text NOT NULL)');
+   await client.query('INSERT INTO "CoinWithdrawal" VALUES ($1)',[value]);
+   await expect(client.query(migration)).rejects.toThrow();await client.query('ROLLBACK');
+   expect((await client.query('SELECT "receiveAmount",pg_typeof("receiveAmount")::text AS type FROM "CoinWithdrawal"')).rows[0]).toEqual({receiveAmount:value,type:'text'});
+   await client.query('DROP TABLE "CoinWithdrawal"');
+  }
+ } finally {await client.query('ROLLBACK');await client.query('SET search_path TO public');await client.query('DROP SCHEMA IF EXISTS withdrawal_amount_probe CASCADE');await client.end();}
+});

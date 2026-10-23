@@ -144,7 +144,7 @@ export async function renderAuthEmail(name: string, appUrl: string, kind: string
 
 export async function renderWithdrawalEmail(
  name:string, appUrl:string, code:string, expiresAt:Date,
- withdrawal:{id:string;gateway:string;coins:{toString():string};currency:string;amount:{toFixed(places:number):string};receiveAmount?:string;receiveCurrency?:string;destination:unknown},
+ withdrawal:{id:string;gateway:string;coins:{toString():string};currency:string;amount:{toFixed(places:number):string};receiveAmount?:string|{toString():string};receiveCurrency?:string;destination:unknown},
 ) {
  const origin=new URL(appUrl).origin;
  if(!origin.startsWith('https://'))throw new Error('CONFIG');
@@ -154,7 +154,7 @@ export async function renderWithdrawalEmail(
   ? `Bank account ending ${destination.accountNumber!.slice(-4)}${destination.accountName?` (${destination.accountName})`:''}`
   : `${destination.asset}: ${destination.address}`;
  const currency=withdrawal.receiveCurrency??withdrawal.currency;
- const value=withdrawal.receiveAmount??withdrawal.amount.toFixed(2);
+ const value=withdrawal.receiveAmount?.toString()??withdrawal.amount.toFixed(2);
  const amount=['NGN','USD'].includes(currency)
   ? new Intl.NumberFormat(currency==='NGN'?'en-NG':'en-US',{style:'currency',currency}).format(Number(value))
   : `${new Intl.NumberFormat('en-US',{maximumFractionDigits:8}).format(Number(value))} ${currency}`;

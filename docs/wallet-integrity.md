@@ -450,3 +450,8 @@ currencies. Compare NULL counts when assessing analytics completeness.
 
 References: [Bachs payout fields](https://docs.bachs.io/api-reference/payouts/get-payout)
 and [Flutterwave stablecoin fees](https://developer.flutterwave.com/docs/stablecoins).
+
+`CoinWithdrawal.receiveAmount` is stored as `DECIMAL(38,18)` for precise numeric
+queries across fiat and crypto payouts. The API serializes it as a decimal string.
+The conversion migration rejects invalid, non-finite, overflowing or over-precision
+historical values rather than silently rounding them.

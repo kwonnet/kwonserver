@@ -68,6 +68,7 @@ export function withdrawalEnvironment(gateway: WithdrawalGateway) {
     : "flutterwave:live";
 }
 export function decimal(value: unknown, allowZero = false) {
+  if (Prisma.Decimal.isDecimal(value)) value = value.toString();
   if (typeof value !== "number" && typeof value !== "string")
     throw new WalletError("Invalid payout provider amount", 503);
   let d: Prisma.Decimal;
