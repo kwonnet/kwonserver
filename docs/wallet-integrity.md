@@ -484,3 +484,13 @@ and [Flutterwave stablecoin fees](https://developer.flutterwave.com/docs/stablec
 queries across fiat and crypto payouts. The API serializes it as a decimal string.
 The conversion migration rejects invalid, non-finite, overflowing or over-precision
 historical values rather than silently rounding them.
+
+The receive-amount rollout uses an expansion: Prisma `receiveAmount` maps to the
+new numeric database column `receiveAmountNumeric`. The old text column
+`receiveAmount` remains mapped as `receiveAmountLegacy` for compatibility. A
+BEFORE trigger synchronizes old-release text writes and new-release numeric writes,
+including inserts, so the active release and rollback continue to work. Query
+`receiveAmountNumeric` for numeric analytics. Do not remove the legacy column or
+trigger during this rolling release. The pending migration was revised because
+the deployment compatibility check blocked its original in-place type change
+before Prisma applied it; do not bypass the compatibility guard.

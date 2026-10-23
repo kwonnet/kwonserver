@@ -2461,7 +2461,8 @@ model CoinWithdrawal {
   currency String
   destination Json
   providerData Json
-  receiveAmount Decimal @db.Decimal(38,18)
+  receiveAmount Decimal @map("receiveAmountNumeric") @db.Decimal(38,18)
+  receiveAmountLegacy String @default("") @map("receiveAmount")
   receiveCurrency String
   expiresAt DateTime
   status String @default("QUOTED")

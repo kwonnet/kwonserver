@@ -172,3 +172,9 @@ test('rolling migration check skips applied migrations and rejects pending destr
     write('new',sql);await assert.rejects(assertRollingMigrations(db,root),/Rolling deployment blocked/);
   }
 });
+
+test('receive amount expansion remains compatible with the rolling migration guard', async()=>{
+ const {assertRollingMigrations}=require('../scripts/database-analytics.cjs');
+ const db={query:async sql=>({rows:sql.includes('to_regclass')?[{name:'_prisma_migrations'}]:require('node:fs').readdirSync('prisma/migrations').filter(name=>name!=='20261023150000_withdrawal_receive_amount_decimal').map(migration_name=>({migration_name}))})};
+ await assertRollingMigrations(db);
+});

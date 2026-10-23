@@ -32,14 +32,22 @@ it('converts withdrawal receive amounts exactly and rolls back incompatible hist
   await client.query('CREATE SCHEMA withdrawal_amount_probe');
   await client.query('SET search_path TO withdrawal_amount_probe');
   await client.query('CREATE TABLE "CoinWithdrawal" ("receiveAmount" text NOT NULL)');
-  for(const value of ['14.62','8640.00','0.000000000000000001','99999999999999999999.123456789012345678'])await client.query('INSERT INTO "CoinWithdrawal" VALUES ($1)',[value]);
+  for(const value of ['14.62','8640.00','0.000000000000000001','99999999999999999999.123456789012345678'])await client.query('INSERT INTO "CoinWithdrawal" ("receiveAmount") VALUES ($1)',[value]);
   await client.query(migration);
-  expect((await client.query('SELECT "receiveAmount" FROM "CoinWithdrawal" ORDER BY "receiveAmount"')).rows.map(row=>row.receiveAmount)).toEqual(['0.000000000000000001','14.620000000000000000','8640.000000000000000000','99999999999999999999.123456789012345678']);
-  expect((await client.query('SELECT SUM("receiveAmount")::text AS total FROM "CoinWithdrawal" WHERE "receiveAmount" IN (14.62,8640)')).rows[0].total).toBe('8654.620000000000000000');
+  expect((await client.query('SELECT "receiveAmountNumeric" AS "receiveAmount" FROM "CoinWithdrawal" ORDER BY "receiveAmountNumeric"')).rows.map(row=>row.receiveAmount)).toEqual(['0.000000000000000001','14.620000000000000000','8640.000000000000000000','99999999999999999999.123456789012345678']);
+  expect((await client.query('SELECT SUM("receiveAmountNumeric")::text AS total FROM "CoinWithdrawal" WHERE "receiveAmountNumeric" IN (14.62,8640)')).rows[0].total).toBe('8654.620000000000000000');
+  // Both generations can insert and update while traffic rolls or rolls back.
+  await client.query(`INSERT INTO "CoinWithdrawal" ("receiveAmount") VALUES ('22.50')`);
+  await client.query(`UPDATE "CoinWithdrawal" SET "receiveAmount"='23.75' WHERE "receiveAmount"='22.50'`);
+  expect((await client.query(`SELECT "receiveAmountNumeric" FROM "CoinWithdrawal" WHERE "receiveAmount"='23.75'`)).rows[0].receiveAmountNumeric).toBe('23.750000000000000000');
+  await client.query('INSERT INTO "CoinWithdrawal" ("receiveAmountNumeric") VALUES (25.5)');
+  await client.query('UPDATE "CoinWithdrawal" SET "receiveAmountNumeric"=26.5 WHERE "receiveAmountNumeric"=25.5');
+  expect((await client.query('SELECT "receiveAmount" FROM "CoinWithdrawal" WHERE "receiveAmountNumeric"=26.5')).rows[0].receiveAmount).toBe('26.500000000000000000');
+  await expect(client.query(`UPDATE "CoinWithdrawal" SET "receiveAmount"='1',"receiveAmountNumeric"=2`)).rejects.toThrow('Conflicting');
   await client.query('DROP TABLE "CoinWithdrawal"');
   for(const value of ['invalid','NaN','Infinity','100000000000000000000','0.0000000000000000001']){
    await client.query('CREATE TABLE "CoinWithdrawal" ("receiveAmount" text NOT NULL)');
-   await client.query('INSERT INTO "CoinWithdrawal" VALUES ($1)',[value]);
+   await client.query('INSERT INTO "CoinWithdrawal" ("receiveAmount") VALUES ($1)',[value]);
    await expect(client.query(migration)).rejects.toThrow();await client.query('ROLLBACK');
    expect((await client.query('SELECT "receiveAmount",pg_typeof("receiveAmount")::text AS type FROM "CoinWithdrawal"')).rows[0]).toEqual({receiveAmount:value,type:'text'});
    await client.query('DROP TABLE "CoinWithdrawal"');
