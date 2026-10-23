@@ -3,7 +3,7 @@ import {Prisma} from '@prisma/client';
 import logger from '@/logger';
 vi.mock('@/db',()=>({default:{}}));
 import {withdrawalConversion} from '@/services/v1/wallets';
-import {withdrawalStep,withdrawalDiagnostic,payoutRequest,availableBalance,requireProviderBalance,validateWithdrawalDestination,WithdrawalProviderError,resolveWithdrawalBank} from '@/services/v1/wallets/withdrawal-provider';
+import {withdrawalStep,withdrawalDiagnostic,payoutRequest,availableBalance,requireProviderBalance,validateWithdrawalDestination,cryptoRoutes,WithdrawalProviderError,resolveWithdrawalBank} from '@/services/v1/wallets/withdrawal-provider';
 import {prepareFlutterwaveWithdrawal,runFlutterwaveWithdrawal,flutterwaveWithdrawalOutcome} from '@/services/v1/wallets/withdrawal-flutterwave';
 import {bachsWithdrawalOutcome,runBachsWithdrawal} from '@/services/v1/wallets/withdrawal-bachs';
 const d=(n:number|string)=>new Prisma.Decimal(n);
@@ -89,6 +89,18 @@ it.each(['USDT','USDC','RLUSD'])('accepts the exact Ethereum mainnet alias for s
  const row={...flwRow(),providerData:{request:{...flwRow().providerData.request,currency,account_bank:'ETHEREUM'}}};
  expect(flutterwaveWithdrawalOutcome(row,{...response(),currency,bank_code:'ETH_MAINNET'}).status).toBe('SUCCEEDED');
  expect(()=>flutterwaveWithdrawalOutcome(flwRow(),{...response(),bank_code:'ETH_MAINNET'})).toThrow('match');
+});
+it.each(cryptoRoutes.FLUTTERWAVE)('reconciles $id by transfer ID with its supported network response',async(route)=>{
+ const address=route.network==='SOLANA'?'8UT6Ca19SKgFMCqpzqYxUL4nXYv9qnqTHbCDQR5uxeWZ':'0x'+'a'.repeat(40);
+ const row={...flwRow(),providerId:'42',stage:'PAYOUT_ACCEPTED',status:'REVIEW',providerData:{request:{account_number:address,account_bank:route.network,amount:16.12,currency:route.asset,debit_currency:route.asset}}};
+ const aliases:Record<string,string>={SOLANA:'SOLANA_MAINNET',ETHEREUM:'ETH_MAINNET'};
+ for(const bank_code of new Set([route.network,aliases[route.network]??route.network])){
+  vi.mocked(fetch).mockClear();
+  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:42,reference:row.id,account_number:address,bank_code,amount:16.12,currency:route.asset,debit_currency:route.asset,status:'SUCCESSFUL'}}));
+  expect(await runFlutterwaveWithdrawal(row,vi.fn())).toEqual({id:'42',status:'SUCCEEDED'});
+  expect(fetch).toHaveBeenCalledTimes(1);expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain('/transfers/42');
+  expect(vi.mocked(fetch).mock.calls[0][1]!.method).toBe('GET');
+ }
 });
 it('reconciles a lost Flutterwave POST response by reference without sending again',async()=>{
  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:[response()]}));
