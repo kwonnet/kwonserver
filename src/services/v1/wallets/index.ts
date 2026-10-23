@@ -356,6 +356,8 @@ import {
   WithdrawalGateway,
   WithdrawalDestination,
   WithdrawalProviderError,
+  WithdrawalFeeFields,
+  withdrawalFeeEstimate,
   withdrawalEnvironment,
   validateWithdrawalDestination,
   cryptoRoutes,
@@ -590,6 +592,7 @@ export async function quoteCoinWithdrawal(
       amount: converted.amount,
       currency: converted.currency,
       destination: destination as unknown as Prisma.InputJsonValue,
+      ...withdrawalFeeEstimate(plan.data),
       providerData: {
         ...plan.data,
         quoteExpiresAt: plan.expiresAt.toISOString(),
@@ -841,7 +844,7 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
     providerData?: Prisma.InputJsonValue;
     receiveAmount?: string;
     receiveCurrency?: string;
-  }) => {
+  } & WithdrawalFeeFields) => {
     const changed = await prisma.coinWithdrawal.updateMany({
       where: {
         id,
@@ -894,6 +897,7 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
             409,
           );
         await save({
+          ...withdrawalFeeEstimate(plan.data),
           providerData: {
             ...plan.data,
             quoteExpiresAt: plan.expiresAt.toISOString(),

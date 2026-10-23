@@ -553,6 +553,12 @@ export async function runBachsWithdrawal(
       throw new WalletError("Payout recovery requires review", 409);
     await recover(row, save, recoverAmount);
   }
+  if (result.status !== "PROCESSING" && data.fee != null) {
+    await save({providerFee: decimal(data.fee, true).toString(), providerFeeCurrency: data.source_currency,
+      providerFeeIncludesConversion: data.source_currency === data.currency ? false : null,
+      providerFeeSource: "PROVIDER", providerConversionFee: data.source_currency === data.currency ? "0" : null, providerConversionFeeCurrency: data.source_currency === data.currency ? data.source_currency : null,
+      providerFeesRecordedAt: new Date()});
+  }
   return result;
   });
 }

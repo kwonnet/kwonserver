@@ -24,11 +24,32 @@ export type WithdrawalOutcome = {
   status: "PROCESSING" | "SUCCEEDED" | "FAILED";
   id?: string;
 };
+export type WithdrawalFeeFields = {
+  estimatedProviderFee?: string | null;
+  estimatedProviderFeeCurrency?: string | null;
+  estimatedProviderFeeIncludesConversion?: boolean | null;
+  providerFee?: string | null;
+  providerFeeCurrency?: string | null;
+  providerFeeIncludesConversion?: boolean | null;
+  providerFeeSource?: string | null;
+  providerConversionFee?: string | null;
+  providerConversionFeeCurrency?: string | null;
+  providerFeesRecordedAt?: Date | null;
+};
+// A missing fee is unknown, not a zero charge. Estimates never populate actuals.
+export function withdrawalFeeEstimate(data: Record<string, any>): WithdrawalFeeFields {
+  const fee = data.feeEstimate;
+  return {
+    estimatedProviderFee: fee ? decimal(fee.amount, true).toString() : null,
+    estimatedProviderFeeCurrency: fee?.currency ?? null,
+    estimatedProviderFeeIncludesConversion: fee?.includesConversion ?? null,
+  };
+}
 export type SaveWithdrawal = (data: {
   stage?: string;
   providerId?: string;
   providerData?: Prisma.InputJsonValue;
-}) => Promise<CoinWithdrawal>;
+} & WithdrawalFeeFields) => Promise<CoinWithdrawal>;
 export class WithdrawalProviderError extends WalletError {
   constructor(
     public definitive: boolean,

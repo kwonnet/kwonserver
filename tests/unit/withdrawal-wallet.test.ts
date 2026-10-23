@@ -345,3 +345,14 @@ it('rejects missing quotes, changed settings and malformed authenticator codes b
  await expect(confirmCoinWithdrawal('user',row.id,'auth-key',{method:'AUTHENTICATOR',code:'recovery-code'})).rejects.toThrow('authenticator code');
  expect(db.wallet.update).not.toHaveBeenCalled();
 });
+it('persists estimated and actual provider fees independently of Kwonnet exchange fees',async()=>{
+ fixture.prepare.mockResolvedValue({receiveAmount:'56.25',receiveCurrency:'USDC',expiresAt:new Date(Date.now()+60000),data:{request:{},sourceRequired:'57.75',feeEstimate:{amount:'1.5',currency:'USDC',includesConversion:false}}});
+ await quote();
+ expect(fixture.row).toMatchObject({estimatedProviderFee:'1.5',estimatedProviderFeeCurrency:'USDC'});expect(fixture.row.fee.toString()).toBe('0.25');
+ expect(db.coinWithdrawal.create.mock.calls[0][0].data).not.toHaveProperty('providerFee');
+ fixture.row.status='RESERVED';fixture.row.stage='PAYOUT_ACCEPTED';
+ fixture.run.mockImplementation(async(_row,save)=>{await save({providerFee:'1.5',providerFeeCurrency:'USDC',providerFeeIncludesConversion:false,providerFeeSource:'PROVIDER'});return {status:'SUCCEEDED'};});
+ expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'SUCCEEDED'});
+ expect(fixture.row).toMatchObject({providerFee:'1.5',providerFeeCurrency:'USDC',providerFeeSource:'PROVIDER'});expect(fixture.row.fee.toString()).toBe('0.25');
+ fixture.run.mockClear();await processCoinWithdrawal(fixture.row.id,'user');expect(fixture.run).not.toHaveBeenCalled();
+});

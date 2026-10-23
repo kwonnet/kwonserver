@@ -2427,6 +2427,16 @@ model PurchaseRefund {
 
 // Coins are reserved only on confirmation. Unknown provider outcomes never release them.
 model CoinWithdrawal {
+  estimatedProviderFee Decimal? @db.Decimal(30,12)
+  estimatedProviderFeeCurrency String?
+  estimatedProviderFeeIncludesConversion Boolean?
+  providerFee Decimal? @db.Decimal(30,12)
+  providerFeeCurrency String?
+  providerFeeIncludesConversion Boolean?
+  providerFeeSource String?
+  providerConversionFee Decimal? @db.Decimal(30,12)
+  providerConversionFeeCurrency String?
+  providerFeesRecordedAt DateTime?
   authorizationMethod String?
   authorizationFactorVersion String?
   authorizationCodeHash String?

@@ -387,3 +387,65 @@ enabled state and password-change time. Changed or disabled factors block unsent
 payouts; already-submitted payouts continue reconciliation. Email OTP encryption,
 delivery, binding and validation remain unchanged. Apply the additive withdrawal
 authenticator migration before deploying the server, then deploy the frontend.
+
+### Provider fee analytics
+
+`CoinWithdrawal.fee` remains Kwonnet's exchange-fee rate. Provider costs use separate
+nullable columns, with DECIMAL(30,12) amounts so crypto fees retain precision:
+
+- `estimatedProviderFee`, `estimatedProviderFeeCurrency`,
+  `estimatedProviderFeeIncludesConversion`: the latest funding/preflight fee quote.
+- `providerFee`, `providerFeeCurrency`, `providerFeeIncludesConversion`: the total
+  provider-reported charge after a matching terminal payout response. Never add a
+  conversion component to this total a second time.
+- `providerFeeSource`: `PROVIDER` for a verified receipt, `RECOVERED_BALANCE` for
+  historical Bachs fees derived from completed funding/recovery records.
+- `providerConversionFee`, `providerConversionFeeCurrency`: reserved for a separately
+  reported conversion component. Native routes record zero; a combined FX charge
+  with no provider breakdown remains NULL. Neither current contract reliably
+  supplies a separate conversion-only charge, so it is not invented.
+- `providerFeesRecordedAt`: when the confirmed/derived fee was recorded.
+
+Bachs reports `fee` and `total_debited` in `source_currency`. On successful recovered
+historical payouts, funding minus source principal minus recovered funds gives a
+labelled balance-derived charge. The migration only casts guarded numeric JSON and
+skips incomplete/malformed/negative results. Bachs quotes do not consistently
+separate fees, so their estimate remains unknown until a payout receipt exists.
+Reported charges on failed payouts can be returned during fund recovery; these are
+not a net-expense ledger. Filter successful payouts for payout-cost analytics and
+reconcile failed-payment refunds separately.
+
+Flutterwave native stablecoin estimates use gross transfer amount minus the quoted
+receive amount, both in the same stablecoin. Do not subtract the USD-valued wallet
+withdrawal amount from a crypto amount. NGN bank fee quotes are recorded in NGN.
+USD fallback queries `debit_currency=USD` and stores the quoted
+`fee_amount_in_fiat_currency` in USD. Its combined cross-currency transfer charge
+has `includesConversion=true`; do not treat it as a separately disclosed FX spread.
+Final native `fee` reports populate actuals. Final fiat-funded reports use `fee_amount_in_fiat_currency` when present, otherwise
+the v3 transfer `fee`, charged in the debit wallet. A conflicting explicit fee
+currency is not silently relabelled.
+Missing or invalid optional fee reports never turn a verified payout into a failure.
+
+Quote creation, provider-quote renewal and the final dispatch preflight persist
+estimates, including a switch to USD. Actuals are written only after the response
+matches reference, ID, destination and amount; Bachs recovery must finish first.
+Repeated reconciliation overwrites the same fee snapshot, never increments costs.
+Historical Flutterwave gross-ups populate estimates only, not invented actuals.
+No provider calls or payments run from the migration.
+
+For example, report actual successful costs by currency and evidence source:
+
+```sql
+SELECT gateway, "providerFeeCurrency", "providerFeeSource",
+       COUNT(*) AS withdrawals, SUM("providerFee") AS provider_fees,
+       COUNT(*) FILTER (WHERE "providerConversionFee" IS NULL) AS conversion_breakdown_unknown
+FROM "CoinWithdrawal"
+WHERE status = 'SUCCEEDED' AND "providerFee" IS NOT NULL
+GROUP BY gateway, "providerFeeCurrency", "providerFeeSource";
+```
+
+Report estimated costs separately using the estimated columns; never sum mixed
+currencies. Compare NULL counts when assessing analytics completeness.
+
+References: [Bachs payout fields](https://docs.bachs.io/api-reference/payouts/get-payout)
+and [Flutterwave stablecoin fees](https://developer.flutterwave.com/docs/stablecoins).

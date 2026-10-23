@@ -124,7 +124,7 @@ it('grosses up crypto fees so the user receives the full exchange value',async()
  });
  const plan=await prepareFlutterwaveWithdrawal(d('56.25'),{type:'crypto',asset:'USDC_BASE',address:'0x'+'a'.repeat(40),confirmed:true});
  expect(plan.data.request.debit_currency).toBe('USDC');expect(vi.mocked(fetch).mock.calls.some(([url])=>String(url).includes('debit_currency=USD'))).toBe(false);
- expect(plan.receiveAmount).toBe('56.25');expect(plan.data.request.amount).toBe(57.75);expect(plan.data.sourceRequired).toBe('57.75');
+ expect(plan.receiveAmount).toBe('56.25');expect(plan.data.request.amount).toBe(57.75);expect(plan.data.sourceRequired).toBe('57.75');expect(plan.data.feeEstimate).toEqual({amount:'1.5',currency:'USDC',includesConversion:false});
 });
 it('quotes and sends USDT from its available stablecoin balance when fiat is unavailable',async()=>{
  let submitted:any;
@@ -157,7 +157,7 @@ for(const [asset,currency,network] of [['USDT_SOLANA','USDT','SOLANA'],['USDC_BA
   });
   const plan=await prepareFlutterwaveWithdrawal(d('6.75'),{type:'crypto',asset,address:'wallet',confirmed:true});
   expect(plan.receiveAmount).toBe('6.75');expect(plan.data.request.debit_currency).toBe(late?currency:'USD');
-  if(!late){expect(plan.data.request.amount).toBe(6.75);expect(plan.data.sourceRequired).toBe('6.82');}
+  if(!late){expect(plan.data.request.amount).toBe(6.75);expect(plan.data.sourceRequired).toBe('6.82');expect(plan.data.feeEstimate).toEqual({amount:'0.07',currency:'USD',includesConversion:true});}
   nativeBalance=0;
   const state={...flwRow(),stage:'PREPARED',providerData:plan.data,receiveAmount:plan.receiveAmount};
   const save=async(data:any)=>{if(data.providerData)saved=data.providerData;return Object.assign(state,data);};
@@ -262,4 +262,22 @@ it('keeps concurrent withdrawal diagnostic contexts isolated and drops unexpecte
  expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'first.check',withdrawalId:'wd-first',userId:'first'}),expect.any(String));
  expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'second.check',withdrawalId:'wd-second',userId:'second'}),expect.any(String));
  expect(JSON.stringify(vi.mocked(logger.info).mock.calls)).not.toMatch(/private-account|private@example/);
+});
+
+for(const native of [true,false])it(`records verified ${native?'native':'USD-funded'} provider fees with their actual currency`,async()=>{
+ const state={...flwRow(),providerId:'42',stage:'PAYOUT_ACCEPTED',providerData:{request:{account_number:'wallet',account_bank:'BASE',amount:16.12,currency:'USDC',debit_currency:native?'USDC':'USD'}}};
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{id:42,reference:state.id,account_number:'wallet',bank_code:'BASE',amount:16.12,currency:'USDC',debit_currency:native?'USDC':'USD',status:'SUCCESSFUL',...(native?{fee:1.5}:{fee_amount_in_fiat_currency:0.12,fee:999})}}));
+ const save=vi.fn(async(data:any)=>Object.assign(state,data));
+ expect(await runFlutterwaveWithdrawal(state,save)).toEqual({id:'42',status:'SUCCEEDED'});
+ expect(state).toMatchObject({providerFee:native?'1.5':'0.12',providerFeeCurrency:native?'USDC':'USD',providerFeeIncludesConversion:!native,providerFeeSource:'PROVIDER',providerConversionFee:native?'0':null});
+});
+it('does not turn missing or malformed fee reports into actual zero fees',async()=>{
+ for(const fee of [undefined,-1,'bad']) {
+  const state={...flwRow(),providerId:'42',stage:'PAYOUT_ACCEPTED',providerData:{request:{...flwRow().providerData.request}}};
+  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{...response(),fee}}));
+  const save=vi.fn();expect(await runFlutterwaveWithdrawal(state,save)).toEqual({id:'42',status:'SUCCEEDED'});expect(save).not.toHaveBeenCalled();
+ }
+ const state={...flwRow(),providerId:'42',stage:'PAYOUT_ACCEPTED',providerData:{request:{...flwRow().providerData.request,debit_currency:'USD'}}};
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{...response(),debit_currency:'USD',fee:1.5}}));
+ const save=vi.fn();await runFlutterwaveWithdrawal(state,save);expect(save).toHaveBeenCalledWith(expect.objectContaining({providerFee:'1.5',providerFeeCurrency:'USD',providerFeeIncludesConversion:true}));
 });

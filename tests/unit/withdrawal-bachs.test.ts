@@ -49,7 +49,7 @@ it('checks both available balances, funds the recipient, pays out and reclaims u
  expect(requests.filter(r=>r.path==='/v1/balances').map(r=>r.account)).toEqual([undefined,'acct-1','acct-1']);
  const funding=requests.find(r=>r.key==='wd-1-fund')!;expect(funding.body).toEqual({destination:'acct-1',currency:'USD',amount:'75.00',transfer_group:'wd-1',description:'Kwonnet withdrawal funding'});
  const payout=requests.find(r=>r.path==='/v1/payouts')!;expect(payout.account).toBe('acct-1');expect(payout.body).not.toHaveProperty('amount');expect(payout.body).not.toHaveProperty('currency');
- expect(requests.find(r=>r.key==='wd-1-recover')?.body.amount).toBe('17.75');expect(state.providerData.recovered).toBe(true);
+ expect(requests.find(r=>r.key==='wd-1-recover')?.body.amount).toBe('17.75');expect(state.providerData.recovered).toBe(true);expect(state).toMatchObject({providerFee:'1',providerFeeCurrency:'USD',providerFeeSource:'PROVIDER',providerConversionFee:null});
 });
 it('does not report definitive failure until funded money is recovered',async()=>{
  payoutFailed=true;const state=row();expect(await runBachsWithdrawal(state,saver(state))).toEqual({id:'payout-1',status:'FAILED'});
