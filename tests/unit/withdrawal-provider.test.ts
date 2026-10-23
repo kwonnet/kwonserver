@@ -312,6 +312,40 @@ for(const native of [true,false])it(`records verified ${native?'native':'USD-fun
  expect(await runFlutterwaveWithdrawal(state,save)).toEqual({id:'42',status:'SUCCEEDED'});
  expect(state).toMatchObject({providerFee:native?'1.5':'0.12',providerFeeCurrency:native?'USDC':'USD',providerFeeIncludesConversion:!native,providerFeeSource:'PROVIDER',providerConversionFee:native?'0':null});
 });
+it('settles the latest Polygon receipt and records its entire actual fee snapshot after processing',async()=>{
+ const address='0x4DEfEF6c9CB007C7cCd9F60bAd076270AB117f65';
+ const state={...flwRow(),id:'438a8d69-8134-40b2-a078-9cd583b7a64b',status:'PROCESSING',stage:'PAYOUT_ACCEPTED',providerId:'2247402',receiveAmount:d('11.25'),expiresAt:new Date(0),providerData:{request:{account_number:address,account_bank:'POLYGON',amount:12.75,currency:'USDC',debit_currency:'USDC'},feeEstimate:{amount:'1.5',currency:'USDC',includesConversion:false}}};
+ const receipt={id:2247402,reference:state.id,account_number:address,bank_code:'POLYGON',full_name:`POLYGON${address}`,created_at:'2026-10-23T17:12:42.000Z',currency:'USDC',debit_currency:'USDC',amount:12.75,fee:1.5,status:'SUCCESSFUL',meta:[{meta_name:'fee currency conversion',from_currency:'USD',from_amount:1.5,to_currency:'USDC',to_amount:1.5,rate:1}],narration:'Kwonnet coin withdrawal',approver:null,complete_message:'Successful',requires_approval:0,is_approved:1,bank_name:'POLYGON'};
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',message:'Transfer fetched',data:receipt}));
+ const save=vi.fn();expect(await runFlutterwaveWithdrawal(state,save)).toEqual({id:'2247402',status:'SUCCEEDED'});
+ expect(save).toHaveBeenCalledWith({providerFee:'1.5',providerFeeCurrency:'USDC',providerFeeIncludesConversion:false,providerFeeSource:'PROVIDER',providerConversionFee:'0',providerConversionFeeCurrency:'USDC',providerFeesRecordedAt:expect.any(Date)});
+ expect(fetch).toHaveBeenCalledTimes(1);expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain('/transfers/2247402');expect(vi.mocked(fetch).mock.calls[0][1]!.method).toBe('GET');
+});
+it('refreshes completed payout fees only from a matching successful ID receipt',async()=>{
+ const state={...flwRow(),status:'SUCCEEDED',providerId:'42',stage:'PAYOUT_ACCEPTED'};
+ const save=vi.fn();
+ for(const bad of [{status:'FAILED'},{status:'PENDING'},{reference:'other'},{amount:1}]){
+  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{...response(),fee:100,...bad}}));
+  await expect(runFlutterwaveWithdrawal(state,save)).rejects.toThrow();expect(save).not.toHaveBeenCalled();
+ }
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{...response(),fee:100}}));
+ expect(await runFlutterwaveWithdrawal(state,save)).toEqual({id:'42',status:'SUCCEEDED'});
+ expect(save).toHaveBeenCalledWith(expect.objectContaining({providerFee:'100',providerFeeCurrency:'NGN'}));
+ expect(vi.mocked(fetch).mock.calls.every(([url,options])=>String(url).endsWith('/transfers/42')&&options!.method==='GET')).toBe(true);
+});
+it('keeps the quoted fee separate while the provider reports a processing transfer',async()=>{
+ const state={...flwRow(),providerId:'42',stage:'PAYOUT_ACCEPTED',providerData:{...flwRow().providerData,feeEstimate:{amount:'100',currency:'NGN',includesConversion:false}}};
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{...response(),status:'PENDING',fee:100}}));
+ const save=vi.fn();expect(await runFlutterwaveWithdrawal(state,save)).toEqual({id:'42',status:'PROCESSING'});expect(save).not.toHaveBeenCalled();
+});
+it('logs a missing fee or inconsistent fee currency without inventing actuals',async()=>{
+ for(const report of [{},{fee:100,fee_currency:'USD'}]){
+  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:{...response(),...report}}));
+  const save=vi.fn();expect(await runFlutterwaveWithdrawal({...flwRow(),providerId:'42'},save)).toEqual({id:'42',status:'SUCCEEDED'});expect(save).not.toHaveBeenCalled();
+ }
+ expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'provider.fee_unavailable',outcome:'missing_fee'}),expect.any(String));
+ expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({operation:'provider.fee_unavailable',outcome:'fee_currency_mismatch'}),expect.any(String));
+});
 it('does not turn missing or malformed fee reports into actual zero fees',async()=>{
  for(const fee of [undefined,-1,'bad']) {
   const state={...flwRow(),providerId:'42',stage:'PAYOUT_ACCEPTED',providerData:{request:{...flwRow().providerData.request}}};

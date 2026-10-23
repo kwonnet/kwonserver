@@ -502,3 +502,17 @@ including inserts, so the active release and rollback continue to work. Query
 trigger during this rolling release. The pending migration was revised because
 the deployment compatibility check blocked its original in-place type change
 before Prisma applied it; do not bypass the compatibility guard.
+
+Flutterwave actual fee fields remain NULL while a payout is processing, even if
+its preflight fee quote is known. Email and authenticator paths use identical fee
+recording. The final fee, currency, conversion metadata, evidence source and
+recorded timestamp are a single snapshot, so they can all be NULL together.
+Completed Flutterwave withdrawals with a saved transfer ID and a NULL provider fee
+are included in a separate reconciliation batch of up to 10, after the regular
+batch of up to 50 pending payouts, so historical fee gaps do not displace pending
+payments. The manual verification endpoint also attempts
+this recovery. Recovery fetches and validates the existing receipt by ID only;
+it cannot send a transfer, reauthorize, reserve coins or settle again. A mismatch,
+a non-success receipt or an unavailable fee preserves the existing success and
+leaves the actual fee unknown. Zero fees are known values and are not retried.
+Missing or conflicting fee currency metadata emits sanitized diagnostics.

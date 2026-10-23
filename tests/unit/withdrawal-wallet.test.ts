@@ -111,7 +111,7 @@ it('escalates unmatched or old unknown outcomes and does not restore',async()=>{
 });
 it.each(['manual','scheduled'])('clears an accepted reviewed withdrawal through %s reconciliation without deducting coins again',async(mode)=>{
  fixture.row.status='REVIEW';fixture.row.stage='PAYOUT_ACCEPTED';fixture.row.providerId='2247362';fixture.row.expiresAt=new Date(0);fixture.row.reviewRequiredAt=new Date();
- fixture.wallet.coins=d(5000);fixture.run.mockResolvedValue({id:'2247362',status:'SUCCEEDED'});
+ fixture.wallet.coins=d(5000);fixture.run.mockImplementation(async(_row,save)=>{await save({providerFee:'1.5',providerFeeCurrency:'USDC'});return {id:'2247362',status:'SUCCEEDED'};});
  if(mode==='manual')expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'SUCCEEDED'});
  else {await reconcileCoinWithdrawals();expect(fixture.row.status).toBe('SUCCEEDED');}
  expect(fixture.run).toHaveBeenCalledWith(expect.objectContaining({providerId:'2247362',stage:'PAYOUT_ACCEPTED'}),expect.any(Function),expect.any(Function));
@@ -122,6 +122,28 @@ it('records email authorization on a verified legacy retry without authorizing a
  fixture.row.authorizationMethod=null;
  await expect(confirmCoinWithdrawal('user',fixture.row.id,'wrong-code-key',{challengeId:fixture.row.otpChallengeId,code:'000000'})).rejects.toThrow('code');expect(fixture.row.authorizationMethod).toBeNull();
  expect(await confirm()).toMatchObject({status:'PROCESSING'});expect(fixture.row.authorizationMethod).toBe('EMAIL');
+});
+it.each(['manual','scheduled'])('recovers missing fees on a completed withdrawal through %s checks without settling again',async(mode)=>{
+ fixture.row.status='SUCCEEDED';fixture.row.stage='PAYOUT_ACCEPTED';fixture.row.providerId='2247363';fixture.row.providerFee=null;fixture.row.completedAt=new Date();
+ const completedAt=fixture.row.completedAt;fixture.wallet.coins=d(5000);
+ fixture.run.mockImplementation(async(_row,save)=>{await save({providerFee:'1.5',providerFeeCurrency:'USDC',providerFeeSource:'PROVIDER'});return {id:'2247363',status:'SUCCEEDED'};});
+ if(mode==='manual')await processCoinWithdrawal(fixture.row.id,'user');else await reconcileCoinWithdrawals();
+ expect(fixture.row).toMatchObject({status:'SUCCEEDED',providerFee:'1.5',completedAt,processingUntil:null});
+ expect(fixture.run).toHaveBeenCalledWith(expect.objectContaining({providerId:'2247363'}),expect.any(Function));
+ expect(db.wallet.update).not.toHaveBeenCalled();expect(db.transaction.updateMany).not.toHaveBeenCalled();expect(fixture.prepare).not.toHaveBeenCalled();
+ fixture.run.mockClear();await processCoinWithdrawal(fixture.row.id,'user');expect(fixture.run).not.toHaveBeenCalled();
+});
+it('keeps completed withdrawals completed when fee recovery fails or remains unavailable',async()=>{
+ fixture.row.status='SUCCEEDED';fixture.row.stage='PAYOUT_ACCEPTED';fixture.row.providerId='2247363';fixture.row.providerFee=null;
+ fixture.run.mockRejectedValueOnce(new WalletError('Receipt mismatch',409));
+ expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'SUCCEEDED'});
+ fixture.run.mockResolvedValueOnce({id:'2247363',status:'SUCCEEDED'});
+ expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'SUCCEEDED'});
+ expect(fixture.row.providerFee).toBeNull();expect(db.wallet.update).not.toHaveBeenCalled();expect(db.transaction.updateMany).not.toHaveBeenCalled();expect(fixture.row.processingUntil).toBeNull();
+});
+it('treats a confirmed zero provider fee as complete rather than missing',async()=>{
+ fixture.row.status='SUCCEEDED';fixture.row.stage='PAYOUT_ACCEPTED';fixture.row.providerId='2247363';fixture.row.providerFee=d(0);
+ await processCoinWithdrawal(fixture.row.id,'user');expect(fixture.run).not.toHaveBeenCalled();
 });
 it('retains a transfer ID saved before a response mismatch and leaves coins reserved for review',async()=>{
  fixture.row.status='RESERVED';fixture.row.stage='PAYOUT_SUBMITTING';fixture.wallet.coins=d(5000);

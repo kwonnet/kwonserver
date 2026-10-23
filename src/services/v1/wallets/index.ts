@@ -808,7 +808,8 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
     where: { id, ...(userId ? { userId } : {}) },
   });
   if (!row) throw new WalletError("Withdrawal not found", 404);
-  if (!pendingWithdrawals.includes(row.status)) {
+  const feesOnly = row.status === "SUCCEEDED" && row.gateway === "FLUTTERWAVE" && !!row.providerId && row.providerFee == null;
+  if (!pendingWithdrawals.includes(row.status) && !feesOnly) {
     withdrawalDiagnostic("processing.skipped", {gateway: row.gateway, stage: row.stage, outcome: row.status});
     return withdrawalView(row);
   }
@@ -822,7 +823,7 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
   const claim = await prisma.coinWithdrawal.updateMany({
     where: {
       id,
-      status: { in: pendingWithdrawals },
+      status: { in: feesOnly ? ["SUCCEEDED"] : pendingWithdrawals },
       OR: [{ processingUntil: null }, { processingUntil: { lt: new Date() } }],
     },
     data: {
@@ -860,6 +861,12 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
     return row;
   };
   try {
+    if (feesOnly) {
+      // A saved ID forces a GET-only receipt lookup. Never reserve, dispatch or settle again.
+      await runFlutterwaveWithdrawal(row, save);
+      withdrawalDiagnostic("provider.fees_reconciled", {gateway: row.gateway, attempt, stage: row.stage, outcome: row.providerFee == null ? "unavailable" : "recorded"});
+      return withdrawalView(row);
+    }
     const guard = async () => await authorizeWithdrawalDispatch(row!);
     if (row.stage === "PREPARED") {
       await guard();
@@ -956,6 +963,7 @@ export async function processCoinWithdrawal(id: string, userId?: string) {
       gateway: row.gateway,
       stage: row.stage,
     });
+    if (feesOnly) return withdrawalView(await prisma.coinWithdrawal.findUniqueOrThrow({where: {id}}));
     const owned = await prisma.coinWithdrawal.findUniqueOrThrow({
       where: { id },
     });
@@ -1047,7 +1055,13 @@ export async function reconcileCoinWithdrawals() {
     orderBy: { updatedAt: "asc" },
     take: 50,
   });
-  for (const row of rows) {
+  // Fee repair has its own small batch so historical gaps cannot displace pending payouts.
+  const feeRows = await prisma.coinWithdrawal.findMany({
+    where: {status: "SUCCEEDED", gateway: "FLUTTERWAVE", providerId: {not: null}, providerFee: null},
+    orderBy: {updatedAt: "asc"}, take: 10,
+  });
+  const unique = new Map([...rows, ...feeRows].map(row => [row.id, row]));
+  for (const row of unique.values()) {
     try {
       await processCoinWithdrawal(row.id);
     } catch (error) {

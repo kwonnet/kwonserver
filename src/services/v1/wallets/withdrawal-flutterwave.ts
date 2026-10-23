@@ -383,6 +383,8 @@ export async function runFlutterwaveWithdrawal(
         });
       }
       const outcome = flutterwaveWithdrawalOutcome(row, response);
+      if (row.status === "SUCCEEDED" && outcome.status !== "SUCCEEDED")
+        throw new WalletError("Completed payout receipt status changed; fee reconciliation requires review", 409);
       if (outcome.status !== "PROCESSING") {
         // The v3 transfer fee is charged in the debit wallet: native crypto
         // fees are deducted from crypto, fiat-funded fees are charged separately.
@@ -399,6 +401,8 @@ export async function runFlutterwaveWithdrawal(
             providerFeeIncludesConversion: !native, providerFeeSource: "PROVIDER",
             providerConversionFee: native ? "0" : null, providerConversionFeeCurrency: native ? currency : null,
             providerFeesRecordedAt: new Date()});
+        } else {
+          withdrawalDiagnostic("provider.fee_unavailable", {gateway: "FLUTTERWAVE", withdrawalId: row.id, outcome: reported == null ? "missing_fee" : "fee_currency_mismatch"});
         }
       }
       return outcome;
