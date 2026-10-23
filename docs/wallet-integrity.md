@@ -353,8 +353,9 @@ their separate minimum. Settings, quotes and confirmation use `ChargeRate.minWit
 from the database. Seeding creates the default row with USD 10 but preserves existing
 rows; the minimum-default migration changes only the SQL default, not stored values.
 
-Flutterwave payout verification accepts `SOLANA_MAINNET` as the response alias
-for the supported `SOLANA` crypto request route. Bank codes remain exact; Solana
+Flutterwave payout verification accepts the exact response aliases `SOLANA_MAINNET`
+for supported `SOLANA` crypto routes and `ETH_MAINNET` for supported `ETHEREUM`
+crypto routes. Bank codes remain exact; all
 wallet addresses stay case-sensitive. Reference, provider ID, debit currency,
 transfer currency and gross transfer amount must still match. Mismatch diagnostics
 record field names only, with no wallet addresses or provider response bodies.

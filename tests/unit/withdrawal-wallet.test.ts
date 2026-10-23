@@ -109,10 +109,12 @@ it('escalates unmatched or old unknown outcomes and does not restore',async()=>{
  fixture.row.status='RESERVED';fixture.row.stage='PAYOUT_ACCEPTED';fixture.run.mockRejectedValue(new WalletError('Response mismatch',409));expect(await processCoinWithdrawal(fixture.row.id)).toMatchObject({status:'REVIEW'});
  fixture.row.reviewRequiredAt=null;fixture.row.createdAt=new Date(Date.now()-25*3600000);fixture.run.mockRejectedValue(new Error('Unavailable'));expect(await processCoinWithdrawal(fixture.row.id)).toMatchObject({status:'REVIEW'});expect(db.wallet.update).not.toHaveBeenCalled();
 });
-it('clears a reviewed withdrawal after a verified provider success without deducting coins again',async()=>{
- fixture.row.status='REVIEW';fixture.row.stage='PAYOUT_SUBMITTING';fixture.row.reviewRequiredAt=new Date();
- fixture.wallet.coins=d(5000);fixture.run.mockResolvedValue({id:'43',status:'SUCCEEDED'});
- expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'SUCCEEDED'});
+it.each(['manual','scheduled'])('clears an accepted reviewed withdrawal through %s reconciliation without deducting coins again',async(mode)=>{
+ fixture.row.status='REVIEW';fixture.row.stage='PAYOUT_ACCEPTED';fixture.row.providerId='2247362';fixture.row.expiresAt=new Date(0);fixture.row.reviewRequiredAt=new Date();
+ fixture.wallet.coins=d(5000);fixture.run.mockResolvedValue({id:'2247362',status:'SUCCEEDED'});
+ if(mode==='manual')expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'SUCCEEDED'});
+ else {await reconcileCoinWithdrawals();expect(fixture.row.status).toBe('SUCCEEDED');}
+ expect(fixture.run).toHaveBeenCalledWith(expect.objectContaining({providerId:'2247362',stage:'PAYOUT_ACCEPTED'}),expect.any(Function),expect.any(Function));
  expect(fixture.wallet.coins.toString()).toBe('5000');expect(db.wallet.update).not.toHaveBeenCalled();
  fixture.run.mockClear();expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'SUCCEEDED'});expect(fixture.run).not.toHaveBeenCalled();
 });

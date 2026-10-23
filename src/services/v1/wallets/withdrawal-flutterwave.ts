@@ -187,11 +187,12 @@ export async function prepareFlutterwaveWithdrawal(
 }
 function flutterwaveNetworkMatches(currency: string, expected: string, actual: unknown) {
   if (actual === expected) return true;
-  // Flutterwave's Solana receipt uses SOLANA_MAINNET for the SOLANA request route.
-  // This alias never applies to bank codes or changes wallet-address comparison.
+  // Flutterwave receipts use these exact mainnet aliases for crypto request routes.
+  // These aliases never apply to bank codes or change wallet-address comparison.
   return typeof actual === "string" &&
     cryptoRoutes.FLUTTERWAVE.some(route => route.asset === currency && route.network === expected) &&
-    expected === "SOLANA" && actual === "SOLANA_MAINNET";
+    ((expected === "SOLANA" && actual === "SOLANA_MAINNET") ||
+      (expected === "ETHEREUM" && actual === "ETH_MAINNET"));
 }
 export function flutterwaveWithdrawalOutcome(
   row: CoinWithdrawal,

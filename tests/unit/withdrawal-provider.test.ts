@@ -73,6 +73,23 @@ it('reconciles successful Solana mainnet responses without relaxing address or m
  expect(diagnostics.some(entry=>entry.outcome==='network')).toBe(true);
  expect(JSON.stringify(diagnostics)).not.toContain(address);
 });
+it('reconciles the accepted USDC Ethereum transfer by ID even after its quote expires',async()=>{
+ const address='0x4DEfEF6c9CB007C7cCd9F60bAd076270AB117f65';
+ const row={...flwRow(),id:'08e92ce0-e80f-4ad0-9519-b18e7da6fdb6',providerId:'2247362',stage:'PAYOUT_ACCEPTED',status:'REVIEW',expiresAt:new Date(0),receiveAmount:'14.62',providerData:{request:{account_number:address,account_bank:'ETHEREUM',amount:16.12,currency:'USDC',debit_currency:'USDC'}}};
+ const transfer={id:2247362,reference:row.id,account_number:address,bank_code:'ETH_MAINNET',bank_name:'ETH_MAINNET',amount:16.12,fee:1.5,currency:'USDC',debit_currency:'USDC',status:'SUCCESSFUL',meta:[{meta_name:'fee currency conversion',from_currency:'USD',from_amount:1.5,to_currency:'USDC',to_amount:1.5,rate:1}]};
+ for(const bad of [{account_number:address.toLowerCase()},{bank_code:'ETH_TESTNET'},{bank_code:'SOLANA_MAINNET'},{amount:14.62},{currency:'USDT'},{debit_currency:'USD'},{reference:'other'},{id:2247363}])expect(()=>flutterwaveWithdrawalOutcome(row,{...transfer,...bad})).toThrow('match');
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',message:'Transfer fetched',data:transfer}));
+ const save=vi.fn();expect(await runFlutterwaveWithdrawal(row,save)).toEqual({id:'2247362',status:'SUCCEEDED'});
+ expect(fetch).toHaveBeenCalledTimes(1);
+ expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain('/transfers/2247362');
+ expect(vi.mocked(fetch).mock.calls[0][1]!.method).toBe('GET');
+ expect(save).toHaveBeenCalledWith(expect.objectContaining({providerFee:'1.5',providerFeeCurrency:'USDC',providerFeeSource:'PROVIDER'}));
+});
+it.each(['USDT','USDC','RLUSD'])('accepts the exact Ethereum mainnet alias for supported %s routes',currency=>{
+ const row={...flwRow(),providerData:{request:{...flwRow().providerData.request,currency,account_bank:'ETHEREUM'}}};
+ expect(flutterwaveWithdrawalOutcome(row,{...response(),currency,bank_code:'ETH_MAINNET'}).status).toBe('SUCCEEDED');
+ expect(()=>flutterwaveWithdrawalOutcome(flwRow(),{...response(),bank_code:'ETH_MAINNET'})).toThrow('match');
+});
 it('reconciles a lost Flutterwave POST response by reference without sending again',async()=>{
  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'success',data:[response()]}));
  const save=vi.fn();expect(await runFlutterwaveWithdrawal(flwRow(),save)).toEqual({id:'42',status:'SUCCEEDED'});
