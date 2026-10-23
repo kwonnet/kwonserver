@@ -1287,7 +1287,12 @@ async function verifyWithdrawalOtp(
       saved = Buffer.from(action.tokenHash, "hex");
     const matches =
       saved.length === expected.length && timingSafeEqual(saved, expected);
-    if (action.usedAt) return !!row.otpVerifiedAt && matches;
+    if (action.usedAt) {
+      if (!row.otpVerifiedAt || !matches) return false;
+      if (row.authorizationMethod == null)
+        await tx.coinWithdrawal.update({where: {id}, data: {authorizationMethod: "EMAIL"}});
+      return true;
+    }
     if (action.expiresAt <= new Date()) return false;
     if (!matches) {
       await tx.authEmailToken.update({
@@ -1302,7 +1307,7 @@ async function verifyWithdrawalOtp(
     });
     await tx.coinWithdrawal.update({
       where: { id },
-      data: { otpVerifiedAt: new Date() },
+      data: { otpVerifiedAt: new Date(), authorizationMethod: "EMAIL" },
     });
     return true;
   });

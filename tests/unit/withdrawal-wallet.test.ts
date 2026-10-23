@@ -118,6 +118,11 @@ it.each(['manual','scheduled'])('clears an accepted reviewed withdrawal through 
  expect(fixture.wallet.coins.toString()).toBe('5000');expect(db.wallet.update).not.toHaveBeenCalled();
  fixture.run.mockClear();expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'SUCCEEDED'});expect(fixture.run).not.toHaveBeenCalled();
 });
+it('records email authorization on a verified legacy retry without authorizing a wrong code',async()=>{
+ fixture.row.authorizationMethod=null;
+ await expect(confirmCoinWithdrawal('user',fixture.row.id,'wrong-code-key',{challengeId:fixture.row.otpChallengeId,code:'000000'})).rejects.toThrow('code');expect(fixture.row.authorizationMethod).toBeNull();
+ expect(await confirm()).toMatchObject({status:'PROCESSING'});expect(fixture.row.authorizationMethod).toBe('EMAIL');
+});
 it('retains a transfer ID saved before a response mismatch and leaves coins reserved for review',async()=>{
  fixture.row.status='RESERVED';fixture.row.stage='PAYOUT_SUBMITTING';fixture.wallet.coins=d(5000);
  fixture.run.mockImplementation(async(_row,save)=>{await save({providerId:'42',stage:'PAYOUT_ACCEPTED'});throw new WalletError('Payout response does not match this withdrawal',409);});
@@ -185,7 +190,7 @@ it('commits guess counters, consumes a valid unused OTP once and disallows consu
  db.authEmailToken.findUnique.mockImplementationOnce(async()=>({...await original(),usedAt:null,tokenHash:'00'}));await expect(confirm()).rejects.toThrow('code');expect(db.authEmailToken.update).toHaveBeenCalledWith(expect.objectContaining({data:{attempts:{increment:1}}}));
  db.authEmailToken.findUnique.mockImplementationOnce(async()=>({...await original(),usedAt:null,expiresAt:new Date(0)}));await expect(confirm()).rejects.toThrow('code');
  fixture.row.otpVerifiedAt=null;await expect(confirm()).rejects.toThrow('code');
- db.authEmailToken.findUnique.mockImplementationOnce(async()=>({...await original(),usedAt:null}));expect(await confirm()).toMatchObject({status:'PROCESSING'});expect(db.authEmailToken.update).toHaveBeenCalledWith(expect.objectContaining({data:{usedAt:expect.any(Date)}}));expect(fixture.row.otpVerifiedAt).toBeInstanceOf(Date);
+ db.authEmailToken.findUnique.mockImplementationOnce(async()=>({...await original(),usedAt:null}));expect(await confirm()).toMatchObject({status:'PROCESSING'});expect(db.authEmailToken.update).toHaveBeenCalledWith(expect.objectContaining({data:{usedAt:expect.any(Date)}}));expect(fixture.row.otpVerifiedAt).toBeInstanceOf(Date);expect(fixture.row.authorizationMethod).toBe('EMAIL');
 });
 it('holds large confirmed withdrawals for approval without submitting payout',async()=>{
  fixture.row.coins=d(222223);fixture.row.amount=d('2500.00');fixture.wallet.coins=d(300000);fixture.rates.price=d('2500').div(222223).div('.75');fixture.row.rate=fixture.rates.price;

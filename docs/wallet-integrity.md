@@ -373,6 +373,12 @@ ID exists it is never replaced or used to submit another transfer.
 
 ### Withdrawal authorization methods
 
+Successful email OTP verification records `authorizationMethod=EMAIL`; successful
+authenticator verification records `AUTHENTICATOR`. Requesting an email code alone
+leaves the method unset until verification. The email-method migration labels
+historical verified rows only when a matching consumed withdrawal email token
+exists; rows without sufficient evidence remain NULL.
+
 Email OTP remains available to all eligible users. Settings expose
 `authenticatorEnabled` only when the account has active 2FA. Enabled users may
 confirm with `{method: "AUTHENTICATOR", code}` instead of an email challenge.
