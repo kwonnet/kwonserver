@@ -407,6 +407,35 @@ nullable columns, with DECIMAL(30,12) amounts so crypto fees retain precision:
   supplies a separate conversion-only charge, so it is not invented.
 - `providerFeesRecordedAt`: when the confirmed/derived fee was recorded.
 
+#### Withdrawal value versus total provider debit
+
+`amount` is the withdrawal's principal value in `currency`, after Kwonnet's
+exchange fee. `receiveAmount` is the destination amount in `receiveCurrency`.
+Neither is a universal total of principal plus provider costs.
+
+With the current fee contract, `providerFee` is the total reported provider charge;
+`providerConversionFee`, when separately disclosed, is a breakdown component of
+that total, not an additional charge. Therefore **do not calculate
+`amount + providerFee + providerConversionFee`**: it can count conversion twice
+and can mix currencies.
+
+When principal and provider fee are in the same currency, the total provider debit
+is `principal + providerFee`. This can be written as `amount + providerFee` only
+when `amount` represents that source-currency principal. For example, a USD 9.00
+principal with a USD 1.00 provider fee costs USD 10.00. If that USD 1.00 fee includes
+a disclosed USD 0.20 conversion component, the cost remains USD 10.00, not USD 10.20.
+If the actual fee is NULL, the final total is unknown; do not silently substitute
+zero or an estimated fee.
+
+For native stablecoin payouts, use the crypto principal in `receiveAmount` plus
+the fee in that same asset, rather than adding a USDC/USDT fee to a USD-valued
+`amount`. For Bachs, the verified `total_debited` is authoritative; completed
+funding minus recovered funds also measures the net source debit. For
+cross-currency payouts, use the verified source-currency principal and fee, or
+the provider's reported total debit. Destination amounts cannot be added to
+source-currency fees without an explicit conversion. Preflight `sourceRequired`
+is a funding estimate, not proof of the final debit.
+
 Bachs reports `fee` and `total_debited` in `source_currency`. On successful recovered
 historical payouts, funding minus source principal minus recovered funds gives a
 labelled balance-derived charge. The migration only casts guarded numeric JSON and
