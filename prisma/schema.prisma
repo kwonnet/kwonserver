@@ -2427,6 +2427,10 @@ model PurchaseRefund {
 
 // Coins are reserved only on confirmation. Unknown provider outcomes never release them.
 model CoinWithdrawal {
+  authorizationMethod String?
+  authorizationFactorVersion String?
+  authorizationCodeHash String?
+  authorizationAttempts Int @default(0)
   otpChallengeId String?
   otpVerifiedAt DateTime?
   approvalRequired Boolean @default(false)

@@ -1,3 +1,4 @@
+import {TOTP,Secret} from 'otpauth';
 import redis from '@/redis';
 import {createHmac, timingSafeEqual, createHash, randomBytes, createCipheriv, createDecipheriv} from 'node:crypto';
 function emailTokenKey() {
@@ -149,4 +150,12 @@ export function decryptTwoFactorSecret(userId:string,value:string) {
 }
 export function twoFactorRecoveryHash(userId:string,code:string) {
   return createHmac('sha256',twoFactorKey()).update(`recovery:${userId}:${code.toUpperCase().replace(/[\s-]/g,'')}`).digest('hex');
+}
+
+export function authenticatorStep(secret:string,code:string,lastUsedStep:number|null) {
+  if(!/^\d{6}$/.test(code))return null;
+  const timestamp=Date.now(),delta=new TOTP({algorithm:'SHA1',digits:6,period:30,secret:Secret.fromBase32(secret)}).validate({token:code,timestamp,window:1});
+  if(delta===null)return null;
+  const step=Math.floor(timestamp/30000)+delta;
+  return lastUsedStep!==null&&step<=lastUsedStep?null:step;
 }

@@ -2,8 +2,10 @@ import {beforeEach,expect,it,vi} from 'vitest';
 import {createHmac,createHash} from 'node:crypto';
 import {Prisma} from '@prisma/client';
 import logger from '@/logger';
-const fixture=vi.hoisted(()=>({row:null as any,other:null as any,user:null as any,wallet:null as any,rates:null as any,operation:vi.fn(),prepare:vi.fn(),run:vi.fn(),enqueue:vi.fn()}));
-const db=vi.hoisted(()=>Object.fromEntries(['user','wallet','chargeRate','coinWithdrawal','transaction','authEmailToken','emailMessage','withdrawalAdminEvent'].map(model=>[model,Object.fromEntries(['findUnique','findUniqueOrThrow','findFirst','findMany','create','update','updateMany','count','groupBy'].map(method=>[method,vi.fn()]))])) as any);
+import * as security from '@/utils/auth-security';
+import {TOTP,Secret} from 'otpauth';
+const fixture=vi.hoisted(()=>({factor:null as any,row:null as any,other:null as any,user:null as any,wallet:null as any,rates:null as any,operation:vi.fn(),prepare:vi.fn(),run:vi.fn(),enqueue:vi.fn()}));
+const db=vi.hoisted(()=>Object.fromEntries(['userTwoFactor','user','wallet','chargeRate','coinWithdrawal','transaction','authEmailToken','emailMessage','withdrawalAdminEvent'].map(model=>[model,Object.fromEntries(['findUnique','findUniqueOrThrow','findFirst','findMany','create','update','updateMany','count','groupBy'].map(method=>[method,vi.fn()]))])) as any);
 vi.mock('@/services/email',()=>({enqueueEmailMessage:fixture.enqueue}));
 vi.mock('@/db',()=>({default:db}));
 vi.mock('@/services/walletLedger',async original=>({...await original<any>(),walletOperation:fixture.operation}));
@@ -13,13 +15,15 @@ import {WalletError} from '@/services/walletLedger';
 import {WithdrawalProviderError} from '@/services/v1/wallets/withdrawal-provider';
 import {withdrawalSettings,quoteCoinWithdrawal,confirmCoinWithdrawal,processCoinWithdrawal,listCoinWithdrawals,reconcileCoinWithdrawals,requestWithdrawalOtp,withdrawalOtpHash,getWithdrawalAdminPolicy,updateWithdrawalAdminPolicy,restrictUserWithdrawal,listWithdrawalAdminQueue,getWithdrawalAdminDetails,decideWithdrawal,withdrawalConversion} from '@/services/v1/wallets';
 const d=(n:number|string)=>new Prisma.Decimal(n),crypto={type:'crypto' as const,asset:'USDC_BASE',address:'0x'+'a'.repeat(40),confirmed:true as const};
-function makeRow(){return {id:'withdraw-fixture',userId:'user',gateway:'FLUTTERWAVE',environment:'flutterwave:test',country:'USA',coins:d(5000),rate:d('.015'),fee:d('.25'),minimum:d(10),amount:d('56.25'),currency:'USD',destination:crypto,providerData:{request:{},sourceRequired:'60'},receiveAmount:'56.25',receiveCurrency:'USDC',expiresAt:new Date(Date.now()+60000),status:'QUOTED',stage:'PREPARED',providerId:null,createdAt:new Date(),completedAt:null,reviewRequiredAt:null,processingAttempts:0,processingUntil:null,otpVerifiedAt:new Date(),otpChallengeId:'11111111-1111-4111-8111-111111111111'};}
+function makeRow(){return {authorizationAttempts:0,authorizationMethod:null,authorizationFactorVersion:null,authorizationCodeHash:null,id:'withdraw-fixture',userId:'user',gateway:'FLUTTERWAVE',environment:'flutterwave:test',country:'USA',coins:d(5000),rate:d('.015'),fee:d('.25'),minimum:d(10),amount:d('56.25'),currency:'USD',destination:crypto,providerData:{request:{},sourceRequired:'60'},receiveAmount:'56.25',receiveCurrency:'USDC',expiresAt:new Date(Date.now()+60000),status:'QUOTED',stage:'PREPARED',providerId:null,createdAt:new Date(),completedAt:null,reviewRequiredAt:null,processingAttempts:0,processingUntil:null,otpVerifiedAt:new Date(),otpChallengeId:'11111111-1111-4111-8111-111111111111'};}
 function apply(data:any){for(const [key,value]of Object.entries(data))fixture.row[key]=value&&typeof value==='object'&&'increment'in value?fixture.row[key]+(value as any).increment:value;return {...fixture.row};}
 beforeEach(()=>{
  vi.clearAllMocks();vi.stubEnv('FLUTTERWAVE_SECK','FLWSECK_TEST_fixture');vi.stubEnv('BACHS_API_KEY','sk_sandbox_test');vi.stubEnv('AUTH_EMAIL_TOKEN_SECRET','test-withdrawal-secret-at-least-32-characters');
  db.$transaction=vi.fn(async(work)=>await work({...db}));db.$queryRaw=vi.fn(async()=>[]);
  db.authEmailToken.findUnique.mockImplementation(async()=>({id:fixture.row.otpChallengeId,userId:'user',purpose:'WITHDRAWAL_OTP',subjectId:fixture.row.id,recipientHash:createHash('sha256').update('user@example.test').digest('hex'),tokenHash:createHmac('sha256',process.env.AUTH_EMAIL_TOKEN_SECRET!).update(JSON.stringify([fixture.row.id,fixture.row.otpChallengeId,'user@example.test','123456'])).digest('hex'),usedAt:new Date(),attempts:0,createdAt:new Date(),expiresAt:new Date(Date.now()+60000)}));
  db.chargeRate.findUniqueOrThrow.mockImplementation(async()=>fixture.rates);
+ fixture.factor=null;db.userTwoFactor.findUnique.mockImplementation(async()=>fixture.factor);db.userTwoFactor.update.mockImplementation(async({data}:any)=>Object.assign(fixture.factor,data));
+ vi.spyOn(security,'consumeAuthRateLimit').mockResolvedValue({allowed:true,retryAfter:1});
  fixture.row=makeRow();fixture.other=null;fixture.wallet={id:'wallet',userId:'user',coins:d(10000),bonus:d(100),credit:d(100),isLocked:false};fixture.user={id:'user',email:'user@example.test',emailVerifiedAt:new Date(),name:'Test User',country:{iso3:'USA',iso2:'US'},wallet:fixture.wallet};fixture.rates={withdrawalsEnabled:true,maxWithdrawal:d(5000),maxNgnWithdrawal:d(5000000),reviewWithdrawal:d(2500),reviewNgnWithdrawal:d(2500000),price:d('.015'),ngnPrice:d(18),fee:d('.25'),ngnFee:d('.2'),minWithdrawal:d(10),minNgnWithdrawal:d(1000)};
  db.user.findUnique.mockImplementation(async({where}:any)=>where.id==='admin'?{id:'admin',role:'ADMIN',status:'ACTIVE'}:fixture.user);db.user.findUniqueOrThrow.mockImplementation(async()=>fixture.user);db.chargeRate.findUnique.mockImplementation(async()=>fixture.rates);
  db.wallet.findUniqueOrThrow.mockImplementation(async()=>fixture.wallet);db.wallet.update.mockImplementation(async({data}:any)=>{if(data.coins?.increment)fixture.wallet.coins=fixture.wallet.coins.add(data.coins.increment);if(data.coins?.decrement)fixture.wallet.coins=fixture.wallet.coins.sub(data.coins.decrement);return fixture.wallet;});
@@ -296,4 +300,48 @@ it('rejects Nigerian crypto below the global minimum and above the global maximu
  await expect(quoteCoinWithdrawal('user',{coins:100,gateway:'BACHS',destination:crypto})).rejects.toThrow('USD');
  fixture.rates.maxWithdrawal=d(50);
  await expect(quote()).rejects.toThrow('USD');expect(fixture.prepare).not.toHaveBeenCalled();
+});
+
+function setupAuthenticator(){
+ const secret=new Secret({size:20}).base32;
+ fixture.user.twoFactor={enabledAt:new Date()};
+ fixture.factor={userId:'user',enabledAt:new Date(),version:'factor-v1',lastUsedStep:null,secret:security.encryptTwoFactorSecret('user',secret)};
+ return new TOTP({secret:Secret.fromBase32(secret),algorithm:'SHA1',digits:6,period:30}).generate();
+}
+it('allows authenticator confirmation without email and retains an intent-bound proof for retries',async()=>{
+ const code=setupAuthenticator();fixture.row.otpVerifiedAt=null;fixture.row.otpChallengeId=null;
+ expect((await withdrawalSettings('user')).authenticatorEnabled).toBe(true);
+ expect(await confirmCoinWithdrawal('user',fixture.row.id,'authenticator-key',{method:'AUTHENTICATOR',code})).toMatchObject({status:'PROCESSING'});
+ expect(fixture.factor.lastUsedStep).toEqual(expect.any(Number));expect(fixture.row.authorizationMethod).toBe('AUTHENTICATOR');expect(fixture.row.authorizationCodeHash).not.toBe(code);
+ expect(db.authEmailToken.findUnique).not.toHaveBeenCalled();expect(db.emailMessage.create).not.toHaveBeenCalled();
+ await confirmCoinWithdrawal('user',fixture.row.id,'authenticator-key',{method:'AUTHENTICATOR',code});
+ expect(db.wallet.update).toHaveBeenCalledTimes(1);
+});
+it('rejects disabled factors, wrong codes, replay across withdrawals and exceeded attempt limits',async()=>{
+ const code=setupAuthenticator(),bad=code==='000000'?'999999':'000000';fixture.row.otpVerifiedAt=null;
+ await expect(confirmCoinWithdrawal('user',fixture.row.id,'auth-key',{method:'AUTHENTICATOR',code:bad})).rejects.toThrow('authenticator code');
+ expect(fixture.row.authorizationAttempts).toBe(1);expect(db.wallet.update).not.toHaveBeenCalled();
+ fixture.row.authorizationAttempts=5;await expect(confirmCoinWithdrawal('user',fixture.row.id,'auth-key',{method:'AUTHENTICATOR',code})).rejects.toThrow('authenticator code');
+ fixture.row.authorizationAttempts=0;fixture.factor.lastUsedStep=Math.floor(Date.now()/30000);
+ await expect(confirmCoinWithdrawal('user',fixture.row.id,'auth-key',{method:'AUTHENTICATOR',code})).rejects.toThrow('authenticator code');
+ fixture.factor.enabledAt=null;await expect(confirmCoinWithdrawal('user',fixture.row.id,'auth-key',{method:'AUTHENTICATOR',code})).rejects.toThrow('requires active');
+ expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it('fails closed when the account-wide authenticator rate limit is exceeded',async()=>{
+ setupAuthenticator();vi.mocked(security.consumeAuthRateLimit).mockResolvedValueOnce({allowed:false,retryAfter:900});
+ await expect(confirmCoinWithdrawal('user',fixture.row.id,'auth-key',{method:'AUTHENTICATOR',code:'123456'})).rejects.toThrow('Too many');expect(db.wallet.update).not.toHaveBeenCalled();
+});
+it('blocks unsubmitted payouts when the authorized factor changes or is disabled',async()=>{
+ const code=setupAuthenticator();fixture.row.otpVerifiedAt=null;
+ await confirmCoinWithdrawal('user',fixture.row.id,'auth-key',{method:'AUTHENTICATOR',code});
+ fixture.row.status='RESERVED';fixture.row.stage='PREPARED';fixture.factor.version='factor-v2';fixture.run.mockClear();
+ expect(await processCoinWithdrawal(fixture.row.id,'user')).toMatchObject({status:'BLOCKED'});expect(fixture.run).not.toHaveBeenCalled();
+});
+it('rejects missing quotes, changed settings and malformed authenticator codes before reserving funds',async()=>{
+ const code=setupAuthenticator();const row=fixture.row;
+ fixture.row=null;await expect(confirmCoinWithdrawal('user','missing','auth-key',{method:'AUTHENTICATOR',code})).rejects.toThrow('not found');
+ fixture.row=row;fixture.rates=null;await expect(confirmCoinWithdrawal('user',row.id,'auth-key',{method:'AUTHENTICATOR',code})).rejects.toThrow('settings changed');
+ fixture.rates={withdrawalsEnabled:true,price:d('.015'),fee:d('.25'),minWithdrawal:d(10)};
+ await expect(confirmCoinWithdrawal('user',row.id,'auth-key',{method:'AUTHENTICATOR',code:'recovery-code'})).rejects.toThrow('authenticator code');
+ expect(db.wallet.update).not.toHaveBeenCalled();
 });

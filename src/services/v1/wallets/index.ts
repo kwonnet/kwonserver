@@ -20,7 +20,7 @@ import {
 } from "@/services/walletLedger";
 import { logServiceError } from "@/logger/events";
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
-import { encryptEmailToken, hashEmailToken } from "@/utils/auth-security";
+import { authenticatorStep, consumeAuthRateLimit, decryptTwoFactorSecret, encryptEmailToken, hashEmailToken } from "@/utils/auth-security";
 import { enqueueEmailMessage } from "@/services/email";
 
 const creditRecord = (
@@ -464,7 +464,7 @@ function withdrawalView(row: CoinWithdrawal) {
 export async function withdrawalSettings(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    include: { country: true },
+    include: { country: true, twoFactor: { select: { enabledAt: true } } },
   });
   if (!user?.country)
     throw new WalletError(
@@ -484,6 +484,7 @@ export async function withdrawalSettings(userId: string) {
     reviewThreshold: (bank ? rate.reviewNgnWithdrawal : rate.reviewWithdrawal)?.toNumber() ?? (bank ? 2500000 : 2500),
   });
   return {
+    authenticatorEnabled: !!user.twoFactor?.enabledAt,
     canWithdraw: !withdrawalBlockReason(user, rate),
     blockedReason: withdrawalBlockReason(user, rate),
     nigerian,
@@ -609,11 +610,12 @@ export async function confirmCoinWithdrawal(
   userId: string,
   id: string,
   key: string,
-  otp?: { challengeId: string; code: string },
+  otp?: { challengeId: string; code: string } | { method: "AUTHENTICATOR"; code: string },
 ) {
   return await withdrawalStep("confirmation", {userId, withdrawalId: id}, async () => {
   requestKey(key);
-  await verifyWithdrawalOtp(userId, id, otp);
+  if (otp && "method" in otp) await verifyWithdrawalAuthenticator(userId, id, otp.code);
+  else await verifyWithdrawalOtp(userId, id, otp);
   const result = await walletOperation(
     `withdrawal:${userId}`,
     requestKey(key),
@@ -1180,7 +1182,7 @@ export async function requestWithdrawalOtp(userId: string, id: string) {
     });
     await tx.coinWithdrawal.update({
       where: { id },
-      data: { otpChallengeId: challengeId, otpVerifiedAt: null },
+      data: { otpChallengeId: challengeId, otpVerifiedAt: null, authorizationMethod: null, authorizationFactorVersion: null, authorizationCodeHash: null },
     });
     const message = await tx.emailMessage.create({
       data: {
@@ -1209,6 +1211,38 @@ export async function requestWithdrawalOtp(userId: string, id: string) {
   };
   });
 }
+async function verifyWithdrawalAuthenticator(userId: string, id: string, code: string) {
+  const limit = await consumeAuthRateLimit("withdrawal:authenticator", userId);
+  if (!limit.allowed) throw new WalletError("Too many authentication attempts. Try again later.", 429);
+  const valid = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+    const row = await tx.coinWithdrawal.findFirst({where: {id, userId}});
+    if (!row) throw new WalletError("Withdrawal quote not found", 404);
+    const user = await tx.user.findUniqueOrThrow({where: {id: userId}});
+    const rates = await tx.chargeRate.findUnique({where: {id: "default"}});
+    if (!rates) throw new WalletError("Withdrawal settings changed", 409);
+    assertWithdrawalEligibility(user, rates);
+    const factor = await tx.userTwoFactor.findUnique({where: {userId}});
+    if (!factor?.enabledAt || !factor.secret) throw new WalletError("Authenticator authorization requires active two-factor authentication", 403);
+    if (!/^\d{6}$/.test(code)) return false;
+    const hash = withdrawalOtpHash(id, factor.version, userId, code);
+    if (row.authorizationMethod === "AUTHENTICATOR" && row.otpVerifiedAt &&
+        row.authorizationFactorVersion === factor.version && row.authorizationCodeHash === hash &&
+        (!user.passwordChangedAt || row.otpVerifiedAt > user.passwordChangedAt)) return true;
+    if (row.status !== "QUOTED" || row.expiresAt <= new Date() || row.authorizationAttempts >= 5) return false;
+    const step = authenticatorStep(decryptTwoFactorSecret(userId, factor.secret), code, factor.lastUsedStep);
+    if (step === null) {
+      await tx.coinWithdrawal.update({where: {id}, data: {authorizationAttempts: {increment: 1}}});
+      return false;
+    }
+    await tx.userTwoFactor.update({where: {userId}, data: {lastUsedStep: step}});
+    await tx.coinWithdrawal.update({where: {id}, data: {authorizationMethod: "AUTHENTICATOR", authorizationFactorVersion: factor.version,
+      authorizationCodeHash: hash, otpChallengeId: randomUUID(), otpVerifiedAt: new Date()}});
+    return true;
+  });
+  if (!valid) throw new WalletError("Invalid, expired or already-used authenticator code. Enter a new code.", 400);
+}
+
 async function verifyWithdrawalOtp(
   userId: string,
   id: string,
@@ -1713,6 +1747,14 @@ async function assertWithdrawalOtpProof(
   user: { email: string; passwordChangedAt?: Date | null },
   db: Prisma.TransactionClient | typeof prisma,
 ) {
+  if (row.authorizationMethod === "AUTHENTICATOR") {
+    const factor = await db.userTwoFactor.findUnique({where: {userId: row.userId}});
+    if (!row.otpVerifiedAt || !row.authorizationCodeHash || !factor?.enabledAt || !factor.secret ||
+        factor.version !== row.authorizationFactorVersion ||
+        (user.passwordChangedAt && row.otpVerifiedAt <= user.passwordChangedAt))
+      throw new WithdrawalBlockedError("Two-factor authentication or credentials changed after authorization; request a fresh withdrawal", 403);
+    return;
+  }
   if (!row.otpVerifiedAt || !row.otpChallengeId)
     throw new WithdrawalBlockedError(
       "Email authorization is required before payout",

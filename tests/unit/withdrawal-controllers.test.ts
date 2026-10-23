@@ -63,3 +63,10 @@ it('binds all security and admin handlers to the authenticated actor and validat
  for(const [controller,body]of [[withdrawalOtpController,{code:'123456'}],[updateWithdrawalAdminPolicyController,{...policy,maxWithdrawal:-1}],[restrictWithdrawalUserController,{restricted:true}],[withdrawalAdminDecisionController,{decision:'SEND',note:'checked'}]]as const){const res=response();await controller(request(body),res);expect(res.status).toHaveBeenCalledWith(400);}
  const req=request();req.query={page:'2',status:'BLOCKED'};await withdrawalAdminQueueController(req,response());expect(service.listWithdrawalAdminQueue).toHaveBeenLastCalledWith('user',2,'BLOCKED');await withdrawalAdminDetailsController(req,response());expect(service.getWithdrawalAdminDetails).toHaveBeenLastCalledWith('user','withdraw',2);await listCoinWithdrawalsController(req,response());expect(service.listCoinWithdrawals).toHaveBeenLastCalledWith('user',2);
 });
+
+it('accepts an explicit authenticator proof and rejects mixed authorization bodies',async()=>{
+ const res=response();await confirmCoinWithdrawalController(request({method:'AUTHENTICATOR',code:'123456'}),res);
+ expect(service.confirmCoinWithdrawal).toHaveBeenCalledWith('user','withdraw','withdraw-test-key',{method:'AUTHENTICATOR',code:'123456'});
+ service.confirmCoinWithdrawal.mockClear();await confirmCoinWithdrawalController(request({method:'AUTHENTICATOR',challengeId:'11111111-1111-4111-8111-111111111111',code:'123456'}),res);
+ expect(res.status).toHaveBeenLastCalledWith(400);expect(service.confirmCoinWithdrawal).not.toHaveBeenCalled();
+});

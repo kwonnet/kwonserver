@@ -18,7 +18,7 @@ import {disconnectAuthSession} from "@/utils/auth-session-sockets";
 import { OAuth2Client } from "google-auth-library";
 import { getAuthUser } from "../utils";
 import {logServiceError} from '@/logger/events';
-import {consumeAuthRateLimit, createEmailToken, hashEmailToken, encryptTwoFactorSecret, decryptTwoFactorSecret, twoFactorRecoveryHash} from '@/utils/auth-security';
+import {authenticatorStep,consumeAuthRateLimit, createEmailToken, hashEmailToken, encryptTwoFactorSecret, decryptTwoFactorSecret, twoFactorRecoveryHash} from '@/utils/auth-security';
 const googleVerifier = new OAuth2Client();
 
 export const createUser = async (
@@ -545,13 +545,6 @@ export class AuthSecurityError extends Error {
 }
 function authenticator(secret:string,email='account') {
   return new TOTP({issuer:'Kwonnet',label:email,algorithm:'SHA1',digits:6,period:30,secret:Secret.fromBase32(secret)});
-}
-function authenticatorStep(secret:string,code:string,lastUsedStep:number|null) {
-  if(!/^\d{6}$/.test(code))return null;
-  const timestamp=Date.now(),delta=authenticator(secret).validate({token:code,timestamp,window:1});
-  if(delta===null)return null;
-  const step=Math.floor(timestamp/30000)+delta;
-  return lastUsedStep!==null&&step<=lastUsedStep?null:step;
 }
 function newRecoveryCodes(userId:string) {
   const codes=Array.from({length:10},()=>randomBytes(10).toString('hex').toUpperCase().match(/.{5}/g)!.join('-'));

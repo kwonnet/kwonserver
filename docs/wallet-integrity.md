@@ -367,3 +367,23 @@ validating the remaining settlement fields. A mismatch therefore retains the ID
 for later GET `/transfers/{id}` verification, without marking success or restoring
 coins. Missing IDs from lost responses are recovered by reference lookup; once an
 ID exists it is never replaced or used to submit another transfer.
+
+### Withdrawal authorization methods
+
+Email OTP remains available to all eligible users. Settings expose
+`authenticatorEnabled` only when the account has active 2FA. Enabled users may
+confirm with `{method: "AUTHENTICATOR", code}` instead of an email challenge.
+Both methods authorize the server-stored quote; the client cannot alter its amount
+or destination. Authenticator verification uses the same 30-second TOTP window
+and shared `lastUsedStep` replay protection as login, under the user row lock.
+Recovery codes are not accepted for withdrawals.
+
+The authenticator path enforces an account-wide limit of five attempts per 15
+minutes and five failed codes per quote. It stores only an intent-bound HMAC,
+factor version and authorization timestamp on CoinWithdrawal, never the code.
+An exact retry for that withdrawal can reuse its proof without consuming the TOTP
+again. Confirmation, admin approval and unsent dispatch recheck the factor version,
+enabled state and password-change time. Changed or disabled factors block unsent
+payouts; already-submitted payouts continue reconciliation. Email OTP encryption,
+delivery, binding and validation remain unchanged. Apply the additive withdrawal
+authenticator migration before deploying the server, then deploy the frontend.

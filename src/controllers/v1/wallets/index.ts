@@ -340,13 +340,10 @@ export async function confirmCoinWithdrawalController(
   req: Request,
   res: Response,
 ) {
-  const parsed = z
-    .object({
-      challengeId: z.string().uuid(),
-      code: z.string().regex(/^\d{6}$/),
-    })
-    .strict()
-    .safeParse(req.body);
+  const parsed = z.union([
+    z.object({challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/)}).strict(),
+    z.object({method: z.literal("AUTHENTICATOR"), code: z.string().regex(/^\d{6}$/)}).strict(),
+  ]).safeParse(req.body);
   if (!parsed.success)
     return res
       .status(400)
