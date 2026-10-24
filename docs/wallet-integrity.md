@@ -516,3 +516,15 @@ it cannot send a transfer, reauthorize, reserve coins or settle again. A mismatc
 a non-success receipt or an unavailable fee preserves the existing success and
 leaves the actual fee unknown. Zero fees are known values and are not retried.
 Missing or conflicting fee currency metadata emits sanitized diagnostics.
+
+### Weekly engagement tasks
+
+Engagement task claims use a rolling seven-day cooldown per user and task, measured
+from the last successful claim. Eligibility and server verification count qualifying
+activity from the last seven days, never before that user's last claim. Previously
+rewarded targets remain excluded; a weekly reset does not allow reusing them.
+Current rewards are integers from 5 through 10 bonus coins, inclusive. They rotate
+once per UTC week (Monday 00:00 UTC), independently of each user's claim cooldown.
+The weekly configuration migration clamps only current catalog rewards; historical
+claims, wallet balances and transactions are preserved. The initial catalog seed
+already uses 10 coins. Existing claims use the new seven-day cooldown on deployment.

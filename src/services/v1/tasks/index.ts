@@ -171,13 +171,14 @@ export const getUserCompletedTasks = async (
     }
   };
 
-const ENGAGEMENT_DAY_MS = 24 * 60 * 60 * 1000;
+const ENGAGEMENT_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export async function rotateEngagementRewards(now = new Date()) {
   const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  day.setUTCDate(day.getUTCDate() - (day.getUTCDay()+6)%7); // Monday 00:00 UTC.
   return prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('engagement-reward-day',0))`;
-    const tasks = await tx.engagementTask.findMany({where: {OR: [{rewardDay: {lt: day}}, {reward: {lt: 5}}]}, select: {id: true}});
-    for (const task of tasks) await tx.engagementTask.update({where: {id: task.id}, data: {reward: randomInt(5,16), rewardDay: day}});
+    const tasks = await tx.engagementTask.findMany({where: {OR: [{rewardDay: {lt: day}}, {reward: {lt: 5}}, {reward: {gt: 10}}]}, select: {id: true}});
+    for (const task of tasks) await tx.engagementTask.update({where: {id: task.id}, data: {reward: randomInt(5,11), rewardDay: day}});
     return tasks.length;
   });
 }
@@ -206,9 +207,9 @@ export async function getEngagementTasks(userId: string) {
   const now = new Date();
   return Promise.all(tasks.map(async task => {
     const claim = await prisma.engagementClaim.findFirst({where: {userId, taskId: task.id}, orderBy: {claimedAt: 'desc'}});
-    const from = new Date(Math.max(now.getTime()-ENGAGEMENT_DAY_MS, claim?.claimedAt.getTime() ?? 0));
+    const from = new Date(Math.max(now.getTime()-ENGAGEMENT_WEEK_MS, claim?.claimedAt.getTime() ?? 0));
     const progress = (await engagementTargets(prisma as unknown as Prisma.TransactionClient, userId, task, from, now)).length;
-    const nextClaimAt = claim ? new Date(claim.claimedAt.getTime()+ENGAGEMENT_DAY_MS) : null;
+    const nextClaimAt = claim ? new Date(claim.claimedAt.getTime()+ENGAGEMENT_WEEK_MS) : null;
     return {...task, progress, nextClaimAt, eligible: task.enabled && progress >= task.target && (!nextClaimAt || nextClaimAt <= now)};
   }));
 }
@@ -220,8 +221,8 @@ export async function claimEngagementTask(userId: string, taskId: string, idempo
     if (!task || !task.enabled) throw new WalletError('This task is unavailable.',404);
     const now = new Date();
     const claim = await tx.engagementClaim.findFirst({where: {userId, taskId}, orderBy: {claimedAt: 'desc'}});
-    if (claim && claim.claimedAt.getTime()+ENGAGEMENT_DAY_MS > now.getTime()) throw new WalletError(`Available again at ${new Date(claim.claimedAt.getTime()+ENGAGEMENT_DAY_MS).toISOString()}`,409);
-    const from = new Date(Math.max(now.getTime()-ENGAGEMENT_DAY_MS, claim?.claimedAt.getTime() ?? 0));
+    if (claim && claim.claimedAt.getTime()+ENGAGEMENT_WEEK_MS > now.getTime()) throw new WalletError(`Available again at ${new Date(claim.claimedAt.getTime()+ENGAGEMENT_WEEK_MS).toISOString()}`,409);
+    const from = new Date(Math.max(now.getTime()-ENGAGEMENT_WEEK_MS, claim?.claimedAt.getTime() ?? 0));
     const targets = await engagementTargets(tx,userId,task,from,now);
     if (targets.length < task.target) throw new WalletError(`Progress: ${targets.length}/${task.target}. Complete ${task.target-targets.length} more qualifying actions.`,422);
     const wallet = await tx.wallet.findUniqueOrThrow({where: {userId}});
@@ -230,7 +231,7 @@ export async function claimEngagementTask(userId: string, taskId: string, idempo
     const recorded = await tx.engagementClaim.create({data: {userId, taskId, reward: task.reward, target: task.target, verifiedCount: targets.length, windowStart: from, claimedAt: now}});
     await tx.engagementCredit.createMany({data: targets.map(target => ({userId, taskId, targetId: target.id, claimedAt: now}))});
     await tx.transaction.create({data: {userId,recipientId:userId,walletId:wallet.id,amount:task.reward,txnRef:randomUUID(),currency:'COINS',source:'BONUS',gateway:'VIRTUAL',type:'CREDIT',status:'COMPLETED',category:'APP_TASK',description:`Engagement task: ${task.title}`,metadata:{engagementTaskId:taskId,claimId:recorded.id,bonus:task.reward}}});
-    return {reward:task.reward, nextClaimAt:new Date(now.getTime()+ENGAGEMENT_DAY_MS).toISOString(), message:`You earned ${task.reward} bonus coins.`};
+    return {reward:task.reward, nextClaimAt:new Date(now.getTime()+ENGAGEMENT_WEEK_MS).toISOString(), message:`You earned ${task.reward} bonus coins.`};
   });
 }
 export async function configureEngagementTask(id: string, input: {enabled?: boolean; target?: number}) {

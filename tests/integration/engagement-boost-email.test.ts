@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import {PrismaPg} from "@prisma/adapter-pg";
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {PrismaClient} from '@prisma/client';
@@ -11,7 +12,7 @@ import redis from '@/redis';
 const db=new PrismaClient({adapter: new PrismaPg({connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000})});const prefix='engagement-fixture-';let actor:string,author:string,viewer:string;
 async function user(name:string){return (await db.user.create({data:{emailVerifiedAt: new Date(), name,username:prefix+name,email:prefix+name+'@test.invalid',wallet:{create:{bonus:0}}}})).id;}
 async function post(userId:string,extra:any={}){return db.post.create({data:{userId,kind:'ROOT',type:'CONTENT',content:'A community post with real content',...extra}});}
-beforeAll(async()=>{actor=await user('actor');author=await user('author');viewer=await user('viewer');await db.engagementTask.update({where:{id:'like'},data:{target:2,reward:15,rewardDay:new Date(new Date().toISOString().slice(0,10)),enabled:true}});});
+beforeAll(async()=>{actor=await user('actor');author=await user('author');viewer=await user('viewer');await db.engagementTask.update({where:{id:'like'},data:{target:2,reward:10,rewardDay:new Date(new Date().toISOString().slice(0,10)),enabled:true}});});
 afterAll(async()=>{const users=await db.user.findMany({where:{email:{startsWith:prefix}},select:{id:true}});const ids=users.map(user=>user.id);await db.postImpression.deleteMany({where:{userId:{in:ids}}});await db.post.deleteMany({where:{userId:{in:ids}}});await db.user.deleteMany({where:{id:{in:ids}}});await db.$disconnect();});
 it('verifies distinct actions, protects parallel claims and credits exactly one bonus ledger',async()=>{
  const one=await post(author),two=await post(author),own=await post(actor);
@@ -23,20 +24,31 @@ it('verifies distinct actions, protects parallel claims and credits exactly one 
  expect(results.filter(result=>result.status==='fulfilled')).toHaveLength(1);
  const successful=results[0].status==='fulfilled'?'claim-request-one':'claim-request-two';
  await claimEngagementTask(actor,'like',successful);
- expect((await db.wallet.findUniqueOrThrow({where:{userId:actor}})).bonus.toNumber()).toBe(15);
+ expect((await db.wallet.findUniqueOrThrow({where:{userId:actor}})).bonus.toNumber()).toBe(10);
  expect(await db.engagementClaim.count({where:{userId:actor,taskId:'like'}})).toBe(1);
  expect(await db.transaction.count({where:{userId:actor,category:'APP_TASK'}})).toBe(1);
  expect((await getEngagementTasks(actor)).find(task=>task.id==='like')).toMatchObject({eligible:false,progress:0});
- await db.engagementClaim.updateMany({where:{userId:actor,taskId:'like'},data:{claimedAt:new Date(Date.now()-25*3600000)}});
+ await db.engagementClaim.updateMany({where:{userId:actor,taskId:'like'},data:{claimedAt:new Date(Date.now()-8*24*3600000)}});
  await db.likedPost.deleteMany({where:{userId:actor}});await db.likedPost.createMany({data:[{userId:actor,postId:one.id},{userId:actor,postId:two.id}]});
  await expect(claimEngagementTask(actor,'like','next-cycle-key')).rejects.toThrow('Progress: 0/2');
  await configureEngagementTask('like',{enabled:false});await expect(claimEngagementTask(viewer,'like','disabled-task-key')).rejects.toThrow('unavailable');
  await configureEngagementTask('like',{enabled:true});
 });
-it('rolls daily reward snapshots once, including disabled tasks, bounded at fifteen',async()=>{
+it('rolls weekly reward snapshots once, including disabled tasks, bounded at ten',async()=>{
  await db.engagementTask.update({where:{id:'like'},data:{reward:2,rewardDay:new Date(new Date().toISOString().slice(0,10)+'T00:00:00Z')}});
  await rotateEngagementRewards();expect((await db.engagementTask.findUniqueOrThrow({where:{id:'like'}})).reward).toBeGreaterThanOrEqual(5);
- await db.engagementTask.updateMany({data:{rewardDay:new Date('2020-01-01')}});await rotateEngagementRewards();const first=await db.engagementTask.findMany();await rotateEngagementRewards();expect(await db.engagementTask.findMany()).toEqual(first);expect(first.every(task=>task.reward>=5&&task.reward<=15)).toBe(true);
+ await db.engagementTask.updateMany({data:{rewardDay:new Date('2020-01-01')}});await rotateEngagementRewards();const first=await db.engagementTask.findMany();await rotateEngagementRewards();expect(await db.engagementTask.findMany()).toEqual(first);expect(first.every(task=>task.reward>=5&&task.reward<=10)).toBe(true);
+});
+it('migrates current rewards into the new range without changing previously credited rewards',async()=>{
+ const claims=await db.engagementClaim.findMany({where:{userId:actor}});
+ const balance=(await db.wallet.findUniqueOrThrow({where:{userId:actor}})).bonus.toString();
+ await db.engagementTask.update({where:{id:'like'},data:{reward:15}});
+ await db.engagementTask.update({where:{id:'comment'},data:{reward:2}});
+ await db.$executeRawUnsafe(readFileSync('prisma/migrations/20261024113000_weekly_engagement_rewards/migration.sql','utf8'));
+ expect((await db.engagementTask.findUniqueOrThrow({where:{id:'like'}})).reward).toBe(10);
+ expect((await db.engagementTask.findUniqueOrThrow({where:{id:'comment'}})).reward).toBe(5);
+ expect(await db.engagementClaim.findMany({where:{userId:actor}})).toEqual(claims);
+ expect((await db.wallet.findUniqueOrThrow({where:{userId:actor}})).bonus.toString()).toBe(balance);
 });
 it('reserves boosts once per viewer, excludes private/own posts and counts genuine acknowledgements once',async()=>{
  const publicPost=await post(author),privatePost=await post(author,{scope:'FOLLOWED'}),hidden=await post(author,{isHidden:true}),own=await post(viewer);
