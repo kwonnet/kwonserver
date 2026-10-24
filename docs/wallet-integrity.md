@@ -528,3 +528,14 @@ once per UTC week (Monday 00:00 UTC), independently of each user's claim cooldow
 The weekly configuration migration clamps only current catalog rewards; historical
 claims, wallet balances and transactions are preserved. The initial catalog seed
 already uses 10 coins. Existing claims use the new seven-day cooldown on deployment.
+
+The follow-up weekly catalog migration assigns each task a fresh random integer
+from 5 through 10 (rather than clamping the old daily reward). Equal values across
+tasks are valid independent draws. New installations run this after the initial
+10-coin seeds; existing installations also receive a fresh draw on deployment.
+Stock weekly goals are: likes 30, comments 25, reposts 15, quotes 7, follows 7,
+new followers 5, bookmarks 15, published posts 4, likes received from 15 distinct
+people, and comments received from 7 distinct people. Only goals still equal to
+the original daily defaults are updated; administrator-customized goals remain
+unchanged. Historical claims and their recorded reward/target snapshots are not
+rewritten. Subsequent reward draws remain weekly, not per page refresh.

@@ -50,6 +50,20 @@ it('migrates current rewards into the new range without changing previously cred
  expect(await db.engagementClaim.findMany({where:{userId:actor}})).toEqual(claims);
  expect((await db.wallet.findUniqueOrThrow({where:{userId:actor}})).bonus.toString()).toBe(balance);
 });
+it('redraws each weekly reward and increases stock activity goals without rewriting claims',async()=>{
+ const claims=await db.engagementClaim.findMany({where:{userId:actor}}),balance=(await db.wallet.findUniqueOrThrow({where:{userId:actor}})).bonus.toString();
+ const defaults:Record<string,number>={like:20,comment:20,repost:10,quote:5,follow:5,followers:3,bookmark:10,publish:2,'likes-received':10,'comments-received':5};
+ const weekly:Record<string,number>={like:30,comment:25,repost:15,quote:7,follow:7,followers:5,bookmark:15,publish:4,'likes-received':15,'comments-received':7};
+ for(const [id,target] of Object.entries(defaults))await db.engagementTask.update({where:{id},data:{target,reward:10}});
+ // Existing administrator choices must survive the default catalog update.
+ await db.engagementTask.update({where:{id:'like'},data:{target:99}});
+ await db.$executeRawUnsafe(readFileSync('prisma/migrations/20261024120000_random_weekly_engagement_catalog/migration.sql','utf8'));
+ const tasks=await db.engagementTask.findMany();
+ for(const task of tasks){expect(task.reward).toBeGreaterThanOrEqual(5);expect(task.reward).toBeLessThanOrEqual(10);expect(Number.isInteger(task.reward)).toBe(true);expect(task.target).toBe(task.id==='like'?99:weekly[task.id]);}
+ await rotateEngagementRewards();expect(await db.engagementTask.findMany()).toEqual(tasks);
+ expect(await db.engagementClaim.findMany({where:{userId:actor}})).toEqual(claims);
+ expect((await db.wallet.findUniqueOrThrow({where:{userId:actor}})).bonus.toString()).toBe(balance);
+});
 it('reserves boosts once per viewer, excludes private/own posts and counts genuine acknowledgements once',async()=>{
  const publicPost=await post(author),privatePost=await post(author,{scope:'FOLLOWED'}),hidden=await post(author,{isHidden:true}),own=await post(viewer);
  expect(await db.postBoost.findUnique({where:{postId:publicPost.id}})).toMatchObject({target:150,confirmed:0});
