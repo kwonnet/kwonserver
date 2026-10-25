@@ -1667,3 +1667,33 @@ it('does not send a provider request if credentials disappear during a refresh',
   ).rejects.toThrow('not configured');
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it.each([undefined,'USD','NGN'] as const)('uses Nigerian Flutterwave pricing selection %s',async currency=>{
+ state.user.country={iso3:'NGA'};
+ const result=await billing.createSubscriptionCheckout('buyer',{...input,currency},'currency-intent');
+ expect(result.url).toBeTruthy();
+ expect(state.checkout.currency).toBe(currency??'NGN');
+ expect(state.checkout.amount).toBe(currency==='USD'?30:36000);
+ expect(state.checkout.request.payload.currency).toBe(currency??'NGN');
+});
+it('uses USD pricing for Nigerian Bachs customers and rejects an explicit NGN selection',async()=>{
+ state.user.country={iso3:'NGA'};
+ await expect(billing.createSubscriptionCheckout('buyer',{...input,gateway:'BACHS',currency:'NGN'},'ngn-bachs')).rejects.toThrow('Bachs subscriptions use USD');
+ expect(fetch).not.toHaveBeenCalled();
+ await billing.createSubscriptionCheckout('buyer',{...input,gateway:'BACHS'},'usd-bachs');
+ expect(state.checkout.currency).toBe('USD');
+ expect(state.checkout.amount).toBe(30);
+ expect(state.checkout.request.payload.billing_currency).toBe('USD');
+});
+it('rejects non-Nigerian NGN checkout before sending a payment request',async()=>{
+ await expect(billing.createSubscriptionCheckout('buyer',{...input,currency:'NGN'},'invalid-country')).rejects.toThrow('not available');
+ expect(fetch).not.toHaveBeenCalled();
+});
+it('publishes both Nigerian price quotes with independently computed coin conversions',async()=>{
+ state.user.country={iso3:'NGA'};
+ db.chargeRate.findUniqueOrThrow.mockResolvedValue({price:d(.015),ngnPrice:d(20)});
+ const catalog=await billing.getSubscriptionCatalog('buyer');
+ expect(catalog.currencies).toEqual(['NGN','USD']);
+ expect(catalog.defaultCurrency).toBe('NGN');
+ expect(catalog.plans[0].options[0].quotes).toMatchObject([{currency:'NGN',coins:1800,amount:36000},{currency:'USD',coins:2000,amount:30}]);
+});

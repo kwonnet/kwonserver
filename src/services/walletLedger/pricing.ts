@@ -28,3 +28,23 @@ export function nextBillingDate(start: Date, cycle: BillingCycleEnum) {
   end.setUTCDate(Math.min(day, last));
   return end;
 }
+
+// Only Nigerian accounts can opt into local pricing; omitted currency preserves legacy defaults.
+export function subscriptionPricingCurrency(countryIso3: string | null | undefined, requested?: 'USD' | 'NGN'): 'USD' | 'NGN' {
+  const currency = requested ?? (countryIso3 === 'NGA' ? 'NGN' : 'USD');
+  if (!['USD', 'NGN'].includes(currency) || (currency === 'NGN' && countryIso3 !== 'NGA'))
+    throw new WalletError('Currency is not available for this account', 400);
+  return currency;
+}
+export function subscriptionPriceQuote(plan: Parameters<typeof subscriptionPrice>[0], cycle: string, currency: 'USD' | 'NGN', tierId: string | undefined, coinRate: Prisma.Decimal) {
+  const amount = subscriptionPrice(plan, cycle, currency, tierId);
+  const originalAmount = cents(subscriptionPrice(plan, 'MONTHLY', currency, tierId)) * (cycle === 'YEARLY' ? 12 : 1) / 100;
+  const coins = subscriptionPrice(plan, cycle, 'COINS', tierId, coinRate, currency);
+  return {
+    currency, amount, originalAmount,
+    savings: (cents(originalAmount) - cents(amount)) / 100,
+    discountPercent: cycle === 'YEARLY' ? Math.round(plan.discount * 10000) / 100 : 0,
+    coins,
+    originalCoins: new Prisma.Decimal(originalAmount).div(coinRate).toDecimalPlaces(2, Prisma.Decimal.ROUND_UP).toNumber(),
+  };
+}

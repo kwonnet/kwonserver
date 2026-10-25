@@ -48,7 +48,7 @@ provider before attaching a mapping and provider subscription ID.
 The authenticated `GET /api/v1/subscriptions/catalog` returns only the account type's
 plans, authoritative quotes, eligible offers, current subscription, provider
 availability and unfinished checkout. `POST /api/v1/subscriptions/checkouts` accepts
-plan/tier/cycle/provider, explicit renewal consent, optional offer ID, and an
+plan/tier/cycle/provider, renewal choice, optional pricing currency (USD or NGN), optional offer ID, and an
 `Idempotency-Key`. It accepts no client-supplied price or user ID.
 
 A saved `SubscriptionCheckout` holds the price, email, provider mapping, consent
@@ -61,7 +61,7 @@ started; upgrades and prorated changes are deliberately not implicit purchases.
 Flutterwave hosted checkout includes `payment_plan` only for renewal opt-in.
 Recurring checkout is card-only. Bachs uses a recurring product cart and supports
 recurring USD cards today; it is offered when renewal is enabled. Nigerian users
-can still choose Flutterwave NGN or local-priced wallet coins. Bachs bills the
+default to NGN for Flutterwave or wallet coins and can choose USD instead. Global accounts can only select USD. Choosing Bachs visibly selects USD, and the server rejects an explicit NGN Bachs checkout. Bachs bills the
 explicitly displayed USD price. No unsupported NGN recurring rail is assumed.
 
 A redirect is never proof of payment. Flutterwave charges are re-fetched by
@@ -83,13 +83,11 @@ renewal; local cancellation preserves already paid access until its end date.
 
 ## Wallet pricing
 
-For a Nigerian account, use the selected tier's `ngnPrice` and
-`ChargeRate.ngnPrice` (default 18). Other accounts use USD `price` and
-`ChargeRate.price` (default 0.015). Divide the monetary price by its corresponding
+For a Nigerian account, NGN is the default pricing currency. NGN uses the selected tier's `ngnPrice` and `ChargeRate.ngnPrice` (default 18); choosing USD uses the tier's USD `price` and `ChargeRate.price` (default 0.015). Other accounts always use USD pricing and its global rate. Bachs always uses USD pricing, including for Nigerian users. Divide the monetary price by its corresponding
 rate, and round coins upward to two decimal places. The web checkout also submits
 the displayed coin quote; a changed price is rejected before debiting or recording
 paid trial renewal consent. That quote is a comparison guard, not a trusted price. Yearly prices include the
-plan's yearly discount. For old tiers with no `ngnPrice`, derive their local price
+plan's yearly discount. Catalog quotes include the original yearly cost (12 monthly payments), discount percent, discounted total, savings, and matching coin quotes. Monthly billing has no yearly discount. The modal shows the original cost crossed out and the amount saved per year. For old tiers with no `ngnPrice`, derive their local price
 proportionally from the plan's NGN/USD prices and the tier's USD price; an explicit
 local tier price overrides this fallback.
 
@@ -109,8 +107,8 @@ it does not revoke a trial or provider checkout already reserved. Eligibility
 and the claim deadline are checked when signup starts. Country targeting uses the saved user
 country. A unique offer/user claim prevents reuse, including concurrent requests.
 
-At signup, renewal is off by default. Without consent, a trial grants access and
-ends without a charge. With consent, users choose wallet coins or Bachs saved-card
+At signup, renewal is on by default and clearly disclosed before confirmation. Users can turn it off; a trial then grants access and
+ends without a charge. With renewal enabled, users choose wallet coins or Bachs saved-card
 billing. The trial disclosure shows the amount, billing cycle and cancellation
 rule before signup. Bachs creates a native `trial_period` product and grants access
 only after its subscription is verified as trialing. Flutterwave v3 payment plans
@@ -151,3 +149,16 @@ without persisting card details or provider secrets.
 - [Bachs free trials](https://docs.bachs.io/guides/subscriptions/trials)
 - [Bachs subscription object](https://docs.bachs.io/api-reference/subscriptions/object)
 - [Bachs subscription management](https://docs.bachs.io/guides/subscriptions/manage)
+
+## Subscription checkout presentation
+
+Automatic renewal appears below billing period, currency and payment method, and
+is checked by default. The user can turn it off before continuing; the server
+uses the submitted boolean and never assumes consent when it is false. Trial
+buttons say “Claim offer”; the modal states the free period and the exact paid
+renewal amount when renewal is enabled, or that the trial ends without a charge
+when it is disabled. Before the final button, links point to Kwonnet's own
+`/terms-of-service` and `/privacy-policy` pages.
+
+These pricing and presentation changes require no new environment variables or
+database migration. Existing subscriptions retain their saved renewal prices.

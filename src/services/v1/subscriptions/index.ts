@@ -4,7 +4,7 @@ import { bachsConfigured, bachsApiOrigin, bachsRequest, bachsCheckoutUrl } from 
 import { cachedCatalogRead } from "@/store";
 import logger from '@/logger';
 import { lockWallets, walletOperation, WalletError, cents, requestKey } from '@/services/walletLedger';
-import { subscriptionPrice, nextBillingDate } from '@/services/walletLedger/pricing';
+import { subscriptionPrice, subscriptionPricingCurrency, subscriptionPriceQuote, nextBillingDate } from '@/services/walletLedger/pricing';
 import { verifiedPaymentId } from '@/services/walletLedger/verifiedPayment';
 import { paymentMethodSchema } from "@/schema/payment";
 import prisma from "@/db";
@@ -56,6 +56,7 @@ export const purchaseAppSubscriptionWithWallet = async (
     meta?: { [key: string]: any };
     idempotencyKey?: string;
     quotedCoins?: number;
+    pricingCurrency?: 'USD' | 'NGN';
   },
   userId: string
 ) => {
@@ -72,14 +73,15 @@ export const purchaseAppSubscriptionWithWallet = async (
     if (!plan) return { data: "Error: Invalid subscription plan", status: 400 };
     const rate=await prisma.chargeRate.findUniqueOrThrow({where:{id:'default'}});
     if (plan.accountType !== user.userType) throw new WalletError('This plan is not available for your account');
-    const local = user.country?.iso3 === 'NGA';
+    const pricingCurrency = subscriptionPricingCurrency(user.country?.iso3, item.pricingCurrency);
+    const local = pricingCurrency === 'NGN';
     item = { ...item, amount: subscriptionPrice(plan, item.planType, 'COINS', item.meta?.tierId, local ? rate.ngnPrice : rate.price, local ? 'NGN' : 'USD') };
 
     if(item.quotedCoins!==undefined && item.amount!==item.quotedCoins)throw new WalletError('The coin price changed. Refresh your quote before subscribing.',409);
     // debit user wallet coins and credit user wallet amount and save transaction records
     const txnRef = generateUniqueRef();
 
-    const result = await walletOperation(`subscription:${user.id}`, requestKey(item.idempotencyKey), { planId: item.planId, cycle: item.planType, tierId: item.meta?.tierId ?? null, isRecurring: item.isRecurring }, [user.id], async (tx) => {
+    const result = await walletOperation(`subscription:${user.id}`, requestKey(item.idempotencyKey), { planId: item.planId, cycle: item.planType, tierId: item.meta?.tierId ?? null, isRecurring: item.isRecurring, ...(item.pricingCurrency ? {pricingCurrency} : {}) }, [user.id], async (tx) => {
       await assertNoPaidSubscription(user.id, tx);
       if(await tx.subscriptionCheckout.findFirst({where:{userId:user.id,status:{in:['PENDING','CREATING','OPEN','REVIEW']}}}))throw new WalletError('Finish your existing checkout before buying another subscription',409);
       const fresh = await tx.wallet.findUniqueOrThrow({ where: { userId: user.id } });
@@ -655,6 +657,7 @@ type CheckoutInput = {
   recurring: boolean;
   offerId?: string;
   quotedCoins?: number;
+  currency?: 'USD' | 'NGN';
 };
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function subscriptionEnvironment(gateway: SubscriptionGateway) {
@@ -960,12 +963,16 @@ export async function getSubscriptionCatalog(userId: string) {
     take: 1,
   });
   return {
+    currencies: local ? ['NGN', 'USD'] : ['USD'],
+    defaultCurrency: local ? 'NGN' : 'USD',
     plans: plans.map((plan) => ({
       ...plan,
       options: (plan.tier.length ? plan.tier.map((t) => t.id) : ['']).flatMap((tierId) =>
         [BillingCycleEnum.MONTHLY, BillingCycleEnum.YEARLY].map((billingCycle) => ({
           tierId,
           billingCycle,
+          quotes: (local ? ['NGN', 'USD'] as const : ['USD'] as const).map(currency =>
+            subscriptionPriceQuote(plan, billingCycle, currency, tierId || undefined, currency === 'NGN' ? rate.ngnPrice : rate.price)),
           amount: subscriptionPrice(plan, billingCycle, local ? 'NGN' : 'USD', tierId || undefined),
           currency: local ? 'NGN' : 'USD',
           usdAmount: subscriptionPrice(plan, billingCycle, 'USD', tierId || undefined),
@@ -997,13 +1004,16 @@ export async function createSubscriptionCheckout(
 ): Promise<{ status: string; id?: string; url?: string; subscriptionId?: string | null }> {
   requestKey(key);
   const { user, plan } = await subscriptionUser(userId, input.planId);
+  const currency = subscriptionPricingCurrency(user.country?.iso3, input.currency ?? (input.gateway === 'BACHS' ? 'USD' : undefined));
+  if (input.gateway === 'BACHS' && currency !== 'USD')
+    throw new WalletError('Bachs subscriptions use USD pricing. Select USD to continue.', 400);
   const offer = await eligibleTrial(
     user,
     input,
     prisma,
     input.gateway === 'BACHS' && input.recurring
       ? digest([userId, subscriptionEnvironment('BACHS'), key])
-      : digest(['trial', userId, input.offerId, key]),
+      : digest(['trial', userId, input.offerId, key, ...(input.currency ? [input.currency] : [])]),
   );
   if (offer && (!input.recurring || input.gateway === 'WALLET'))
     return startWalletTrial(user, input, key, offer);
@@ -1018,6 +1028,7 @@ export async function createSubscriptionCheckout(
         meta: { tierId: input.tierId },
         idempotencyKey: key,
         quotedCoins: input.quotedCoins,
+        pricingCurrency: input.currency,
       },
       userId,
     );
@@ -1036,7 +1047,6 @@ export async function createSubscriptionCheckout(
     );
   if (input.gateway === 'BACHS' ? !bachsConfigured() : !process.env.FLUTTERWAVE_SECRET_HASH)
     throw new WalletError('This payment provider is not configured', 503);
-  const currency = input.gateway === 'BACHS' ? 'USD' : user.country?.iso3 === 'NGA' ? 'NGN' : 'USD';
   const spec = subscriptionCatalogSpec(
     plan,
     input.tierId ?? '',
@@ -1058,6 +1068,7 @@ export async function createSubscriptionCheckout(
     input.gateway,
     input.recurring,
     input.offerId ?? null,
+    ...(input.currency ? [currency] : []),
   ]);
   const returnUrl = new URL(
     '/subscribe',
@@ -1185,7 +1196,8 @@ async function saveProviderCheckout(checkout: SubscriptionCheckout, response: an
 async function startWalletTrial(user: any, input: CheckoutInput, key: string, offer: any) {
   // Trials without renewal consent require no saved payment method.
   const { plan, rate } = await subscriptionUser(user.id, input.planId);
-  const local = user.country?.iso3 === 'NGA';
+  const pricingCurrency = subscriptionPricingCurrency(user.country?.iso3, input.currency);
+  const local = pricingCurrency === 'NGN';
   const coins = subscriptionPrice(
     plan,
     input.billingCycle,
@@ -1205,7 +1217,7 @@ async function startWalletTrial(user: any, input: CheckoutInput, key: string, of
       where: { offerId_userId: { offerId: offer.id, userId: user.id } },
     });
     if (use?.claimedAt) {
-      if (use.checkoutId !== digest(['trial', user.id, input.offerId, key]))
+      if (use.checkoutId !== digest(['trial', user.id, input.offerId, key, ...(input.currency ? [input.currency] : [])]))
         throw new WalletError('This trial has already been used', 409);
       return { status: 'COMPLETED', subscriptionId: use.subscriptionId };
     }
@@ -1238,6 +1250,7 @@ async function startWalletTrial(user: any, input: CheckoutInput, key: string, of
           trialOfferId: offer.id,
           renewalConsentAt: input.recurring ? startDate.toISOString() : null,
           renewalCoins: coins,
+          pricingCurrency,
         },
       },
     });
@@ -1246,7 +1259,7 @@ async function startWalletTrial(user: any, input: CheckoutInput, key: string, of
         id: digest([offer.id, user.id]),
         offerId: offer.id,
         userId: user.id,
-        checkoutId: digest(['trial', user.id, input.offerId, key]),
+        checkoutId: digest(['trial', user.id, input.offerId, key, ...(input.currency ? [input.currency] : [])]),
         claimedAt: startDate,
         subscriptionId: sub.id,
       },

@@ -81,6 +81,7 @@ const checkoutInput = z
     billingCycle: z.enum(['MONTHLY', 'YEARLY']),
     gateway: z.enum(['WALLET', 'FLUTTERWAVE', 'BACHS']),
     recurring: z.boolean(),
+    currency: z.enum(['USD', 'NGN']).optional(),
     offerId: z.string().max(100).optional(),
     quotedCoins: z.number().finite().positive().optional(),
   })

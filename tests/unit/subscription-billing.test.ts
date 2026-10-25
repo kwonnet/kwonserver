@@ -25,7 +25,7 @@ vi.mock('@/cron/utils', () => ({
 vi.mock('@/cron/jobs/queue', () => ({
   subscriptionCatalogQueue: { add: vi.fn(async () => ({ id: 'catalog' })) },
 }));
-import { subscriptionPrice } from '@/services/walletLedger/pricing';
+import { subscriptionPrice, subscriptionPriceQuote, subscriptionPricingCurrency } from '@/services/walletLedger/pricing';
 import {
   subscriptionCatalogSpec,
   subscriptionEnvironment,
@@ -284,4 +284,16 @@ it('does not allow a different account type to subscribe', async () => {
     ),
   ).rejects.toThrow('unavailable');
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it('quotes yearly original price, discount and savings in the matching currency', () => {
+  const ngn = subscriptionPriceQuote(plan, 'YEARLY', 'NGN', 'plus', new Prisma.Decimal(20));
+  expect(ngn).toEqual({currency:'NGN',amount:388800,originalAmount:432000,savings:43200,discountPercent:10,coins:19440,originalCoins:21600});
+  expect(subscriptionPriceQuote(plan,'MONTHLY','USD','plus',new Prisma.Decimal(.015))).toMatchObject({amount:30,originalAmount:30,discountPercent:0,savings:0,coins:2000});
+});
+it('validates local pricing against the account country and allows Nigerians to choose USD',()=>{
+ expect(subscriptionPricingCurrency('NGA')).toBe('NGN');
+ expect(subscriptionPricingCurrency('NGA','USD')).toBe('USD');
+ expect(subscriptionPricingCurrency(null)).toBe('USD');
+ expect(()=>subscriptionPricingCurrency('USA','NGN')).toThrow('not available');
 });

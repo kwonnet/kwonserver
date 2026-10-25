@@ -512,3 +512,44 @@ it('expires a trial without renewal consent and removes its premium badge withou
   expect(await db.transaction.count({ where: { userId: trial.userId } })).toBe(before);
   vi.stubEnv('FLUTTERWAVE_SECK', 'FLWSECK_TEST-billing-fixture');
 });
+
+it.each(['NGN','USD'] as const)('Nigerian wallet checkout uses the selected %s price and corresponding ChargeRate',async currency=>{
+ const user=await buyer(true);
+ const previous=await db.chargeRate.findUniqueOrThrow({where:{id:'default'}});
+ try {
+  await db.chargeRate.update({where:{id:'default'},data:{ngnPrice:20}});
+  const catalog=await getSubscriptionCatalog(user.id);
+  const option=catalog.plans.find(p=>p.id===plan.id)!.options.find(o=>o.tierId==='plus'&&o.billingCycle==='MONTHLY')!;
+  const quote=option.quotes.find(q=>q.currency===currency)!;
+  expect(quote.coins).toBe(currency==='NGN'?1800:2000);
+  const selection={planId:plan.id,tierId:'plus',billingCycle:'MONTHLY' as const,gateway:'WALLET' as const,recurring:true,currency,quotedCoins:quote.coins};
+  await createSubscriptionCheckout(user.id,selection,`${prefix}-selected-${currency}`);
+  await createSubscriptionCheckout(user.id,selection,`${prefix}-selected-${currency}`);
+  const txn=await db.transaction.findFirstOrThrow({where:{userId:user.id}});
+  expect(txn.amount.toNumber()).toBe(quote.coins);
+  expect(await db.transaction.count({where:{userId:user.id}})).toBe(1);
+  const sub=await db.subscription.findFirstOrThrow({where:{userId:user.id}});
+  expect(sub.renewalCoinAmount?.toNumber()).toBe(quote.coins);
+ } finally { await db.chargeRate.update({where:{id:'default'},data:{ngnPrice:previous.ngnPrice}}); }
+});
+it('Nigerian Flutterwave checkout defaults to NGN and settles the saved local price',async()=>{
+ const user=await buyer(true);
+ const checkout=await createSubscriptionCheckout(user.id,{planId:plan.id,tierId:'plus',billingCycle:'MONTHLY',gateway:'FLUTTERWAVE',recurring:false},`${prefix}-local-flw`);
+ const row=await db.subscriptionCheckout.findUniqueOrThrow({where:{id:checkout.id}});
+ expect(row.currency).toBe('NGN');
+ expect(row.amount.toNumber()).toBe(36000);
+ expect((row.request as any).payload).toMatchObject({currency:'NGN',amount:36000});
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({status:'success',data:{id:99151,tx_ref:row.id,status:'successful',amount:36000,currency:'NGN',customer:{email:user.email},created_at:new Date().toISOString()}})));
+ expect((await getSubscriptionCheckoutStatus(user.id,row.id,'99151')).status).toBe('COMPLETED');
+ expect(await db.transaction.count({where:{userId:user.id,currency:'NGN',amount:36000}})).toBe(1);
+});
+it('global users cannot request NGN pricing and Nigerian Bachs checkout keeps USD pricing',async()=>{
+ const global=await buyer();
+ await expect(createSubscriptionCheckout(global.id,{planId:plan.id,tierId:'plus',billingCycle:'MONTHLY',gateway:'FLUTTERWAVE',recurring:true,currency:'NGN'},`${prefix}-global-ngn`)).rejects.toThrow('not available');
+ const local=await buyer(true);
+ const checkout=await createSubscriptionCheckout(local.id,{planId:plan.id,tierId:'plus',billingCycle:'MONTHLY',gateway:'BACHS',recurring:true,currency:'USD'},`${prefix}-local-bachs`);
+ const row=await db.subscriptionCheckout.findUniqueOrThrow({where:{id:checkout.id}});
+ expect(row.currency).toBe('USD');
+ expect(row.amount.toNumber()).toBe(30);
+ expect((row.request as any).payload.billing_currency).toBe('USD');
+});
