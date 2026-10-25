@@ -24,7 +24,7 @@ webhooks from the last seven days. Older missed charges can be confirmed by thei
 transaction ID through the checkout status endpoint. It never initiates external
 renewal charges: each provider owns its recurring billing schedule.
 
-Configure `FLUTTERWAVE_SECK`, `FLW_SECRET_HASH`, `BACHS_API_KEY`,
+Configure `FLUTTERWAVE_SECK`, `FLUTTERWAVE_SECRET_HASH`, `BACHS_API_KEY`,
 `BACHS_WEBHOOK_SECRET`, and `SUBSCRIPTION_APP_URL`. Register these webhook URLs
 on the corresponding provider account and enable retries:
 

@@ -86,7 +86,7 @@ function provider() {
 }
 beforeAll(async () => {
   vi.stubEnv('FLUTTERWAVE_SECK', 'FLWSECK_TEST-billing-fixture');
-  vi.stubEnv('FLW_SECRET_HASH', 'billing-secret');
+  vi.stubEnv('FLUTTERWAVE_SECRET_HASH', 'billing-secret');
   vi.stubEnv('BACHS_API_KEY', 'sk_sandbox_billing-fixture');
   vi.stubEnv('BACHS_WEBHOOK_SECRET', 'billing-secret');
   const continent = await db.continent.upsert({

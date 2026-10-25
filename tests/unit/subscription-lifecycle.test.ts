@@ -219,7 +219,7 @@ beforeEach(() => {
   Object.keys(state).forEach((k) => delete state[k]);
   Object.keys(db).forEach((k) => delete db[k]);
   vi.stubEnv('FLUTTERWAVE_SECK', 'FLWSECK_TEST-fixture');
-  vi.stubEnv('FLW_SECRET_HASH', 'secret');
+  vi.stubEnv('FLUTTERWAVE_SECRET_HASH', 'secret');
   vi.stubEnv('BACHS_API_KEY', 'sk_sandbox_fixture');
   vi.stubEnv('BACHS_WEBHOOK_SECRET', 'secret');
   state.user = {
@@ -634,7 +634,7 @@ it('does not enroll a Bachs subscriber without renewal consent', async () => {
   ).rejects.toThrow('renewal opt-in');
 });
 it.each(['FLUTTERWAVE', 'BACHS'])('hides unconfigured %s billing', async (gateway) => {
-  vi.stubEnv(gateway === 'FLUTTERWAVE' ? 'FLW_SECRET_HASH' : 'BACHS_WEBHOOK_SECRET', '');
+  vi.stubEnv(gateway === 'FLUTTERWAVE' ? 'FLUTTERWAVE_SECRET_HASH' : 'BACHS_WEBHOOK_SECRET', '');
   await expect(
     billing.createSubscriptionCheckout('buyer', { ...input, gateway }, 'checkout-key'),
   ).rejects.toThrow('not configured');

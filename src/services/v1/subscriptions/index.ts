@@ -984,7 +984,7 @@ export async function getSubscriptionCatalog(userId: string) {
     pending,
     current: current[0] ?? null,
     providers: {
-      FLUTTERWAVE: !!process.env.FLUTTERWAVE_SECK && !!process.env.FLW_SECRET_HASH,
+      FLUTTERWAVE: !!process.env.FLUTTERWAVE_SECK && !!process.env.FLUTTERWAVE_SECRET_HASH,
       BACHS: bachsConfigured(),
       WALLET: true,
     },
@@ -1034,7 +1034,7 @@ export async function createSubscriptionCheckout(
       'Bachs subscriptions require renewal opt-in; choose wallet coins for a single period',
       400,
     );
-  if (input.gateway === 'BACHS' ? !bachsConfigured() : !process.env.FLW_SECRET_HASH)
+  if (input.gateway === 'BACHS' ? !bachsConfigured() : !process.env.FLUTTERWAVE_SECRET_HASH)
     throw new WalletError('This payment provider is not configured', 503);
   const currency = input.gateway === 'BACHS' ? 'USD' : user.country?.iso3 === 'NGA' ? 'NGN' : 'USD';
   const spec = subscriptionCatalogSpec(
@@ -1342,7 +1342,7 @@ export async function disableSubscriptionTrialOffer(id: string) {
 }
 
 export function verifyFlutterwaveSubscriptionSignature(signature: unknown) {
-  const secret = process.env.FLW_SECRET_HASH;
+  const secret = process.env.FLUTTERWAVE_SECRET_HASH;
   if (!secret || typeof signature !== 'string') return false;
   const left = Buffer.from(secret),
     right = Buffer.from(signature);

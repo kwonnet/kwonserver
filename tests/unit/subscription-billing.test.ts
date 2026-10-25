@@ -131,14 +131,14 @@ it('creates indefinite Flutterwave plans and native Bachs trials using documente
 it.each([undefined, '', 'incorrect', 42])(
   'rejects invalid Flutterwave webhook signature %s',
   (value) => {
-    vi.stubEnv('FLW_SECRET_HASH', 'expected');
+    vi.stubEnv('FLUTTERWAVE_SECRET_HASH', 'expected');
     expect(verifyFlutterwaveSubscriptionSignature(value)).toBe(false);
   },
 );
 it('uses the configured webhook secret and refuses to accept unconfigured webhooks', () => {
-  vi.stubEnv('FLW_SECRET_HASH', 'secret');
+  vi.stubEnv('FLUTTERWAVE_SECRET_HASH', 'secret');
   expect(verifyFlutterwaveSubscriptionSignature('secret')).toBe(true);
-  vi.stubEnv('FLW_SECRET_HASH', '');
+  vi.stubEnv('FLUTTERWAVE_SECRET_HASH', '');
   expect(verifyFlutterwaveSubscriptionSignature('')).toBe(false);
 });
 const snapshot: any = {
