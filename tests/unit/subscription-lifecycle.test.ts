@@ -1697,3 +1697,303 @@ it('publishes both Nigerian price quotes with independently computed coin conver
  expect(catalog.defaultCurrency).toBe('NGN');
  expect(catalog.plans[0].options[0].quotes).toMatchObject([{currency:'NGN',coins:1800,amount:36000},{currency:'USD',coins:2000,amount:30}]);
 });
+
+function arrangePlanChange(gateway: 'WALLET' | 'FLUTTERWAVE' | 'BACHS' = 'WALLET') {
+  const selected = { ...input, gateway, currency: 'USD' as const, changeId: 'change' };
+  const at = Date.now();
+  state.source = {
+    id: 'source',
+    userId: 'buyer',
+    user: state.user,
+    planId: 'old-plan',
+    isPrimary: true,
+    isRecurring: false,
+    status: 'ACTIVE',
+    providerGateway: 'WALLET',
+    startDate: new Date(at - 15 * 86400000),
+    endDate: new Date(at + 15 * 86400000),
+    billingCycle: 'MONTHLY',
+    meta: { tierId: 'basic' },
+  };
+  state.checkout = {
+    id: 'change',
+    userId: 'buyer',
+    planId: 'plan',
+    tierId: 'plus',
+    billingCycle: 'MONTHLY',
+    gateway,
+    currency: 'USD',
+    amount: d(gateway === 'WALLET' ? 2000 : 30),
+    providerPlanId: 'binding',
+    environment: undefined,
+    recurring: true,
+    status: 'CHANGE_QUOTED',
+    createdAt: now(),
+    request: {
+      change: {
+        subscriptionId: 'source',
+        planId: 'old-plan',
+        startDate: state.source.startDate.toISOString(),
+        endDate: state.source.endDate.toISOString(),
+        paidCoins: '1000',
+        quotedAt: new Date(at).toISOString(),
+        expiresAt: new Date(at + 300000).toISOString(),
+        selection: ['plan', 'plus', 'MONTHLY', gateway, true, 'USD'],
+      },
+    },
+  };
+  db.subscription.findFirst.mockImplementation(async ({ where }: any = {}) =>
+    where?.id === 'source' || where?.isPrimary ? state.source : (state.sub ?? null),
+  );
+  db.subscription.findUniqueOrThrow.mockImplementation(async ({ where }: any) =>
+    where.id === 'source' ? state.source : state.sub,
+  );
+  db.subscription.update.mockImplementation(async ({ where, data }: any) =>
+    Object.assign(where.id === 'source' ? state.source : state.sub, data),
+  );
+  db.subscriptionCheckout.findFirst.mockImplementation(async ({ where }: any = {}) =>
+    where?.status?.in && !where.status.in.includes(state.checkout?.status) ? null : state.checkout,
+  );
+  db.transaction.findFirst.mockResolvedValue({ amount: d(15), currency: 'USD' });
+  return selected;
+}
+it.each(['COINS', 'USD', 'NGN'] as const)(
+  'quotes unused paid value in %s as wallet coins without changing access',
+  async (currency) => {
+    const selected = arrangePlanChange();
+    state.checkout = null;
+    db.subscription.findFirst.mockImplementation(async () => state.source);
+    db.transaction.findFirst.mockResolvedValue({
+      id: 'recorded-payment',
+      amount: d(currency === 'COINS' ? 1000 : currency === 'USD' ? 15 : 18000),
+      currency,
+    });
+    db.subscriptionCheckout.create.mockImplementation(
+      async ({ data }: any) => (state.checkout = { ...data }),
+    );
+    const quote = await billing.quoteSubscriptionPlanChange('buyer', {
+      ...selected,
+      changeId: undefined,
+    });
+    expect(quote.creditCoins).toBeGreaterThan(499.9);
+    expect(quote.creditCoins).toBeLessThanOrEqual(500);
+    expect(quote.estimatedWalletDebit).toBeGreaterThanOrEqual(1500);
+    expect(state.source.isPrimary).toBe(true);
+    expect(db.wallet.update).not.toHaveBeenCalled();
+  },
+);
+it('quotes a trial change with no fabricated payment credit', async () => {
+  const selected = arrangePlanChange();
+  state.checkout = null;
+  state.source.trialEndsAt = new Date(Date.now() + 86400000);
+  const quote = await billing.quoteSubscriptionPlanChange('buyer', {
+    ...selected,
+    changeId: undefined,
+  });
+  expect(quote.creditCoins).toBe(0);
+  expect(db.transaction.findFirst).not.toHaveBeenCalled();
+});
+it('quotes an external plan and currency change from its ready provider mapping', async () => {
+  const selected = arrangePlanChange('FLUTTERWAVE');
+  state.checkout = null;
+  const quote = await billing.quoteSubscriptionPlanChange('buyer', {
+    ...selected,
+    changeId: undefined,
+  });
+  expect(quote.currency).toBe('USD');
+  expect(quote.amount).toBe(30);
+  expect(quote.estimatedWalletDebit).toBeNull();
+});
+it.each([{ offerId: 'offer' }, { changeId: 'old' }])(
+  'rejects mixed trial or change quote inputs %j',
+  async (override) => {
+    await expect(
+      billing.quoteSubscriptionPlanChange('buyer', { ...input, ...override }),
+    ).rejects.toThrow('cannot be combined');
+  },
+);
+it.each([{ recurring: false }, { currency: 'NGN' }])(
+  'rejects unsupported Bachs change terms %j',
+  async (override) => {
+    state.user.country = { iso3: 'NGA' };
+    await expect(
+      billing.quoteSubscriptionPlanChange('buyer', { ...input, gateway: 'BACHS', ...override }),
+    ).rejects.toThrow('Bachs subscriptions require');
+  },
+);
+it('requires a ready provider mapping before offering a change', async () => {
+  db.subscriptionProviderPlan.findUnique.mockResolvedValue(null);
+  await expect(billing.quoteSubscriptionPlanChange('buyer', input)).rejects.toThrow('synchronized');
+});
+it('requires a running current subscription', async () => {
+  await expect(billing.quoteSubscriptionPlanChange('buyer', input)).rejects.toThrow('No running');
+});
+it('refuses an unfinished checkout when quoting a change', async () => {
+  const selected = arrangePlanChange();
+  state.checkout.status = 'OPEN';
+  await expect(
+    billing.quoteSubscriptionPlanChange('buyer', { ...selected, changeId: undefined }),
+  ).rejects.toThrow('Finish');
+});
+it.each(['OTHER', 'ZERO_RATE'])('rejects unconvertible original payments %s', async (fault) => {
+  const selected = arrangePlanChange('FLUTTERWAVE');
+  state.checkout = null;
+  if (fault === 'OTHER')
+    db.transaction.findFirst.mockResolvedValue({ amount: d(15), currency: 'EUR' });
+  else db.chargeRate.findUniqueOrThrow.mockResolvedValue({ price: d(0), ngnPrice: d(18) });
+  await expect(
+    billing.quoteSubscriptionPlanChange('buyer', { ...selected, changeId: undefined }),
+  ).rejects.toThrow(fault === 'OTHER' ? 'needs review' : 'exchange rate');
+});
+it('gives no credit if a historical subscription has no recorded payment', async () => {
+  const selected = arrangePlanChange();
+  state.checkout = null;
+  db.transaction.findFirst.mockResolvedValue(null);
+  expect(
+    (await billing.quoteSubscriptionPlanChange('buyer', { ...selected, changeId: undefined }))
+      .creditCoins,
+  ).toBe(0);
+});
+it.each(['missing', 'owner', 'selection', 'trial', 'expired', 'checkout-expired'])(
+  'rejects invalid change confirmation %s',
+  async (fault) => {
+    const selected = arrangePlanChange();
+    if (fault === 'missing') state.checkout = null;
+    if (fault === 'owner') state.checkout.userId = 'other';
+    if (fault === 'selection') state.checkout.request.change.selection[0] = 'different';
+    if (fault === 'trial') selected.offerId = 'offer';
+    if (fault === 'expired') state.checkout.request.change.expiresAt = new Date(0).toISOString();
+    if (fault === 'checkout-expired') state.checkout.status = 'EXPIRED';
+    await expect(
+      billing.createSubscriptionCheckout('buyer', selected, 'change-key'),
+    ).rejects.toThrow();
+    expect(db.wallet.update).not.toHaveBeenCalled();
+  },
+);
+it('completed plan changes replay before another cancellation or payment', async () => {
+  const selected = arrangePlanChange();
+  state.checkout.status = 'COMPLETED';
+  state.checkout.subscriptionId = 'sub';
+  expect(await billing.createSubscriptionCheckout('buyer', selected, 'change-key')).toMatchObject({
+    status: 'COMPLETED',
+    subscriptionId: 'sub',
+  });
+});
+it('changes wallet plans and returns an audited prorated credit before charging', async () => {
+  const selected = arrangePlanChange();
+  await billing.createSubscriptionCheckout('buyer', selected, 'change-key');
+  expect(db.transaction.create).toHaveBeenCalledWith({
+    data: expect.objectContaining({
+      type: 'CREDIT',
+      currency: 'COINS',
+      amount: expect.any(Number),
+    }),
+  });
+  expect(state.checkout.status).toBe('COMPLETED');
+  expect(state.source.isPrimary).toBe(false);
+});
+it.each(['missing-source', 'changed-period', 'renewing', 'locked', 'stale-price', 'used-quote'])(
+  'blocks unsafe wallet plan replacements %s',
+  async (fault) => {
+    const selected = arrangePlanChange();
+    if (fault === 'missing-source') db.subscription.findFirst.mockResolvedValue(null);
+    if (fault === 'changed-period')
+      state.checkout.request.change.endDate = new Date(0).toISOString();
+    if (fault === 'renewing') {
+      state.source.isRecurring = true;
+      db.subscription.update.mockResolvedValue(state.source);
+    }
+    if (fault === 'locked')
+      db.wallet.findUniqueOrThrow.mockResolvedValue({
+        id: 'wallet',
+        coins: d(10000),
+        isLocked: true,
+      });
+    if (fault === 'stale-price') state.checkout.amount = d(1);
+    if (fault === 'used-quote') state.checkout.status = 'CREATING';
+    await expect(
+      billing.createSubscriptionCheckout('buyer', selected, 'change-key'),
+    ).rejects.toThrow();
+  },
+);
+it('does not return credit after the old period ended', async () => {
+  const selected = arrangePlanChange();
+  state.checkout.request.change.quotedAt = new Date(Date.now() + 16 * 86400000).toISOString();
+  await billing.createSubscriptionCheckout('buyer', selected, 'change-key');
+  expect(
+    db.transaction.create.mock.calls.filter(([arg]: any) => arg.data.type === 'CREDIT'),
+  ).toHaveLength(0);
+});
+it('surfaces a failed cancellation before initiating a replacement', async () => {
+  const selected = arrangePlanChange();
+  state.source.user = null;
+  await expect(billing.createSubscriptionCheckout('buyer', selected, 'change-key')).rejects.toThrow(
+    'User not found',
+  );
+});
+it('creates a provider change checkout without crediting an unverified payment', async () => {
+  const selected = arrangePlanChange('FLUTTERWAVE');
+  await billing.createSubscriptionCheckout('buyer', selected, 'change-key');
+  expect(state.checkout.status).toBe('OPEN');
+  expect(state.checkout.request.change.subscriptionId).toBe('source');
+  expect(db.transaction.create).not.toHaveBeenCalled();
+});
+it('rejects a changed provider price before cancelling current access', async () => {
+  const selected = arrangePlanChange('FLUTTERWAVE');
+  state.checkout.amount = d(1);
+  await expect(billing.createSubscriptionCheckout('buyer', selected, 'change-key')).rejects.toThrow(
+    'price changed',
+  );
+});
+it('prevents two replacement checkout intents from racing', async () => {
+  const selected = arrangePlanChange('FLUTTERWAVE');
+  db.subscriptionCheckout.findFirst.mockResolvedValue({ id: 'other', status: 'OPEN' });
+  await expect(billing.createSubscriptionCheckout('buyer', selected, 'change-key')).rejects.toThrow(
+    'existing checkout',
+  );
+});
+it.each([false, true])(
+  'credits an old plan once a replacement payment is verified (cache fails=%s)',
+  async (cacheFails) => {
+    const selected = arrangePlanChange('FLUTTERWAVE');
+    await billing.createSubscriptionCheckout('buyer', selected, 'change-key');
+    // Reuse the normal verified-provider fixture, retaining the persisted change snapshot.
+    const saved = state.checkout;
+    arrangeCheckout('FLUTTERWAVE');
+    state.checkout = { ...state.checkout, ...saved, amount: d(30) };
+    state.payment.tx_ref = 'change';
+    if (cacheFails) {
+      // The transaction's wallet read succeeds; only the post-commit refresh fails.
+      db.wallet.findUniqueOrThrow
+        .mockResolvedValueOnce({ id: 'wallet', coins: d(10000) })
+        .mockRejectedValueOnce(new Error('refresh unavailable'));
+    }
+    await billing.reconcileFlutterwaveSubscriptionPayment('81');
+    expect(state.checkout.status).toBe('COMPLETED');
+    expect(state.source.isPrimary).toBe(false);
+  },
+);
+
+it('does not cancel another period when a concurrent change already completed', async () => {
+  const selected = arrangePlanChange();
+  db.subscription.findFirst.mockResolvedValue(null);
+  db.subscriptionCheckout.findUnique
+    .mockImplementationOnce(async () => state.checkout)
+    .mockImplementation(async () => ({ ...state.checkout, status: 'COMPLETED' }));
+  fixture.operation.mockResolvedValue({ subscription: { id: 'completed' } });
+  expect(
+    (await billing.createSubscriptionCheckout('buyer', selected, 'same-change-key')).status,
+  ).toBe('COMPLETED');
+});
+it('rechecks the paid period under lock if it changes while cancelling renewal', async () => {
+  const selected = arrangePlanChange();
+  db.subscription.update.mockImplementation(async ({ data }: any) => {
+    Object.assign(state.source, data);
+    state.source.startDate = new Date(0);
+    return state.source;
+  });
+  await expect(
+    billing.createSubscriptionCheckout('buyer', selected, 'changed-during-cancel'),
+  ).rejects.toThrow('current subscription changed');
+  expect(db.transaction.create).not.toHaveBeenCalled();
+});

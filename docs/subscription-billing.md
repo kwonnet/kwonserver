@@ -55,8 +55,7 @@ A saved `SubscriptionCheckout` holds the price, email, provider mapping, consent
 and exact outbound request before contacting the provider. Requests are serialized
 with the buyer's wallet lock. An active subscription or unfinished checkout blocks
 another purchase, preventing two providers from charging for competing plans.
-After cancelling renewal, the existing paid period must end before a new plan is
-started; upgrades and prorated changes are deliberately not implicit purchases.
+A second ordinary purchase remains blocked while access is active. To switch immediately, use the explicit plan-change review and credit flow described below.
 
 Flutterwave hosted checkout includes `payment_plan` only for renewal opt-in.
 Recurring checkout is card-only. Bachs uses a recurring product cart and supports
@@ -162,3 +161,51 @@ when it is disabled. Before the final button, links point to Kwonnet's own
 
 These pricing and presentation changes require no new environment variables or
 database migration. Existing subscriptions retain their saved renewal prices.
+
+## Cancellation and immediate plan changes
+
+Cancelling a running subscription stops automatic renewal, including the remote
+provider agreement, but retains ACTIVE status, the primary plan and its original
+end date. Benefits continue until that date. Expiry then removes access normally.
+
+Users can change plan, tier, provider, pricing currency and billing period through
+a two-step review and confirmation. `POST /api/v1/subscriptions/change-quote`
+accepts the same selection as checkout and stores an immutable `CHANGE_QUOTED`
+row in `SubscriptionCheckout`. It returns its ID, the full new price, an estimated
+unused-plan credit in coins, estimated net wallet debit, and a five-minute expiry.
+Pass its `changeId` to the normal checkout endpoint with the same selection. No
+client price, credit, user ID or exchange rate is accepted as authoritative.
+
+The credit uses the last completed payment recorded for the current billing
+period, multiplied by the exact fraction of time left in that period. A free
+trial or uncharged grant has no payment credit. Coin payments retain their coin
+value; USD and NGN payments are converted with their respective current ChargeRate
+values, captured in the immutable quote. Credits round down to two decimals.
+A new payment received after review reduces the credit to the time the new paid
+period starts, so keeping a checkout open cannot create extra unused-time credit.
+
+At confirmation the old renewal is stopped before initiating another agreement.
+An abandoned or failed checkout leaves the old plan's paid benefits intact until
+its original expiry; it does not credit coins or grant the new plan. The disclosure
+explains that the old renewal is stopped when continuing. Changing selection or
+using an expired quote requires another review.
+
+For wallet purchases, one locked database transaction credits unused time and
+debits the full new price, allowing that credit to fund the purchase. Insufficient
+funds roll back both the credit and the replacement. Flutterwave and Bachs charge
+the full new plan price through the chosen provider; only a verified successful
+payment atomically credits unused time to the wallet and activates the new plan.
+Downgrades follow the same policy: leftover value remains as wallet coins, rather
+than a card refund or a provider-specific credit balance. A new billing period
+starts with the new payment, and renewal uses the full new catalog price.
+
+The old primary plan, billing dates, original payment and quote ownership are
+checked again under the wallet lock. Existing receipt and wallet-operation
+idempotency prevent repeated confirmations, webhooks or workers from creating a
+second credit. A changed source period requires review rather than a guessed
+credit. The previous paid plan is retained in history; old provider events cannot
+replace the new primary plan.
+
+This functionality uses the existing checkout, subscription and ledger tables.
+There are no new environment variables or schema migrations. Deploy the backend
+before the frontend so the change-quote endpoint is available.

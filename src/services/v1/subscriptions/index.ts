@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual, randomUUID } from 'node:crypto';
 import { Prisma, SubscriptionCheckout, SubscriptionProviderPlan } from '@prisma/client';
 import { bachsConfigured, bachsApiOrigin, bachsRequest, bachsCheckoutUrl } from '@/utils/bachs';
 import { cachedCatalogRead } from "@/store";
@@ -57,6 +57,7 @@ export const purchaseAppSubscriptionWithWallet = async (
     idempotencyKey?: string;
     quotedCoins?: number;
     pricingCurrency?: 'USD' | 'NGN';
+    changeId?: string;
   },
   userId: string
 ) => {
@@ -81,8 +82,13 @@ export const purchaseAppSubscriptionWithWallet = async (
     // debit user wallet coins and credit user wallet amount and save transaction records
     const txnRef = generateUniqueRef();
 
-    const result = await walletOperation(`subscription:${user.id}`, requestKey(item.idempotencyKey), { planId: item.planId, cycle: item.planType, tierId: item.meta?.tierId ?? null, isRecurring: item.isRecurring, ...(item.pricingCurrency ? {pricingCurrency} : {}) }, [user.id], async (tx) => {
-      await assertNoPaidSubscription(user.id, tx);
+    const result = await walletOperation(`subscription:${user.id}`, requestKey(item.idempotencyKey), { planId: item.planId, cycle: item.planType, tierId: item.meta?.tierId ?? null, isRecurring: item.isRecurring, ...(item.pricingCurrency ? {pricingCurrency} : {}), ...(item.changeId ? {changeId:item.changeId} : {}) }, [user.id], async (tx) => {
+      const changeQuote = item.changeId ? await tx.subscriptionCheckout.findUniqueOrThrow({where:{id:item.changeId}}) : null;
+      if (changeQuote) {
+        if (changeQuote.userId!==user.id || changeQuote.status!=='CHANGE_QUOTED' || !new Prisma.Decimal(changeQuote.amount).equals(item.amount))
+          throw new WalletError('Plan change quote is no longer available',409);
+        await creditReplacedSubscription(tx,user.id,changeQuote,new Date());
+      } else await assertNoPaidSubscription(user.id, tx);
       if(await tx.subscriptionCheckout.findFirst({where:{userId:user.id,status:{in:['PENDING','CREATING','OPEN','REVIEW']}}}))throw new WalletError('Finish your existing checkout before buying another subscription',409);
       const fresh = await tx.wallet.findUniqueOrThrow({ where: { userId: user.id } });
       if (fresh.isLocked || cents(fresh.coins, true) < cents(item.amount)) throw new WalletError('Wallet locked or insufficient balance');
@@ -105,7 +111,7 @@ export const purchaseAppSubscriptionWithWallet = async (
         data: { isPrimary: false },
       });
       // get subscription
-      const currentSub = await tx.subscription.findFirst({
+      const currentSub = item.changeId ? null : await tx.subscription.findFirst({
         where: { userId: user.id, planId: item.planId },
       });
       let subscription: Subscription | undefined = undefined;
@@ -208,6 +214,7 @@ export const purchaseAppSubscriptionWithWallet = async (
         where: { userId: user.id },
         data: { isLocked: false },
       });
+      if (changeQuote) await tx.subscriptionCheckout.update({where:{id:changeQuote.id},data:{status:'COMPLETED',subscriptionId:subscription.id}});
       // return
       return { wallet: userWallet, subscription };
     });
@@ -625,7 +632,7 @@ export const cancelAppSubscription = async (arg: {
       await lockWallets(tx, [user.id]);
       const fresh=await tx.subscription.findUniqueOrThrow({where:{id:sub.id}});
       if(!arg.userId && arg.status==='EXPIRED' && (!fresh.isPrimary || fresh.endDate>new Date()))return fresh;
-      const keepPaidAccess=arg.userId!==undefined && arg.status==='CANCELLED' && fresh.status==='ACTIVE' && fresh.endDate>new Date();
+      const keepPaidAccess=arg.userId!==undefined && arg.status==='CANCELLED' && ['ACTIVE','PAYMENT_ERROR'].includes(fresh.status) && fresh.endDate>new Date();
       const updated = await tx.subscription.update({ where: { id: arg.subId, userId: user.id }, data: { status: keepPaidAccess?'ACTIVE':arg.status, isRecurring: false, ...(arg.userId && sub.providerGateway && sub.providerGateway!=='WALLET'?{renewalCancelledAt:new Date()}:{}) } });
       if(!keepPaidAccess && fresh.isPrimary) await tx.user.update({ where: { id: user.id }, data: { meta: {
         color, status: user.accountVerifiedAt ? 'ACTIVE' : 'INACTIVE', type: 'LEGACY',
@@ -647,6 +654,264 @@ export const cancelAppSubscription = async (arg: {
   }
 };
 
+// A change quote is an immutable checkout snapshot. It never grants access or moves money.
+function changeSelection(input: CheckoutInput) {
+  return [
+    input.planId,
+    input.tierId ?? '',
+    input.billingCycle,
+    input.gateway,
+    input.recurring,
+    input.currency,
+  ];
+}
+function changeCredit(change: any, effectiveAt: Date) {
+  const start = new Date(change.startDate).getTime(),
+    end = new Date(change.endDate).getTime();
+  const at = Math.max(start, new Date(change.quotedAt).getTime(), effectiveAt.getTime());
+  if (end <= start || at >= end) return 0;
+  return new Prisma.Decimal(change.paidCoins)
+    .mul(end - at)
+    .div(end - start)
+    .toDecimalPlaces(2, Prisma.Decimal.ROUND_DOWN)
+    .toNumber();
+}
+export async function quoteSubscriptionPlanChange(userId: string, input: CheckoutInput) {
+  if (input.offerId || input.changeId)
+    throw new WalletError('Trial offers cannot be combined with a plan change');
+  const { user, plan, rate } = await subscriptionUser(userId, input.planId);
+  const currency = subscriptionPricingCurrency(
+    user.country?.iso3,
+    input.currency ?? (input.gateway === 'BACHS' ? 'USD' : undefined),
+  );
+  if (input.gateway === 'BACHS' && (!input.recurring || currency !== 'USD'))
+    throw new WalletError('Bachs subscriptions require USD pricing and automatic renewal');
+  const amount = subscriptionPrice(
+    plan,
+    input.billingCycle,
+    input.gateway === 'WALLET' ? 'COINS' : currency,
+    input.tierId,
+    currency === 'NGN' ? rate.ngnPrice : rate.price,
+    currency,
+  );
+  const binding =
+    input.gateway === 'WALLET'
+      ? null
+      : await prisma.subscriptionProviderPlan.findUnique({
+          where: {
+            id: subscriptionCatalogSpec(
+              plan,
+              input.tierId ?? '',
+              input.billingCycle,
+              currency,
+              input.gateway,
+            ).id,
+          },
+        });
+  if (input.gateway !== 'WALLET' && (!binding?.remoteId || binding.state !== 'READY'))
+    throw new WalletError('This plan is being synchronized. Please try again shortly.', 503);
+  return prisma.$transaction(async (tx) => {
+    await lockWallets(tx, [userId]);
+    const current = await tx.subscription.findFirst({
+      where: {
+        userId,
+        isPrimary: true,
+        status: 'ACTIVE',
+        startDate: { lte: new Date() },
+        endDate: { gt: new Date() },
+      },
+    });
+    if (!current) throw new WalletError('No running subscription to change', 409);
+    if (
+      await tx.subscriptionCheckout.findFirst({
+        where: { userId, status: { in: ['PENDING', 'CREATING', 'OPEN', 'REVIEW'] } },
+      })
+    )
+      throw new WalletError('Finish your existing checkout before changing plans', 409);
+    const payment =
+      current.trialEndsAt && current.trialEndsAt > new Date()
+        ? null
+        : await tx.transaction.findFirst({
+            where: {
+              subscriptionId: current.id,
+              userId,
+              type: 'DEBIT',
+              category: 'APP_SUBSCRIPTION',
+              status: 'COMPLETED',
+              createdAt: { gte: current.startDate },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+    let paidCoins = new Prisma.Decimal(0);
+    let conversionRate = new Prisma.Decimal(1);
+    if (payment) {
+      if (!['COINS', 'USD', 'NGN'].includes(payment.currency))
+        throw new WalletError('The original payment currency needs review', 409);
+      const conversion =
+        payment.currency === 'COINS'
+          ? new Prisma.Decimal(1)
+          : payment.currency === 'NGN'
+            ? rate.ngnPrice
+            : rate.price;
+      if (!conversion.isFinite() || !conversion.gt(0))
+        throw new WalletError('Coin exchange rate unavailable', 503);
+      conversionRate = conversion;
+      paidCoins = payment.amount.div(conversion).toDecimalPlaces(2, Prisma.Decimal.ROUND_DOWN);
+    }
+    const quotedAt = new Date(),
+      expiresAt = new Date(quotedAt.getTime() + 300000);
+    const change = {
+      subscriptionId: current.id,
+      planId: current.planId,
+      startDate: current.startDate.toISOString(),
+      endDate: current.endDate.toISOString(),
+      paidCoins: paidCoins.toString(),
+      originalPayment: payment
+        ? {
+            id: payment.id ?? null,
+            amount: payment.amount.toString(),
+            currency: payment.currency,
+            coinRate: conversionRate.toString(),
+          }
+        : null,
+      quotedAt: quotedAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      selection: changeSelection({ ...input, currency }),
+    };
+    const quote = await tx.subscriptionCheckout.create({
+      data: {
+        id: randomUUID(),
+        userId,
+        planId: plan.id,
+        tierId: input.tierId ?? '',
+        billingCycle: input.billingCycle,
+        currency,
+        amount,
+        gateway: input.gateway,
+        environment: binding?.environment ?? 'wallet',
+        providerPlanId: binding?.id ?? '',
+        recurring: input.recurring,
+        status: 'CHANGE_QUOTED',
+        request: { change },
+      },
+    });
+    const creditCoins = changeCredit(change, quotedAt);
+    return {
+      id: quote.id,
+      creditCoins,
+      amount,
+      currency: input.gateway === 'WALLET' ? 'COINS' : currency,
+      estimatedWalletDebit:
+        input.gateway === 'WALLET'
+          ? Math.max(0, Math.round((amount - creditCoins) * 100) / 100)
+          : null,
+      expiresAt,
+    };
+  });
+}
+async function loadSubscriptionChange(userId: string, input: CheckoutInput) {
+  if (!input.changeId) return null;
+  const quote = await prisma.subscriptionCheckout.findUnique({ where: { id: input.changeId } });
+  const change = (quote?.request as any)?.change;
+  if (
+    !quote ||
+    quote.userId !== userId ||
+    !change ||
+    input.offerId ||
+    digest(change.selection) !== digest(changeSelection(input))
+  )
+    throw new WalletError('Plan change quote does not match this selection', 409);
+  if (quote.status === 'CHANGE_QUOTED' && new Date(change.expiresAt) <= new Date())
+    throw new WalletError('Plan change quote expired. Review it again.', 409);
+  if (quote.status === 'EXPIRED')
+    throw new WalletError('Plan change checkout expired. Review it again.', 409);
+  return quote;
+}
+async function assertChangeSource(tx: Prisma.TransactionClient, userId: string, change: any) {
+  const source = await tx.subscription.findFirst({ where: { id: change.subscriptionId, userId } });
+  if (
+    !source ||
+    !source.isPrimary ||
+    !['ACTIVE', 'EXPIRED'].includes(source.status) ||
+    source.planId !== change.planId ||
+    source.startDate.toISOString() !== change.startDate ||
+    source.endDate.toISOString() !== change.endDate
+  )
+    throw new WalletError('The current subscription changed. Review the plan change again.', 409);
+  if (source.isRecurring)
+    throw new WalletError('Cancel the previous renewal before replacing this subscription', 409);
+  return source;
+}
+async function creditReplacedSubscription(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  quote: SubscriptionCheckout,
+  effectiveAt: Date,
+) {
+  const change = (quote.request as any).change;
+  const source = await assertChangeSource(tx, userId, change);
+  const credit = changeCredit(change, effectiveAt);
+  const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId } });
+  if (wallet.isLocked) throw new WalletError('Wallet is locked', 409);
+  if (credit > 0) {
+    await tx.wallet.update({ where: { id: wallet.id }, data: { coins: { increment: credit } } });
+    await tx.transaction.create({
+      data: {
+        userId,
+        recipientId: userId,
+        walletId: wallet.id,
+        subscriptionId: source.id,
+        subPlanId: source.planId,
+        amount: credit,
+        currency: 'COINS',
+        gateway: 'WALLET',
+        source: 'COINS',
+        type: 'CREDIT',
+        status: 'COMPLETED',
+        category: 'APP_SUBSCRIPTION',
+        txnRef: digest(['subscription-change-credit', quote.id]),
+        description: 'Unused subscription time returned as wallet coins',
+        metadata: {
+          changeId: quote.id,
+          effectiveAt: effectiveAt.toISOString(),
+          paidCoins: change.paidCoins,
+        },
+      },
+    });
+  }
+  await tx.subscription.update({
+    where: { id: source.id },
+    data: { isPrimary: false, isRecurring: false, status: 'PAUSED' },
+  });
+  return credit;
+}
+async function prepareSubscriptionChange(userId: string, quote: SubscriptionCheckout) {
+  if (quote.status !== 'CHANGE_QUOTED') return;
+  const change = (quote.request as any).change;
+  const source = await prisma.subscription.findFirst({
+    where: {
+      id: change.subscriptionId,
+      userId,
+      isPrimary: true,
+      status: 'ACTIVE',
+      endDate: { gt: new Date() },
+    },
+  });
+  if (
+    !source ||
+    source.planId !== change.planId ||
+    source.startDate.toISOString() !== change.startDate ||
+    source.endDate.toISOString() !== change.endDate
+  ) {
+    const fresh = await prisma.subscriptionCheckout.findUnique({ where: { id: quote.id } });
+    if (fresh?.status === 'COMPLETED') return;
+    throw new WalletError('The current subscription changed. Review the plan change again.', 409);
+  }
+  // Provider cancellation is confirmed before allowing a second recurring agreement.
+  const cancelled = await cancelAppSubscription({ subId: source.id, userId, status: 'CANCELLED' });
+  if (cancelled.status !== 200) throw new WalletError(String(cancelled.data), cancelled.status);
+}
+
 // Provider catalog entries are immutable price versions. Existing subscribers keep their terms.
 type SubscriptionGateway = 'FLUTTERWAVE' | 'BACHS';
 type CheckoutInput = {
@@ -658,6 +923,7 @@ type CheckoutInput = {
   offerId?: string;
   quotedCoins?: number;
   currency?: 'USD' | 'NGN';
+  changeId?: string;
 };
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function subscriptionEnvironment(gateway: SubscriptionGateway) {
@@ -971,8 +1237,15 @@ export async function getSubscriptionCatalog(userId: string) {
         [BillingCycleEnum.MONTHLY, BillingCycleEnum.YEARLY].map((billingCycle) => ({
           tierId,
           billingCycle,
-          quotes: (local ? ['NGN', 'USD'] as const : ['USD'] as const).map(currency =>
-            subscriptionPriceQuote(plan, billingCycle, currency, tierId || undefined, currency === 'NGN' ? rate.ngnPrice : rate.price)),
+          quotes: (local ? (['NGN', 'USD'] as const) : (['USD'] as const)).map((currency) =>
+            subscriptionPriceQuote(
+              plan,
+              billingCycle,
+              currency,
+              tierId || undefined,
+              currency === 'NGN' ? rate.ngnPrice : rate.price,
+            ),
+          ),
           amount: subscriptionPrice(plan, billingCycle, local ? 'NGN' : 'USD', tierId || undefined),
           currency: local ? 'NGN' : 'USD',
           usdAmount: subscriptionPrice(plan, billingCycle, 'USD', tierId || undefined),
@@ -1004,9 +1277,15 @@ export async function createSubscriptionCheckout(
 ): Promise<{ status: string; id?: string; url?: string; subscriptionId?: string | null }> {
   requestKey(key);
   const { user, plan } = await subscriptionUser(userId, input.planId);
-  const currency = subscriptionPricingCurrency(user.country?.iso3, input.currency ?? (input.gateway === 'BACHS' ? 'USD' : undefined));
+  const currency = subscriptionPricingCurrency(
+    user.country?.iso3,
+    input.currency ?? (input.gateway === 'BACHS' ? 'USD' : undefined),
+  );
   if (input.gateway === 'BACHS' && currency !== 'USD')
     throw new WalletError('Bachs subscriptions use USD pricing. Select USD to continue.', 400);
+  const changeQuote = await loadSubscriptionChange(userId, { ...input, currency });
+  if (changeQuote?.status === 'COMPLETED')
+    return { id: changeQuote.id, status: 'COMPLETED', subscriptionId: changeQuote.subscriptionId };
   const offer = await eligibleTrial(
     user,
     input,
@@ -1018,6 +1297,7 @@ export async function createSubscriptionCheckout(
   if (offer && (!input.recurring || input.gateway === 'WALLET'))
     return startWalletTrial(user, input, key, offer);
   if (input.gateway === 'WALLET') {
+    if (changeQuote) await prepareSubscriptionChange(userId, changeQuote);
     const result = await purchaseAppSubscriptionWithWallet(
       {
         planId: plan.id,
@@ -1029,6 +1309,7 @@ export async function createSubscriptionCheckout(
         idempotencyKey: key,
         quotedCoins: input.quotedCoins,
         pricingCurrency: input.currency,
+        changeId: input.changeId,
       },
       userId,
     );
@@ -1060,7 +1341,15 @@ export async function createSubscriptionCheckout(
     await enqueueSubscriptionSync();
     throw new WalletError('This plan is being synchronized. Please try again shortly.', 503);
   }
-  const id = digest([userId, binding.environment, key]);
+  if (
+    changeQuote &&
+    (!new Prisma.Decimal(changeQuote.amount).equals(spec.amount) ||
+      changeQuote.providerPlanId !== binding.id ||
+      changeQuote.environment !== binding.environment)
+  )
+    throw new WalletError('The plan price changed. Review it again.', 409);
+  if (changeQuote) await prepareSubscriptionChange(userId, changeQuote);
+  const id = changeQuote?.id ?? digest([userId, binding.environment, key]);
   const identity = digest([
     input.planId,
     input.tierId ?? '',
@@ -1101,6 +1390,31 @@ export async function createSubscriptionCheckout(
     await lockWallets(tx, [userId]);
     const existing = await tx.subscriptionCheckout.findUnique({ where: { id } });
     if (existing) {
+      if (existing.status === 'CHANGE_QUOTED' && changeQuote) {
+        await assertChangeSource(tx, userId, (existing.request as any).change);
+        if (
+          await tx.subscriptionCheckout.findFirst({
+            where: {
+              userId,
+              id: { not: id },
+              status: { in: ['PENDING', 'CREATING', 'OPEN', 'REVIEW'] },
+            },
+          })
+        )
+          throw new WalletError('Finish the existing checkout before changing plans', 409);
+        return tx.subscriptionCheckout.update({
+          where: { id },
+          data: {
+            status: 'PENDING',
+            request: {
+              identity,
+              email: user.email,
+              payload: JSON.parse(JSON.stringify(providerPayload)),
+              change: (existing.request as any).change,
+            },
+          },
+        });
+      }
       if ((existing.request as any).identity !== identity)
         throw new WalletError('Reuse the checkout key only for the same selection', 409);
       return existing;
@@ -1217,7 +1531,10 @@ async function startWalletTrial(user: any, input: CheckoutInput, key: string, of
       where: { offerId_userId: { offerId: offer.id, userId: user.id } },
     });
     if (use?.claimedAt) {
-      if (use.checkoutId !== digest(['trial', user.id, input.offerId, key, ...(input.currency ? [input.currency] : [])]))
+      if (
+        use.checkoutId !==
+        digest(['trial', user.id, input.offerId, key, ...(input.currency ? [input.currency] : [])])
+      )
         throw new WalletError('This trial has already been used', 409);
       return { status: 'COMPLETED', subscriptionId: use.subscriptionId };
     }
@@ -1259,7 +1576,13 @@ async function startWalletTrial(user: any, input: CheckoutInput, key: string, of
         id: digest([offer.id, user.id]),
         offerId: offer.id,
         userId: user.id,
-        checkoutId: digest(['trial', user.id, input.offerId, key, ...(input.currency ? [input.currency] : [])]),
+        checkoutId: digest([
+          'trial',
+          user.id,
+          input.offerId,
+          key,
+          ...(input.currency ? [input.currency] : []),
+        ]),
         claimedAt: startDate,
         subscriptionId: sub.id,
       },
@@ -1394,7 +1717,7 @@ async function fulfillSubscription(
   },
 ) {
   if (receipt.end <= receipt.start) throw new WalletError('Invalid provider billing period', 409);
-  return prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     await lockWallets(tx, [checkout.userId]);
     const eventId = digest([checkout.gateway, checkout.environment, receipt.id]);
     const prior = await tx.subscriptionProviderEvent.findUnique({ where: { id: eventId } });
@@ -1421,7 +1744,11 @@ async function fulfillSubscription(
     let sub = fresh.subscriptionId
       ? await tx.subscription.findUniqueOrThrow({ where: { id: fresh.subscriptionId } })
       : null;
-    if (!sub) await assertNoPaidSubscription(checkout.userId, tx);
+    if (!sub) {
+      if ((checkout.request as any).change)
+        await creditReplacedSubscription(tx, checkout.userId, checkout, receipt.start);
+      else await assertNoPaidSubscription(checkout.userId, tx);
+    }
     const now = new Date();
     // Never shorten a period on a replay or delayed event. Receipt uniqueness protects ledger effects.
     const advances = !sub || receipt.end > sub.endDate;
@@ -1536,6 +1863,14 @@ async function fulfillSubscription(
       },
     });
   });
+  if ((checkout.request as any).change) {
+    try {
+      const wallet = await prisma.wallet.findUniqueOrThrow({ where: { userId: checkout.userId } });
+      await syncPrismaUserWalletToRedis(checkout.userId, wallet);
+    } catch (error) {
+      logServiceError('v1/subscriptions/index', 'syncPlanChangeWallet', error);
+    }
+  }
 }
 export async function reconcileFlutterwaveSubscriptionPayment(
   id: string,

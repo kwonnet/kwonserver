@@ -553,3 +553,200 @@ it('global users cannot request NGN pricing and Nigerian Bachs checkout keeps US
  expect(row.amount.toNumber()).toBe(30);
  expect((row.request as any).payload.billing_currency).toBe('USD');
 });
+
+it('changes wallet plans immediately, credits only unused time, and replays without another debit', async () => {
+  const user = await buyer(true);
+  const original = {
+    planId: plan.id,
+    tierId: 'basic',
+    billingCycle: 'MONTHLY' as const,
+    gateway: 'WALLET' as const,
+    recurring: true,
+    currency: 'NGN' as const,
+  };
+  await createSubscriptionCheckout(user.id, original, `${prefix}-change-original`);
+  const old = await db.subscription.findFirstOrThrow({ where: { userId: user.id } });
+  const at = Date.now();
+  await db.subscription.update({
+    where: { id: old.id },
+    data: { startDate: new Date(at - 15 * 86400000), endDate: new Date(at + 15 * 86400000) },
+  });
+  const selection = { ...original, tierId: 'plus', quotedCoins: 2000 };
+  const { quoteSubscriptionPlanChange } = await import('@/services/v1/subscriptions');
+  const quote = await quoteSubscriptionPlanChange(user.id, selection);
+  expect(quote.creditCoins).toBeGreaterThan(499.9);
+  expect(quote.creditCoins).toBeLessThanOrEqual(500);
+  const changed = { ...selection, changeId: quote.id };
+  await Promise.all(
+    Array.from({ length: 6 }, () =>
+      createSubscriptionCheckout(user.id, changed, `${prefix}-change-confirm`),
+    ),
+  );
+  const current = await db.subscription.findFirstOrThrow({
+    where: { userId: user.id, isPrimary: true },
+  });
+  expect((current.meta as any).tierId).toBe('plus');
+  expect(current.isRecurring).toBe(true);
+  const credits = await db.transaction.findMany({ where: { userId: user.id, type: 'CREDIT' } });
+  expect(credits).toHaveLength(1);
+  expect(credits[0].amount.toNumber()).toBeGreaterThan(499.9);
+  expect(await db.transaction.count({ where: { userId: user.id, type: 'DEBIT' } })).toBe(2);
+  const balance = await db.wallet.findUniqueOrThrow({ where: { userId: user.id } });
+  expect(balance.coins.toNumber()).toBe(97000 + credits[0].amount.toNumber());
+  expect(
+    (await db.subscriptionCheckout.findUniqueOrThrow({ where: { id: quote.id } })).status,
+  ).toBe('COMPLETED');
+});
+it('cancelling renewal preserves current paid access and can be repeated safely', async () => {
+  const user = await buyer();
+  await createSubscriptionCheckout(
+    user.id,
+    {
+      planId: plan.id,
+      tierId: 'basic',
+      billingCycle: 'MONTHLY',
+      gateway: 'WALLET',
+      recurring: true,
+    },
+    `${prefix}-cancel-access`,
+  );
+  const before = await db.subscription.findFirstOrThrow({ where: { userId: user.id } });
+  for (let i = 0; i < 2; i++)
+    expect(
+      (await cancelAppSubscription({ subId: before.id, userId: user.id, status: 'CANCELLED' }))
+        .status,
+    ).toBe(200);
+  const after = await db.subscription.findUniqueOrThrow({ where: { id: before.id } });
+  expect(after.status).toBe('ACTIVE');
+  expect(after.isPrimary).toBe(true);
+  expect(after.isRecurring).toBe(false);
+  expect(after.endDate).toEqual(before.endDate);
+  const other = await buyer();
+  expect(
+    (await cancelAppSubscription({ subId: before.id, userId: other.id, status: 'CANCELLED' }))
+      .status,
+  ).toBe(404);
+});
+it('provider and currency changes credit the original payment only after verified new settlement', async () => {
+  const user = await buyer(true);
+  await createSubscriptionCheckout(
+    user.id,
+    {
+      planId: plan.id,
+      tierId: 'basic',
+      billingCycle: 'MONTHLY',
+      gateway: 'WALLET',
+      recurring: true,
+      currency: 'NGN',
+    },
+    `${prefix}-cross-source`,
+  );
+  const old = await db.subscription.findFirstOrThrow({ where: { userId: user.id } });
+  const at = Date.now();
+  await db.subscription.update({
+    where: { id: old.id },
+    data: { startDate: new Date(at - 15 * 86400000), endDate: new Date(at + 15 * 86400000) },
+  });
+  const selection = {
+    planId: plan.id,
+    tierId: 'plus',
+    billingCycle: 'YEARLY' as const,
+    gateway: 'BACHS' as const,
+    currency: 'USD' as const,
+    recurring: true,
+  };
+  const { quoteSubscriptionPlanChange } = await import('@/services/v1/subscriptions');
+  const quote = await quoteSubscriptionPlanChange(user.id, selection);
+  const other = await buyer();
+  await expect(
+    createSubscriptionCheckout(other.id, { ...selection, changeId: quote.id }, `${prefix}-stolen`),
+  ).rejects.toThrow('does not match');
+  const result = await createSubscriptionCheckout(
+    user.id,
+    { ...selection, changeId: quote.id },
+    `${prefix}-cross-confirm`,
+  );
+  expect(result.url).toBeTruthy();
+  expect(await db.transaction.count({ where: { userId: user.id, type: 'CREDIT' } })).toBe(0);
+  expect((await db.subscription.findUniqueOrThrow({ where: { id: old.id } })).status).toBe(
+    'ACTIVE',
+  );
+  const row = await db.subscriptionCheckout.findUniqueOrThrow({ where: { id: quote.id } });
+  const remote = {
+    id: `sub_${quote.id}`,
+    status: 'active',
+    currency: 'USD',
+    amount: '324.00',
+    customer: { id: 'cust_change', email: user.email },
+    product: { id: (row.request as any).payload.product_cart[0].product_id },
+    billing_cycle: { interval: 'year', frequency: 1 },
+    current_period_start: new Date().toISOString(),
+    current_period_end: new Date(Date.now() + 365 * 86400000).toISOString(),
+    metadata: { subscription_checkout: quote.id },
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json(remote)),
+  );
+  for (let i = 0; i < 2; i++)
+    await processSubscriptionWebhook('BACHS', {
+      type: 'customer.subscription.updated',
+      data: { id: remote.id },
+    });
+  expect(
+    (await db.subscriptionCheckout.findUniqueOrThrow({ where: { id: quote.id } })).status,
+  ).toBe('COMPLETED');
+  expect(await db.transaction.count({ where: { userId: user.id, type: 'CREDIT' } })).toBe(1);
+  expect((await db.subscription.findUniqueOrThrow({ where: { id: old.id } })).isPrimary).toBe(
+    false,
+  );
+  const current = await db.subscription.findFirstOrThrow({
+    where: { userId: user.id, isPrimary: true },
+  });
+  expect(current.billingCycle).toBe('YEARLY');
+  expect(current.providerGateway).toBe('BACHS');
+});
+
+it('an insufficient wallet balance rolls back the unused-time credit and preserves the old plan', async () => {
+  const user = await buyer();
+  await createSubscriptionCheckout(
+    user.id,
+    {
+      planId: plan.id,
+      tierId: 'basic',
+      billingCycle: 'MONTHLY',
+      gateway: 'WALLET',
+      recurring: true,
+    },
+    `${prefix}-rollback-source`,
+  );
+  const source = await db.subscription.findFirstOrThrow({
+    where: { userId: user.id, isPrimary: true },
+  });
+  await db.wallet.update({ where: { userId: user.id }, data: { coins: 0 } });
+  const selected = {
+    planId: plan.id,
+    tierId: 'plus',
+    billingCycle: 'YEARLY' as const,
+    gateway: 'WALLET' as const,
+    recurring: true,
+    currency: 'USD' as const,
+  };
+  const { quoteSubscriptionPlanChange } = await import('@/services/v1/subscriptions');
+  const quote = await quoteSubscriptionPlanChange(user.id, selected);
+  await expect(
+    createSubscriptionCheckout(
+      user.id,
+      { ...selected, changeId: quote.id },
+      `${prefix}-rollback-confirm`,
+    ),
+  ).rejects.toThrow('insufficient');
+  expect((await db.wallet.findUniqueOrThrow({ where: { userId: user.id } })).coins.toNumber()).toBe(
+    0,
+  );
+  expect(await db.transaction.count({ where: { userId: user.id, type: 'CREDIT' } })).toBe(0);
+  const current = await db.subscription.findUniqueOrThrow({ where: { id: source.id } });
+  expect(current.isPrimary).toBe(true);
+  expect(current.status).toBe('ACTIVE');
+  expect(current.endDate).toEqual(source.endDate);
+});

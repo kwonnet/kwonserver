@@ -1,4 +1,4 @@
-import {subscriptionCatalogController,subscriptionCheckoutController,subscriptionCheckoutStatusController,subscriptionAdminController} from '@/controllers/v1/subscriptions';
+import {subscriptionChangeQuoteController,subscriptionCatalogController,subscriptionCheckoutController,subscriptionCheckoutStatusController,subscriptionAdminController} from '@/controllers/v1/subscriptions';
 
 import {accountBenefitsController} from "@/controllers/v1/subscriptions";
 import express from "express";
@@ -7,6 +7,7 @@ import { cancelSubscriptionController, getSubscriptionPlansController, subscript
 
 const router = express.Router();
 router.get('/catalog',authMiddleware(),subscriptionCatalogController);
+router.post('/change-quote',authMiddleware(),subscriptionChangeQuoteController);
 router.post('/checkouts',authMiddleware(),subscriptionCheckoutController);
 router.get('/checkouts/:id',authMiddleware(),subscriptionCheckoutStatusController);
 router.get('/admin',authMiddleware(),subscriptionAdminController);

@@ -3,6 +3,7 @@ import { response } from './fixtures';
 import { WalletError } from '@/services/walletLedger';
 const services = vi.hoisted(() => ({
   getSubscriptionCatalog: vi.fn(),
+  quoteSubscriptionPlanChange: vi.fn(),
   createSubscriptionCheckout: vi.fn(),
   getSubscriptionCheckoutStatus: vi.fn(),
   subscriptionAdministration: vi.fn(),
@@ -13,6 +14,7 @@ const services = vi.hoisted(() => ({
 }));
 vi.mock('@/services/v1/subscriptions', () => services);
 import {
+  subscriptionChangeQuoteController,
   subscriptionCatalogController,
   subscriptionCheckoutController,
   subscriptionCheckoutStatusController,
@@ -190,4 +192,16 @@ it('requires an administrator role even when no role claim is supplied', async (
   const res = response();
   await subscriptionAdminController({ user: { id: 'viewer' }, method: 'GET' } as any, res);
   expect(res.statusCode).toBe(403);
+});
+
+it('quotes plan changes only for the authenticated owner', async () => {
+  const req: any = { user: { id: 'buyer' }, body: selection };
+  const res = response();
+  await subscriptionChangeQuoteController(req, res);
+  expect(services.quoteSubscriptionPlanChange).toHaveBeenCalledWith('buyer', selection);
+  services.quoteSubscriptionPlanChange.mockRejectedValue(
+    new WalletError('No running subscription', 409),
+  );
+  await subscriptionChangeQuoteController(req, res);
+  expect(res.statusCode).toBe(409);
 });

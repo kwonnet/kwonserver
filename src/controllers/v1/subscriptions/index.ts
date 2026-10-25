@@ -82,6 +82,7 @@ const checkoutInput = z
     gateway: z.enum(['WALLET', 'FLUTTERWAVE', 'BACHS']),
     recurring: z.boolean(),
     currency: z.enum(['USD', 'NGN']).optional(),
+    changeId: z.string().max(100).optional(),
     offerId: z.string().max(100).optional(),
     quotedCoins: z.number().finite().positive().optional(),
   })
@@ -160,6 +161,16 @@ export async function flutterwaveSubscriptionWebhookController(req: Request, res
   try {
     await subscriptions.processSubscriptionWebhook('FLUTTERWAVE', req.body);
     return res.json({ received: true });
+  } catch (error) {
+    return subscriptionFailure(res, error);
+  }
+}
+
+export async function subscriptionChangeQuoteController(req: Request, res: Response) {
+  try {
+    return res.json(
+      await subscriptions.quoteSubscriptionPlanChange(req.user!.id, checkoutInput.parse(req.body)),
+    );
   } catch (error) {
     return subscriptionFailure(res, error);
   }
