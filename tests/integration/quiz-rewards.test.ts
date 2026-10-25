@@ -82,10 +82,16 @@ beforeAll(async () => {
       },
     });
 });
-// The scale test creates 50,000 accounts; await their FK cascades on CI.
+// The scale fixture creates 50,000 accounts. Shared CI runners need bounded
+// headroom for setup, settlement and FK cleanup on both database images.
+const scaleTimeout = 300_000;
 afterAll(async () => {
-  await db.accountLevelBenefit.update({where:{level:0},data:{postQuizChargeBps:2000}});
+  const started = performance.now();
   try {
+    await db.accountLevelBenefit.update({
+      where: { level: 0 },
+      data: { postQuizChargeBps: 2000 },
+    });
     const where = { quiz: { post: { userId: owner } } };
     await db.quizReward.deleteMany({ where });
     await db.quizParticipant.deleteMany({ where });
@@ -99,11 +105,16 @@ afterAll(async () => {
     await db.walletOperation.deleteMany({
       where: { scope: { startsWith: "quiz-create:" + owner } },
     });
+    // Delete wallets as a set instead of invoking one wallet cascade per account.
+    await db.wallet.deleteMany({ where: { userId: { startsWith: prefix } } });
     await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
+    process.stdout.write(
+      `QUIZ_REWARD_FIXTURE_CLEANUP ${JSON.stringify({ elapsedMs: Math.round(performance.now() - started) })}\n`,
+    );
   } finally {
     await db.$disconnect();
   }
-}, 120000);
+}, scaleTimeout);
 it("charges pool plus dynamic fee once across concurrent creation retries and retains the original snapshot", async () => {
   await db.wallet.update({ where: { userId: owner }, data: { coins: 5000 } });
   const payload = body(),
@@ -411,47 +422,80 @@ it("rolls back selection, balance, and ledger writes together if the payout fail
     }),
   ).toBe(1);
 });
-it("selects only 2,000 unique correct winners from 50,000 participants and pays the exact pool", async () => {
-  const quiz = await funded("scale", 1000, 2000),
-    correct = quiz.options.find((o) => o.isCorrect)!.id,
-    wrong = quiz.options.find((o) => !o.isCorrect)!.id;
-  await db.$executeRaw`INSERT INTO "User" (id,name,username,email,"updatedAt",status) SELECT ${prefix}||'load-'||n, 'Load player', ${prefix}||'load-'||n, ${prefix}||'load-'||n||'@test.invalid',NOW(),'ACTIVE' FROM generate_series(1,50000) n`;
-  await db.$executeRaw`INSERT INTO "Wallet" (id,user_id,coins,bonus,"updatedAt") SELECT ${prefix}||'wallet-'||n, ${prefix}||'load-'||n,0,0,NOW() FROM generate_series(1,50000) n`;
-  await db.$executeRaw`INSERT INTO "QuizParticipant" (id,"userId","quizId","optionId","isCorrect","createdAt","updatedAt") SELECT ${prefix}||'entry-'||n,${prefix}||'load-'||n,${quiz.id},CASE WHEN n<=30000 THEN ${correct} ELSE ${wrong} END,n<=30000,NOW(),NOW() FROM generate_series(1,50000) n`;
-  await expire(quiz.id);
-  await settleDueQuizRewards();
-  const awards = await db.quizReward.findMany({
-    where: { quizId: quiz.id },
-    include: {
-      user: {
-        select: {
-          participants: {
-            where: { quizId: quiz.id },
-            select: { isCorrect: true },
+it(
+  "selects only 2,000 unique correct winners from 50,000 participants and pays the exact pool",
+  async () => {
+    const started = performance.now();
+    const quiz = await funded("scale", 1000, 2000),
+      correct = quiz.options.find((o) => o.isCorrect)!.id,
+      wrong = quiz.options.find((o) => !o.isCorrect)!.id;
+    await db.$executeRaw`INSERT INTO "User" (id,name,username,email,"updatedAt",status) SELECT ${prefix}||'load-'||n, 'Load player', ${prefix}||'load-'||n, ${prefix}||'load-'||n||'@test.invalid',NOW(),'ACTIVE' FROM generate_series(1,50000) n`;
+    await db.$executeRaw`INSERT INTO "Wallet" (id,user_id,coins,bonus,"updatedAt") SELECT ${prefix}||'wallet-'||n, ${prefix}||'load-'||n,0,0,NOW() FROM generate_series(1,50000) n`;
+    await db.$executeRaw`INSERT INTO "QuizParticipant" (id,"userId","quizId","optionId","isCorrect","createdAt","updatedAt") SELECT ${prefix}||'entry-'||n,${prefix}||'load-'||n,${quiz.id},CASE WHEN n<=30000 THEN ${correct} ELSE ${wrong} END,n<=30000,NOW(),NOW() FROM generate_series(1,50000) n`;
+    // Bulk fixture inserts outpace autovacuum. Supply realistic planner statistics
+    // before measuring joins and payout batches against the 50,000-account fixture.
+    await db.$executeRaw`ANALYZE "User", "Wallet", "QuizParticipant"`;
+    const setupMs = Math.round(performance.now() - started);
+    process.stdout.write(
+      `QUIZ_REWARD_SCALE_SETUP ${JSON.stringify({ elapsedMs: setupMs })}\n`,
+    );
+    await expire(quiz.id);
+    const settlementStarted = performance.now();
+    await settleDueQuizRewards();
+    const settlementMs = Math.round(performance.now() - settlementStarted);
+    process.stdout.write(
+      `QUIZ_REWARD_SCALE_SETTLEMENT ${JSON.stringify({ elapsedMs: settlementMs })}\n`,
+    );
+    const awards = await db.quizReward.findMany({
+      where: { quizId: quiz.id },
+      select: { userId: true, status: true, amount: true },
+    });
+    expect(awards).toHaveLength(2000);
+    expect(new Set(awards.map((a) => a.userId)).size).toBe(2000);
+    // Verify correctness in one flat, indexed query instead of a nested User ->
+    // participants relation for every award. Keep all winner/pool assertions.
+    const correctWinners = new Set(
+      (
+        await db.quizParticipant.findMany({
+          where: {
+            quizId: quiz.id,
+            userId: { in: awards.map((a) => a.userId) },
+            isCorrect: true,
           },
-        },
-      },
-    },
-  });
-  expect(awards).toHaveLength(2000);
-  expect(new Set(awards.map((a) => a.userId)).size).toBe(2000);
-  expect(
-    awards.every(
-      (a) => a.status === "COMPLETED" && a.user.participants[0].isCorrect,
-    ),
-  ).toBe(true);
-  expect(awards.reduce((s, a) => s + Number(a.amount), 0)).toBe(1000);
-  expect(
-    (await db.quiz.findUniqueOrThrow({ where: { id: quiz.id } }))
-      .settlementStatus,
-  ).toBe("COMPLETED");
-  await settleQuizRewardBatch(quiz.id);
-  expect(
-    await db.transaction.count({
-      where: { postId: quiz.postId, type: "CREDIT" },
-    }),
-  ).toBe(2000);
-}, 120000);
+          select: { userId: true },
+        })
+      ).map((entry) => entry.userId),
+    );
+    expect(
+      awards.every(
+        (a) => a.status === "COMPLETED" && correctWinners.has(a.userId),
+      ),
+    ).toBe(true);
+    expect(awards.reduce((s, a) => s + Number(a.amount), 0)).toBe(1000);
+    expect(
+      (await db.quiz.findUniqueOrThrow({ where: { id: quiz.id } }))
+        .settlementStatus,
+    ).toBe("COMPLETED");
+    await settleQuizRewardBatch(quiz.id);
+    expect(
+      await db.transaction.count({
+        where: { postId: quiz.postId, type: "CREDIT" },
+      }),
+    ).toBe(2000);
+    process.stdout.write(
+      `QUIZ_REWARD_SCALE_BENCHMARK ${JSON.stringify({
+        participants: 50000,
+        winners: 2000,
+        setupMs,
+        settlementMs,
+        verificationMs:
+          Math.round(performance.now() - settlementStarted) - settlementMs,
+        totalMs: Math.round(performance.now() - started),
+      })}\n`,
+    );
+  },
+  scaleTimeout,
+);
 
 it("keeps uncertain pools for review and treats legacy null lock flags as unlocked", async () => {
   const broken = await funded("missing-proof");
