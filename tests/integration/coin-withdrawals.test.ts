@@ -136,10 +136,17 @@ it('lets administrators reject an expired unsubmitted worker lease and fences th
  await decideWithdrawal(admin,q.id,'REJECT','Unsubmitted request cancelled','expired-lease-rejection');const row=await db.coinWithdrawal.findUniqueOrThrow({where:{id:q.id}});expect(row).toMatchObject({status:'REJECTED',processingUntil:null,processingAttempts:8});expect((await db.wallet.findUniqueOrThrow({where:{userId:buyer}})).coins.toNumber()).toBe(1000000);expect(await processCoinWithdrawal(q.id,buyer)).toMatchObject({status:'REJECTED'});expect(provider.run).not.toHaveBeenCalled();
 });
 it('holds the inclusive Nigerian review threshold and refuses its per-transaction maximum',async()=>{
- const original=await db.country.findUniqueOrThrow({where:{id:'withdrawal-fixture-country'}});await db.country.update({where:{id:original.id},data:{iso3:'NGA'}});
+ // Use the canonical country: other suites may already have seeded Nigeria.
+ // Changing our unrelated fixture's ISO code would violate Country_iso3_key.
+ const original=await db.user.findUniqueOrThrow({where:{id:buyer},select:{countryId:true}});
+ const nigeria=await db.country.upsert({where:{iso3:'NGA'},create:{id:'withdrawal-fixture-nigeria',name:'Nigeria',iso2:'NG',iso3:'NGA',emoji:'🇳🇬',continentId:'withdrawal-fixture-continent'},update:{}});
+ await db.user.update({where:{id:buyer},data:{countryId:nigeria.id}});
  try{
   await db.wallet.update({where:{userId:buyer},data:{coins:1000000}});const bank={type:'bank' as const,bankCode:'058',accountNumber:'0123456789'};provider.prepare.mockResolvedValue({receiveAmount:'2500000',receiveCurrency:'NGN',expiresAt:new Date(Date.now()+60000),data:{accountName:'Withdrawal User',request:{beneficiary_name:'Withdrawal User'},sourceRequired:'2500100'}});
   await expect(quoteCoinWithdrawal(buyer,{coins:347223,gateway:'FLUTTERWAVE',destination:bank})).rejects.toThrow('Maximum');
   const q=await quoteCoinWithdrawal(buyer,{coins:173611.12,gateway:'FLUTTERWAVE',destination:bank});expect(q).toMatchObject({currency:'NGN',approvalRequired:true});await authorize(q.id);expect(await confirmCoinWithdrawal(buyer,q.id,'ngn-inclusive-review')).toMatchObject({status:'AWAITING_APPROVAL'});expect(provider.run).not.toHaveBeenCalled();
- }finally{await db.country.update({where:{id:original.id},data:{iso3:original.iso3}});}
+ }finally{
+  await db.user.update({where:{id:buyer},data:{countryId:original.countryId}});
+  await db.country.deleteMany({where:{id:'withdrawal-fixture-nigeria'}});
+ }
 });
