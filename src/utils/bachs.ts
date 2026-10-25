@@ -10,9 +10,9 @@ export function bachsApiOrigin() {
   if (key.startsWith('sk_live_')) return 'https://api.bachs.io';
   throw new WalletError('Bachs payments are not configured', 503);
 }
-export async function bachsRequest(path: string, body?: object, idempotencyKey?: string) {
+export async function bachsRequest(path: string, body?: object, idempotencyKey?: string, method?: 'PATCH' | 'DELETE') {
   const response = await fetch(`${bachsApiOrigin()}/v1${path}`, {
-    method: body ? 'POST' : 'GET', redirect: 'error', signal: AbortSignal.timeout(15000),
+    method: method ?? (body ? 'POST' : 'GET'), redirect: 'error', signal: AbortSignal.timeout(15000),
     headers: { Authorization: `Bearer ${process.env.BACHS_API_KEY}`, Accept: 'application/json',
       ...(body ? {'Content-Type':'application/json'} : {}), ...(idempotencyKey ? {'Idempotency-Key':idempotencyKey} : {}) },
     ...(body ? {body:JSON.stringify(body)} : {}),

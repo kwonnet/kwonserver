@@ -21,6 +21,7 @@ export async function startRecurringJobs() {
     // Distributed limit, including when more than one worker replica is running.
     await queue.setGlobalConcurrency(1);
     await registerRecurringJobs(queue);
+    await queue.add('sync_subscription_catalog',{}, {jobId:`subscription-startup-${Math.floor(Date.now()/60000)}`,removeOnComplete:{count:100},removeOnFail:{count:100}});
     void worker.run().catch(err => logger.error({event:'queue_stopped',queue:worker.name,err},'Background worker stopped'));
     return { queue, worker, close };
   } catch (error) { await close(); throw error; }

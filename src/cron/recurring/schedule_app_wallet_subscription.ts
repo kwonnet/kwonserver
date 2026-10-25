@@ -9,7 +9,7 @@ export async function run() {
     const subscriptions = await prisma.subscription.findMany({
       where: { status: { in: ['ACTIVE', 'PAYMENT_ERROR'] }, isRecurring: true, isPrimary: true,
         endDate: { lte: new Date(Date.now() + 48 * 60 * 60 * 1000) },
-        transactions: { some: { currency: 'COINS', gateway: 'WALLET', status: 'COMPLETED' } } },
+        OR:[{providerGateway:'WALLET'},{providerGateway:null,transactions:{some:{currency:'COINS',gateway:'WALLET',status:'COMPLETED'}}}] },
       select: { id: true, userId: true, endDate: true, createdAt: true },
       orderBy: { id: 'asc' }, take: 100, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });

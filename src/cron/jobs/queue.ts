@@ -11,6 +11,8 @@ export const queueConnection = new IORedis(String(process.env.REDIS_URL), {
 });
 
 
+export const subscriptionCatalogQueue = new Queue('kwonserverBackgroundJobs', {connection:queueConnection});
+
 export const appSubscriptionQueue = new Queue(APP_SUBSCRIPTION_QUEUE, {
   connection: queueConnection,
 });
@@ -40,12 +42,12 @@ export const notificationQueue = new Queue(NOTIFICATION_DELIVERY_QUEUE, {connect
 // Never log raw Redis errors: AUTH command arguments may contain credentials.
 queueConnection.on('ready',()=>logger.info({event:'queue_connection_ready'},'Redis queue connection ready'));
 queueConnection.on('error', err => logger.error({event:'queue_connection_error',err},'Redis queue connection unavailable'));
-for (const queue of [gameResultQueue, gameIntegrityQueue, appSubscriptionQueue, appSubReminderQueue, postEmbeddingQueue, postTopicQueue, postKeywordsQueue, emailQueue, notificationQueue, monthlyRewardQueue, monthlyRewardNotificationQueue, milestoneRewardQueue]) {
+for (const queue of [subscriptionCatalogQueue, gameResultQueue, gameIntegrityQueue, appSubscriptionQueue, appSubReminderQueue, postEmbeddingQueue, postTopicQueue, postKeywordsQueue, emailQueue, notificationQueue, monthlyRewardQueue, monthlyRewardNotificationQueue, milestoneRewardQueue]) {
   queue.on('error', err => logger.error({event:'queue_error',queue:queue.name,err},'Redis queue unavailable'));
   queue.on('waiting', job => logger.info({event:'job_queued',queue:queue.name,job:job.name,jobId:job.id},'Queue job queued'));
 }
 
 export async function closeJobQueues() {
-  await Promise.all([gameResultQueue, gameIntegrityQueue, appSubscriptionQueue, appSubReminderQueue, postEmbeddingQueue, postTopicQueue, postKeywordsQueue, emailQueue, notificationQueue, monthlyRewardQueue, monthlyRewardNotificationQueue, milestoneRewardQueue].map(queue => queue.close()));
+  await Promise.all([subscriptionCatalogQueue, gameResultQueue, gameIntegrityQueue, appSubscriptionQueue, appSubReminderQueue, postEmbeddingQueue, postTopicQueue, postKeywordsQueue, emailQueue, notificationQueue, monthlyRewardQueue, monthlyRewardNotificationQueue, milestoneRewardQueue].map(queue => queue.close()));
   await queueConnection.quit();
 }

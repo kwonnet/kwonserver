@@ -1,11 +1,14 @@
 import { BillingCycleEnum, Prisma } from '@prisma/client';
 import { cents, WalletError } from './index';
-export function subscriptionPrice(plan: { price: number | Prisma.Decimal; ngnPrice: number | Prisma.Decimal; discount: number; tier: any[] }, cycle: string, currency: string, tierId?: string, coinRate?: Prisma.Decimal) {
+export function subscriptionPrice(plan: { price: number | Prisma.Decimal; ngnPrice: number | Prisma.Decimal; discount: number; tier: any[] }, cycle: string, currency: string, tierId?: string, coinRate?: Prisma.Decimal, pricingCurrency: 'USD' | 'NGN' = 'USD') {
   if (![BillingCycleEnum.MONTHLY, BillingCycleEnum.YEARLY].includes(cycle as BillingCycleEnum)) throw new WalletError('Invalid billing cycle');
   if (!['USD', 'NGN', 'COINS'].includes(currency)) throw new WalletError('Unsupported currency');
   const tier = tierId ? plan.tier.find(t => t.id === tierId) : undefined;
   if ((tierId && !tier) || (plan.tier.length && !tier)) throw new WalletError('Select a valid plan tier');
-  const base = cents(currency === 'NGN' ? (tier?.ngnPrice ?? plan.ngnPrice) : (tier?.price ?? plan.price));
+  const local = currency === 'NGN' || currency === 'COINS' && pricingCurrency === 'NGN';
+  // Older tiers only stored USD. Derive their local price proportionally, never charge every tier the base plan price.
+  const tierNgn = tier?.ngnPrice ?? (tier?.price != null && new Prisma.Decimal(plan.price).gt(0) ? new Prisma.Decimal(plan.ngnPrice).mul(tier.price).div(plan.price).toDecimalPlaces(2) : plan.ngnPrice);
+  const base = cents(local ? tierNgn : (tier?.price ?? plan.price));
   if (!Number.isFinite(plan.discount) || plan.discount < 0 || plan.discount >= 1) throw new WalletError('Invalid plan discount');
   const amount=(cycle === BillingCycleEnum.YEARLY ? Math.round(base * 12 * (1 - plan.discount)) : base) / 100;
   if(currency!=='COINS')return amount;

@@ -1,3 +1,4 @@
+import {flutterwaveSubscriptionWebhookController} from '@/controllers/v1/subscriptions';
 
 import express from "express";
 import { authMiddleware } from "@/middleware";
@@ -9,6 +10,7 @@ router.post('/bachs/checkouts', authMiddleware(), createBachsCheckoutController)
 router.get('/bachs/checkouts/:id', authMiddleware(), bachsStatusController);
 router.post('/bachs/checkouts/:id/verify', authMiddleware(), bachsStatusController);
 router.post('/bachs/webhook', bachsWebhookController);
+router.post('/flw/webhook',flutterwaveSubscriptionWebhookController);
 
 router.post("/flw/link", authMiddleware(), getPaymentLinkController)
 

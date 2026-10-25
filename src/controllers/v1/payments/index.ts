@@ -74,6 +74,7 @@ export const verifyFlwPaymentController = async(req: Request, res: Response) => 
 export const syncFlwSubscriptionPlansController = async(req: Request, res: Response) => {
     try {
 
+        if (!['ADMIN','SUPER'].includes(String(req.user?.role))) return res.status(403).send('Administrator access required');
         const result = await syncFlwSubscriptionPlans()
 
         return res.status(result.status).send(result.data)

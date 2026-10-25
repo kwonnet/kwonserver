@@ -1,4 +1,6 @@
 export const recurringJobs = [
+  {name:'sync_subscription_catalog',pattern:'*/15 * * * *',load:()=>import('./sync_subscription_catalog')},
+  {name:'reconcile_subscription_payments',pattern:'*/5 * * * *',load:()=>import('./reconcile_subscription_payments')},
   {name:'sync_game_energy',pattern:'* * * * *',load:()=>import('./sync_game_energy')},
   {name:'recover_game_integrity_cases',pattern:'* * * * *',load:()=>import('./recover_game_integrity_cases')},
   {name:'recover_game_rounds',pattern:'* * * * *',load:()=>import('./recover_game_rounds')},

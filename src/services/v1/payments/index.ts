@@ -8,28 +8,19 @@ import {allowedOrigins} from '@/config';
 import { markVerifiedPayment } from '@/services/walletLedger/verifiedPayment';
 import { subscriptionPrice } from '@/services/walletLedger/pricing';
 import { cents, moneyNumber } from '@/services/walletLedger';
-import { appName, flutterwaveApiUrl, flutterwaveSecretKey } from "@/config";
+import { flutterwaveApiUrl, flutterwaveSecretKey } from "@/config";
 import prisma from "@/db";
 import {
   FlutterwaveAppSubPurchase,
   FlutterwaveCoinPurchase,
   FlutterwaveConfig,
-  FlutterwavePaymentPlanResponse,
   FlutterwaveTxnType,
   PlanTypeEnum,
-  SubPaymentPlan,
 } from "@/types";
 import { flwAPI } from "@/utils/flutterwave";
 import { TxnCurrencyEnum, TxnGatewayEnum, TxnSourceEnum } from "@prisma/client";
 import axios from "axios";
 import {logServiceError,logServiceTrace} from '@/logger/events';
-
-const flwAxiosAPI = axios.create({
-  baseURL: "https://api.flutterwave.com/v3",
-  headers: {
-    Authorization: `Bearer ${process.env.FLUTTERWAVE_SECK}`,
-  },
-});
 
 
 export const generateFlutterwavePaymentLink = async (
@@ -172,161 +163,11 @@ export const verifyFlutterwavePayment = async (arg: {
 };
 
 
-const getSubscriptionsPlan = async () => {
-  try {
-    const plans = await prisma.subscriptionPlan.findMany();
-    if (plans.length === 0) return { plans: [], flatPlans: [] };
-    const paymentPlans = plans.flatMap((plan) => {
-      const tiers =
-        plan.tier.length > 0
-          ? plan.tier
-          : [{ id: null, name: "", price: plan.price }];
-      return tiers.flatMap((tier) => [
-        {
-          planRef: `monthly_${plan.id}${tier.id ? `_${tier.id}` : ""}`,
-          name: `${appName} Monthly ${plan.name}${
-            tier.name ? ` ${tier.name}` : ""
-          } Plan`,
-          amount: moneyNumber(tier.price),
-          interval: "Monthly",
-          duration: 120, // 120 months or 10 years
-          currency: TxnCurrencyEnum.USD,
-          planId: plan.id,
-          tierId: tier.id,
-          flw: null,
-        },
-        {
-          planRef: `yearly_${plan.id}${tier.id ? `_${tier.id}` : ""}`,
-          name: `${appName} Yearly ${plan.name}${
-            tier.name ? ` ${tier.name}` : ""
-          } Plan`,
-          amount: parseFloat(
-            (moneyNumber(tier.price) * 12 * (1 - plan.discount)).toFixed(2)
-          ),
-          interval: "Yearly",
-          duration: 10, // 10 years
-          currency: TxnCurrencyEnum.USD,
-          planId: plan.id,
-          tierId: tier.id,
-          flw: null,
-        },
-      ]);
-    });
-    return { plans, flatPlans: paymentPlans };
-  } catch (error) {
-    logServiceError("v1/payments/index", "getSubscriptionsPlan", error);
-
-    throw error;
-  }
-};
-
-
-
-const createFlwPaymentPlans = async (flatMap: SubPaymentPlan[]) => {
-  try {
-    // Map each plan to a Promise that handles the API call
-    const results = await Promise.all(
-      flatMap.map(async (plan) => {
-        try {
-          const response = await flwAxiosAPI.post("/payment-plans", plan);
-          // Add the 'flw' property to the plan with the response data
-          return {
-            ...plan,
-            flw: response?.data?.data as FlutterwavePaymentPlanResponse,
-          };
-        } catch (error: any) {
-    logServiceError("v1/payments/index", "createFlwPaymentPlans", error);
-
-          // Handle error for individual plan, adding failure response
-          return { ...plan, flw: null };
-        }
-      })
-    );
-    const succeededItems = results.filter((plan) => plan.flw !== null);
-    if (succeededItems.length !== flatMap.length) {
-      await Promise.allSettled(
-        succeededItems.map(async (plan) => {
-          try {
-            const response = await flwAxiosAPI.put(
-              `payment-plans/${plan.flw.id}/cancel`, { id: plan.flw.id}
-            );
-            return response?.data?.data;
-          } catch (error: any) {
-    logServiceError("v1/payments/index", "createFlwPaymentPlans", error);
-
-            return null;
-          }
-        })
-      );
-      return [];
-    }
-    return succeededItems;
-  } catch (error) {
-    logServiceError("v1/payments/index", "createFlwPaymentPlans", error);
-
-    throw error;
-  }
-};
-
 export const syncFlwSubscriptionPlans = async () => {
-  try {
-    const { plans, flatPlans } = await getSubscriptionsPlan();
-
-    if (flatPlans.length === 0) {
-        return { data: "App subscription payment plans not found", status: 404 }
-    }
-
-    const flwPlans = await createFlwPaymentPlans(flatPlans);
-
-    if (flwPlans.length === 0) {
-        return { data: "Error syncing app subscription payment plans to flutterwave", status: 402 }
-    };
-
-    const dbPlans = plans.map((plan) => {
-      const flwData = flwPlans.filter((p) => p.planId === plan.id);
-      return {
-        ...plan,
-        metadata: {
-            ...(plan.metadata ? plan.metadata : {}),
-          flw: flwData.map((item) => {
-            return {
-              flwId: item.flw?.id,
-              flwToken: item.flw?.plan_token,
-              flwCreatedAt: item.flw?.created_at,
-              flwStatus: item.flw?.status,
-              flwInterval: item.flw?.interval,
-              flwCurrency: item.flw?.currency,
-              flwAmount: item.flw?.amount,
-              flwDuration: item.flw?.duration,
-              tierId: item.tierId,
-              id: item.planId,
-              name: item.name,
-              planRef: item.planRef,
-            };
-          }),
-        },
-      };
-    });
-    // update db payment plans
-    const result = await prisma.$transaction(
-      dbPlans.map((item) =>
-        prisma.subscriptionPlan.update({
-          where: { id: item.id },
-          data: { metadata: item.metadata },
-        })
-      )
-    );
-    return { data: result, status: 200 };
-  } catch (error: any) {
-    logServiceError("v1/payments/index", "syncFlwSubscriptionPlans", error);
-
-    return { data: "Sorry an error occurred, please try again later", status: 500 };
-  }
+  const {enqueueSubscriptionSync}=await import('@/services/v1/subscriptions');
+  return {status:202,data:await enqueueSubscriptionSync()};
 };
 
-
-// Bachs orders are priced and bound to the authenticated buyer before any
-// external call. Provider metadata alone is never an instruction to credit coins.
 export async function createBachsCoinCheckout(user: import('@/types/user').SessionUser, args: {packageId:string;currency:'USD'|'NGN';key:string;origin:string}) {
   if (!bachsConfigured()) throw new WalletError('Bachs payments are not configured',503);
   const origin = new URL(args.origin);
@@ -434,6 +275,8 @@ function bachsCollectionAmount(value:unknown) {
 }
 
 export async function processBachsWebhook(event:any) {
+  const {processSubscriptionWebhook}=await import('@/services/v1/subscriptions');
+  if(await processSubscriptionWebhook('BACHS',event)) return;
   if (!['checkout.completed','collection.succeeded'].includes(event?.type)) return;
   const checkoutId = event?.data?.checkout_id;
   if (!isBachsCheckoutId(checkoutId)) return;

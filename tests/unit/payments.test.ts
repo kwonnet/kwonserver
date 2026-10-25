@@ -5,6 +5,7 @@ const deps = vi.hoisted(() => ({ coin: vi.fn(), plan: vi.fn(), verify: vi.fn(), 
 vi.mock('@/db', () => ({ default: { coinPackage: { findUniqueOrThrow: deps.coin }, transaction: { findFirst: deps.findTxn }, subscriptionPlan: { findUniqueOrThrow: deps.plan, findMany: deps.plans, update: deps.update }, $transaction: deps.transaction } }));
 vi.mock('@/utils/flutterwave', () => ({ flwAPI: { Transaction: { verify: deps.verify } } }));
 vi.mock('axios', () => ({ default: { post: deps.post, create: () => ({ post: deps.planPost, put: deps.cancel }) } }));
+vi.mock('@/cron/jobs/queue',()=>({subscriptionCatalogQueue:{add:vi.fn(async()=>({id:'sync'}))}}));
 import { generateFlutterwavePaymentLink, verifyFlutterwavePayment, syncFlwSubscriptionPlans } from '@/services/v1/payments';
 beforeEach(() => {
   Object.values(deps).forEach(fn => fn.mockReset());
@@ -54,32 +55,8 @@ it('propagates verification provider errors', async () => {
   deps.verify.mockRejectedValue({ status: 503, response: { data: { message: 'Unavailable' } } });
   expect(await verifyFlutterwavePayment(args)).toEqual({ status: 503, message: 'Unavailable', data: null });
 });
-const plan = { id: 'pro', name: 'Pro', price: 10, discount: 0.2, tier: [], metadata: { preserved: true } };
-it('does not create external plans for an empty catalog', async () => {
-  deps.plans.mockResolvedValue([]); expect((await syncFlwSubscriptionPlans()).status).toBe(404); expect(deps.planPost).not.toHaveBeenCalled();
-});
-it('creates monthly/yearly plans with the annual discount and preserves metadata', async () => {
-  deps.plans.mockResolvedValue([plan]); deps.planPost.mockResolvedValue({ data: { data: { id: 123, status: 'active' } } });
-  expect((await syncFlwSubscriptionPlans()).status).toBe(200);
-  expect(deps.planPost).toHaveBeenCalledWith('/payment-plans', expect.objectContaining({ amount: 10, interval: 'Monthly' }));
-  expect(deps.planPost).toHaveBeenCalledWith('/payment-plans', expect.objectContaining({ amount: 96, interval: 'Yearly' }));
-  expect(deps.update.mock.calls[0][0].data.metadata).toMatchObject({ preserved: true, flw: expect.any(Array) });
-});
-it('uses each tier price when creating plan variants', async () => {
-  deps.plans.mockResolvedValue([{ ...plan, tier: [{ id: 'gold', name: 'Gold', price: 20 }] }]);
-  deps.planPost.mockResolvedValue({ data: { data: { id: 123 } } }); await syncFlwSubscriptionPlans();
-  expect(deps.planPost).toHaveBeenCalledWith('/payment-plans', expect.objectContaining({ amount: 192, planRef: 'yearly_pro_gold' }));
-});
-it('cancels successful external plans if another plan fails and does not persist partial data', async () => {
-  deps.plans.mockResolvedValue([plan]); deps.planPost.mockResolvedValueOnce({ data: { data: { id: 123 } } }).mockRejectedValueOnce(new Error('provider failure'));
-  expect((await syncFlwSubscriptionPlans()).status).toBe(402);
-  expect(deps.cancel).toHaveBeenCalledWith('payment-plans/123/cancel', { id: 123 }); expect(deps.update).not.toHaveBeenCalled();
-});
-it('handles database failure during plan synchronization', async () => {
-  deps.plans.mockRejectedValue(new Error('db')); expect((await syncFlwSubscriptionPlans()).status).toBe(500);
-});
-it('reports cancellation failures without persisting partially created payment plans',async()=>{
- deps.plans.mockResolvedValue([plan]);deps.planPost.mockResolvedValueOnce({data:{data:{id:123}}}).mockRejectedValueOnce(new Error('Creation failed'));
- deps.cancel.mockRejectedValue(new Error('Provider cancellation unavailable'));
- expect((await syncFlwSubscriptionPlans()).status).toBe(402);expect(deps.update).not.toHaveBeenCalled();
+it('queues catalog synchronization instead of creating or cancelling provider plans in the request',async()=>{
+ deps.planPost.mockRejectedValue(new Error('Do not call provider'));
+ expect(await syncFlwSubscriptionPlans()).toEqual({status:202,data:{jobId:'sync'}});
+ expect(deps.planPost).not.toHaveBeenCalled();expect(deps.cancel).not.toHaveBeenCalled();
 });

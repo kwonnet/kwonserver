@@ -1029,6 +1029,8 @@ model SubscriptionPlan {
   metadata      Json?
   /// [PlanTier]
   tier          Json[]         @default([])
+  providerPlans SubscriptionProviderPlan[]
+  trialOffers SubscriptionTrialOffer[]
   subscriptions Subscription[]
   features      PlanFeature[]
   transactions  Transaction[]
@@ -1049,6 +1051,16 @@ model PlanFeature {
 }
 
 model Subscription {
+  providerGateway TxnGatewayEnum?
+  providerEnvironment String?
+  providerSubscriptionId String?
+  providerCustomerId String?
+  providerState String?
+  providerUpdatedAt DateTime?
+  providerPlanId String?
+  trialEndsAt DateTime?
+  renewalCoinAmount Decimal? @db.Decimal(20,2)
+  renewalCancelledAt DateTime?
   id           String           @id @default(cuid()) // Unique subscription ID
   userId       String // Foreign key for the user who subscribes
   user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1068,6 +1080,7 @@ model Subscription {
 
    @@index([createdAt])
    @@index([userId,isPrimary,status,endDate])
+   @@unique([providerGateway,providerEnvironment,providerSubscriptionId])
 }
 
 model Notification {
@@ -2721,4 +2734,90 @@ model AccountLevelBenefit {
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
  plans SubscriptionPlan[]
+}
+
+model SubscriptionProviderPlan {
+ id String @id
+ planId String
+ plan SubscriptionPlan @relation(fields:[planId],references:[id],onDelete:Restrict)
+ tierId String @default("")
+ billingCycle BillingCycleEnum
+ currency String
+ amount Decimal @db.Decimal(20,2)
+ gateway TxnGatewayEnum
+ environment String
+ trialDays Int @default(0)
+ request Json
+ remoteId String?
+ state String @default("PENDING")
+ processingUntil DateTime?
+ lastError String?
+ syncedAt DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([gateway,environment,remoteId])
+ @@index([planId,tierId,billingCycle,currency,gateway])
+}
+model SubscriptionCheckout {
+ id String @id
+ userId String
+ planId String
+ tierId String @default("")
+ billingCycle BillingCycleEnum
+ currency String
+ amount Decimal @db.Decimal(20,2)
+ gateway TxnGatewayEnum
+ environment String
+ providerPlanId String
+ recurring Boolean
+ offerId String?
+ trialDays Int @default(0)
+ request Json
+ checkoutId String?
+ checkoutUrl String?
+ subscriptionId String?
+ status String @default("PENDING")
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([gateway,environment,checkoutId])
+ @@index([userId,status,createdAt])
+ @@index([subscriptionId])
+}
+model SubscriptionTrialOffer {
+ id String @id @default(cuid())
+ planId String
+ plan SubscriptionPlan @relation(fields:[planId],references:[id],onDelete:Restrict)
+ tierId String @default("")
+ userId String?
+ countryIso3 String?
+ days Int
+ enabled Boolean @default(true)
+ expiresAt DateTime?
+ createdBy String
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ uses SubscriptionTrialUse[]
+ @@index([userId,countryIso3,enabled])
+}
+model SubscriptionTrialUse {
+ id String @id
+ offerId String
+ offer SubscriptionTrialOffer @relation(fields:[offerId],references:[id],onDelete:Restrict)
+ userId String
+ checkoutId String? @unique
+ subscriptionId String?
+ claimedAt DateTime?
+ createdAt DateTime @default(now())
+ @@unique([offerId,userId])
+}
+model SubscriptionProviderEvent {
+ id String @id
+ gateway TxnGatewayEnum
+ environment String
+ paymentId String
+ subscriptionId String
+ amount Decimal @db.Decimal(20,2)
+ currency String
+ createdAt DateTime @default(now())
+ @@unique([gateway,environment,paymentId])
 }

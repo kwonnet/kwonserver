@@ -7,7 +7,7 @@ declare global {
 
     type UserMeta = { type: "LEGACY" | "PRO"; status: "ACTIVE" | "INACTIVE" | "PAUSED" | "REVIEW", color: "blue" | "gold" | "grey"};
 
-    type PlanTier = { id: string,  name: string, price: number, message: string }
+    type PlanTier = { id: string,  name: string, price: number, ngnPrice?: number, message: string }
 
     type ItemFeature = { id: string, title: string, label: string | boolean, [key: string]: any }
 

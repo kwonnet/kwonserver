@@ -2,6 +2,7 @@ import {beforeEach,expect,it,vi} from 'vitest';
 import {Prisma} from '@prisma/client';
 import {createHmac} from 'node:crypto';
 const deps=vi.hoisted(()=>({find:vi.fn(),upsert:vi.fn(),update:vi.fn(),updateMany:vi.fn(),coin:vi.fn(),settle:vi.fn()}));
+vi.mock('@/services/v1/subscriptions',()=>({processSubscriptionWebhook:vi.fn(async()=>false)}));
 vi.mock('@/db',()=>({default:{bachsCheckout:{findUnique:deps.find,upsert:deps.upsert,update:deps.update,updateMany:deps.updateMany},coinPackage:{findUnique:deps.coin}}}));
 vi.mock('@/services/v1/coins',()=>({purchaseCoinsWithBachs:deps.settle}));
 import {createBachsCoinCheckout,getBachsCheckoutStatus,reconcileBachsCheckout,processBachsWebhook} from '@/services/v1/payments';

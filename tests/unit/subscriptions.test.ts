@@ -3,7 +3,7 @@ import { setupWalletTransaction } from './wallet-fixture';
 import { markVerifiedPayment } from '@/services/walletLedger/verifiedPayment';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { resetMocks } from './fixtures';
-const db = vi.hoisted(() => ({ chargeRate:{findUniqueOrThrow:vi.fn()}, user: { findFirst: vi.fn(), update: vi.fn() },
+const db = vi.hoisted(() => ({ subscriptionCheckout:{findFirst:vi.fn()}, chargeRate:{findUniqueOrThrow:vi.fn()}, user: { findFirst: vi.fn(), update: vi.fn() },
   subscriptionPlan: { findMany: vi.fn(), findUnique: vi.fn() }, wallet: { findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
   subscription: { findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), create: vi.fn() },
   transaction: { findFirst: vi.fn(), create: vi.fn() }, $transaction: vi.fn() }));
@@ -13,7 +13,7 @@ vi.mock('@/services/v1/games', () => ({ syncUserRedisWalletToPrisma: jobs.from }
 vi.mock('@/services/helper', () => ({ syncPrismaUserWalletToRedis: jobs.to }));
 vi.mock('@/cron/utils', () => ({ addSubscriptionCronJob: jobs.add, removeSubscriptionCronJob: jobs.remove }));
 import * as s from '@/services/v1/subscriptions';
-const plan = { id: 'pro', name: 'Pro', price: 5, ngnPrice: 5000, discount: 0, tier: [{ id: 'gold', name: 'Gold' }] };
+const plan = { accountType:'PERSONAL', id: 'pro', name: 'Pro', price: 5, ngnPrice: 5000, discount: 0, tier: [{ id: 'gold', name: 'Gold' }] };
 const user = { id: 'u', userType: 'PERSONAL', accountVerifiedAt: null };
 const wallet = { id: 'w', coins: 100, isLocked: false };
 const item: any = { idempotencyKey: 'purchase-test-1', planId: 'pro', amount: 5, currency: 'COINS', planType: 'MONTHLY', isRecurring: true,
@@ -72,7 +72,7 @@ for (const purchase of buy) {
     expect(jobs.remove).toHaveBeenCalledWith({ userId: 'u', subId: 'sub' }); expect(jobs.add).not.toHaveBeenCalled();
   });
   it.each([['GOVERNMENT', 'grey'], ['BUSINESS', 'gold'], ['PERSONAL', 'blue']])(`${purchase.name} sets %s account badge to %s`, async (userType, color) => {
-    db.user.findFirst.mockResolvedValue({ ...user, userType }); await purchase.run();
+    db.user.findFirst.mockResolvedValue({ ...user, userType }); db.subscriptionPlan.findUnique.mockResolvedValue({...plan,accountType:userType}); await purchase.run();
     expect(db.user.update).toHaveBeenCalledWith({ where: { id: 'u' }, data: { meta: { status: 'ACTIVE', type: 'PRO', color } } });
   });
   it(`${purchase.name} does not schedule jobs after a failed transaction`, async () => {
